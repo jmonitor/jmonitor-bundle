@@ -1,0 +1,49 @@
+{
+    "name": "jmonitor/jmonitor-bundle",
+    "description": "Integration of jmonitor monitoring library in symfony.",
+    "keywords": ["monitoring", "metrics", "mysql", "apache", "php", "redis", "nginx", "system", "symfony"],
+    "homepage": "https://jmonitor.io",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Johndodev",
+            "homepage": "https://jonathan-plantey.fr/"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "php": "^8.1",
+        "jmonitor/collector": "^1.0",
+        "nyholm/psr7": "^1.8",
+        "symfony/console": "^6.4|^7.0",
+        "symfony/framework-bundle": "^6.4|^7.0",
+        "symfony/http-client": "^6.4|^7.0"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.86",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^10.5"
+    },
+    "suggest": {
+        "symfony/scheduler": "If you want the bundle to automatically collect metrics at regular intervals."
+    },
+    "autoload": {
+        "psr-4": { "Jmonitor\\JmonitorBundle\\": "src/" }
+    },
+    "autoload-dev": {
+        "psr-4": { "Jmonitor\\JmonitorBundle\\Tests\\": "tests/" }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    },
+    "scripts": {
+        "lint:check": "./vendor/bin/php-cs-fixer check --verbose --config=.php-cs-fixer.dist.php --using-cache=no --diff",
+        "lint:fix": "./vendor/bin/php-cs-fixer fix --verbose --config=.php-cs-fixer.dist.php --using-cache=no  --diff",
+        "phpstan": "./vendor/bin/phpstan",
+        "phpunit": "./vendor/bin/phpunit tests"
+    }
+}
