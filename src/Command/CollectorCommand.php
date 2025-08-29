@@ -35,8 +35,6 @@ class CollectorCommand extends Command
     {
         $result = $this->jmonitor->collect(false);
 
-        $this->logger->info($result->getConclusion());
-
         $this->logger->debug('Metrics collected', [
             'metrics' => $result->getMetrics(),
         ]);
@@ -53,9 +51,9 @@ class CollectorCommand extends Command
             $this->logger->error('Errors', [
                 'errors' => $result->getErrors(),
             ]);
-
-            return Command::FAILURE;
         }
+
+        $this->logger->info($result->getConclusion());
 
         return Command::SUCCESS;
     }
