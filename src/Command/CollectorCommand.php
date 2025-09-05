@@ -8,9 +8,9 @@ use Psr\Log\NullLogger;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
-// TODO tests
 #[AsCommand('jmonitor:collect', description: 'Collect and send metrics to Jmonitor')]
 class CollectorCommand extends Command
 {
@@ -31,16 +31,21 @@ class CollectorCommand extends Command
         $this->logger = $logger ?? new NullLogger();
     }
 
+    protected function configure(): void
+    {
+        $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'Do not send metrics to Jmonitor');
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $result = $this->jmonitor->collect(false);
+        $result = $this->jmonitor->collect(!$input->getOption('dry-run'), false);
 
         $this->logger->debug('Metrics collected', [
             'metrics' => $result->getMetrics(),
         ]);
 
-        if ($result->getResponse()->getStatusCode() >= 400) {
-            $this->logger->debug('Response error', [
+        if ($result->getResponse()?->getStatusCode() >= 400) {
+            $this->logger->error('Response error', [
                 'body' => $result->getResponse()->getBody(),
                 'code' => $result->getResponse()->getStatusCode(),
                 'headers' => $result->getResponse()->getHeaders(),
