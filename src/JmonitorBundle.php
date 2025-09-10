@@ -119,7 +119,7 @@ class JmonitorBundle extends AbstractBundle
             $container->services()->get(Jmonitor::class)->call('addCollector', [service(SystemCollector::class)]);
         }
 
-        if ($config['collectors']['php'] ?? false) {
+        if (($config['collectors']['php'] ?? false) !== false) {
             $container->services()->set(PhpCollector::class)
                 ->tag('jmonitor.collector', ['name' => 'php'])
             ;
