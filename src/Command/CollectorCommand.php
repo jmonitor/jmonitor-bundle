@@ -46,7 +46,7 @@ class CollectorCommand extends Command
 
         if ($result->getResponse()?->getStatusCode() >= 400) {
             $this->logger->error('Response error', [
-                'body' => $result->getResponse()->getBody(),
+                'body' => $result->getResponse()->getBody()->getContents(),
                 'code' => $result->getResponse()->getStatusCode(),
                 'headers' => $result->getResponse()->getHeaders(),
             ]);
