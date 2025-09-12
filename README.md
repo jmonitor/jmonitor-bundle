@@ -93,16 +93,15 @@ php bin/console jmonitor:collect -vvv --dry-run
 ```
 
 ## Exposing PHP metrics
-> [!IMPORTANT]
->
-> PHP configuration can differ significantly between CLI and web server SAPIs.    
-> If you need web‑context metrics, expose an HTTP endpoint:
 
-Create a controller that extends Jmonitor\JmonitorBundle\Controller\JmonitorPhpController in your app
+Why this matters:
+- PHP settings and extensions can differ significantly between CLI and your web server context.
+- If you want metrics that reflect your web runtime, you must expose a tiny HTTP endpoint that returns PHP metrics from within that web context.
+
+To do that, extend the built‑in controller: 
 
 ```php
 // src/Controller/JmonitorPhpController.php
-
 namespace App\Controller;
 
 use Symfony\Component\Routing\Attribute\Route;
@@ -115,16 +114,17 @@ final class JmonitorPhpController extends BaseJmonitorPhpController
 ```
 > [!WARNING]
 >
-> **Secure this URL** ! Expose it only from localhost is a good start.
+> **Secure this URL** !
 
-Then use it in config:
+Wire it in your bundle config
 ```yaml
 # config/packages/jmonitor.yaml
 jmonitor:
     # ...
     collectors:
         php:
-            endpoint: 'https://localhost//jmonitor/php-metrics'
+            # Use the URL you exposed above
+            endpoint: 'https://localhost/jmonitor/php-metrics'
 ```
 
 ## Scheduling
