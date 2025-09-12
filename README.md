@@ -130,7 +130,7 @@ security:
     # ...
     access_control:
         # ...
-        - { path: ^/jmonitor/php-metrics, roles: PUBLIC_ACCESS, ips: [127.0.0.1, ::1, 192.168.0.1/24] }
+        - { path: ^/jmonitor/php-metrics, roles: PUBLIC_ACCESS, ips: [127.0.0.1, 10.0.0.0/8, ::1, 192.168.0.0/24] }
         - { path: ^/jmonitor/php-metrics, roles: ROLE_NO_ACCESS }
 ```
 
