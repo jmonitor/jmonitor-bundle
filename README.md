@@ -112,9 +112,27 @@ final class JmonitorPhpController extends BaseJmonitorPhpController
 {
 }
 ```
-> [!WARNING]
+> [!CAUTION]
 >
 > **Secure this URL** !
+
+A quick way can be to use local ip restriction in access_control configuration:
+```yaml
+# config/packages/security.yaml
+security:
+    firewalls:
+        jmonitor:
+            pattern: ^/jmonitor/
+            stateless: true
+        main:
+            # ...
+    
+    # ...
+    access_control:
+        # ...
+        - { path: ^/jmonitor/php-metrics, roles: PUBLIC_ACCESS, ips: [127.0.0.1, ::1, 192.168.0.1/24] }
+        - { path: ^/jmonitor/php-metrics, roles: ROLE_NO_ACCESS }
+```
 
 Wire it in your bundle config
 ```yaml
