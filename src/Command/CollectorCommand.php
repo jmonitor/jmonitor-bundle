@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of the jmonitor/jmonitor-bundle package.
+ *
+ * (c) Jonathan Plantey <jonathan.plantey@gmail.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace Jmonitor\JmonitorBundle\Command;
 
 use Jmonitor\Jmonitor;

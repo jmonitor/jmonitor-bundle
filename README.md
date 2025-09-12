@@ -64,11 +64,12 @@ jmonitor:
             db_name: 'your_db_name'
             
         # PHP : some ini keys, opcache, loaded extensions... 
-        # Note about CLI vs web : See https://github.com/jmonitor/collector?tab=readme-ov-file#php
+        # /!\ See below for more informations about CLI vs Web-context metrics
         # use this to collect web metrics
         # php: 
         #     endpoint: 'http://localhost/php-metrics'
-        php: ~
+        # of for CLI only
+        # php: ~
         
         # Redis metrics via INFO command
         redis:
@@ -89,6 +90,41 @@ jmonitor:
 4) Run a collection manually to verify:
 ```bash
 php bin/console jmonitor:collect -vvv --dry-run
+```
+
+## Exposing PHP metrics
+> [!IMPORTANT]
+>
+> PHP configuration can differ significantly between CLI and web server SAPIs.    
+> If you need web‑context metrics, expose an HTTP endpoint:
+
+Create a controller that extends Jmonitor\JmonitorBundle\Controller\JmonitorPhpController in your app
+
+```php
+// src/Controller/JmonitorPhpController.php
+
+namespace App\Controller;
+
+use Symfony\Component\Routing\Attribute\Route;
+use Jmonitor\JmonitorBundle\Controller\JmonitorPhpController as BaseJmonitorPhpController;
+
+#[Route('/jmonitor/php-metrics')] // chose an URL
+final class JmonitorPhpController extends BaseJmonitorPhpController
+{
+}
+```
+> [!WARNING]
+>
+> **Secure this URL** ! Expose it only from localhost is a good start.
+
+Then use it in config:
+```yaml
+# config/packages/jmonitor.yaml
+jmonitor:
+    # ...
+    collectors:
+        php:
+            endpoint: 'https://localhost//jmonitor/php-metrics'
 ```
 
 ## Scheduling
