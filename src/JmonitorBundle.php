@@ -121,6 +121,9 @@ class JmonitorBundle extends AbstractBundle
 
         if ($config['collectors']['php'] ?? false) {
             $container->services()->set(PhpCollector::class)
+                ->args([
+                    $config['collectors']['php']['endpoint'],
+                ])
                 ->tag('jmonitor.collector', ['name' => 'php'])
             ;
 
@@ -179,6 +182,9 @@ class JmonitorBundle extends AbstractBundle
                             ->end()
                         ->end()
                         ->arrayNode('php')
+                            ->children()
+                                ->scalarNode('endpoint')->defaultNull()->info('Url of exposed php metrics endpoint.')->end()
+                            ->end()
                         ->end()
                         ->arrayNode('frankenphp')
                             ->children()
