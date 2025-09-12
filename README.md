@@ -63,7 +63,11 @@ jmonitor:
         mysql:
             db_name: 'your_db_name'
             
-        # Some ini keys, opcache, loaded extensions...
+        # PHP : some ini keys, opcache, loaded extensions... 
+        # Note about CLI vs web : See https://github.com/jmonitor/collector?tab=readme-ov-file#php
+        # use this to collect web metrics
+        # php: 
+        #     endpoint: 'http://localhost/php-metrics'
         php: ~
         
         # Redis metrics via INFO command
