@@ -157,7 +157,7 @@ php bin/console jmonitor:collect
 ```
 
 ## Logging and Debugging
-- The command is resilient: individual collector failures do not crash the whole run; errors are logged.
+- The command is resilient: individual collector failures do not crash the whole run; errors are logged (logging must be enabled in config).
 - Log levels:
     - Errors (collector exceptions, HTTP responses with status >= 400): error
     - Collected metrics: debug

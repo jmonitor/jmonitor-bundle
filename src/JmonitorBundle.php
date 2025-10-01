@@ -161,7 +161,7 @@ class JmonitorBundle extends AbstractBundle
                 ->scalarNode('project_api_key')->defaultNull()->info('You can find it in your jmonitor.io settings.')->end()
                 ->scalarNode('http_client')->defaultNull()->info('Name of a Psr\Http\Client\ClientInterface service. Optional. If null, Psr18ClientDiscovery will be used.')->end()
                 // ->scalarNode('cache')->cannotBeEmpty()->defaultValue('cache.app')->info('Name of a Psr\Cache\CacheItemPoolInterface service, default is "cache.app". Required.')->end()
-                ->scalarNode('logger')->defaultValue('logger')->info('Name of a Psr\Log\LoggerInterface service, default is "logger". Set null to disable logging.')->end()
+                ->scalarNode('logger')->defaultNull()->info('Name of a Psr\Log\LoggerInterface service.')->end()
                 ->scalarNode('schedule')->defaultNull()->info('Name of the schedule used to handle the recurring metrics collection. Must be set to enable use of symfony scheduler.')->end()
                 ->arrayNode('collectors')
                     ->addDefaultsIfNotSet() // permet de récup un tableau vide si pas de config
