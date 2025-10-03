@@ -13,11 +13,9 @@ namespace Jmonitor\JmonitorBundle\Controller;
 
 use Jmonitor\Collector\Php\PhpCollector;
 use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\Routing\Attribute\Route;
 
-abstract class JmonitorPhpController
+class JmonitorPhpController
 {
-    #[Route(name: 'jmonitor_expose_php_metrics')]
     public function __invoke(): JsonResponse
     {
         return new JsonResponse((new PhpCollector())->collect());

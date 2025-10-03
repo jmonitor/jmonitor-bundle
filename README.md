@@ -98,41 +98,40 @@ Why this matters:
 - PHP settings and extensions can differ significantly between CLI and your web server context.
 - If you want metrics that reflect your web runtime, you must expose a tiny HTTP endpoint that returns PHP metrics from within that web context.
 
-To do that, extend the built‑in controller: 
+To do that, create a route config file: 
 
-```php
-// src/Controller/JmonitorPhpController.php
-namespace App\Controller;
-
-use Symfony\Component\Routing\Attribute\Route;
-use Jmonitor\JmonitorBundle\Controller\JmonitorPhpController as BaseJmonitorPhpController;
-
-#[Route('/jmonitor/php-metrics')] // chose an URL
-final class JmonitorPhpController extends BaseJmonitorPhpController
-{
-}
+```yaml
+# config/routes/jmonitor.yaml
+jmonitor_expose_php_metrics:
+    path: '/jmonitor/php-metrics'
+    controller: Jmonitor\JmonitorBundle\Controller\JmonitorPhpController
 ```
 > [!CAUTION]
 >
 > **Secure this URL** !
 
-A quick way can be to use local ip restriction in access_control configuration:
+A quick way can be to force host to localhost:
+```yaml
+# config/routes/jmonitor.yaml
+jmonitor_expose_php_metrics:
+    path: '/jmonitor/php-metrics'
+    controller: Jmonitor\JmonitorBundle\Controller\JmonitorPhpController
+    host: 'localhost'
+```
+
+Set up a firewall for this route **before** the main firewall to prevent your app from interfering with it:
 ```yaml
 # config/packages/security.yaml
 security:
     firewalls:
         jmonitor:
-            pattern: ^/jmonitor/
-            stateless: true
+            pattern: ^/jmonitor/php-metrics$
+            security: false
         main:
-            # ...
-    
-    # ...
-    access_control:
         # ...
-        - { path: ^/jmonitor/php-metrics, roles: PUBLIC_ACCESS, ips: [127.0.0.1, 10.0.0.0/8, ::1, 192.168.0.0/24] }
-        - { path: ^/jmonitor/php-metrics, roles: ROLE_NO_ACCESS }
 ```
+
+
 
 Wire it in your bundle config
 ```yaml
@@ -141,8 +140,7 @@ jmonitor:
     # ...
     collectors:
         php:
-            # Use the URL you exposed above
-            endpoint: 'https://localhost/jmonitor/php-metrics'
+            endpoint: 'http://localhost/jmonitor/php-metrics'
 ```
 
 ## Scheduling
@@ -173,4 +171,17 @@ php bin/console jmonitor:collect -vvv --dry-run
 
 # Only summary
 php bin/console jmonitor:collect -vv
+```
+
+## Troubleshooting
+
+### Apache
+> mod_status is enabled, but my endpoint is not reachable.
+
+Don't forget to let the request pass through your index.php.  
+For example, if you use .htaccess :
+```
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_URI} !=/server-status    <---- add this
+RewriteRule ^ %{ENV:BASE}/index.php [L]
 ```
