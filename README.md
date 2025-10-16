@@ -63,8 +63,13 @@ jmonitor:
         mysql:
             db_name: 'your_db_name'
             
-        # Some ini keys, opcache, loaded extensions...
-        php: ~
+        # PHP : some ini keys, opcache, loaded extensions... 
+        # /!\ See below for more informations about CLI vs Web-context metrics
+        # use this to collect web metrics
+        # php: 
+        #     endpoint: 'http://localhost/php-metrics'
+        # of for CLI only
+        # php: ~
         
         # Redis metrics via INFO command
         redis:
@@ -87,6 +92,57 @@ jmonitor:
 php bin/console jmonitor:collect -vvv --dry-run
 ```
 
+## Exposing PHP metrics
+
+Why this matters:
+- PHP settings and extensions can differ significantly between CLI and your web server context.
+- If you want metrics that reflect your web runtime, you must expose a tiny HTTP endpoint that returns PHP metrics from within that web context.
+
+To do that, create a route config file: 
+
+```yaml
+# config/routes/jmonitor.yaml
+jmonitor_expose_php_metrics:
+    path: '/jmonitor/php-metrics'
+    controller: Jmonitor\JmonitorBundle\Controller\JmonitorPhpController
+```
+> [!CAUTION]
+>
+> **Secure this URL** !
+
+A quick way can be to force host to localhost:
+```yaml
+# config/routes/jmonitor.yaml
+jmonitor_expose_php_metrics:
+    path: '/jmonitor/php-metrics'
+    controller: Jmonitor\JmonitorBundle\Controller\JmonitorPhpController
+    host: 'localhost'
+```
+
+Set up a firewall for this route **before** the main firewall to prevent your app from interfering with it:
+```yaml
+# config/packages/security.yaml
+security:
+    firewalls:
+        jmonitor:
+            pattern: ^/jmonitor/php-metrics$
+            security: false
+        main:
+        # ...
+```
+
+
+
+Wire it in your bundle config
+```yaml
+# config/packages/jmonitor.yaml
+jmonitor:
+    # ...
+    collectors:
+        php:
+            endpoint: 'http://localhost/jmonitor/php-metrics'
+```
+
 ## Scheduling
 
 - Command: `jmonitor:collect`.
@@ -99,7 +155,7 @@ php bin/console jmonitor:collect
 ```
 
 ## Logging and Debugging
-- The command is resilient: individual collector failures do not crash the whole run; errors are logged.
+- The command is resilient: individual collector failures do not crash the whole run; errors are logged (logging must be enabled in config).
 - Log levels:
     - Errors (collector exceptions, HTTP responses with status >= 400): error
     - Collected metrics: debug
@@ -115,4 +171,17 @@ php bin/console jmonitor:collect -vvv --dry-run
 
 # Only summary
 php bin/console jmonitor:collect -vv
+```
+
+## Troubleshooting
+
+### Apache
+> mod_status is enabled, but my endpoint is not reachable.
+
+Don't forget to let the request pass through your index.php.  
+For example, if you use .htaccess :
+```
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_URI} !=/server-status    <---- add this
+RewriteRule ^ %{ENV:BASE}/index.php [L]
 ```

@@ -1,6 +1,13 @@
 <?php
 
-declare(strict_types=1);
+/*
+ * This file is part of the jmonitor/jmonitor-bundle package.
+ *
+ * (c) Jonathan Plantey <jonathan.plantey@gmail.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
 
 namespace Jmonitor\JmonitorBundle;
 
@@ -121,6 +128,9 @@ class JmonitorBundle extends AbstractBundle
 
         if (($config['collectors']['php'] ?? false) !== false) {
             $container->services()->set(PhpCollector::class)
+                ->args([
+                    $config['collectors']['php']['endpoint'],
+                ])
                 ->tag('jmonitor.collector', ['name' => 'php'])
             ;
 
@@ -151,7 +161,7 @@ class JmonitorBundle extends AbstractBundle
                 ->scalarNode('project_api_key')->defaultNull()->info('You can find it in your jmonitor.io settings.')->end()
                 ->scalarNode('http_client')->defaultNull()->info('Name of a Psr\Http\Client\ClientInterface service. Optional. If null, Psr18ClientDiscovery will be used.')->end()
                 // ->scalarNode('cache')->cannotBeEmpty()->defaultValue('cache.app')->info('Name of a Psr\Cache\CacheItemPoolInterface service, default is "cache.app". Required.')->end()
-                ->scalarNode('logger')->defaultValue('logger')->info('Name of a Psr\Log\LoggerInterface service, default is "logger". Set null to disable logging.')->end()
+                ->scalarNode('logger')->defaultNull()->info('Name of a Psr\Log\LoggerInterface service.')->end()
                 ->scalarNode('schedule')->defaultNull()->info('Name of the schedule used to handle the recurring metrics collection. Must be set to enable use of symfony scheduler.')->end()
                 ->arrayNode('collectors')
                     ->addDefaultsIfNotSet() // permet de récup un tableau vide si pas de config
@@ -179,6 +189,9 @@ class JmonitorBundle extends AbstractBundle
                             ->end()
                         ->end()
                         ->arrayNode('php')
+                            ->children()
+                                ->scalarNode('endpoint')->defaultNull()->info('Url of exposed php metrics endpoint.')->end()
+                            ->end()
                         ->end()
                         ->arrayNode('frankenphp')
                             ->children()
