@@ -16,6 +16,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -42,12 +43,19 @@ class CollectorCommand extends Command
 
     protected function configure(): void
     {
+        $this->addArgument('collector', InputArgument::OPTIONAL, 'To run a specific collector');
         $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'Do not send metrics to Jmonitor');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $result = $this->jmonitor->collect(!$input->getOption('dry-run'), false);
+        if ($collector = $input->getArgument('collector')) {
+            $jmonitor = $this->jmonitor->withCollector($collector);
+        } else {
+            $jmonitor = $this->jmonitor;
+        }
+
+        $result = $jmonitor->collect(!$input->getOption('dry-run'), false);
 
         $this->logger->debug('Metrics collected', [
             'metrics' => $result->getMetrics(),
