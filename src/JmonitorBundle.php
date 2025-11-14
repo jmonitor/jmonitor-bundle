@@ -165,6 +165,8 @@ class JmonitorBundle extends AbstractBundle
                 ])
                 ->tag('jmonitor.collector', ['name' => 'caddy'])
             ;
+
+            $container->services()->get(Jmonitor::class)->call('addCollector', [service(CaddyCollector::class)]);
         }
 
         if ($config['collectors']['frankenphp'] ?? false) {
@@ -188,6 +190,8 @@ class JmonitorBundle extends AbstractBundle
                 ])
                 ->tag('jmonitor.collector', ['name' => 'frankenphp'])
             ;
+
+            $container->services()->get(Jmonitor::class)->call('addCollector', [service(FrankenphpCollector::class)]);
         }
     }
 
