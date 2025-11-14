@@ -110,7 +110,7 @@ jmonitor_expose_php_metrics:
 >
 > **Secure this URL** !
 
-A quick way can be to force host to localhost:
+One quick way is to bind the host to localhost only:
 ```yaml
 # config/routes/jmonitor.yaml
 jmonitor_expose_php_metrics:
@@ -127,11 +127,11 @@ security:
         jmonitor:
             pattern: ^/jmonitor/php-metrics$
             security: false
+            # instead of disabling security, you can use a stateless firewall if you plan to use ip security or something
+            # stateless: true
         main:
         # ...
 ```
-
-
 
 Wire it in your bundle config
 ```yaml
