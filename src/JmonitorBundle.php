@@ -200,7 +200,6 @@ class JmonitorBundle extends AbstractBundle
      */
     public function configure(DefinitionConfigurator $definition): void
     {
-        // @phpstan-ignore-next-line
         $definition->rootNode()
             ->children() // jmonitor
                 ->booleanNode('enabled')->defaultTrue()->end()
