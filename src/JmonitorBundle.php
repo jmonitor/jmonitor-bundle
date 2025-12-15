@@ -253,10 +253,6 @@ class JmonitorBundle extends AbstractBundle
                 ->end()
             ->end()
             ->validate()
-                ->ifTrue(fn($config) => isset($config['enabled']) && $config['enabled'] === true && empty($config['project_api_key']))
-                ->thenInvalid('The "project_api_key" must be set if "enabled" is true.')
-            ->end()
-            ->validate()
                 ->ifTrue(function ($config): bool {
                     return
                         !empty($config['collectors']['redis']['dsn'])
