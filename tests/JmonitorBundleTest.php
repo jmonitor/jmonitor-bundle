@@ -41,21 +41,9 @@ class JmonitorBundleTest extends TestCase
         return $container;
     }
 
-    public function testConfigureRequiresProjectApiKeyWhenEnabled(): void
-    {
-        $this->expectException(InvalidConfigurationException::class);
-        $this->expectExceptionMessage('The "project_api_key" must be set if "enabled" is true.');
-
-        $this->loadBundle([
-            'enabled' => true,
-            // project_api_key intentionally missing/null
-        ]);
-    }
-
     public function testMinimalConfigRegistersCoreServices(): void
     {
         $container = $this->loadBundle([
-            'enabled' => true,
             'project_api_key' => 'abc-123',
             // no collectors, no schedule
         ]);
@@ -76,7 +64,6 @@ class JmonitorBundleTest extends TestCase
     public function testScheduleTagAddedWhenConfigured(): void
     {
         $container = $this->loadBundle([
-            'enabled' => true,
             'project_api_key' => 'key',
             'schedule' => 'default',
         ]);
@@ -96,7 +83,6 @@ class JmonitorBundleTest extends TestCase
     public function testMysqlCollectorsRegisterServicesAndMethodCalls(): void
     {
         $container = $this->loadBundle([
-            'enabled' => true,
             'project_api_key' => 'key',
             'collectors' => [
                 'mysql' => [
@@ -133,7 +119,6 @@ class JmonitorBundleTest extends TestCase
         $this->expectExceptionMessage('You cannot set both "dsn" and "adapter" for Redis collector. Please choose one.');
 
         $this->loadBundle([
-            'enabled' => true,
             'project_api_key' => 'key',
             'collectors' => [
                 'redis' => [
@@ -147,7 +132,6 @@ class JmonitorBundleTest extends TestCase
     public function testRedisCollectorRegistersAndAddedToJmonitor(): void
     {
         $container = $this->loadBundle([
-            'enabled' => true,
             'project_api_key' => 'key',
             'collectors' => [
                 'redis' => [
@@ -168,7 +152,6 @@ class JmonitorBundleTest extends TestCase
     public function testApacheCollectorRegistersAndAddedToJmonitor(): void
     {
         $container = $this->loadBundle([
-            'enabled' => true,
             'project_api_key' => 'key',
             'collectors' => [
                 'apache' => [
@@ -189,7 +172,6 @@ class JmonitorBundleTest extends TestCase
     public function testSystemCollectorRegistersWithCustomAdapter(): void
     {
         $container = $this->loadBundle([
-            'enabled' => true,
             'project_api_key' => 'key',
             'collectors' => [
                 'system' => [

@@ -33,10 +33,6 @@ class JmonitorBundle extends AbstractBundle
 {
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        if (!$config['enabled']) {
-            return;
-        }
-
         if (!$config['project_api_key']) {
             return;
         }
@@ -169,8 +165,7 @@ class JmonitorBundle extends AbstractBundle
     {
         $definition->rootNode()
             ->children() // jmonitor
-                ->booleanNode('enabled')->defaultTrue()->end()
-                ->scalarNode('project_api_key')->defaultNull()->info('You can find it in your jmonitor.io settings.')->end()
+                ->scalarNode('project_api_key')->defaultNull()->info('You can find it in your jmonitor.io settings. Let empty to disable.')->end()
                 ->scalarNode('http_client')->defaultNull()->info('Name of a Psr\Http\Client\ClientInterface service. Optional. If null, Psr18ClientDiscovery will be used.')->end()
                 // ->scalarNode('cache')->cannotBeEmpty()->defaultValue('cache.app')->info('Name of a Psr\Cache\CacheItemPoolInterface service, default is "cache.app". Required.')->end()
                 ->scalarNode('logger')->defaultNull()->info('Name of a Psr\Log\LoggerInterface service.')->end()
