@@ -23,6 +23,7 @@ use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
+use Jmonitor\JmonitorBundle\Collector\Components\SchedulerCollector;
 use Jmonitor\JmonitorBundle\Command\CollectorCommand;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -30,6 +31,7 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
 
 class JmonitorBundle extends AbstractBundle
 {
@@ -44,13 +46,21 @@ class JmonitorBundle extends AbstractBundle
                 service('kernel'),
             ]);
 
+        // Symfony collector and its component collectors
         $container->services()->set(SymfonyCollector::class)
             ->args([
                 service('kernel'),
-                service(CommandRunner::class),
+                tagged_iterator('jmonitor.symfony.component_collector', 'index'),
             ])
         ;
 
+        // Register Symfony component collectors
+        $container->services()->set(SchedulerCollector::class)
+            ->args([
+                service(CommandRunner::class),
+            ])
+            ->tag('jmonitor.symfony.component_collector', ['index' => 'scheduler'])
+        ;
 
         $container->services()->set(Jmonitor::class)
             ->args([

@@ -14,7 +14,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Collector;
 
 use Jmonitor\Collector\AbstractCollector;
-use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
+use Jmonitor\JmonitorBundle\Collector\Components\ComponentCollectorInterface;
 use Symfony\Component\HttpKernel\KernelInterface;
 
 /**
@@ -23,13 +23,11 @@ use Symfony\Component\HttpKernel\KernelInterface;
 class SymfonyCollector extends AbstractCollector
 {
     private KernelInterface $kernel;
+    /** @var iterable<string, ComponentCollectorInterface> */
     private iterable $componentCollectors;
 
-    public function __construct(
-        KernelInterface $kernel,
-        #[AutowireIterator('jmonitor.symfony.component_collector')]
-        iterable $componentCollectors,
-    ) {
+    public function __construct(KernelInterface $kernel, iterable $componentCollectors)
+    {
         $this->kernel = $kernel;
         $this->componentCollectors = $componentCollectors;
     }

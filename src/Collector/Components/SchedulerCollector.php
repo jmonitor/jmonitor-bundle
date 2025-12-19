@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Collector\Components;
 
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
-use Symfony\Component\DependencyInjection\Attribute\AsTaggedItem;
 
-#[AsTaggedItem('scheduler')]
 class SchedulerCollector implements ComponentCollectorInterface
 {
     private CommandRunner $commandRunner;
