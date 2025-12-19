@@ -77,12 +77,7 @@ jmonitor:
             # dsn: '%env(SOME_REDIS_DSN)%'
             # adapter: 'some_redis_service_name'
             
-        # Metrics from FrankenPHP
-        # see https://frankenphp.dev/docs/metrics/ 
-        frankenphp:
-            endpoint: 'http://localhost:2019/metrics'
-
-        # Metrics from Caddy
+        # Metrics from Caddy / FrankenPHP
         # see https://caddyserver.com/docs/metrics
         caddy:
             endpoint: 'http://localhost:2019/metrics'

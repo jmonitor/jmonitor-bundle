@@ -13,7 +13,6 @@ namespace Jmonitor\JmonitorBundle;
 
 use Jmonitor\Collector\Apache\ApacheCollector;
 use Jmonitor\Collector\Caddy\CaddyCollector;
-use Jmonitor\Collector\Frankenphp\FrankenphpCollector;
 use Jmonitor\Collector\Mysql\Adapter\DoctrineAdapter;
 use Jmonitor\Collector\Mysql\MysqlQueriesCountCollector;
 use Jmonitor\Collector\Mysql\MysqlStatusCollector;
@@ -23,7 +22,6 @@ use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
 use Jmonitor\JmonitorBundle\Command\CollectorCommand;
-use Jmonitor\Prometheus\PrometheusMetricsProvider;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -153,45 +151,14 @@ class JmonitorBundle extends AbstractBundle
         }
 
         if ($config['collectors']['caddy'] ?? false) {
-            $container->services()->set('jmonitor.caddy.provider', PrometheusMetricsProvider::class)
-                ->args([
-                    $config['collectors']['caddy']['endpoint'],
-                ])
-            ;
-
             $container->services()->set(CaddyCollector::class)
                 ->args([
-                    service('jmonitor.caddy.provider'),
+                    $config['collectors']['caddy']['endpoint'],
                 ])
                 ->tag('jmonitor.collector', ['name' => 'caddy'])
             ;
 
             $container->services()->get(Jmonitor::class)->call('addCollector', [service(CaddyCollector::class)]);
-        }
-
-        if ($config['collectors']['frankenphp'] ?? false) {
-            if (
-                ($config['collectors']['caddy'] ?? false)
-                && $config['collectors']['caddy']['endpoint'] === $config['collectors']['frankenphp']['endpoint']
-            ) {
-                // créer un alias de service de jmonitor.caddy.provider en jmonitor.frankenphp.provider
-                $container->services()->alias('jmonitor.frankenphp.provider', 'jmonitor.caddy.provider');
-            } else {
-                $container->services()->set('jmonitor.frankenphp.provider', PrometheusMetricsProvider::class)
-                    ->args([
-                        $config['collectors']['frankenphp']['endpoint'],
-                    ])
-                ;
-            }
-
-            $container->services()->set(FrankenphpCollector::class)
-                ->args([
-                    service('jmonitor.frankenphp.provider'),
-                ])
-                ->tag('jmonitor.collector', ['name' => 'frankenphp'])
-            ;
-
-            $container->services()->get(Jmonitor::class)->call('addCollector', [service(FrankenphpCollector::class)]);
         }
     }
 
@@ -238,14 +205,9 @@ class JmonitorBundle extends AbstractBundle
                                 ->scalarNode('endpoint')->defaultNull()->info('Url of exposed php metrics endpoint.')->end()
                             ->end()
                         ->end()
-                        ->arrayNode('frankenphp')
-                            ->children()
-                                ->scalarNode('endpoint')->defaultValue('http://localhost:2019/metrics')->cannotBeEmpty()->info('Url of FrankenPHP metrics endpoint.')->end()
-                            ->end()
-                        ->end()
                         ->arrayNode('caddy')
                             ->children()
-                                ->scalarNode('endpoint')->defaultValue('http://localhost:2019/metrics')->cannotBeEmpty()->info('Url of Caddy metrics endpoint.')->end()
+                                ->scalarNode('endpoint')->defaultValue('http://localhost:2019/metrics')->cannotBeEmpty()->info('Url of Caddy (or FrankenPHP) metrics endpoint.')->end()
                             ->end()
                         ->end()
                     ->end()
