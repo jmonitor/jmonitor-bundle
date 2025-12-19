@@ -33,34 +33,13 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
 
-class JmonitorBundle extends AbstractBundle
+final class JmonitorBundle extends AbstractBundle
 {
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         if (!$config['project_api_key']) {
             return;
         }
-
-        $container->services()->set(CommandRunner::class)
-            ->args([
-                service('kernel'),
-            ]);
-
-        // Symfony collector and its component collectors
-        $container->services()->set(SymfonyCollector::class)
-            ->args([
-                service('kernel'),
-                tagged_iterator('jmonitor.symfony.component_collector', 'index'),
-            ])
-        ;
-
-        // Register Symfony component collectors
-        $container->services()->set(SchedulerCollector::class)
-            ->args([
-                service(CommandRunner::class),
-            ])
-            ->tag('jmonitor.symfony.component_collector', ['index' => 'scheduler'])
-        ;
 
         $container->services()->set(Jmonitor::class)
             ->args([
@@ -181,6 +160,10 @@ class JmonitorBundle extends AbstractBundle
 
             $container->services()->get(Jmonitor::class)->call('addCollector', [service(CaddyCollector::class)]);
         }
+
+        if ($config['collectors']['symfony'] ?: false) {
+            $this->loadSymfonyCollector($container);
+        }
     }
 
     /**
@@ -188,6 +171,7 @@ class JmonitorBundle extends AbstractBundle
      */
     public function configure(DefinitionConfigurator $definition): void
     {
+        // @phpstan-ignore-next-line
         $definition->rootNode()
             ->children() // jmonitor
                 ->scalarNode('project_api_key')->defaultNull()->info('You can find it in your jmonitor.io settings. Let empty to disable.')->end()
@@ -230,6 +214,7 @@ class JmonitorBundle extends AbstractBundle
                                 ->scalarNode('endpoint')->defaultValue('http://localhost:2019/metrics')->cannotBeEmpty()->info('Url of Caddy (or FrankenPHP) metrics endpoint.')->end()
                             ->end()
                         ->end()
+                        ->booleanNode('symfony')->defaultFalse()->info('Enable Symfony collector')->end()
                     ->end()
                 ->end()
             ->end()
@@ -249,6 +234,33 @@ class JmonitorBundle extends AbstractBundle
             })
             ->thenInvalid('You need to install symfony/scheduler to use the "schedule" option.')
             ->end()
+        ;
+    }
+
+    private function loadSymfonyCollector(ContainerConfigurator $container): void
+    {
+        $container->services()->set(CommandRunner::class)
+            ->args([
+                service('kernel'),
+            ]);
+
+        // Symfony collector and its component collectors
+        $container->services()->set(SymfonyCollector::class)
+            ->args([
+                service('kernel'),
+                tagged_iterator('jmonitor.symfony.component_collector', 'index'),
+            ])
+            ->tag('jmonitor.collector', ['name' => 'symfony'])
+        ;
+
+        $container->services()->get(Jmonitor::class)->call('addCollector', [service(SymfonyCollector::class)]);
+
+        // Register Symfony component collectors
+        $container->services()->set(SchedulerCollector::class)
+            ->args([
+                service(CommandRunner::class),
+            ])
+            ->tag('jmonitor.symfony.component_collector', ['index' => 'scheduler'])
         ;
     }
 }

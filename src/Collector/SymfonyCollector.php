@@ -52,7 +52,6 @@ class SymfonyCollector extends AbstractCollector
             'cache_dir' => $this->getDirData($this->kernel->getCacheDir()),
             'log_dir' => $this->getDirData($this->kernel->getLogDir()),
             'build_dir' => $this->getDirData($this->kernel->getBuildDir()),
-            // @phpstan-ignore-next-line
             'share_dir' => \method_exists($this->kernel, 'getShareDir') ? $this->getDirData($this->kernel->getShareDir()) : [],
             'charset' => $this->kernel->getCharset(),
             'components' => $components,

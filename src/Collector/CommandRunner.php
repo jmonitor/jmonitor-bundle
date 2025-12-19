@@ -27,7 +27,7 @@ class CommandRunner
 
     public function __construct(KernelInterface $kernel)
     {
-        $this->application = new Application($kernel);
+        $this->application = new Application(clone $kernel);
         $this->application->setAutoExit(false);
     }
 
