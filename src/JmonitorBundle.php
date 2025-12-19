@@ -21,6 +21,8 @@ use Jmonitor\Collector\Php\PhpCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
+use Jmonitor\JmonitorBundle\Collector\CommandRunner;
+use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
 use Jmonitor\JmonitorBundle\Command\CollectorCommand;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -36,6 +38,19 @@ class JmonitorBundle extends AbstractBundle
         if (!$config['project_api_key']) {
             return;
         }
+
+        $container->services()->set(CommandRunner::class)
+            ->args([
+                service('kernel'),
+            ]);
+
+        $container->services()->set(SymfonyCollector::class)
+            ->args([
+                service('kernel'),
+                service(CommandRunner::class),
+            ])
+        ;
+
 
         $container->services()->set(Jmonitor::class)
             ->args([
