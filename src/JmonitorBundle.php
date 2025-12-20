@@ -171,17 +171,14 @@ final class JmonitorBundle extends AbstractBundle
      */
     public function configure(DefinitionConfigurator $definition): void
     {
-        // @phpstan-ignore-next-line
         $definition->rootNode()
             ->children() // jmonitor
                 ->scalarNode('project_api_key')->defaultNull()->info('You can find it in your jmonitor.io settings. Let empty to disable.')->end()
                 ->scalarNode('http_client')->defaultNull()->info('Name of a Psr\Http\Client\ClientInterface service. Optional. If null, Psr18ClientDiscovery will be used.')->end()
-                // ->scalarNode('cache')->cannotBeEmpty()->defaultValue('cache.app')->info('Name of a Psr\Cache\CacheItemPoolInterface service, default is "cache.app". Required.')->end()
                 ->scalarNode('logger')->defaultNull()->info('Name of a Psr\Log\LoggerInterface service.')->end()
                 ->scalarNode('schedule')->defaultNull()->info('Name of the schedule used to handle the recurring metrics collection. Must be set to enable use of symfony scheduler.')->end()
                 ->arrayNode('collectors')
                     ->addDefaultsIfNotSet() // permet de récup un tableau vide si pas de config
-                    // ->useAttributeAsKey()
                     ->children()
                         ->arrayNode('mysql')
                             ->children()
