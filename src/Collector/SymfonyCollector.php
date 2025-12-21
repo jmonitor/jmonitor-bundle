@@ -46,7 +46,7 @@ class SymfonyCollector extends AbstractCollector
         return [
             'env' => $this->kernel->getEnvironment(),
             'debug' => $this->kernel->isDebug(),
-            // 'version' => $this->commandRunner->getApplication()->getVersion(),
+            'version' => $this->getSymfonyVersion(),
             'bundles' => array_keys($this->kernel->getBundles()),
             'project_dir' => $this->kernel->getProjectDir(),
             'cache_dir' => $this->getDirData($this->kernel->getCacheDir()),
@@ -90,5 +90,14 @@ class SymfonyCollector extends AbstractCollector
         }
 
         return ['path' => $dir, 'size' => $size];
+    }
+
+    private function getSymfonyVersion(): ?string
+    {
+        if (defined(get_class($this->kernel) . '::VERSION')) {
+            return $this->kernel::VERSION; // @phpstan-ignore-line
+        }
+
+        return null;
     }
 }
