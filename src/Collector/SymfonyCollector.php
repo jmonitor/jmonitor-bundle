@@ -86,7 +86,10 @@ class SymfonyCollector extends AbstractCollector
         if (is_file($dir)) {
             $size = filesize($dir) ?: null;
         } elseif (is_dir($dir)) {
-            $size = disk_total_space($dir) ?: null;
+            $size = 0;
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)) as $file) {
+                $size += $file->getSize();
+            }
         }
 
         return ['path' => $dir, 'size' => $size];
