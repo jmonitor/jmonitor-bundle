@@ -11,30 +11,12 @@
 
 namespace Jmonitor\JmonitorBundle;
 
-use Jmonitor\Collector\Apache\ApacheCollector;
-use Jmonitor\Collector\Caddy\CaddyCollector;
-use Jmonitor\Collector\Mysql\Adapter\DoctrineAdapter;
-use Jmonitor\Collector\Mysql\MysqlQueriesCountCollector;
-use Jmonitor\Collector\Mysql\MysqlStatusCollector;
-use Jmonitor\Collector\Mysql\MysqlVariablesCollector;
-use Jmonitor\Collector\Php\PhpCollector;
-use Jmonitor\Collector\Redis\RedisCollector;
-use Jmonitor\Collector\System\SystemCollector;
-use Jmonitor\Jmonitor;
-use Jmonitor\JmonitorBundle\Collector\CommandRunner;
-use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
-use Jmonitor\JmonitorBundle\Collector\Components\FlexRecipesCollector;
-use Jmonitor\JmonitorBundle\Collector\Components\SchedulerCollector;
-use Jmonitor\JmonitorBundle\Command\CollectorCommand;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Flex\SymfonyBundle;
 use Symfony\Component\Scheduler\Scheduler;
-
-use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
-use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
 
 final class JmonitorBundle extends AbstractBundle
 {
@@ -44,129 +26,9 @@ final class JmonitorBundle extends AbstractBundle
             return;
         }
 
-        $container->services()->set(Jmonitor::class)
-            ->args([
-                $config['project_api_key'],
-                $config['http_client'] ? service($config['http_client']) : null,
-            ])
-        ;
+        $builder->setParameter('jmonitor.bundle_config', $config);
 
-        $collector = $container->services()->set(CollectorCommand::class)
-            ->args([
-                service(Jmonitor::class),
-                $config['logger'] ? service($config['logger']) : null,
-            ])
-            ->tag('console.command')
-        ;
-
-        if ($config['schedule']) {
-            $collector->tag('scheduler.task', [
-                'frequency' => 15,
-                'schedule' => $config['schedule'],
-                'trigger' => 'every',
-                'arguments' => null, // https://github.com/symfony/symfony/pull/61307
-            ]);
-        }
-
-
-        if ($config['collectors']['mysql']['enabled']) {
-            $container->services()->set(DoctrineAdapter::class)
-                ->args([
-                    service('doctrine.dbal.default_connection'),
-                ])
-            ;
-
-            $container->services()->set(MysqlQueriesCountCollector::class)
-                ->args([
-                    service(DoctrineAdapter::class),
-                    $config['collectors']['mysql']['db_name'],
-                ])
-                ->tag('jmonitor.collector', ['name' => 'mysql.queries_count'])
-            ;
-
-            $container->services()->set(MysqlStatusCollector::class)
-                ->args([
-                    service(DoctrineAdapter::class),
-                ])
-                ->tag('jmonitor.collector', ['name' => 'mysql.status'])
-            ;
-
-            $container->services()->set(MysqlVariablesCollector::class)
-                ->args([
-                    service(DoctrineAdapter::class),
-                ])
-                ->tag('jmonitor.collector', ['name' => 'mysql.variables'])
-            ;
-
-            $container->services()->get(Jmonitor::class)
-                ->call('addCollector', [service(MysqlQueriesCountCollector::class)])
-                ->call('addCollector', [service(MysqlStatusCollector::class)])
-                ->call('addCollector', [service(MysqlVariablesCollector::class)])
-            ;
-        }
-
-        if ($config['collectors']['apache']['enabled']) {
-            $container->services()->set(ApacheCollector::class)
-                ->args([
-                    $config['collectors']['apache']['server_status_url'],
-                ])
-                ->tag('jmonitor.collector', ['name' => 'apache'])
-            ;
-
-            $container->services()->get(Jmonitor::class)->call('addCollector', [service(ApacheCollector::class)]);
-        }
-
-        if ($config['collectors']['system']['enabled']) {
-            if ($config['collectors']['system']['adapter'] ?? null) {
-                $container->services()->set($config['collectors']['system']['adapter']);
-            }
-
-            $container->services()->set(SystemCollector::class)
-                ->args([
-                    $config['collectors']['system']['adapter'] ? service($config['collectors']['system']['adapter']) : null,
-                ])
-                ->tag('jmonitor.collector', ['name' => 'system'])
-            ;
-
-            $container->services()->get(Jmonitor::class)->call('addCollector', [service(SystemCollector::class)]);
-        }
-
-        if ($config['collectors']['php']['enabled']) {
-            $container->services()->set(PhpCollector::class)
-                ->args([
-                    $config['collectors']['php']['endpoint'],
-                ])
-                ->tag('jmonitor.collector', ['name' => 'php'])
-            ;
-
-            $container->services()->get(Jmonitor::class)->call('addCollector', [service(PhpCollector::class)]);
-        }
-
-        if ($config['collectors']['redis']['enabled']) {
-            $container->services()->set(RedisCollector::class)
-                ->args([
-                    $config['collectors']['redis']['adapter'] ? service($config['collectors']['redis']['adapter']) : $config['collectors']['redis']['dsn'],
-                ])
-                ->tag('jmonitor.collector', ['name' => 'redis'])
-            ;
-
-            $container->services()->get(Jmonitor::class)->call('addCollector', [service(RedisCollector::class)]);
-        }
-
-        if ($config['collectors']['caddy']['enabled']) {
-            $container->services()->set(CaddyCollector::class)
-                ->args([
-                    $config['collectors']['caddy']['endpoint'],
-                ])
-                ->tag('jmonitor.collector', ['name' => 'caddy'])
-            ;
-
-            $container->services()->get(Jmonitor::class)->call('addCollector', [service(CaddyCollector::class)]);
-        }
-
-        if ($config['collectors']['symfony']['enabled']) {
-            $this->loadSymfonyCollector($container, $config['collectors']['symfony']);
-        }
+        $container->import('../config/services.php');
     }
 
     /**
@@ -255,44 +117,5 @@ final class JmonitorBundle extends AbstractBundle
             ->thenInvalid('You need to install symfony/scheduler to use the "schedule" option.')
             ->end()
         ;
-    }
-
-    private function loadSymfonyCollector(ContainerConfigurator $container, array $symfonyConfig): void
-    {
-        $container->services()->set(CommandRunner::class)
-            ->args([
-                service('kernel'),
-            ]);
-
-        // Symfony collector and its component collectors
-        $container->services()->set(SymfonyCollector::class)
-            ->args([
-                service('kernel'),
-                tagged_iterator('jmonitor.symfony.component_collector', 'index'),
-            ])
-            ->tag('jmonitor.collector', ['name' => 'symfony'])
-        ;
-
-        $container->services()->get(Jmonitor::class)->call('addCollector', [service(SymfonyCollector::class)]);
-
-        // Register Symfony component collectors
-        if ($symfonyConfig['scheduler']) {
-            $container->services()->set(SchedulerCollector::class)
-                ->args([
-                    service(CommandRunner::class),
-                ])
-                ->tag('jmonitor.symfony.component_collector', ['index' => 'scheduler'])
-            ;
-        }
-
-        if ($symfonyConfig['flex']['enabled']) {
-            $container->services()->set(FlexRecipesCollector::class)
-                ->args([
-                    service(CommandRunner::class),
-                    $symfonyConfig['flex']['command'],
-                ])
-                ->tag('jmonitor.symfony.component_collector', ['index' => 'flex'])
-            ;
-        }
     }
 }
