@@ -26,14 +26,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand('jmonitor:collect', description: 'Collect and send metrics to Jmonitor')]
 class CollectorCommand extends Command
 {
-    /**
-     * @var Jmonitor
-     */
-    private $jmonitor;
-    /**
-     * @var LoggerInterface|null
-     */
-    private $logger;
+    private Jmonitor $jmonitor;
+    private LoggerInterface $logger;
 
     public function __construct(Jmonitor $jmonitor, ?LoggerInterface $logger = null)
     {
@@ -51,7 +45,7 @@ class CollectorCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $jmonitor = $input->hasArgument('collector')
+        $jmonitor = $input->getArgument('collector') && is_string($input->getArgument('collector'))
             ? $this->jmonitor->withCollector($input->getArgument('collector'))
             : $this->jmonitor;
 
@@ -61,7 +55,7 @@ class CollectorCommand extends Command
             'metrics' => $result->getMetrics(),
         ]);
 
-        if ($result->getResponse()?->getStatusCode() >= 400) {
+        if ($result->getResponse()?->getStatusCode() && $result->getResponse()->getStatusCode() >= 400) {
             $this->logger->error('Response error', [
                 'body' => $result->getResponse()->getBody()->getContents(),
                 'code' => $result->getResponse()->getStatusCode(),
@@ -75,7 +69,7 @@ class CollectorCommand extends Command
             ]);
         }
 
-        $this->logger->info($result->getConclusion());
+        $this->logger->info($result->getConclusion() ?? 'No conclusion');
 
         return Command::SUCCESS;
     }

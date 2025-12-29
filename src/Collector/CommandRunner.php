@@ -55,9 +55,7 @@ class CommandRunner
     }
 
     /**
-     * @param array<string> $command
-     *
-     * @return array{exit_code: int, output: string}
+     * @return array{exit_code: int|null, output: string}
      */
     public function runProcess(array|string $command, ?int $timeout = 3): array
     {

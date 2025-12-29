@@ -50,7 +50,7 @@ class CacheDecorationTest extends TestCase
         }, PassConfig::TYPE_BEFORE_OPTIMIZATION);
 
         $extension = $bundle->getContainerExtension();
-        $extension->load([[
+        $extension?->load([[
             'project_api_key' => 'key',
             'collectors' => [
                 'symfony' => [
@@ -102,7 +102,7 @@ class CacheDecorationTest extends TestCase
         }, PassConfig::TYPE_BEFORE_OPTIMIZATION);
 
         $extension = $bundle->getContainerExtension();
-        $extension->load([[
+        $extension?->load([[
             'project_api_key' => 'key',
             'collectors' => [
                 'symfony' => [

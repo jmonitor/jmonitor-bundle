@@ -36,6 +36,9 @@ final class SchedulerCollector implements ComponentCollectorInterface
         return $commands;
     }
 
+    /**
+     * @return array<int, array{trigger: string, command: string, next_run: int}>
+     */
     private function parseOutput(?string $output): array
     {
         if ($output === null) {
@@ -53,6 +56,8 @@ final class SchedulerCollector implements ComponentCollectorInterface
 
             // Regex plus précise pour les colonnes du tableau Symfony
             // Elle cherche à capturer le trigger, la commande entre parenthèses et la date à la fin.
+            $matches = [];
+
             if (preg_match(
                 '/^(.+?)\s+Symfony\\\\Component\\\\Console\\\\Messenger\\\\RunCommandMessage\s+\((.+?)\)\s+(.+)$/',
                 $line,

@@ -24,7 +24,7 @@ final class CacheableCollectorPass implements CompilerPassInterface
             $definition = $container->getDefinition($id);
             $class = $container->getParameterBag()->resolveValue($definition->getClass() ?? $id);
 
-            if (!class_exists($class) || !is_subclass_of($class, CacheableComponentCollectorInterface::class)) {
+            if (is_string($class) && !class_exists($class) || !is_subclass_of($class, CacheableComponentCollectorInterface::class)) {
                 continue;
             }
 

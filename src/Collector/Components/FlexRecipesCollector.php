@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Collector\Components;
 
+use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
 final class FlexRecipesCollector implements CacheableComponentCollectorInterface
@@ -36,6 +37,10 @@ final class FlexRecipesCollector implements CacheableComponentCollectorInterface
             return [
                 'up_to_date' => true,
             ];
+        }
+
+        if ($run['exit_code'] === null) {
+            throw new CollectorException('Unable to run flex recipe command', __CLASS__);
         }
 
         return [
