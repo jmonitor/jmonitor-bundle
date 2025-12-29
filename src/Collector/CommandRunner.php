@@ -17,18 +17,22 @@ use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\HttpKernel\KernelInterface;
+use Symfony\Component\Process\Process;
 
 /**
- * Run console commands and return output and exit code.
+ * Run console commands and processes, return output and exit code.
  */
 class CommandRunner
 {
     private Application $application;
 
+    private string $projectDir;
+
     public function __construct(KernelInterface $kernel)
     {
         $this->application = new Application(clone $kernel);
         $this->application->setAutoExit(false);
+        $this->projectDir = $kernel->getProjectDir();
     }
 
     /**
@@ -47,6 +51,22 @@ class CommandRunner
         return [
             'exit_code' => $this->application->doRun(new ArrayInput($input), $output),
             'output' => $output->fetch(),
+        ];
+    }
+
+    /**
+     * @param array<string> $command
+     *
+     * @return array{exit_code: int, output: string}
+     */
+    public function runProcess(array|string $command): array
+    {
+        $process = is_array($command) ? new Process($command, $this->projectDir, timeout: 3) : Process::fromShellCommandline($command, $this->projectDir, timeout: 3);
+        $process->run();
+
+        return [
+            'exit_code' => $process->getExitCode(),
+            'output' => $process->getOutput(),
         ];
     }
 

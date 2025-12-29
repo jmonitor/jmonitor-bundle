@@ -63,14 +63,22 @@ jmonitor:
         mysql:
             db_name: 'your_db_name'
             
-        # PHP : some ini keys, opcache, loaded extensions... 
+        # PHP : some ini keys, apcu, opcache, loaded extensions... 
         # /!\ See below for more informations about CLI vs Web-context metrics
         # use this to collect web metrics
-        # php: 
-        #     endpoint: 'http://localhost/php-metrics'
+        php: 
+            endpoint: 'http://localhost/php-metrics'
         # of for CLI only
         # php: ~
         
+        # symfony: some infos, loaded bundles, flex recipes, schedules...
+        # you can disable some components by setting them to false
+        # symfony
+        #     flex: false
+        #     scheduler: true
+        # or let the bundle auto-detect
+        symfony: ~     
+
         # Redis metrics via INFO command
         redis:
             # you can use either DSN or a service name (adapter). 

@@ -30,6 +30,8 @@ use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
+use Symfony\Flex\SymfonyBundle;
+use Symfony\Component\Scheduler\Scheduler;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
@@ -220,32 +222,15 @@ final class JmonitorBundle extends AbstractBundle
                         ->end()
                         ->arrayNode('symfony')
                             ->canBeEnabled()
-                            ->beforeNormalization()
-                                ->always(function ($v) {
-                                    if (is_bool($v)) {
-                                        $v = ['enabled' => $v];
-                                    }
-
-                                    if (null === $v) {
-                                        $v = ['enabled' => true];
-                                    }
-
-                                    if (is_array($v)) {
-                                        if (!isset($v['flex'])) {
-                                            $v['flex'] = class_exists('Symfony\Flex\SymfonyBundle');
-                                        }
-
-                                        if (!isset($v['scheduler'])) {
-                                            $v['scheduler'] = class_exists('Symfony\Component\Scheduler\Scheduler');
-                                        }
-                                    }
-
-                                    return $v;
-                                })
-                            ->end()
                             ->children()
-                                ->booleanNode('flex')->defaultNull()->info('Collect Symfony Flex recipes metrics.')->end()
-                                ->booleanNode('scheduler')->defaultNull()->info('Collect Symfony Scheduler metrics.')->end()
+                                ->booleanNode('flex')
+                                    ->defaultValue(class_exists(SymfonyBundle::class))
+                                    ->info('Collect Symfony Flex recipes metrics.')
+                                ->end()
+                                ->booleanNode('scheduler')
+                                    ->defaultValue(class_exists(Scheduler::class))
+                                    ->info('Collect Symfony Scheduler metrics.')
+                                ->end()
                             ->end()
                         ->end()
                     ->end()
@@ -263,7 +248,7 @@ final class JmonitorBundle extends AbstractBundle
             ->ifTrue(function ($config): bool {
                 return
                     !empty($config['schedule']['redis']['dsn'])
-                    && !class_exists('Symfony\Component\Scheduler\Scheduler');
+                    && !class_exists(Scheduler::class);
             })
             ->thenInvalid('You need to install symfony/scheduler to use the "schedule" option.')
             ->end()
@@ -289,7 +274,7 @@ final class JmonitorBundle extends AbstractBundle
         $container->services()->get(Jmonitor::class)->call('addCollector', [service(SymfonyCollector::class)]);
 
         // Register Symfony component collectors
-        if ($symfonyConfig['scheduler'] ?? false) {
+        if ($symfonyConfig['scheduler']) {
             $container->services()->set(SchedulerCollector::class)
                 ->args([
                     service(CommandRunner::class),
@@ -298,7 +283,7 @@ final class JmonitorBundle extends AbstractBundle
             ;
         }
 
-        if ($symfonyConfig['flex'] ?? false) {
+        if ($symfonyConfig['flex']) {
             $container->services()->set(FlexRecipesCollector::class)
                 ->args([
                     service(CommandRunner::class),

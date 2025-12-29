@@ -28,6 +28,7 @@ class CommandRunnerTest extends TestCase
     {
         $this->kernel = $this->createMock(KernelInterface::class);
         $this->kernel->method('getBundles')->willReturn([]);
+        $this->kernel->method('getProjectDir')->willReturn(__DIR__);
 
         $container = new \Symfony\Component\DependencyInjection\Container();
         // Add minimal services required by Symfony Application
@@ -102,5 +103,15 @@ class CommandRunnerTest extends TestCase
         $result = $this->commandRunner->run('test:input', ['arg' => 'hello']);
         $this->assertSame(0, $result['exit_code']);
         $this->assertSame('hello', $result['output']);
+    }
+
+    public function testRunExternal(): void
+    {
+        // Use a simple command that works on all platforms (like 'php -v' or just 'php')
+        // Or 'echo' if we want to be very safe, but 'php' is guaranteed since we are running tests.
+        $result = $this->commandRunner->runProcess(['php', '-v']);
+
+        $this->assertSame(0, $result['exit_code']);
+        $this->assertStringContainsString('PHP', $result['output']);
     }
 }

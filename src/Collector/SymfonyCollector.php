@@ -23,13 +23,13 @@ use Symfony\Component\HttpKernel\KernelInterface;
 class SymfonyCollector extends AbstractCollector
 {
     private KernelInterface $kernel;
-    /** @var iterable<string, ComponentCollectorInterface> */
-    private iterable $componentCollectors;
+    /** @var ComponentCollectorInterface[] */
+    private array $componentCollectors;
 
     public function __construct(KernelInterface $kernel, iterable $componentCollectors)
     {
         $this->kernel = $kernel;
-        $this->componentCollectors = $componentCollectors;
+        $this->componentCollectors = iterator_to_array($componentCollectors);
     }
 
     /**

@@ -17,9 +17,9 @@ class FlexRecipesCollector implements ComponentCollectorInterface
 
     public function collect(): array
     {
-        $run = $this->commandRunner->run('recipes -o');
+        $run = $this->commandRunner->runProcess(['composer', 'recipes', '-o']);
 
-        if ($run === null || $run['exit_code'] !== 0) {
+        if ($run['exit_code'] !== 0) {
             return [];
         }
 
