@@ -110,9 +110,7 @@ class JmonitorBundleTest extends TestCase
         static::assertContains('addCollector', $methods, 'addCollector should be called');
 
         // Ensure all three mysql collectors are registered via addCollector calls
-        $serializedArgs = array_map(static function (array $c) {
-            return array_map(static fn($a) => (string) $a, $c[1]);
-        }, $calls);
+        $serializedArgs = array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls);
         $flat = array_merge(...$serializedArgs);
 
         static::assertContains(MysqlQueriesCountCollector::class, $flat);
@@ -150,9 +148,7 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->hasDefinition(RedisCollector::class));
 
         $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
-        $flat = array_merge(...array_map(static function (array $c) {
-            return array_map(static fn($a) => (string) $a, $c[1]);
-        }, $calls));
+        $flat = array_merge(...array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls));
         static::assertContains(RedisCollector::class, $flat);
     }
 
@@ -170,9 +166,7 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->hasDefinition(ApacheCollector::class));
 
         $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
-        $flat = array_merge(...array_map(static function (array $c) {
-            return array_map(static fn($a) => (string) $a, $c[1]);
-        }, $calls));
+        $flat = array_merge(...array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls));
         static::assertContains(ApacheCollector::class, $flat);
     }
 
@@ -190,9 +184,7 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->hasDefinition(SystemCollector::class));
 
         $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
-        $flat = array_merge(...array_map(static function (array $c) {
-            return array_map(static fn($a) => (string) $a, $c[1]);
-        }, $calls));
+        $flat = array_merge(...array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls));
         static::assertContains(SystemCollector::class, $flat);
     }
 
@@ -213,9 +205,7 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->hasDefinition(FlexRecipesCollector::class));
 
         $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
-        $flat = array_merge(...array_map(static function (array $c) {
-            return array_map(static fn($a) => (string) $a, $c[1]);
-        }, $calls));
+        $flat = array_merge(...array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls));
         static::assertContains(SymfonyCollector::class, $flat);
     }
 
@@ -325,6 +315,6 @@ class JmonitorBundleTest extends TestCase
         ]);
 
         static::assertTrue($container->hasDefinition(FlexRecipesCollector::class));
-        static::assertEquals('php bin/console custom:recipes', $container->getDefinition(FlexRecipesCollector::class)->getArgument(1));
+        static::assertSame('php bin/console custom:recipes', $container->getDefinition(FlexRecipesCollector::class)->getArgument(1));
     }
 }

@@ -49,9 +49,7 @@ class SymfonyCollector extends AbstractCollector
             // @phpstan-ignore-next-line
             'share_dir' => \method_exists($this->kernel, 'getShareDir') ? $this->getDirData($this->kernel->getShareDir()) : [],
             'charset' => $this->kernel->getCharset(),
-            'components' => array_filter(array_map(static function (ComponentCollectorInterface $collector) {
-                return $collector->collect();
-            }, $this->componentCollectors)),
+            'components' => array_filter(array_map(static fn(ComponentCollectorInterface $collector) => $collector->collect(), $this->componentCollectors)),
         ];
     }
 

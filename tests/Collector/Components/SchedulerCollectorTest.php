@@ -41,18 +41,18 @@ class SchedulerCollectorTest extends TestCase
 
         static::assertCount(5, $result);
 
-        static::assertEquals('every 3 hour', $result[0]['trigger']);
-        static::assertEquals('app:foo', $result[0]['command']);
-        static::assertEquals('Sample description', $result[0]['description']);
-        static::assertEquals(1766197200, $result[0]['next_run']); // Sat, 20 Dec 2025 03:20:00 +0100
+        static::assertSame('every 3 hour', $result[0]['trigger']);
+        static::assertSame('app:foo', $result[0]['command']);
+        static::assertSame('Sample description', $result[0]['description']);
+        static::assertSame(1766197200, $result[0]['next_run']); // Sat, 20 Dec 2025 03:20:00 +0100
 
-        static::assertEquals('every 24 hours with 0-5 second jitter', $result[2]['trigger']);
-        static::assertEquals('app:bar', $result[2]['command']);
-        static::assertEquals('Sample description', $result[2]['description']);
+        static::assertSame('every 24 hours with 0-5 second jitter', $result[2]['trigger']);
+        static::assertSame('app:bar', $result[2]['command']);
+        static::assertSame('Sample description', $result[2]['description']);
 
-        static::assertEquals('0 0 * * *', $result[3]['trigger']);
-        static::assertEquals('app:bar:foo', $result[3]['command']);
-        static::assertEquals('Sample description', $result[3]['description']);
-        static::assertEquals(1766271600, $result[3]['next_run']); // Sun, 21 Dec 2025 00:00:00 +0100
+        static::assertSame('0 0 * * *', $result[3]['trigger']);
+        static::assertSame('app:bar:foo', $result[3]['command']);
+        static::assertSame('Sample description', $result[3]['description']);
+        static::assertSame(1766271600, $result[3]['next_run']); // Sun, 21 Dec 2025 00:00:00 +0100
     }
 }

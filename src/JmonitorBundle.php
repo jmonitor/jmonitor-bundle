@@ -117,18 +117,13 @@ final class JmonitorBundle extends AbstractBundle
                 ->end()
             ->end()
             ->validate()
-                ->ifTrue(static function ($config): bool {
-                    return
-                        !empty($config['collectors']['redis']['dsn'])
-                        && !empty($config['collectors']['redis']['adapter']);
-                })
+                ->ifTrue(static fn($config): bool
+                    => !empty($config['collectors']['redis']['dsn'])
+                    && !empty($config['collectors']['redis']['adapter']))
                 ->thenInvalid('You cannot set both "dsn" and "adapter" for Redis collector. Please choose one.')
             ->end()
             ->validate()
-            ->ifTrue(static function ($config): bool {
-                return
-                    !empty($config['schedule']) && !class_exists(Scheduler::class);
-            })
+            ->ifTrue(static fn($config): bool => !empty($config['schedule']) && !class_exists(Scheduler::class))
             ->thenInvalid('You need to install symfony/scheduler to use the "schedule" option.')
             ->end()
         ;
