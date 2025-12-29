@@ -220,9 +220,32 @@ final class JmonitorBundle extends AbstractBundle
                         ->end()
                         ->arrayNode('symfony')
                             ->canBeEnabled()
+                            ->beforeNormalization()
+                                ->always(function ($v) {
+                                    if (is_bool($v)) {
+                                        $v = ['enabled' => $v];
+                                    }
+
+                                    if (null === $v) {
+                                        $v = ['enabled' => true];
+                                    }
+
+                                    if (is_array($v)) {
+                                        if (!isset($v['flex'])) {
+                                            $v['flex'] = class_exists('Symfony\Flex\SymfonyBundle');
+                                        }
+
+                                        if (!isset($v['scheduler'])) {
+                                            $v['scheduler'] = class_exists('Symfony\Component\Scheduler\Scheduler');
+                                        }
+                                    }
+
+                                    return $v;
+                                })
+                            ->end()
                             ->children()
-                                ->booleanNode('flex')->defaultTrue()->info('Collect Symfony Flex recipes metrics.')->end()
-                                ->booleanNode('scheduler')->defaultTrue()->info('Collect Symfony Scheduler metrics.')->end()
+                                ->booleanNode('flex')->defaultNull()->info('Collect Symfony Flex recipes metrics.')->end()
+                                ->booleanNode('scheduler')->defaultNull()->info('Collect Symfony Scheduler metrics.')->end()
                             ->end()
                         ->end()
                     ->end()

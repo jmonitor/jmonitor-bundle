@@ -244,8 +244,18 @@ class JmonitorBundleTest extends TestCase
         ]);
 
         $this->assertTrue($container->hasDefinition(SymfonyCollector::class));
-        $this->assertTrue($container->hasDefinition(SchedulerCollector::class), 'Scheduler should be enabled by default when symfony is true');
-        $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class), 'Flex should be enabled by default when symfony is true');
+
+        if (class_exists('Symfony\Component\Scheduler\Scheduler')) {
+            $this->assertTrue($container->hasDefinition(SchedulerCollector::class), 'Scheduler should be enabled by default when symfony is true and component is present');
+        } else {
+            $this->assertFalse($container->hasDefinition(SchedulerCollector::class), 'Scheduler should be disabled by default when component is absent');
+        }
+
+        if (class_exists('Symfony\Flex\SymfonyBundle')) {
+            $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class), 'Flex should be enabled by default when symfony is true and component is present');
+        } else {
+            $this->assertFalse($container->hasDefinition(FlexRecipesCollector::class), 'Flex should be disabled by default when component is absent');
+        }
     }
 
     public function testSymfonyCollectorCanBeEnabledWithTilde(): void
@@ -258,8 +268,18 @@ class JmonitorBundleTest extends TestCase
         ]);
 
         $this->assertTrue($container->hasDefinition(SymfonyCollector::class));
-        $this->assertTrue($container->hasDefinition(SchedulerCollector::class));
-        $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class));
+
+        if (class_exists('Symfony\Component\Scheduler\Scheduler')) {
+            $this->assertTrue($container->hasDefinition(SchedulerCollector::class));
+        } else {
+            $this->assertFalse($container->hasDefinition(SchedulerCollector::class));
+        }
+
+        if (class_exists('Symfony\Flex\SymfonyBundle')) {
+            $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class));
+        } else {
+            $this->assertFalse($container->hasDefinition(FlexRecipesCollector::class));
+        }
     }
 
     public function testApacheCollectorCanBeEnabledWithTilde(): void
