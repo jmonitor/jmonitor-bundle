@@ -250,8 +250,7 @@ final class JmonitorBundle extends AbstractBundle
             ->validate()
             ->ifTrue(function ($config): bool {
                 return
-                    !empty($config['schedule']['redis']['dsn'])
-                    && !class_exists(Scheduler::class);
+                    !empty($config['schedule']) && !class_exists(Scheduler::class);
             })
             ->thenInvalid('You need to install symfony/scheduler to use the "schedule" option.')
             ->end()
