@@ -23,16 +23,16 @@ class SchedulerCollectorTest extends TestCase
         $commandRunner->method('getApplication')->willReturn($application);
 
         $output = <<<EOF
-             --------------------------------------- ----------------------------------------------------------------------------------------------------- ---------------------------------
-              Trigger                                 Provider                                                                                              Next Run
-             --------------------------------------- ----------------------------------------------------------------------------------------------------- ---------------------------------
-              every 3 hour                            Symfony\Component\Console\Messenger\RunCommandMessage (app:foo)                                       Sat, 20 Dec 2025 03:20:00 +0100
-              every 24 hours                          Symfony\Component\Console\Messenger\RunCommandMessage (app:foo:bar)                                   Sat, 20 Dec 2025 13:30:00 +0100
-              every 24 hours with 0-5 second jitter   Symfony\Component\Console\Messenger\RunCommandMessage (app:bar)                                       Sat, 20 Dec 2025 02:05:03 +0100
-              0 0 * * *                               Symfony\Component\Console\Messenger\RunCommandMessage (app:bar:foo)                                   Sun, 21 Dec 2025 00:00:00 +0100
-              every 15 seconds                        Symfony\Component\Console\Messenger\RunCommandMessage (jmonitor:collect)                              Sat, 20 Dec 2025 00:56:24 +0100
-             --------------------------------------- ----------------------------------------------------------------------------------------------------- ---------------------------------
-            EOF;
+         --------------------------------------- ----------------------------------------------------------------------------------------------------- ---------------------------------
+          Trigger                                 Provider                                                                                              Next Run
+         --------------------------------------- ----------------------------------------------------------------------------------------------------- ---------------------------------
+          every 3 hour                            Symfony\Component\Console\Messenger\RunCommandMessage (app:foo)                                       Sat, 20 Dec 2025 03:20:00 +0100
+          every 24 hours                          Symfony\Component\Console\Messenger\RunCommandMessage (app:foo:bar)                                   Sat, 20 Dec 2025 13:30:00 +0100
+          every 24 hours with 0-5 second jitter   Symfony\Component\Console\Messenger\RunCommandMessage (app:bar)                                       Sat, 20 Dec 2025 02:05:03 +0100
+          0 0 * * *                               Symfony\Component\Console\Messenger\RunCommandMessage (app:bar:foo)                                   Sun, 21 Dec 2025 00:00:00 +0100
+          every 15 seconds                        Symfony\Component\Console\Messenger\RunCommandMessage (jmonitor:collect)                              Sat, 20 Dec 2025 00:56:24 +0100
+         --------------------------------------- ----------------------------------------------------------------------------------------------------- ---------------------------------
+        EOF;
 
         $commandRunner->method('run')->willReturn(['exit_code' => 0, 'output' => $output]);
 

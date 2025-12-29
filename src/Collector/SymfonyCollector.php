@@ -47,9 +47,14 @@ class SymfonyCollector extends AbstractCollector
             'log_dir' => $this->getDirData($this->kernel->getLogDir()),
             'build_dir' => $this->getDirData($this->kernel->getBuildDir()),
             // @phpstan-ignore-next-line
-            'share_dir' => \method_exists($this->kernel, 'getShareDir') ? $this->getDirData($this->kernel->getShareDir()) : [],
+            'share_dir' => \method_exists($this->kernel, 'getShareDir')
+                ? $this->getDirData($this->kernel->getShareDir())
+                : [],
             'charset' => $this->kernel->getCharset(),
-            'components' => array_filter(array_map(static fn(ComponentCollectorInterface $collector) => $collector->collect(), $this->componentCollectors)),
+            'components' => array_filter(array_map(
+                static fn(ComponentCollectorInterface $collector) => $collector->collect(),
+                $this->componentCollectors,
+            )),
         ];
     }
 
@@ -74,19 +79,19 @@ class SymfonyCollector extends AbstractCollector
             return [];
         }
 
-        // todo match php >= 8.0
-        $size = null;
+        $size = is_file($dir) ? filesize($dir) : null;
 
-        if (is_file($dir)) {
-            $size = filesize($dir) ?: null;
-        } elseif (is_dir($dir)) {
+        if (is_dir($dir)) {
             $size = 0;
-            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)) as $file) {
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(
+                $dir,
+                \RecursiveDirectoryIterator::SKIP_DOTS,
+            )) as $file) {
                 $size += $file->getSize();
             }
         }
 
-        return ['path' => $dir, 'size' => $size];
+        return ['path' => $dir, 'size' => is_int($size) ? $size : null];
     }
 
     private function getSymfonyVersion(): ?string

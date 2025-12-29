@@ -29,6 +29,10 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 
+/**
+ * @mago-expect lint:too-many-methods
+ * @mago-expect lint:no-else-clause
+ */
 class JmonitorBundleTest extends TestCase
 {
     private function loadBundle(array $config): ContainerBuilder
@@ -54,7 +58,10 @@ class JmonitorBundleTest extends TestCase
         ]);
 
         static::assertTrue($container->hasDefinition(Jmonitor::class), 'Jmonitor service should be defined');
-        static::assertTrue($container->hasDefinition(\Jmonitor\JmonitorBundle\Command\CollectorCommand::class), 'CollectorCommand should be defined');
+        static::assertTrue(
+            $container->hasDefinition(\Jmonitor\JmonitorBundle\Command\CollectorCommand::class),
+            'CollectorCommand should be defined',
+        );
 
         $jmonitorDef = $container->getDefinition(Jmonitor::class);
         $args = $jmonitorDef->getArguments();
@@ -80,7 +87,10 @@ class JmonitorBundleTest extends TestCase
 
         if (class_exists(\Symfony\Component\Scheduler\Scheduler::class)) {
             $commandDef = $container->getDefinition(\Jmonitor\JmonitorBundle\Command\CollectorCommand::class);
-            static::assertTrue($commandDef->hasTag('scheduler.task'), 'CollectorCommand should have scheduler.task tag');
+            static::assertTrue(
+                $commandDef->hasTag('scheduler.task'),
+                'CollectorCommand should have scheduler.task tag',
+            );
 
             $tag = $commandDef->getTag('scheduler.task')[0];
             static::assertSame('default', $tag['schedule']);
@@ -110,7 +120,7 @@ class JmonitorBundleTest extends TestCase
         static::assertContains('addCollector', $methods, 'addCollector should be called');
 
         // Ensure all three mysql collectors are registered via addCollector calls
-        $serializedArgs = array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls);
+        $serializedArgs = array_map(static fn(array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls);
         $flat = array_merge(...$serializedArgs);
 
         static::assertContains(MysqlQueriesCountCollector::class, $flat);
@@ -121,7 +131,9 @@ class JmonitorBundleTest extends TestCase
     public function testRedisCollectorMutualExclusivityValidation(): void
     {
         $this->expectException(InvalidConfigurationException::class);
-        $this->expectExceptionMessage('You cannot set both "dsn" and "adapter" for Redis collector. Please choose one.');
+        $this->expectExceptionMessage(
+            'You cannot set both "dsn" and "adapter" for Redis collector. Please choose one.',
+        );
 
         $this->loadBundle([
             'project_api_key' => 'key',
@@ -148,7 +160,10 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->hasDefinition(RedisCollector::class));
 
         $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
-        $flat = array_merge(...array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls));
+        $flat = array_merge(...array_map(static fn(array $c) => array_map(
+            static fn($a) => (string) $a,
+            $c[1],
+        ), $calls));
         static::assertContains(RedisCollector::class, $flat);
     }
 
@@ -166,7 +181,10 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->hasDefinition(ApacheCollector::class));
 
         $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
-        $flat = array_merge(...array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls));
+        $flat = array_merge(...array_map(static fn(array $c) => array_map(
+            static fn($a) => (string) $a,
+            $c[1],
+        ), $calls));
         static::assertContains(ApacheCollector::class, $flat);
     }
 
@@ -184,7 +202,10 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->hasDefinition(SystemCollector::class));
 
         $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
-        $flat = array_merge(...array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls));
+        $flat = array_merge(...array_map(static fn(array $c) => array_map(
+            static fn($a) => (string) $a,
+            $c[1],
+        ), $calls));
         static::assertContains(SystemCollector::class, $flat);
     }
 
@@ -205,7 +226,10 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->hasDefinition(FlexRecipesCollector::class));
 
         $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
-        $flat = array_merge(...array_map(static fn (array $c) => array_map(static fn($a) => (string) $a, $c[1]), $calls));
+        $flat = array_merge(...array_map(static fn(array $c) => array_map(
+            static fn($a) => (string) $a,
+            $c[1],
+        ), $calls));
         static::assertContains(SymfonyCollector::class, $flat);
     }
 
@@ -238,15 +262,27 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->hasDefinition(SymfonyCollector::class));
 
         if (class_exists('Symfony\Component\Scheduler\Scheduler')) {
-            static::assertTrue($container->hasDefinition(SchedulerCollector::class), 'Scheduler should be enabled by default when symfony is true and component is present');
+            static::assertTrue(
+                $container->hasDefinition(SchedulerCollector::class),
+                'Scheduler should be enabled by default when symfony is true and component is present',
+            );
         } else {
-            static::assertFalse($container->hasDefinition(SchedulerCollector::class), 'Scheduler should be disabled by default when component is absent');
+            static::assertFalse(
+                $container->hasDefinition(SchedulerCollector::class),
+                'Scheduler should be disabled by default when component is absent',
+            );
         }
 
         if (class_exists('Symfony\Flex\SymfonyBundle')) {
-            static::assertTrue($container->hasDefinition(FlexRecipesCollector::class), 'Flex should be enabled by default when symfony is true and component is present');
+            static::assertTrue(
+                $container->hasDefinition(FlexRecipesCollector::class),
+                'Flex should be enabled by default when symfony is true and component is present',
+            );
         } else {
-            static::assertFalse($container->hasDefinition(FlexRecipesCollector::class), 'Flex should be disabled by default when component is absent');
+            static::assertFalse(
+                $container->hasDefinition(FlexRecipesCollector::class),
+                'Flex should be disabled by default when component is absent',
+            );
         }
     }
 
@@ -315,6 +351,9 @@ class JmonitorBundleTest extends TestCase
         ]);
 
         static::assertTrue($container->hasDefinition(FlexRecipesCollector::class));
-        static::assertSame('php bin/console custom:recipes', $container->getDefinition(FlexRecipesCollector::class)->getArgument(1));
+        static::assertSame(
+            'php bin/console custom:recipes',
+            $container->getDefinition(FlexRecipesCollector::class)->getArgument(1),
+        );
     }
 }

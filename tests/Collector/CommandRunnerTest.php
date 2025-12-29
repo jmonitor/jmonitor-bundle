@@ -54,7 +54,7 @@ class CommandRunnerTest extends TestCase
 
     public function testRunReturnsOutputIfCommandExists(): void
     {
-        $command = new class ('test:command') extends Command {
+        $command = new class('test:command') extends Command {
             protected function execute(InputInterface $input, OutputInterface $output): int
             {
                 $output->write('test output');
@@ -71,7 +71,7 @@ class CommandRunnerTest extends TestCase
 
     public function testRunReturnsEmptyOutputIfOutputIsEmpty(): void
     {
-        $command = new class ('test:empty') extends Command {
+        $command = new class('test:empty') extends Command {
             protected function execute(InputInterface $input, OutputInterface $output): int
             {
                 return Command::SUCCESS;
@@ -87,7 +87,7 @@ class CommandRunnerTest extends TestCase
 
     public function testRunPassesInputArguments(): void
     {
-        $command = new class ('test:input') extends Command {
+        $command = new class('test:input') extends Command {
             protected function configure(): void
             {
                 $this->addArgument('arg');

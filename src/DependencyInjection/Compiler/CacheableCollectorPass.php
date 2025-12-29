@@ -28,7 +28,8 @@ final class CacheableCollectorPass implements CompilerPassInterface
                 continue;
             }
 
-            $container->register($id . '.cacheable', CacheableComponentCollector::class)
+            $container
+                ->register($id . '.cacheable', CacheableComponentCollector::class)
                 ->setDecoratedService($id, $id . '.cacheable.inner')
                 ->addArgument(new Reference($id . '.cacheable.inner'))
                 ->addArgument(new Reference('cache.app'))

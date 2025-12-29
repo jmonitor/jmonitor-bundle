@@ -27,7 +27,10 @@ final class SchedulerCollector implements ComponentCollectorInterface
 
         // ajoute la description de chaque commande
         foreach ($commands as &$command) {
-            $command['description'] = $this->commandRunner->getApplication()->find($command['command'])->getDescription();
+            $command['description'] = $this->commandRunner
+                ->getApplication()
+                ->find($command['command'])
+                ->getDescription();
         }
 
         return $commands;
@@ -50,7 +53,11 @@ final class SchedulerCollector implements ComponentCollectorInterface
 
             // Regex plus précise pour les colonnes du tableau Symfony
             // Elle cherche à capturer le trigger, la commande entre parenthèses et la date à la fin.
-            if (preg_match('/^(.+?)\s+Symfony\\\\Component\\\\Console\\\\Messenger\\\\RunCommandMessage\s+\((.+?)\)\s+(.+)$/', $line, $matches)) {
+            if (preg_match(
+                '/^(.+?)\s+Symfony\\\\Component\\\\Console\\\\Messenger\\\\RunCommandMessage\s+\((.+?)\)\s+(.+)$/',
+                $line,
+                $matches,
+            )) {
                 $trigger = trim($matches[1]);
                 $command = trim($matches[2]);
                 $nextRunStr = trim($matches[3]);

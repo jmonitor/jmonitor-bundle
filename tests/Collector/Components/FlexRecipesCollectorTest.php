@@ -13,7 +13,8 @@ class FlexRecipesCollectorTest extends TestCase
     public function testCollectWithDefaultCommand(): void
     {
         $commandRunner = $this->createMock(CommandRunner::class);
-        $commandRunner->expects($this->once())
+        $commandRunner
+            ->expects($this->once())
             ->method('runProcess')
             ->with(['composer', 'recipes', '-o'])
             ->willReturn(['exit_code' => 0, 'output' => '']);
@@ -25,7 +26,8 @@ class FlexRecipesCollectorTest extends TestCase
     public function testCollectWithCustomCommand(): void
     {
         $commandRunner = $this->createMock(CommandRunner::class);
-        $commandRunner->expects($this->once())
+        $commandRunner
+            ->expects($this->once())
             ->method('runProcess')
             ->with('php bin/console custom:recipes')
             ->willReturn(['exit_code' => 0, 'output' => '']);

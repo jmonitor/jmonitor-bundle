@@ -12,6 +12,7 @@ excludes = []
 print-width = 120
 tab-width = 4
 use-tabs = false
+excludes = ['src/JmonitorBundle.php']
 
 [linter]
 integrations = ["symfony", "phpunit"]
@@ -21,6 +22,7 @@ ambiguous-function-call = { enabled = false }
 literal-named-argument = { enabled = false }
 no-empty = { enabled = false }
 no-literal-password = { enabled = false }
+tagged-todo = { enabled = false }
 halstead = { effort-threshold = 7000 }
 
 [analyzer]
