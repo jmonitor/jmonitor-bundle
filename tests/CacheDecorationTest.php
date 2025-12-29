@@ -61,7 +61,7 @@ class CacheDecorationTest extends TestCase
 
         $container->compile();
 
-        $this->assertTrue($container->has(FlexRecipesCollector::class), 'FlexRecipesCollector should be present');
+        static::assertTrue($container->has(FlexRecipesCollector::class), 'FlexRecipesCollector should be present');
 
         $id = FlexRecipesCollector::class;
         if ($container->hasAlias($id)) {
@@ -69,7 +69,7 @@ class CacheDecorationTest extends TestCase
         }
 
         $definition = $container->getDefinition($id);
-        $this->assertEquals(CacheableComponentCollector::class, $definition->getClass());
+        static::assertEquals(CacheableComponentCollector::class, $definition->getClass());
     }
 
     public function testCollectorsAreNotDecoratedWhenCacheAppIsMissing(): void
@@ -113,7 +113,7 @@ class CacheDecorationTest extends TestCase
 
         $container->compile();
 
-        $this->assertTrue($container->has(FlexRecipesCollector::class), 'FlexRecipesCollector should be present');
+        static::assertTrue($container->has(FlexRecipesCollector::class), 'FlexRecipesCollector should be present');
 
         $id = FlexRecipesCollector::class;
         if ($container->hasAlias($id)) {
@@ -121,7 +121,7 @@ class CacheDecorationTest extends TestCase
         }
 
         $definition = $container->getDefinition($id);
-        $this->assertEquals(FlexRecipesCollector::class, $definition->getClass() ?? $id);
-        $this->assertNotEquals(CacheableComponentCollector::class, $definition->getClass());
+        static::assertEquals(FlexRecipesCollector::class, $definition->getClass() ?? $id);
+        static::assertNotEquals(CacheableComponentCollector::class, $definition->getClass());
     }
 }

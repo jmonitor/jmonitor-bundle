@@ -30,7 +30,7 @@ class CacheableComponentCollectorTest extends TestCase
         $decorator = new CacheableComponentCollector($collector, $cache);
         $result = $decorator->collect();
 
-        $this->assertEquals(['foo' => 'bar'], $result);
+        static::assertEquals(['foo' => 'bar'], $result);
     }
 
     public function testCollectReturnsCacheIfHit(): void
@@ -48,6 +48,6 @@ class CacheableComponentCollectorTest extends TestCase
         $decorator = new CacheableComponentCollector($collector, $cache);
         $result = $decorator->collect();
 
-        $this->assertEquals(['cached' => 'data'], $result);
+        static::assertEquals(['cached' => 'data'], $result);
     }
 }

@@ -48,28 +48,28 @@ class SymfonyCollectorTest extends TestCase
 
         $result = $collector->collect();
 
-        $this->assertSame('test_env', $result['env']);
-        $this->assertTrue($result['debug']);
-        $this->assertSame(['FrameworkBundle', 'JmonitorBundle'], $result['bundles']);
-        $this->assertSame('/project/dir', $result['project_dir']);
-        $this->assertSame('UTF-8', $result['charset']);
+        static::assertSame('test_env', $result['env']);
+        static::assertTrue($result['debug']);
+        static::assertSame(['FrameworkBundle', 'JmonitorBundle'], $result['bundles']);
+        static::assertSame('/project/dir', $result['project_dir']);
+        static::assertSame('UTF-8', $result['charset']);
 
-        $this->assertArrayHasKey('cache_dir', $result);
-        $this->assertSame('/cache/dir', $result['cache_dir']['path']);
+        static::assertArrayHasKey('cache_dir', $result);
+        static::assertSame('/cache/dir', $result['cache_dir']['path']);
 
-        $this->assertArrayHasKey('log_dir', $result);
-        $this->assertSame('/log/dir', $result['log_dir']['path']);
+        static::assertArrayHasKey('log_dir', $result);
+        static::assertSame('/log/dir', $result['log_dir']['path']);
 
-        $this->assertArrayHasKey('build_dir', $result);
-        $this->assertSame('/build/dir', $result['build_dir']['path']);
+        static::assertArrayHasKey('build_dir', $result);
+        static::assertSame('/build/dir', $result['build_dir']['path']);
 
-        $this->assertArrayHasKey('components', $result);
-        $this->assertSame(['comp1' => ['foo' => 'bar']], $result['components']);
+        static::assertArrayHasKey('components', $result);
+        static::assertSame(['comp1' => ['foo' => 'bar']], $result['components']);
     }
 
     public function testGetVersion(): void
     {
         $collector = new SymfonyCollector($this->kernel, []);
-        $this->assertSame(1, $collector->getVersion());
+        static::assertSame(1, $collector->getVersion());
     }
 }

@@ -38,6 +38,6 @@ class FlexRecipesCollectorTest extends TestCase
     {
         $commandRunner = $this->createMock(CommandRunner::class);
         $collector = new FlexRecipesCollector($commandRunner, null, 123);
-        $this->assertEquals(123, $collector->getCacheTtl());
+        static::assertEquals(123, $collector->getCacheTtl());
     }
 }

@@ -41,13 +41,13 @@ class CommandRunnerTest extends TestCase
 
     public function testGetApplication(): void
     {
-        $this->assertInstanceOf(Application::class, $this->commandRunner->getApplication());
+        static::assertInstanceOf(Application::class, $this->commandRunner->getApplication());
     }
 
     public function testRunReturnsNullIfCommandDoesNotExist(): void
     {
         $result = $this->commandRunner->run('non:existent:command');
-        $this->assertNull($result);
+        static::assertNull($result);
     }
 
     public function testRunReturnsOutputIfCommandExists(): void
@@ -63,8 +63,8 @@ class CommandRunnerTest extends TestCase
         $this->commandRunner->getApplication()->add($command);
 
         $result = $this->commandRunner->run('test:command');
-        $this->assertSame(0, $result['exit_code']);
-        $this->assertSame('test output', $result['output']);
+        static::assertSame(0, $result['exit_code']);
+        static::assertSame('test output', $result['output']);
     }
 
     public function testRunReturnsEmptyOutputIfOutputIsEmpty(): void
@@ -79,8 +79,8 @@ class CommandRunnerTest extends TestCase
         $this->commandRunner->getApplication()->add($command);
 
         $result = $this->commandRunner->run('test:empty');
-        $this->assertSame(0, $result['exit_code']);
-        $this->assertSame('', $result['output']);
+        static::assertSame(0, $result['exit_code']);
+        static::assertSame('', $result['output']);
     }
 
     public function testRunPassesInputArguments(): void
@@ -101,8 +101,8 @@ class CommandRunnerTest extends TestCase
         $this->commandRunner->getApplication()->add($command);
 
         $result = $this->commandRunner->run('test:input', ['arg' => 'hello']);
-        $this->assertSame(0, $result['exit_code']);
-        $this->assertSame('hello', $result['output']);
+        static::assertSame(0, $result['exit_code']);
+        static::assertSame('hello', $result['output']);
     }
 
     public function testRunExternal(): void
@@ -111,7 +111,7 @@ class CommandRunnerTest extends TestCase
         // Or 'echo' if we want to be very safe, but 'php' is guaranteed since we are running tests.
         $result = $this->commandRunner->runProcess(['php', '-v']);
 
-        $this->assertSame(0, $result['exit_code']);
-        $this->assertStringContainsString('PHP', $result['output']);
+        static::assertSame(0, $result['exit_code']);
+        static::assertStringContainsString('PHP', $result['output']);
     }
 }
