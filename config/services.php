@@ -192,7 +192,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                     $symfonyConfig['flex']['command'],
                     $symfonyConfig['flex']['cache_ttl'],
                 ])
-                ->tag('jmonitor.symfony.component_collector', ['index' => 'flex'])
+                ->tag('jmonitor.symfony.component_collector', ['index' => 'flex_recipes'])
             ;
         }
     }

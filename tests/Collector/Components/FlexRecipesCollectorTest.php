@@ -42,4 +42,33 @@ class FlexRecipesCollectorTest extends TestCase
         $collector = new FlexRecipesCollector($commandRunner, null, 123);
         static::assertSame(123, $collector->getCacheTtl());
     }
+
+    public function testParseOutput(): void
+    {
+        $output =
+            <<<TXT
+              Outdated recipes.
+
+
+             * symfony/ux-turbo (recipe not installed)
+             * zenstruck/messenger-monitor-bundle (recipe not installed)
+
+            Run:
+             * composer recipes vendor/package to see details about a recipe.
+             * composer recipes:update vendor/package to update that recipe.
+        TXT;
+
+        $commandRunner = $this->createMock(CommandRunner::class);
+        $collector = new FlexRecipesCollector($commandRunner);
+
+        $reflection = new \ReflectionClass(FlexRecipesCollector::class);
+        $method = $reflection->getMethod('parseOutput');
+
+        $result = $method->invoke($collector, $output);
+
+        static::assertEquals([
+            'symfony/ux-turbo (recipe not installed)',
+            'zenstruck/messenger-monitor-bundle (recipe not installed)'
+        ], $result);
+    }
 }

@@ -44,7 +44,7 @@ class ExampleTest extends TestCase
 {
     public function testExample(): void
     {
-        $this->assertTrue(true);
+        static::assertTrue(true);
     }
 }
 ```
@@ -56,7 +56,7 @@ Run it with:
 ## Code Quality & Style
 The project enforces code style and quality using the following tools:
 
-### Linting (PHP-CS-Fixer)
+### Linting (Mago)
 To check the code style:
 ```bash
 composer run-script lint:check
@@ -65,7 +65,7 @@ To automatically fix style issues:
 ```bash
 composer run-script lint:fix
 ```
-The configuration is defined in `.php-cs-fixer.dist.php` and follows `@PER-CS` and `@PHP8x1Migration` rules.
+The configuration is defined in `mago.toml` and follows `PER-CS` rules.
 
 ### Static Analysis (PHPStan)
 To run PHPStan:

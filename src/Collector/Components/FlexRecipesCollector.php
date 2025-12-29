@@ -26,7 +26,7 @@ final class FlexRecipesCollector implements CacheableComponentCollectorInterface
     }
 
     /**
-     * @return array{up_to_date: true}|array{up_to_date: false, recipes: array<string>}
+     * @return array{up_to_date: true}|array{up_to_date: false, outdated_recipes: array<string>}
      */
     public function collect(): array
     {
@@ -45,12 +45,30 @@ final class FlexRecipesCollector implements CacheableComponentCollectorInterface
 
         return [
             'up_to_date' => false,
-            'recipes' => $this->parseOutput($run['output']),
+            'outdated_recipes' => $this->parseOutput($run['output']),
         ];
     }
 
     private function parseOutput(string $output): array
     {
-        return [];
+        $output = str_replace('Outdated recipes.', '', $output);
+        $output = explode('Run:', $output)[0];
+        $output = trim($output);
+
+        if (empty($output)) {
+            return [];
+        }
+
+        $lines = explode("\n", $output);
+        $recipes = [];
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (str_starts_with($line, '* ')) {
+                $recipes[] = trim(substr($line, 2));
+            }
+        }
+
+        return $recipes;
     }
 }
