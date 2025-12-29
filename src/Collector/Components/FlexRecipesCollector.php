@@ -18,7 +18,7 @@ final class FlexRecipesCollector implements ComponentCollectorInterface
     }
 
     /**
-     *
+     * @return array{up_to_date: true}|array{up_to_date: false, recipes: array<string>}
      */
     public function collect(): array
     {
