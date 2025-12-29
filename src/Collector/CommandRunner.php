@@ -59,9 +59,9 @@ class CommandRunner
      *
      * @return array{exit_code: int, output: string}
      */
-    public function runProcess(array|string $command): array
+    public function runProcess(array|string $command, ?int $timeout = 3): array
     {
-        $process = is_array($command) ? new Process($command, $this->projectDir, timeout: 3) : Process::fromShellCommandline($command, $this->projectDir, timeout: 3);
+        $process = is_array($command) ? new Process($command, $this->projectDir, timeout: $timeout) : Process::fromShellCommandline($command, $this->projectDir, timeout: $timeout);
         $process->run();
 
         return [

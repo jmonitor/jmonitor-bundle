@@ -223,9 +223,12 @@ final class JmonitorBundle extends AbstractBundle
                         ->arrayNode('symfony')
                             ->canBeEnabled()
                             ->children()
-                                ->booleanNode('flex')
-                                    ->defaultValue(class_exists(SymfonyBundle::class))
-                                    ->info('Collect Symfony Flex recipes metrics.')
+                                ->arrayNode('flex')
+                                    ->canBeEnabled()
+                                    ->children()
+                                        ->scalarNode('enabled')->defaultValue(class_exists(SymfonyBundle::class))->end()
+                                        ->scalarNode('command')->defaultValue('composer recipes -o')->info('Command to collect Flex recipes metrics"')->end()
+                                    ->end()
                                 ->end()
                                 ->booleanNode('scheduler')
                                     ->defaultValue(class_exists(Scheduler::class))
@@ -283,10 +286,11 @@ final class JmonitorBundle extends AbstractBundle
             ;
         }
 
-        if ($symfonyConfig['flex']) {
+        if ($symfonyConfig['flex']['enabled']) {
             $container->services()->set(FlexRecipesCollector::class)
                 ->args([
                     service(CommandRunner::class),
+                    $symfonyConfig['flex']['command'],
                 ])
                 ->tag('jmonitor.symfony.component_collector', ['index' => 'flex'])
             ;

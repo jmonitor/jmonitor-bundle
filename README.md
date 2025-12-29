@@ -77,7 +77,12 @@ jmonitor:
         #     flex: false
         #     scheduler: true
         # or let the bundle auto-detect
-        symfony: ~     
+        symfony: ~
+        # you can provide the recipes command if the default one does not suit you
+        # symfony:
+        #     flex:
+        #         command: "composer.phar recipes -o" # default is "composer recipes -o"
+        
 
         # Redis metrics via INFO command
         redis:

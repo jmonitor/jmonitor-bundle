@@ -308,15 +308,21 @@ class JmonitorBundleTest extends TestCase
         $this->assertFalse($container->hasDefinition(ApacheCollector::class));
     }
 
-    public function testPhpCollectorCanBeEnabledWithBooleanTrue(): void
+    public function testSymfonyCollectorWithCustomFlexCommand(): void
     {
         $container = $this->loadBundle([
             'project_api_key' => 'key',
             'collectors' => [
-                'php' => true,
+                'symfony' => [
+                    'flex' => [
+                        'enabled' => true,
+                        'command' => 'php bin/console custom:recipes',
+                    ],
+                ],
             ],
         ]);
 
-        $this->assertTrue($container->hasDefinition(PhpCollector::class));
+        $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class));
+        $this->assertEquals('php bin/console custom:recipes', $container->getDefinition(FlexRecipesCollector::class)->getArgument(1));
     }
 }
