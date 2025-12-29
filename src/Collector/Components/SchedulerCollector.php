@@ -6,7 +6,7 @@ namespace Jmonitor\JmonitorBundle\Collector\Components;
 
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
-class SchedulerCollector implements ComponentCollectorInterface
+final class SchedulerCollector implements ComponentCollectorInterface
 {
     private CommandRunner $commandRunner;
 

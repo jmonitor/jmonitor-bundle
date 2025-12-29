@@ -22,9 +22,9 @@ final class CacheableCollectorPass implements CompilerPassInterface
 
         foreach ($taggedServices as $id => $tags) {
             $definition = $container->getDefinition($id);
-            $class = $container->getParameterBag()->resolveValue($definition->getClass());
+            $class = $container->getParameterBag()->resolveValue($definition->getClass() ?? $id);
 
-            if (!$class || !is_subclass_of($class, CacheableComponentCollectorInterface::class)) {
+            if (!class_exists($class) || !is_subclass_of($class, CacheableComponentCollectorInterface::class)) {
                 continue;
             }
 

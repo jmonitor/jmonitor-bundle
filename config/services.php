@@ -32,6 +32,11 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $config = $builder->getParameter('jmonitor.bundle_config');
     $services = $container->services();
 
+    $services->defaults()
+        ->autowire(false)
+        ->autoconfigure(true)
+    ;
+
     $services->set(Jmonitor::class)
         ->args([
             $config['project_api_key'],

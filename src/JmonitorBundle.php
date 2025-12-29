@@ -25,6 +25,7 @@ final class JmonitorBundle extends AbstractBundle
     public function build(ContainerBuilder $builder): void
     {
         parent::build($builder);
+
         $builder->addCompilerPass(new CacheableCollectorPass());
     }
 
@@ -101,7 +102,7 @@ final class JmonitorBundle extends AbstractBundle
                                     ->children()
                                         ->scalarNode('enabled')->defaultValue(class_exists(SymfonyBundle::class))->end()
                                         ->scalarNode('command')->defaultValue('composer recipes -o')->info('Command to collect Flex recipes metrics"')->end()
-                                        ->integerNode('cache_ttl')->defaultValue(3600)->info('Cache TTL in seconds for Flex recipes metrics.')->end()
+                                        ->integerNode('cache_ttl')->defaultValue(3600 * 24)->info('Cache TTL in seconds for Flex recipes metrics.')->end()
                                     ->end()
                                 ->end()
                                 ->booleanNode('scheduler')
