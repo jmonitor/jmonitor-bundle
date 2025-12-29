@@ -9,15 +9,15 @@
  * file that was distributed with this source code.
  */
 
+declare(strict_types=1);
+
 namespace Jmonitor\JmonitorBundle\Tests;
 
 use Jmonitor\Collector\Apache\ApacheCollector;
-use Jmonitor\Collector\Caddy\CaddyCollector;
 use Jmonitor\Collector\Mysql\Adapter\DoctrineAdapter;
 use Jmonitor\Collector\Mysql\MysqlQueriesCountCollector;
 use Jmonitor\Collector\Mysql\MysqlStatusCollector;
 use Jmonitor\Collector\Mysql\MysqlVariablesCollector;
-use Jmonitor\Collector\Php\PhpCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
