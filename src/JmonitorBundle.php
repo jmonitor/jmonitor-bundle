@@ -23,6 +23,7 @@ use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
+use Jmonitor\JmonitorBundle\Collector\Components\FlexRecipesCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\SchedulerCollector;
 use Jmonitor\JmonitorBundle\Command\CollectorCommand;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -161,8 +162,8 @@ final class JmonitorBundle extends AbstractBundle
             $container->services()->get(Jmonitor::class)->call('addCollector', [service(CaddyCollector::class)]);
         }
 
-        if ($config['collectors']['symfony'] ?: false) {
-            $this->loadSymfonyCollector($container);
+        if ($config['collectors']['symfony']['enabled'] ?? false) {
+            $this->loadSymfonyCollector($container, $config['collectors']['symfony']);
         }
     }
 
@@ -211,7 +212,13 @@ final class JmonitorBundle extends AbstractBundle
                                 ->scalarNode('endpoint')->defaultValue('http://localhost:2019/metrics')->cannotBeEmpty()->info('Url of Caddy (or FrankenPHP) metrics endpoint.')->end()
                             ->end()
                         ->end()
-                        ->booleanNode('symfony')->defaultFalse()->info('Enable Symfony collector')->end()
+                        ->arrayNode('symfony')
+                            ->canBeEnabled()
+                            ->children()
+                                ->booleanNode('flex')->defaultTrue()->info('Collect Symfony Flex recipes metrics.')->end()
+                                ->booleanNode('scheduler')->defaultTrue()->info('Collect Symfony Scheduler metrics.')->end()
+                            ->end()
+                        ->end()
                     ->end()
                 ->end()
             ->end()
@@ -234,7 +241,7 @@ final class JmonitorBundle extends AbstractBundle
         ;
     }
 
-    private function loadSymfonyCollector(ContainerConfigurator $container): void
+    private function loadSymfonyCollector(ContainerConfigurator $container, array $symfonyConfig): void
     {
         $container->services()->set(CommandRunner::class)
             ->args([
@@ -253,11 +260,22 @@ final class JmonitorBundle extends AbstractBundle
         $container->services()->get(Jmonitor::class)->call('addCollector', [service(SymfonyCollector::class)]);
 
         // Register Symfony component collectors
-        $container->services()->set(SchedulerCollector::class)
-            ->args([
-                service(CommandRunner::class),
-            ])
-            ->tag('jmonitor.symfony.component_collector', ['index' => 'scheduler'])
-        ;
+        if ($symfonyConfig['scheduler'] ?? false) {
+            $container->services()->set(SchedulerCollector::class)
+                ->args([
+                    service(CommandRunner::class),
+                ])
+                ->tag('jmonitor.symfony.component_collector', ['index' => 'scheduler'])
+            ;
+        }
+
+        if ($symfonyConfig['flex'] ?? false) {
+            $container->services()->set(FlexRecipesCollector::class)
+                ->args([
+                    service(CommandRunner::class),
+                ])
+                ->tag('jmonitor.symfony.component_collector', ['index' => 'flex'])
+            ;
+        }
     }
 }

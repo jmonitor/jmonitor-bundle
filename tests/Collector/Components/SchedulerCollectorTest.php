@@ -34,7 +34,7 @@ class SchedulerCollectorTest extends TestCase
              --------------------------------------- ----------------------------------------------------------------------------------------------------- ---------------------------------
             EOF;
 
-        $commandRunner->method('run')->willReturn($output);
+        $commandRunner->method('run')->willReturn(['exit_code' => 0, 'output' => $output]);
 
         $collector = new SchedulerCollector($commandRunner);
         $result = $collector->collect();

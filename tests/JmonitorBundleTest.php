@@ -19,6 +19,9 @@ use Jmonitor\Collector\Mysql\MysqlVariablesCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
+use Jmonitor\JmonitorBundle\Collector\Components\FlexRecipesCollector;
+use Jmonitor\JmonitorBundle\Collector\Components\SchedulerCollector;
+use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
@@ -187,5 +190,83 @@ class JmonitorBundleTest extends TestCase
             return array_map(static fn($a) => (string) $a, $c[1]);
         }, $calls));
         $this->assertContains(SystemCollector::class, $flat);
+    }
+
+    public function testSymfonyCollectorRegistersWithAllComponents(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'symfony' => [
+                    'flex' => true,
+                    'scheduler' => true,
+                ],
+            ],
+        ]);
+
+        $this->assertTrue($container->hasDefinition(SymfonyCollector::class));
+        $this->assertTrue($container->hasDefinition(SchedulerCollector::class));
+        $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class));
+
+        $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
+        $flat = array_merge(...array_map(static function (array $c) {
+            return array_map(static fn($a) => (string) $a, $c[1]);
+        }, $calls));
+        $this->assertContains(SymfonyCollector::class, $flat);
+    }
+
+    public function testSymfonyCollectorRegistersWithOnlyFlex(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'symfony' => [
+                    'flex' => true,
+                    'scheduler' => false,
+                ],
+            ],
+        ]);
+
+        $this->assertTrue($container->hasDefinition(SymfonyCollector::class));
+        $this->assertFalse($container->hasDefinition(SchedulerCollector::class));
+        $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class));
+    }
+
+    public function testSymfonyCollectorCanBeEnabledWithoutComponents(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'symfony' => true,
+            ],
+        ]);
+
+        $this->assertTrue($container->hasDefinition(SymfonyCollector::class));
+        $this->assertTrue($container->hasDefinition(SchedulerCollector::class), 'Scheduler should be enabled by default when symfony is true');
+        $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class), 'Flex should be enabled by default when symfony is true');
+    }
+
+    public function testSymfonyCollectorCanBeEnabledWithTilde(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'symfony' => null,
+            ],
+        ]);
+
+        $this->assertTrue($container->hasDefinition(SymfonyCollector::class));
+        $this->assertTrue($container->hasDefinition(SchedulerCollector::class));
+        $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class));
+    }
+
+    public function testSymfonyCollectorIsDisabledByDefault(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            // symfony not specified
+        ]);
+
+        $this->assertFalse($container->hasDefinition(SymfonyCollector::class));
     }
 }

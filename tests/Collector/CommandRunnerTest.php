@@ -62,10 +62,11 @@ class CommandRunnerTest extends TestCase
         $this->commandRunner->getApplication()->add($command);
 
         $result = $this->commandRunner->run('test:command');
-        $this->assertSame('test output', $result);
+        $this->assertSame(0, $result['exit_code']);
+        $this->assertSame('test output', $result['output']);
     }
 
-    public function testRunReturnsNullIfOutputIsEmpty(): void
+    public function testRunReturnsEmptyOutputIfOutputIsEmpty(): void
     {
         $command = new class ('test:empty') extends Command {
             protected function execute(InputInterface $input, OutputInterface $output): int
@@ -77,7 +78,8 @@ class CommandRunnerTest extends TestCase
         $this->commandRunner->getApplication()->add($command);
 
         $result = $this->commandRunner->run('test:empty');
-        $this->assertNull($result);
+        $this->assertSame(0, $result['exit_code']);
+        $this->assertSame('', $result['output']);
     }
 
     public function testRunPassesInputArguments(): void
@@ -98,6 +100,7 @@ class CommandRunnerTest extends TestCase
         $this->commandRunner->getApplication()->add($command);
 
         $result = $this->commandRunner->run('test:input', ['arg' => 'hello']);
-        $this->assertSame('hello', $result);
+        $this->assertSame(0, $result['exit_code']);
+        $this->assertSame('hello', $result['output']);
     }
 }

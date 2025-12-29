@@ -19,7 +19,7 @@ use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\HttpKernel\KernelInterface;
 
 /**
- * Run console commands and return output
+ * Run console commands and return output and exit code.
  */
 class CommandRunner
 {
@@ -31,7 +31,10 @@ class CommandRunner
         $this->application->setAutoExit(false);
     }
 
-    public function run(string $command, array $input = []): ?string
+    /**
+     * @return array{exit_code: int, output: string}|null
+     */
+    public function run(string $command, array $input = []): ?array
     {
         if (!$this->application->has($command)) {
             return null;
@@ -40,11 +43,11 @@ class CommandRunner
         $input = array_merge(['command' => $command], $input);
 
         $output = new BufferedOutput();
-        $this->application->run(new ArrayInput($input), $output);
 
-        $output = $output->fetch();
-
-        return $output === '' ? null : $output;
+        return [
+            'exit_code' => $this->application->doRun(new ArrayInput($input), $output),
+            'output' => $output->fetch(),
+        ];
     }
 
     public function getApplication(): Application

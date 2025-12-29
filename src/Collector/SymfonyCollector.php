@@ -37,12 +37,6 @@ class SymfonyCollector extends AbstractCollector
      */
     public function collect(): array
     {
-        $components = [];
-
-        foreach ($this->componentCollectors as $name => $collector) {
-            $components[$name] = $collector->collect();
-        }
-
         return [
             'env' => $this->kernel->getEnvironment(),
             'debug' => $this->kernel->isDebug(),
@@ -55,7 +49,9 @@ class SymfonyCollector extends AbstractCollector
             // @phpstan-ignore-next-line
             'share_dir' => \method_exists($this->kernel, 'getShareDir') ? $this->getDirData($this->kernel->getShareDir()) : [],
             'charset' => $this->kernel->getCharset(),
-            'components' => $components,
+            'components' => array_filter(array_map(function (ComponentCollectorInterface $collector) {
+                return $collector->collect();
+            }, $this->componentCollectors)),
         ];
     }
 

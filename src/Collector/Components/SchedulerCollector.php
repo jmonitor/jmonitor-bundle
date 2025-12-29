@@ -17,7 +17,13 @@ class SchedulerCollector implements ComponentCollectorInterface
 
     public function collect(): array
     {
-        $commands = $this->parseOutput($this->commandRunner->run('debug:scheduler'));
+        $run = $this->commandRunner->run('debug:scheduler');
+
+        if ($run === null || $run['exit_code'] !== 0) {
+            return [];
+        }
+
+        $commands = $this->parseOutput($run['output']);
 
         // ajoute la description de chaque commande
         foreach ($commands as &$command) {
