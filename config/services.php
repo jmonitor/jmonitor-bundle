@@ -185,6 +185,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                 ->args([
                     service(CommandRunner::class),
                     $symfonyConfig['flex']['command'],
+                    $symfonyConfig['flex']['cache_ttl'],
                 ])
                 ->tag('jmonitor.symfony.component_collector', ['index' => 'flex'])
             ;

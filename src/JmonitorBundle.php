@@ -11,6 +11,8 @@
 
 namespace Jmonitor\JmonitorBundle;
 
+use Jmonitor\JmonitorBundle\Collector\Components\CacheableComponentCollectorInterface;
+use Jmonitor\JmonitorBundle\DependencyInjection\Compiler\CacheableCollectorPass;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -20,6 +22,12 @@ use Symfony\Component\Scheduler\Scheduler;
 
 final class JmonitorBundle extends AbstractBundle
 {
+    public function build(ContainerBuilder $builder): void
+    {
+        parent::build($builder);
+        $builder->addCompilerPass(new CacheableCollectorPass());
+    }
+
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         if (!$config['project_api_key']) {
@@ -29,6 +37,9 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.bundle_config', $config);
 
         $container->import('../config/services.php');
+
+        $builder->registerForAutoconfiguration(CacheableComponentCollectorInterface::class)
+            ->addTag('jmonitor.cacheable_collector');
     }
 
     /**
@@ -90,6 +101,7 @@ final class JmonitorBundle extends AbstractBundle
                                     ->children()
                                         ->scalarNode('enabled')->defaultValue(class_exists(SymfonyBundle::class))->end()
                                         ->scalarNode('command')->defaultValue('composer recipes -o')->info('Command to collect Flex recipes metrics"')->end()
+                                        ->integerNode('cache_ttl')->defaultValue(3600)->info('Cache TTL in seconds for Flex recipes metrics.')->end()
                                     ->end()
                                 ->end()
                                 ->booleanNode('scheduler')

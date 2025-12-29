@@ -6,15 +6,22 @@ namespace Jmonitor\JmonitorBundle\Collector\Components;
 
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
-final class FlexRecipesCollector implements ComponentCollectorInterface
+final class FlexRecipesCollector implements CacheableComponentCollectorInterface
 {
     private CommandRunner $commandRunner;
     private ?string $command;
+    private int $cacheTtl;
 
-    public function __construct(CommandRunner $commandRunner, ?string $command = null)
+    public function __construct(CommandRunner $commandRunner, ?string $command = null, int $cacheTtl = 3600 * 24)
     {
         $this->commandRunner = $commandRunner;
         $this->command = $command;
+        $this->cacheTtl = $cacheTtl;
+    }
+
+    public function getCacheTtl(): int
+    {
+        return $this->cacheTtl;
     }
 
     /**
