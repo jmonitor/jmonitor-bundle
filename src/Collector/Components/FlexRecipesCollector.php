@@ -6,7 +6,7 @@ namespace Jmonitor\JmonitorBundle\Collector\Components;
 
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
-class FlexRecipesCollector implements ComponentCollectorInterface
+final class FlexRecipesCollector implements ComponentCollectorInterface
 {
     private CommandRunner $commandRunner;
     private ?string $command;
