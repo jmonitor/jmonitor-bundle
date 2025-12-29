@@ -16,7 +16,7 @@ namespace Jmonitor\JmonitorBundle\Controller;
 use Jmonitor\Collector\Php\PhpCollector;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
-class JmonitorPhpController
+final class JmonitorPhpController
 {
     public function __invoke(): JsonResponse
     {

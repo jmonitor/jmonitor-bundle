@@ -55,12 +55,8 @@ final class SchedulerCollector implements ComponentCollectorInterface
                 $command = trim($matches[2]);
                 $nextRunStr = trim($matches[3]);
 
-                $nextRun = null;
-                try {
-                    $date = new \DateTimeImmutable($nextRunStr);
-                    $nextRun = $date->getTimestamp();
-                } catch (\Exception) {
-                }
+                $date = new \DateTimeImmutable($nextRunStr);
+                $nextRun = $date->getTimestamp();
 
                 $data[] = [
                     'trigger' => $trigger,
