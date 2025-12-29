@@ -67,7 +67,7 @@ final class JmonitorBundle extends AbstractBundle
         }
 
 
-        if ($config['collectors']['mysql'] ?? false) {
+        if ($config['collectors']['mysql']['enabled']) {
             $container->services()->set(DoctrineAdapter::class)
                 ->args([
                     service('doctrine.dbal.default_connection'),
@@ -103,7 +103,7 @@ final class JmonitorBundle extends AbstractBundle
             ;
         }
 
-        if ($config['collectors']['apache'] ?? false) {
+        if ($config['collectors']['apache']['enabled']) {
             $container->services()->set(ApacheCollector::class)
                 ->args([
                     $config['collectors']['apache']['server_status_url'],
@@ -114,7 +114,7 @@ final class JmonitorBundle extends AbstractBundle
             $container->services()->get(Jmonitor::class)->call('addCollector', [service(ApacheCollector::class)]);
         }
 
-        if ($config['collectors']['system'] ?? false) {
+        if ($config['collectors']['system']['enabled']) {
             if ($config['collectors']['system']['adapter'] ?? null) {
                 $container->services()->set($config['collectors']['system']['adapter']);
             }
@@ -129,7 +129,7 @@ final class JmonitorBundle extends AbstractBundle
             $container->services()->get(Jmonitor::class)->call('addCollector', [service(SystemCollector::class)]);
         }
 
-        if (($config['collectors']['php'] ?? false) !== false) {
+        if ($config['collectors']['php']['enabled']) {
             $container->services()->set(PhpCollector::class)
                 ->args([
                     $config['collectors']['php']['endpoint'],
@@ -140,7 +140,7 @@ final class JmonitorBundle extends AbstractBundle
             $container->services()->get(Jmonitor::class)->call('addCollector', [service(PhpCollector::class)]);
         }
 
-        if ($config['collectors']['redis'] ?? false) {
+        if ($config['collectors']['redis']['enabled']) {
             $container->services()->set(RedisCollector::class)
                 ->args([
                     $config['collectors']['redis']['adapter'] ? service($config['collectors']['redis']['adapter']) : $config['collectors']['redis']['dsn'],
@@ -151,7 +151,7 @@ final class JmonitorBundle extends AbstractBundle
             $container->services()->get(Jmonitor::class)->call('addCollector', [service(RedisCollector::class)]);
         }
 
-        if ($config['collectors']['caddy'] ?? false) {
+        if ($config['collectors']['caddy']['enabled']) {
             $container->services()->set(CaddyCollector::class)
                 ->args([
                     $config['collectors']['caddy']['endpoint'],
@@ -162,7 +162,7 @@ final class JmonitorBundle extends AbstractBundle
             $container->services()->get(Jmonitor::class)->call('addCollector', [service(CaddyCollector::class)]);
         }
 
-        if ($config['collectors']['symfony']['enabled'] ?? false) {
+        if ($config['collectors']['symfony']['enabled']) {
             $this->loadSymfonyCollector($container, $config['collectors']['symfony']);
         }
     }
@@ -182,32 +182,38 @@ final class JmonitorBundle extends AbstractBundle
                     ->addDefaultsIfNotSet() // permet de récup un tableau vide si pas de config
                     ->children()
                         ->arrayNode('mysql')
+                            ->canBeEnabled()
                             ->children()
                                 ->scalarNode('db_name')->cannotBeEmpty()->info('Db name of your project.')->end()
                             ->end()
                         ->end()
                         ->arrayNode('apache')
+                            ->canBeEnabled()
                             ->children()
                                 ->scalarNode('server_status_url')->defaultValue('https://localhost/server-status')->cannotBeEmpty()->info('Url of apache mod_status.')->end()
                             ->end()
                         ->end()
                         ->arrayNode('system')
+                            ->canBeEnabled()
                             ->children()
                                 ->scalarNode('adapter')->defaultNull()->end()
                             ->end()
                         ->end()
                         ->arrayNode('redis')
+                            ->canBeEnabled()
                             ->children()
                                 ->scalarNode('dsn')->defaultNull()->info('Redis DSN. See https://symfony.com/doc/current/components/cache/adapters/redis_adapter.html')->end()
                                 ->scalarNode('adapter')->defaultNull()->info('Redis or Predis service name')->end()
                             ->end()
                         ->end()
                         ->arrayNode('php')
+                            ->canBeEnabled()
                             ->children()
                                 ->scalarNode('endpoint')->defaultNull()->info('Url of exposed php metrics endpoint.')->end()
                             ->end()
                         ->end()
                         ->arrayNode('caddy')
+                            ->canBeEnabled()
                             ->children()
                                 ->scalarNode('endpoint')->defaultValue('http://localhost:2019/metrics')->cannotBeEmpty()->info('Url of Caddy (or FrankenPHP) metrics endpoint.')->end()
                             ->end()

@@ -12,10 +12,12 @@
 namespace Jmonitor\JmonitorBundle\Tests;
 
 use Jmonitor\Collector\Apache\ApacheCollector;
+use Jmonitor\Collector\Caddy\CaddyCollector;
 use Jmonitor\Collector\Mysql\Adapter\DoctrineAdapter;
 use Jmonitor\Collector\Mysql\MysqlQueriesCountCollector;
 use Jmonitor\Collector\Mysql\MysqlStatusCollector;
 use Jmonitor\Collector\Mysql\MysqlVariablesCollector;
+use Jmonitor\Collector\Php\PhpCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
@@ -260,13 +262,41 @@ class JmonitorBundleTest extends TestCase
         $this->assertTrue($container->hasDefinition(FlexRecipesCollector::class));
     }
 
-    public function testSymfonyCollectorIsDisabledByDefault(): void
+    public function testApacheCollectorCanBeEnabledWithTilde(): void
     {
         $container = $this->loadBundle([
             'project_api_key' => 'key',
-            // symfony not specified
+            'collectors' => [
+                'apache' => null,
+            ],
         ]);
 
-        $this->assertFalse($container->hasDefinition(SymfonyCollector::class));
+        $this->assertTrue($container->hasDefinition(ApacheCollector::class));
+    }
+
+    public function testApacheCollectorCanBeDisabledExplicitly(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'apache' => [
+                    'enabled' => false,
+                ],
+            ],
+        ]);
+
+        $this->assertFalse($container->hasDefinition(ApacheCollector::class));
+    }
+
+    public function testPhpCollectorCanBeEnabledWithBooleanTrue(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'php' => true,
+            ],
+        ]);
+
+        $this->assertTrue($container->hasDefinition(PhpCollector::class));
     }
 }
