@@ -1,0 +1,265 @@
+variant = "loose"
+
+[[issues]]
+file = "src/Collector/Components/CacheableComponentCollector.php"
+code = "mixed-return-statement"
+message = 'Could not infer a precise return type for function `jmonitor\jmonitorbundle\collector\components\cacheablecomponentcollector::collect`. Saw type `mixed`.'
+count = 1
+
+[[issues]]
+file = "src/Collector/Components/FlexRecipesCollector.php"
+code = "less-specific-nested-return-statement"
+message = '''Returned type `array{'recipes': array<array-key, mixed>, 'up_to_date': false}` is less specific than the declared return type `array{'recipes': array<array-key, string>, 'up_to_date': false}|array{'up_to_date': true}` for function `jmonitor\jmonitorbundle\collector\components\flexrecipescollector::collect` due to nested 'mixed'.'''
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "invalid-method-access"
+message = "Attempting to access a method on a non-object type (`string`)."
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "invalid-return-statement"
+message = '''Invalid return type for function `jmonitor\jmonitorbundle\collector\symfonycollector::getdirdata`: expected `array{'path': string, 'size': int}|array{}`, but found `array{'path': truthy-string, 'size': int|null}`.'''
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "missing-magic-method"
+message = "Call to documented magic method `getsharedir()` on a class that cannot handle it."
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "mixed-operand"
+message = "Left operand in binary operation has type `mixed`."
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "mixed-operand"
+message = "Right operand in binary operation has type `mixed`."
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "mixed-property-type-coercion"
+message = 'A value with a less specific type `array<array-key, mixed>` is being assigned to property `$$componentCollectors` (array<array-key, Jmonitor\JmonitorBundle\Collector\Components\ComponentCollectorInterface>).'
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "never-return"
+message = "Cannot return value with type 'never' from this function."
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "non-existent-class-constant"
+message = "Class-like constant `VERSION` does not exist."
+count = 1
+
+[[issues]]
+file = "src/Collector/SymfonyCollector.php"
+code = "possibly-null-argument"
+message = 'Argument #1 of method `Jmonitor\JmonitorBundle\Collector\SymfonyCollector::getdirdata` is possibly `null`, but parameter type `string` does not accept it.'
+count = 1
+
+[[issues]]
+file = "src/Command/CollectorCommand.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `Jmonitor\Jmonitor::withcollector`: expected `string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "src/Command/CollectorCommand.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 1
+
+[[issues]]
+file = "src/Command/CollectorCommand.php"
+code = "possible-method-access-on-null"
+message = "Attempting to call a method on `null`."
+count = 3
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "incompatible-parameter-name"
+message = 'Parameter #1 of `Jmonitor\JmonitorBundle\JmonitorBundle::build()` is named `$builder` but parent `Symfony\Component\HttpKernel\Bundle\Bundle::build()` names it `$container`'
+count = 1
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "incompatible-parameter-name"
+message = 'Parameter #1 of `Jmonitor\JmonitorBundle\JmonitorBundle::build()` is named `$builder` but parent `Symfony\Component\HttpKernel\Bundle\BundleInterface::build()` names it `$container`'
+count = 1
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 114
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "non-existent-method"
+message = 'Method `children` does not exist on type `Symfony\Component\Config\Definition\Builder\BooleanNodeDefinition`.'
+count = 1
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "non-existent-method"
+message = 'Method `children` does not exist on type `Symfony\Component\Config\Definition\Builder\EnumNodeDefinition`.'
+count = 1
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "non-existent-method"
+message = 'Method `children` does not exist on type `Symfony\Component\Config\Definition\Builder\FloatNodeDefinition`.'
+count = 1
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "non-existent-method"
+message = 'Method `children` does not exist on type `Symfony\Component\Config\Definition\Builder\IntegerNodeDefinition`.'
+count = 1
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "non-existent-method"
+message = 'Method `children` does not exist on type `Symfony\Component\Config\Definition\Builder\NodeDefinition`.'
+count = 1
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "non-existent-method"
+message = 'Method `children` does not exist on type `Symfony\Component\Config\Definition\Builder\ScalarNodeDefinition`.'
+count = 1
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "non-existent-method"
+message = 'Method `children` does not exist on type `Symfony\Component\Config\Definition\Builder\StringNodeDefinition`.'
+count = 1
+
+[[issues]]
+file = "src/JmonitorBundle.php"
+code = "non-existent-method"
+message = 'Method `children` does not exist on type `Symfony\Component\Config\Definition\Builder\VariableNodeDefinition`.'
+count = 1
+
+[[issues]]
+file = "tests/Collector/CommandRunnerTest.php"
+code = "missing-magic-method"
+message = "Call to documented magic method `method()` on a class that cannot handle it."
+count = 3
+
+[[issues]]
+file = "tests/Collector/CommandRunnerTest.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #1 of `Symfony\Component\Console\Output\OutputInterface::write`: expected `iterable<mixed, mixed>|string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "tests/Collector/CommandRunnerTest.php"
+code = "mixed-argument"
+message = 'Invalid argument type for argument #2 of `phpunit\framework\assert::assertstringcontainsstring`: expected `string`, but found `mixed`.'
+count = 1
+
+[[issues]]
+file = "tests/Collector/CommandRunnerTest.php"
+code = "mixed-array-access"
+message = "Unsafe array access on type `mixed`."
+count = 8
+
+[[issues]]
+file = "tests/Collector/CommandRunnerTest.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 5
+
+[[issues]]
+file = "tests/Collector/CommandRunnerTest.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 12
+
+[[issues]]
+file = "tests/Collector/Components/CacheableComponentCollectorTest.php"
+code = "missing-magic-method"
+message = "Call to documented magic method `method()` on a class that cannot handle it."
+count = 6
+
+[[issues]]
+file = "tests/Collector/Components/SchedulerCollectorTest.php"
+code = "missing-magic-method"
+message = "Call to documented magic method `method()` on a class that cannot handle it."
+count = 4
+
+[[issues]]
+file = "tests/Collector/Components/SchedulerCollectorTest.php"
+code = "mixed-array-access"
+message = "Unsafe array access on type `mixed`."
+count = 11
+
+[[issues]]
+file = "tests/Collector/SymfonyCollectorTest.php"
+code = "missing-magic-method"
+message = "Call to documented magic method `method()` on a class that cannot handle it."
+count = 9
+
+[[issues]]
+file = "tests/Collector/SymfonyCollectorTest.php"
+code = "mixed-array-access"
+message = "Unsafe array access on type `mixed`."
+count = 3
+
+[[issues]]
+file = "tests/Collector/SymfonyCollectorTest.php"
+code = "mixed-method-access"
+message = "Attempting to access a method on a non-object type (`mixed`)."
+count = 8
+
+[[issues]]
+file = "tests/Collector/SymfonyCollectorTest.php"
+code = "non-existent-method"
+message = 'Method `method` does not exist on type `Symfony\Component\HttpKernel\KernelInterface`.'
+count = 8
+
+[[issues]]
+file = "tests/Collector/SymfonyCollectorTest.php"
+code = "possibly-invalid-argument"
+message = 'Possible argument type mismatch for argument #1 of `jmonitor\jmonitorbundle\collector\symfonycollector::__construct`: expected `Symfony\Component\HttpKernel\KernelInterface`, but possibly received `PHPUnit\Framework\MockObject\MockObject|Symfony\Component\HttpKernel\KernelInterface`.'
+count = 2
+
+[[issues]]
+file = "tests/JmonitorBundleTest.php"
+code = "mixed-argument"
+message = "Invalid argument type for argument #2 of `array_map`: expected `array<('K.array_map() extends array-key), ('V.array_map() extends mixed)>`, but found `mixed`."
+count = 5
+
+[[issues]]
+file = "tests/JmonitorBundleTest.php"
+code = "mixed-array-access"
+message = "Unsafe array access on type `mixed`."
+count = 7
+
+[[issues]]
+file = "tests/JmonitorBundleTest.php"
+code = "mixed-assignment"
+message = "Assigning `mixed` type to a variable may lead to unexpected behavior."
+count = 1
+
+[[issues]]
+file = "tests/JmonitorBundleTest.php"
+code = "possible-method-access-on-null"
+message = "Attempting to call a method on `null`."
+count = 1

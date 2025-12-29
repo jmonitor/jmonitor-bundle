@@ -45,7 +45,7 @@ class CollectorCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $jmonitor = $input->getArgument('collector') && is_string($input->getArgument('collector'))
+        $jmonitor = $input->hasArgument('collector')
             ? $this->jmonitor->withCollector($input->getArgument('collector'))
             : $this->jmonitor;
 

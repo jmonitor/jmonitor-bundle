@@ -45,8 +45,8 @@
         }
     },
     "scripts": {
-        "lint:check": "./vendor/bin/php-cs-fixer check --verbose --config=.php-cs-fixer.dist.php --using-cache=no --diff",
-        "lint:fix": "./vendor/bin/php-cs-fixer fix --verbose --config=.php-cs-fixer.dist.php --using-cache=no  --diff",
+        "lint:check": "./vendor/bin/mago lint",
+        "lint:fix": "./vendor/bin/mago lint --fix",
         "phpstan": "./vendor/bin/phpstan",
         "phpunit": "./vendor/bin/phpunit tests"
     }

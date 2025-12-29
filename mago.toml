@@ -38,3 +38,5 @@ strict-list-index-checks = false
 no-boolean-literal-comparison = false
 check-missing-type-hints = false
 register-super-globals = true
+excludes = ['mixed-method-access']
+baseline = "analysis-baseline.toml"
