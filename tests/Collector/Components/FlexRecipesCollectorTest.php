@@ -45,8 +45,7 @@ class FlexRecipesCollectorTest extends TestCase
 
     public function testParseOutput(): void
     {
-        $output =
-            <<<TXT
+        $output = <<<TXT
               Outdated recipes.
 
 
@@ -66,9 +65,12 @@ class FlexRecipesCollectorTest extends TestCase
 
         $result = $method->invoke($collector, $output);
 
-        static::assertEquals([
-            'symfony/ux-turbo (recipe not installed)',
-            'zenstruck/messenger-monitor-bundle (recipe not installed)'
-        ], $result);
+        static::assertEquals(
+            [
+                'symfony/ux-turbo (recipe not installed)',
+                'zenstruck/messenger-monitor-bundle (recipe not installed)',
+            ],
+            $result,
+        );
     }
 }

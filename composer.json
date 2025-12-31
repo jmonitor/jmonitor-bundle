@@ -47,6 +47,12 @@
     "scripts": {
         "lint:check": "./vendor/bin/mago lint",
         "lint:fix": "./vendor/bin/mago lint --fix",
+        "format:check": "./vendor/bin/mago format --dry-run",
+        "format:fix": "./vendor/bin/mago format",
+        "fix": [
+            "@lint:fix",
+            "@format:fix"
+        ],
         "phpstan": "./vendor/bin/phpstan",
         "phpunit": "./vendor/bin/phpunit tests"
     }
