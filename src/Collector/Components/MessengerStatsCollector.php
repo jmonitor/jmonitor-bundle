@@ -24,7 +24,7 @@ final class MessengerStatsCollector implements ComponentCollectorInterface
         }
 
         try {
-            return json_decode($run['output'], true, 3, JSON_THROW_ON_ERROR);
+            return json_decode($run['output'], true, 4, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return [];
         }
