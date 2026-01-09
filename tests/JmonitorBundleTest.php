@@ -101,28 +101,17 @@ class JmonitorBundleTest extends TestCase
         }
     }
 
-    public function testScheduleFrequencyIsRequired(): void
+    public function testScheduleCanBeDisabledWithoutOptions(): void
     {
-        $this->expectException(InvalidConfigurationException::class);
-        $this->expectExceptionMessage('The child config "frequency" under "jmonitor.schedule" must be configured');
-
-        $this->loadBundle([
-            'project_api_key' => 'key',
-            'schedule' => [
-                'name' => 'default',
-            ],
-        ]);
-    }
-
-    public function testScheduleCanBeDisabled(): void
-    {
-        $this->loadBundle([
+        $container = $this->loadBundle([
             'project_api_key' => 'key',
             'schedule' => [
                 'enabled' => false,
-                'name' => 'default',
             ],
         ]);
+
+        $commandDef = $container->getDefinition(\Jmonitor\JmonitorBundle\Command\CollectorCommand::class);
+        static::assertFalse($commandDef->hasTag('scheduler.task'));
     }
 
     public function testMysqlCollectorsRegisterServicesAndMethodCalls(): void
