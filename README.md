@@ -76,6 +76,7 @@ jmonitor:
         # symfony
         #     flex: false
         #     scheduler: true
+        #     messenger: true
         # or let the bundle auto-detect
         symfony: ~
         # you can provide the recipes command if the default one does not suit you

@@ -22,6 +22,7 @@ use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
+use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
 use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\FlexRecipesCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\SchedulerCollector;
@@ -193,6 +194,15 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                     $symfonyConfig['flex']['cache_ttl'],
                 ])
                 ->tag('jmonitor.symfony.component_collector', ['index' => 'flex_recipes'])
+            ;
+        }
+
+        if ($symfonyConfig['messenger']) {
+            $services->set(MessengerStatsCollector::class)
+                ->args([
+                    service(CommandRunner::class),
+                ])
+                ->tag('jmonitor.symfony.component_collector', ['index' => 'messenger'])
             ;
         }
     }

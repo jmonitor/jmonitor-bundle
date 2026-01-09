@@ -21,6 +21,7 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Flex\SymfonyBundle;
 use Symfony\Component\Scheduler\Scheduler;
+use Symfony\Component\Messenger\Worker;
 
 final class JmonitorBundle extends AbstractBundle
 {
@@ -110,6 +111,10 @@ final class JmonitorBundle extends AbstractBundle
                                 ->booleanNode('scheduler')
                                     ->defaultValue(class_exists(Scheduler::class))
                                     ->info('Collect Symfony Scheduler metrics.')
+                                ->end()
+                                ->booleanNode('messenger')
+                                    ->defaultValue(class_exists(Worker::class))
+                                    ->info('Collect Symfony Messenger metrics.')
                                 ->end()
                             ->end()
                         ->end()
