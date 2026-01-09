@@ -57,13 +57,13 @@ class SymfonyCollectorTest extends TestCase
         static::assertSame('UTF-8', $result['charset']);
 
         static::assertArrayHasKey('cache_dir', $result);
-        static::assertSame('/cache/dir', $result['cache_dir']['path']);
+        static::assertSame('/cache/dir', $result['cache_dir']);
 
         static::assertArrayHasKey('log_dir', $result);
-        static::assertSame('/log/dir', $result['log_dir']['path']);
+        static::assertSame('/log/dir', $result['log_dir']);
 
         static::assertArrayHasKey('build_dir', $result);
-        static::assertSame('/build/dir', $result['build_dir']['path']);
+        static::assertSame('/build/dir', $result['build_dir']);
 
         static::assertArrayHasKey('components', $result);
         static::assertSame(['comp1' => ['foo' => 'bar']], $result['components']);

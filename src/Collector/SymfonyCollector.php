@@ -43,13 +43,13 @@ class SymfonyCollector extends AbstractCollector
             'version' => $this->getSymfonyVersion(),
             'bundles' => array_keys($this->kernel->getBundles()),
             'project_dir' => $this->kernel->getProjectDir(),
-            'cache_dir' => $this->getDirData($this->kernel->getCacheDir()),
-            'log_dir' => $this->getDirData($this->kernel->getLogDir()),
-            'build_dir' => $this->getDirData($this->kernel->getBuildDir()),
+            'cache_dir' => $this->kernel->getCacheDir(),
+            'log_dir' => $this->kernel->getLogDir(),
+            'build_dir' => $this->kernel->getBuildDir(),
             // @phpstan-ignore-next-line
             'share_dir' => \method_exists($this->kernel, 'getShareDir')
-                ? $this->getDirData($this->kernel->getShareDir())
-                : [],
+                ? $this->kernel->getShareDir()
+                : null,
             'charset' => $this->kernel->getCharset(),
             'components' => array_filter(array_map(
                 static fn(ComponentCollectorInterface $collector) => $collector->collect(),
@@ -66,32 +66,6 @@ class SymfonyCollector extends AbstractCollector
     public function getVersion(): int
     {
         return 1;
-    }
-
-    /**
-     * return un tableau avec clé "path" (le chemin $dir) et "size" le poids du dossier
-     *
-     * @return array{}|array{path: string, size: int}
-     */
-    private function getDirData(string $dir): array
-    {
-        if (!$dir) {
-            return [];
-        }
-
-        $size = is_file($dir) ? filesize($dir) : null;
-
-        if (is_dir($dir)) {
-            $size = 0;
-            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(
-                $dir,
-                \RecursiveDirectoryIterator::SKIP_DOTS,
-            )) as $file) {
-                $size += $file->getSize();
-            }
-        }
-
-        return ['path' => $dir, 'size' => is_int($size) ? $size : null];
     }
 
     private function getSymfonyVersion(): ?string
