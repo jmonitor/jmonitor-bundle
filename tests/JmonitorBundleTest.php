@@ -82,7 +82,10 @@ class JmonitorBundleTest extends TestCase
 
         $container = $this->loadBundle([
             'project_api_key' => 'key',
-            'schedule' => 'default',
+            'schedule' => [
+                'name' => 'default',
+                'frequency' => 30,
+            ],
         ]);
 
         if (class_exists(\Symfony\Component\Scheduler\Scheduler::class)) {
@@ -94,7 +97,32 @@ class JmonitorBundleTest extends TestCase
 
             $tag = $commandDef->getTag('scheduler.task')[0];
             static::assertSame('default', $tag['schedule']);
+            static::assertSame(30, $tag['frequency']);
         }
+    }
+
+    public function testScheduleFrequencyIsRequired(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('The child config "frequency" under "jmonitor.schedule" must be configured');
+
+        $this->loadBundle([
+            'project_api_key' => 'key',
+            'schedule' => [
+                'name' => 'default',
+            ],
+        ]);
+    }
+
+    public function testScheduleCanBeDisabled(): void
+    {
+        $this->loadBundle([
+            'project_api_key' => 'key',
+            'schedule' => [
+                'enabled' => false,
+                'name' => 'default',
+            ],
+        ]);
     }
 
     public function testMysqlCollectorsRegisterServicesAndMethodCalls(): void

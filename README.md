@@ -31,11 +31,13 @@ JMONITOR_API_KEY=your_api_key
 ```yaml
 # config/packages/jmonitor.yaml
 jmonitor:
-    enabled: true
     project_api_key: '%env(JMONITOR_API_KEY)%'
 
     # Optional: Symfony Scheduler transport name, or remove to disable scheduling.
-    schedule: 'default'
+    schedule:
+        enabled: true # or false
+        name: 'default'
+        frequency: 30 # frequency in secondes (integer). It depends on your plan. Minimum on free Plan is 30.
 
     # Optional: use a specific logger service (Symfony's default is "logger").
     # See "Debugging" section below for more informations.
@@ -155,7 +157,7 @@ jmonitor:
 ## Scheduling
 
 - Command: `jmonitor:collect`.
-- With Symfony Scheduler enabled and schedule configured, the command runs every 15 seconds.
+- With Symfony Scheduler enabled and schedule configured, the command runs periodically (both `name` and `frequency` must be configured).
 - Without Scheduler, schedule the command yourself (e.g., cron, systemd timers, container orchestration schedules).
 
 ```bash

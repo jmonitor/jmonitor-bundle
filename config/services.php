@@ -53,10 +53,10 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->tag('console.command')
     ;
 
-    if ($config['schedule']) {
+    if ($config['schedule']['enabled'] ?? false) {
         $collector->tag('scheduler.task', [
-            'frequency' => 15,
-            'schedule' => $config['schedule'],
+            'frequency' => $config['schedule']['frequency'],
+            'schedule' => $config['schedule']['name'],
             'trigger' => 'every',
             'arguments' => null, // https://github.com/symfony/symfony/pull/61307
         ]);
