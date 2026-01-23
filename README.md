@@ -31,73 +31,74 @@ JMONITOR_API_KEY=your_api_key
 jmonitor:
     project_api_key: '%env(JMONITOR_API_KEY)%'
 
-    # Optional: use a specific logger service (Symfony's default is "logger").
-    # See "Debugging" section below for more informations.
-    # logger: 'logger'
-
-    # Optional: provide a custom HTTP client service
-    # http_client: 'http_client'
+when@prod:
+    jmonitor:
+        # Optional: use a specific logger service (Symfony's default is "logger").
+        # See "Debugging" section below for more informations.
+        # logger: 'logger'
     
-    # Enable the collectors you want to use (remove the unused ones).
-    # Refer to the collector library for deeper collector-specific doc: https://github.com/jmonitor/collector
-    collectors:
+        # Optional: provide a custom HTTP client service
+        # http_client: 'http_client'
         
-        # Cpu, Ram, Disk of the server. Linux only.
-        system: ~
-        # You can use a RandomAdapter on Windows for testing purpose.
-        # system:
-        #     adapter: 'Jmonitor\\Collector\\System\\Adapter\\RandomAdapter'
-        
-        # Apache via mod_status.
-        # for more information, see https://github.com/jmonitor/collector?tab=readme-ov-file#apache
-        apache:
-            server_status_url: 'https://localhost/server-status'  
-        
-        # MySQL variables and status
-        mysql:
-            db_name: 'your_db_name'
+        # Enable the collectors you want to use (remove the unused ones).
+        # Refer to the collector library for deeper collector-specific doc: https://github.com/jmonitor/collector
+        collectors:
             
-        # PHP : some ini keys, apcu, opcache, loaded extensions... 
-        # /!\ See below for more informations about CLI vs Web-context metrics
-        # use this to collect web metrics
-        php: 
-            endpoint: 'http://localhost/php-metrics'
-        # of for CLI only
-        # php: ~
-        
-        # symfony: some infos, loaded bundles, flex recipes, schedules...
-        # you can disable some components by setting them to false
-        # symfony
-        #     flex: false
-        #     scheduler: true
-        #     messenger: true
-        # or let the bundle auto-detect
-        symfony: ~
-        # you can provide the recipes command if the default one does not suit you
-        # symfony:
-        #     flex:
-        #         command: "composer.phar recipes -o" # default is "composer recipes -o"
-        
-
-        # Redis metrics via INFO command
-        redis:
-            # you can use either DSN or a service name (adapter). 
-            # dsn: '%env(SOME_REDIS_DSN)%'
-            # adapter: 'some_redis_service_name'
+            # Cpu, Ram, Disk of the server. Linux only.
+            system: ~
+            # You can use a RandomAdapter on Windows for testing purpose.
+            # system:
+            #     adapter: 'Jmonitor\\Collector\\System\\Adapter\\RandomAdapter'
             
-        # Metrics from Caddy / FrankenPHP
-        # see https://caddyserver.com/docs/metrics
-        caddy:
-            endpoint: 'http://localhost:2019/metrics'
+            # Apache via mod_status.
+            # for more information, see https://github.com/jmonitor/collector?tab=readme-ov-file#apache
+            apache:
+                server_status_url: 'https://localhost/server-status'  
+            
+            # MySQL variables and status
+            mysql:
+                db_name: 'your_db_name'
+                
+            # PHP : some ini keys, apcu, opcache, loaded extensions... 
+            # /!\ See below for more informations about CLI vs Web-context metrics
+            # use this to collect web metrics
+            php: 
+                endpoint: 'http://localhost/php-metrics'
+            # of for CLI only
+            # php: ~
+            
+            # symfony: some infos, loaded bundles, flex recipes, schedules...
+            # you can disable some components by setting them to false
+            # symfony
+            #     flex: false
+            #     scheduler: true
+            #     messenger: true
+            # or let the bundle auto-detect
+            symfony: ~
+            # you can provide the recipes command if the default one does not suit you
+            # symfony:
+            #     flex:
+            #         command: "composer.phar recipes -o" # default is "composer recipes -o"
+            
+    
+            # Redis metrics via INFO command
+            redis:
+                # you can use either DSN or a service name (adapter). 
+                # dsn: '%env(SOME_REDIS_DSN)%'
+                # adapter: 'some_redis_service_name'
+                
+            # Metrics from Caddy / FrankenPHP
+            # see https://caddyserver.com/docs/metrics
+            caddy:
+                endpoint: 'http://localhost:2019/metrics'
 ```
-4) Run a collection manually to verify:
+4) Run a collection manually to verify. You may prefer doing this in the production environment, as configuring the bundle in development isn't always possible.
 ```bash
 php bin/console jmonitor:collect -vvv --dry-run
 ```
 
-## Exposing PHP metrics
+## PHP metrics: CLI vs Web context
 
-Why this matters:
 - PHP settings and extensions can differ significantly between CLI and your web server context.
 - If you want metrics that reflect your web runtime, you must expose a tiny HTTP endpoint that returns PHP metrics from within that web context.
 
@@ -109,7 +110,8 @@ jmonitor_expose_php_metrics:
     path: '/jmonitor/php-metrics'
     controller: Jmonitor\JmonitorBundle\Controller\JmonitorPhpController
 
-# SECURE THIS ROUTE IN PRODUCTION
+# Secured route in production with localhost host restriction
+# Refer to symfony docs for more information about security
 when@prod:
     jmonitor_expose_php_metrics:
         path: '/jmonitor/php-metrics'
@@ -145,7 +147,7 @@ jmonitor:
 ## Running the collector
 
 ```bash
-php bin/console jmonitor:collect
+php bin/console jmonitor:collect -vvv
 ```
 
 This command runs as a long-lived worker: it periodically collects metrics from the enabled collectors and sends them to Jmonitor.io.
