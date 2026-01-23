@@ -43,6 +43,9 @@ class CollectorCommand extends Command implements SignalableCommandInterface
     {
         $this->addArgument('collector', InputArgument::OPTIONAL, 'To run a specific collector');
         $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'Do not send metrics to Jmonitor');
+        $this->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Stop after a number of seconds (ignored with --dry-run)');
+        $this->addOption('memory-limit', null, InputOption::VALUE_REQUIRED, 'Stop when memory usage exceeds the limit, e.g. 64M (ignored with --dry-run)');
+        $this->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Stop after a number of pushes (ignored with --dry-run)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -52,9 +55,26 @@ class CollectorCommand extends Command implements SignalableCommandInterface
             : $this->jmonitor;
 
         $shouldSend = !$input->getOption('dry-run');
+        $timeLimitSeconds = $shouldSend ? $this->getPositiveIntOption($input, 'time-limit') : null;
+        $memoryLimitBytes = $shouldSend ? $this->parseMemoryLimit($input->getOption('memory-limit')) : null;
+        $pushLimit = $shouldSend ? $this->getPositiveIntOption($input, 'limit') : null;
+        $startedAt = $shouldSend ? microtime(true) : 0.0;
+        $pushCount = 0;
 
         do {
+            if ($this->shouldStop) {
+                break;
+            }
+
+            if ($shouldSend && $this->shouldStopForLimits($startedAt, $timeLimitSeconds, $memoryLimitBytes, $pushLimit, $pushCount)) {
+                break;
+            }
+
             $result = $jmonitor->collect($shouldSend, false);
+
+            if ($shouldSend) {
+                $pushCount++;
+            }
 
             $this->logger->debug('Metrics collected', [
                 'metrics' => $result->getMetrics(),
@@ -81,6 +101,10 @@ class CollectorCommand extends Command implements SignalableCommandInterface
             $this->logger->info($result->getConclusion() ?? 'No conclusion');
 
             if (!$shouldSend || $this->shouldStop) {
+                break;
+            }
+
+            if ($this->shouldStopForLimits($startedAt, $timeLimitSeconds, $memoryLimitBytes, $pushLimit, $pushCount)) {
                 break;
             }
 
@@ -130,6 +154,75 @@ class CollectorCommand extends Command implements SignalableCommandInterface
     {
         $this->shouldStop = true;
         $this->logger->info('Stop signal received', ['signal' => $signal]);
+
+        return false;
+    }
+
+    private function getPositiveIntOption(InputInterface $input, string $name): ?int
+    {
+        $value = $input->getOption($name);
+
+        if ($value === null) {
+            return null;
+        }
+
+        $intValue = filter_var($value, FILTER_VALIDATE_INT);
+
+        if ($intValue === false || $intValue <= 0) {
+            throw new \InvalidArgumentException(sprintf('Option "--%s" must be a positive integer.', $name));
+        }
+
+        return $intValue;
+    }
+
+    private function parseMemoryLimit(?string $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $bytes = ini_parse_quantity(trim($value));
+
+        if ($bytes <= 0) {
+            throw new \InvalidArgumentException('Option "--memory-limit" must be greater than 0.');
+        }
+
+        return $bytes;
+    }
+
+    private function shouldStopForLimits(
+        float $startedAt,
+        ?int $timeLimitSeconds,
+        ?int $memoryLimitBytes,
+        ?int $pushLimit,
+        int $pushCount,
+    ): bool
+    {
+        if ($pushLimit !== null && $pushCount >= $pushLimit) {
+            $this->logger->info('Push limit reached', ['limit' => $pushLimit]);
+            return true;
+        }
+
+        if ($timeLimitSeconds !== null) {
+            $elapsedSeconds = microtime(true) - $startedAt;
+
+            if ($elapsedSeconds >= $timeLimitSeconds) {
+                $this->logger->info('Time limit reached', ['limit' => $timeLimitSeconds]);
+                return true;
+            }
+        }
+
+        if ($memoryLimitBytes !== null) {
+            $memoryUsage = memory_get_usage(true);
+
+            if ($memoryUsage >= $memoryLimitBytes) {
+                $this->logger->info('Memory limit reached', [
+                    'limit' => $memoryLimitBytes,
+                    'usage' => $memoryUsage,
+                ]);
+                return true;
+            }
+        }
 
         return false;
     }
