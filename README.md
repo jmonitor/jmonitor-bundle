@@ -8,8 +8,6 @@ Integration of the *jmonitor/collector* library into Symfony to collect metrics 
 ## Requirements
 - PHP 8.1+ for this bundle. (The standalone collector library supports PHP 7.4.)
 - Symfony 6.4+.
-- Optional: Symfony Scheduler (recommended): https://symfony.com/doc/current/scheduler.html 
-- Linux recommended for the System collector. On Windows, use the RandomAdapter for testing.
 
 ## Quick Start
 
@@ -32,12 +30,6 @@ JMONITOR_API_KEY=your_api_key
 # config/packages/jmonitor.yaml
 jmonitor:
     project_api_key: '%env(JMONITOR_API_KEY)%'
-
-    # Optional: Symfony Scheduler transport name, or remove to disable scheduling.
-    schedule:
-        enabled: true # or false
-        name: 'default'
-        frequency: 30 # frequency in secondes (integer). It depends on your plan. Minimum on free Plan is 30.
 
     # Optional: use a specific logger service (Symfony's default is "logger").
     # See "Debugging" section below for more informations.
@@ -116,18 +108,14 @@ To do that, create a route config file:
 jmonitor_expose_php_metrics:
     path: '/jmonitor/php-metrics'
     controller: Jmonitor\JmonitorBundle\Controller\JmonitorPhpController
-```
-> [!CAUTION]
->
-> **Secure this URL** !
 
-One quick way is to bind the host to localhost only:
-```yaml
-# config/routes/jmonitor.yaml
-jmonitor_expose_php_metrics:
-    path: '/jmonitor/php-metrics'
-    controller: Jmonitor\JmonitorBundle\Controller\JmonitorPhpController
-    host: 'localhost'
+# SECURE THIS ROUTE IN PRODUCTION
+when@prod:
+    jmonitor_expose_php_metrics:
+        path: '/jmonitor/php-metrics'
+        controller: Jmonitor\JmonitorBundle\Controller\JmonitorPhpController
+        host: localhost
+
 ```
 
 Set up a firewall for this route **before** the main firewall to prevent your app from interfering with it:
@@ -154,16 +142,25 @@ jmonitor:
             endpoint: 'http://localhost/jmonitor/php-metrics'
 ```
 
-## Scheduling
-
-- Command: `jmonitor:collect`.
-- With Symfony Scheduler enabled and schedule configured, the command runs periodically (both `name` and `frequency` must be configured).
-- Without Scheduler, schedule the command yourself (e.g., cron, systemd timers, container orchestration schedules).
+## Running the collector
 
 ```bash
-# Run once
 php bin/console jmonitor:collect
 ```
+
+This command runs as a long-lived worker: it periodically collects metrics from the enabled collectors and sends them to Jmonitor.io.
+
+You can also limit how long it runs:
+- `--memory-limit`: stop when the process memory usage exceeds the given limit (e.g. `128M`)
+- `--time-limit`: stop after the given number of seconds
+
+    ```bash
+    php bin/console jmonitor:collect --memory-limit=128M --time-limit=3600
+    ```
+In production, it is recommended to run this command under a process manager (e.g. Supervisor or systemd) to ensure it is kept running and restarted if necessary.
+For practical guidance, you can follow Symfony Messenger's recommendations:
+https://symfony.com/doc/current/messenger.html#deploying-to-production
+
 
 ## Logging and Debugging
 - The command is resilient: individual collector failures do not crash the whole run; errors are logged (logging must be enabled in config).

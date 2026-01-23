@@ -44,8 +44,8 @@ class CollectorCommand extends Command implements SignalableCommandInterface
     {
         $this->addArgument('collector', InputArgument::OPTIONAL, 'To run a specific collector');
         $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'Do not send metrics to Jmonitor');
-        $this->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Stop after a number of seconds (ignored with --dry-run)');
-        $this->addOption('memory-limit', null, InputOption::VALUE_REQUIRED, 'Stop when memory usage exceeds the limit, e.g. 64M (ignored with --dry-run)');
+        $this->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Stop after a number of seconds');
+        $this->addOption('memory-limit', null, InputOption::VALUE_REQUIRED, 'Stop when memory usage exceeds the limit, e.g. 64M');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -75,16 +75,15 @@ class CollectorCommand extends Command implements SignalableCommandInterface
                 'metrics' => $result->getMetrics(),
             ]);
 
-            switch (true) {
-                case $result->getResponse()?->getStatusCode() === 429:
-                    $this->logger->info('Rate limit reached');
-                    break;
-                case $result->getResponse()?->getStatusCode() >= 400:
-                    $this->logger->error('Response error', [
-                        'body' => $result->getResponse()->getBody()->getContents(),
-                        'code' => $result->getResponse()->getStatusCode(),
-                        'headers' => $result->getResponse()->getHeaders(),
-                    ]);
+            $statusCode = $result->getResponse()?->getStatusCode();
+
+            // 429 is rate limit error, if happened, log will be in conclusion
+            if ($statusCode >= 400 && $statusCode !== 429) {
+                $this->logger->error('Response error', [
+                    'body' => $result->getResponse()->getBody()->getContents(),
+                    'code' => $result->getResponse()->getStatusCode(),
+                    'headers' => $result->getResponse()->getHeaders(),
+                ]);
             }
 
             if ($result->getErrors()) {
@@ -93,7 +92,9 @@ class CollectorCommand extends Command implements SignalableCommandInterface
                 ]);
             }
 
-            $this->logger->info($result->getConclusion() ?? 'No conclusion');
+            $this->logger->info('Collection done.', [
+                'conclusion' => $result->getConclusion(),
+            ]);
 
             if (!$result->getResponse()) {
                 break;
