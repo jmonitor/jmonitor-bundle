@@ -27,8 +27,6 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand('jmonitor:collect', description: 'Collect and send metrics to Jmonitor')]
 class CollectorCommand extends Command implements SignalableCommandInterface
 {
-    private const INTERVAL_SECONDS = 15;
-
     private Jmonitor $jmonitor;
     private LoggerInterface $logger;
     private bool $shouldStop = false;
@@ -55,9 +53,7 @@ class CollectorCommand extends Command implements SignalableCommandInterface
 
         $shouldSend = !$input->getOption('dry-run');
 
-        while (!$this->shouldStop) {
-            $startTime = microtime(true);
-
+        do {
             $result = $jmonitor->collect($shouldSend, false);
 
             $this->logger->debug('Metrics collected', [
@@ -65,11 +61,15 @@ class CollectorCommand extends Command implements SignalableCommandInterface
             ]);
 
             if ($result->getResponse()?->getStatusCode() && $result->getResponse()->getStatusCode() >= 400) {
-                $this->logger->error('Response error', [
-                    'body' => $result->getResponse()->getBody()->getContents(),
-                    'code' => $result->getResponse()->getStatusCode(),
-                    'headers' => $result->getResponse()->getHeaders(),
-                ]);
+                if ($result->getResponse()->getStatusCode() === 429) {
+                    $this->logger->info('Rate limit reached');
+                } else {
+                    $this->logger->error('Response error', [
+                        'body' => $result->getResponse()->getBody()->getContents(),
+                        'code' => $result->getResponse()->getStatusCode(),
+                        'headers' => $result->getResponse()->getHeaders(),
+                    ]);
+                }
             }
 
             if ($result->getErrors()) {
@@ -80,12 +80,33 @@ class CollectorCommand extends Command implements SignalableCommandInterface
 
             $this->logger->info($result->getConclusion() ?? 'No conclusion');
 
-            $elapsed = microtime(true) - $startTime;
-            $sleepSeconds = max(0, self::INTERVAL_SECONDS - $elapsed);
-            if ($sleepSeconds > 0) {
-                usleep((int) ($sleepSeconds * 1_000_000));
+            if (!$shouldSend || $this->shouldStop) {
+                break;
             }
-        }
+
+            $retryAfter = $result->getResponse()?->getHeader('x-ratelimit-retry-after')[0] ?? null;
+
+            if ($retryAfter === null) {
+                break;
+            }
+            $retryAfter = (int) $retryAfter;
+
+            if ($retryAfter <= 0) {
+                break;
+            }
+
+            $sleepSeconds = max(0, $retryAfter);
+
+            // this is not normal
+            if ($sleepSeconds <= 0) {
+                $this->logger->error('Retry after is not positive, something is wrong.');
+                break;
+            }
+
+            $this->logger->debug('Next push in ' . $sleepSeconds . ' seconds');
+
+            usleep((int) ($sleepSeconds * 1_000_000));
+        } while (true);
 
         $this->logger->info('Collector stopped');
 
