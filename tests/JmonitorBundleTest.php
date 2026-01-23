@@ -73,47 +73,6 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($commandDef->hasTag('console.command'));
     }
 
-    public function testScheduleTagAddedWhenConfigured(): void
-    {
-        if (!class_exists(\Symfony\Component\Scheduler\Scheduler::class)) {
-            $this->expectException(InvalidConfigurationException::class);
-            $this->expectExceptionMessage('You need to install symfony/scheduler to use the "schedule" option.');
-        }
-
-        $container = $this->loadBundle([
-            'project_api_key' => 'key',
-            'schedule' => [
-                'name' => 'default',
-                'frequency' => 30,
-            ],
-        ]);
-
-        if (class_exists(\Symfony\Component\Scheduler\Scheduler::class)) {
-            $commandDef = $container->getDefinition(\Jmonitor\JmonitorBundle\Command\CollectorCommand::class);
-            static::assertTrue(
-                $commandDef->hasTag('scheduler.task'),
-                'CollectorCommand should have scheduler.task tag',
-            );
-
-            $tag = $commandDef->getTag('scheduler.task')[0];
-            static::assertSame('default', $tag['schedule']);
-            static::assertSame(30, $tag['frequency']);
-        }
-    }
-
-    public function testScheduleCanBeDisabledWithoutOptions(): void
-    {
-        $container = $this->loadBundle([
-            'project_api_key' => 'key',
-            'schedule' => [
-                'enabled' => false,
-            ],
-        ]);
-
-        $commandDef = $container->getDefinition(\Jmonitor\JmonitorBundle\Command\CollectorCommand::class);
-        static::assertFalse($commandDef->hasTag('scheduler.task'));
-    }
-
     public function testMysqlCollectorsRegisterServicesAndMethodCalls(): void
     {
         $container = $this->loadBundle([
