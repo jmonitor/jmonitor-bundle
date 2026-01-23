@@ -18,16 +18,20 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Command\SignalableCommandInterface;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand('jmonitor:collect', description: 'Collect and send metrics to Jmonitor')]
-class CollectorCommand extends Command
+class CollectorCommand extends Command implements SignalableCommandInterface
 {
+    private const INTERVAL_SECONDS = 15;
+
     private Jmonitor $jmonitor;
     private LoggerInterface $logger;
+    private bool $shouldStop = false;
 
     public function __construct(Jmonitor $jmonitor, ?LoggerInterface $logger = null)
     {
@@ -49,28 +53,63 @@ class CollectorCommand extends Command
             ? $this->jmonitor->withCollector($input->getArgument('collector'))
             : $this->jmonitor;
 
-        $result = $jmonitor->collect(!$input->getOption('dry-run'), false);
+        $shouldSend = !$input->getOption('dry-run');
 
-        $this->logger->debug('Metrics collected', [
-            'metrics' => $result->getMetrics(),
-        ]);
+        while (!$this->shouldStop) {
+            $startTime = microtime(true);
 
-        if ($result->getResponse()?->getStatusCode() && $result->getResponse()->getStatusCode() >= 400) {
-            $this->logger->error('Response error', [
-                'body' => $result->getResponse()->getBody()->getContents(),
-                'code' => $result->getResponse()->getStatusCode(),
-                'headers' => $result->getResponse()->getHeaders(),
+            $result = $jmonitor->collect($shouldSend, false);
+
+            $this->logger->debug('Metrics collected', [
+                'metrics' => $result->getMetrics(),
             ]);
+
+            if ($result->getResponse()?->getStatusCode() && $result->getResponse()->getStatusCode() >= 400) {
+                $this->logger->error('Response error', [
+                    'body' => $result->getResponse()->getBody()->getContents(),
+                    'code' => $result->getResponse()->getStatusCode(),
+                    'headers' => $result->getResponse()->getHeaders(),
+                ]);
+            }
+
+            if ($result->getErrors()) {
+                $this->logger->error('Errors', [
+                    'errors' => $result->getErrors(),
+                ]);
+            }
+
+            $this->logger->info($result->getConclusion() ?? 'No conclusion');
+
+            $elapsed = microtime(true) - $startTime;
+            $sleepSeconds = max(0, self::INTERVAL_SECONDS - $elapsed);
+            if ($sleepSeconds > 0) {
+                usleep((int) ($sleepSeconds * 1_000_000));
+            }
         }
 
-        if ($result->getErrors()) {
-            $this->logger->error('Errors', [
-                'errors' => $result->getErrors(),
-            ]);
-        }
-
-        $this->logger->info($result->getConclusion() ?? 'No conclusion');
+        $this->logger->info('Collector stopped');
 
         return Command::SUCCESS;
+    }
+
+    public function getSubscribedSignals(): array
+    {
+        $signals = [];
+
+        foreach (['SIGINT', 'SIGTERM', 'SIGQUIT'] as $signal) {
+            if (defined($signal)) {
+                $signals[] = constant($signal);
+            }
+        }
+
+        return $signals;
+    }
+
+    public function handleSignal(int $signal, int|false $previousExitCode = 0): int|false
+    {
+        $this->shouldStop = true;
+        $this->logger->info('Stop signal received', ['signal' => $signal]);
+
+        return false;
     }
 }
