@@ -24,6 +24,7 @@ no-empty = { enabled = false }
 no-literal-password = { enabled = false }
 tagged-todo = { enabled = false }
 halstead = { effort-threshold = 7000 }
+cyclomatic-complexity = { threshold = 20 }
 
 [analyzer]
 find-unused-definitions = true

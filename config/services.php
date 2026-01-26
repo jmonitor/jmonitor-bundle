@@ -8,6 +8,7 @@ use Jmonitor\Collector\Mysql\Adapter\DoctrineAdapter;
 use Jmonitor\Collector\Mysql\MysqlQueriesCountCollector;
 use Jmonitor\Collector\Mysql\MysqlStatusCollector;
 use Jmonitor\Collector\Mysql\MysqlVariablesCollector;
+use Jmonitor\Collector\Nginx\NginxCollector;
 use Jmonitor\Collector\Php\PhpCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
@@ -89,6 +90,17 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ;
 
         $services->get(Jmonitor::class)->call('addCollector', [service(ApacheCollector::class)]);
+    }
+
+    if ($config['collectors']['nginx']['enabled']) {
+        $services->set(NginxCollector::class)
+            ->args([
+                $config['collectors']['nginx']['endpoint'],
+            ])
+            ->tag('jmonitor.collector', ['name' => 'nginx'])
+        ;
+
+        $services->get(Jmonitor::class)->call('addCollector', [service(NginxCollector::class)]);
     }
 
     if ($config['collectors']['system']['enabled']) {

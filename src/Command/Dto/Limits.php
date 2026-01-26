@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Command\Dto;
 
+/**
+ * Represent limits for the Collector Command
+ * It allows to set a time limit and a memory limit to the command before it terminates gracefully
+ */
 class Limits
 {
     private ?int $timeLimit;
@@ -11,9 +15,7 @@ class Limits
 
     public function __construct(int|string|null $timeLimit = null, int|string|null $memoryLimit = null)
     {
-        $this->timeLimit = $timeLimit !== null ? (int) $timeLimit : null;
-        $this->timeLimit = $this->timeLimit > 0 ? time() + $this->timeLimit : null;
-
+        $this->setTimeLimit($timeLimit);
         $this->setMemoryLimit($memoryLimit);
     }
 
@@ -38,6 +40,17 @@ class Limits
         }
 
         return memory_get_usage() > $this->memoryLimit;
+    }
+
+    private function setTimeLimit(int|string|null $timeLimit): void
+    {
+        $this->timeLimit = $timeLimit !== null ? (int) $timeLimit : null;
+
+        if ($this->timeLimit < 0) {
+            throw new \InvalidArgumentException('Time limit must be positive or null');
+        }
+
+        $this->timeLimit = $this->timeLimit > 0 ? time() + $this->timeLimit : null;
     }
 
     private function setMemoryLimit(string|int|null $memoryLimit): void

@@ -51,12 +51,7 @@ class CollectorCommand extends Command implements SignalableCommandInterface
             : $this->jmonitor;
 
         do {
-            if ($this->stopSignalReceived) {
-                break;
-            }
-
-            if ($limits->limitReached()) {
-                $this->logger->info('Limits reached');
+            if ($this->shouldStop($limits)) {
                 break;
             }
 
@@ -105,7 +100,7 @@ class CollectorCommand extends Command implements SignalableCommandInterface
 
             $this->logger->debug('Next push in ' . $sleepSeconds . ' seconds');
 
-            sleep($sleepSeconds);
+            $this->sleepInterruptible($sleepSeconds);
         } while (true);
 
         $this->logger->info('Collector stopped');
@@ -127,7 +122,32 @@ class CollectorCommand extends Command implements SignalableCommandInterface
     public function handleSignal(int $signal, int|false $previousExitCode = 0): int|false
     {
         $this->stopSignalReceived = true;
-        $this->logger->info('Stop signal received', ['signal' => $signal]);
+        $this->logger->info('Stop signal received, stopping...', ['signal' => $signal]);
+
+        return false;
+    }
+
+    private function sleepInterruptible(int $sleepSeconds): void
+    {
+        for ($i = 0; $i < $sleepSeconds; $i++) {
+            if ($this->stopSignalReceived) {
+                break;
+            }
+
+            sleep(1);
+        }
+    }
+
+    private function shouldStop(Limits $limits): bool
+    {
+        if ($this->stopSignalReceived) {
+            return true;
+        }
+
+        if ($limits->limitReached()) {
+            $this->logger->info('Limits reached');
+            return true;
+        }
 
         return false;
     }
