@@ -86,7 +86,6 @@ class CollectorCommand extends Command implements SignalableCommandInterface
                 break;
             }
 
-            // @phpstan-ignore-next-line
             if ($limits->limitReached()) {
                 break;
             }
