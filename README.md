@@ -157,7 +157,7 @@ You can also limit how long it runs:
 - `--time-limit`: stop after the given number of seconds
 
     ```bash
-    php bin/console jmonitor:collect --memory-limit=128M --time-limit=3600
+    php bin/console jmonitor:collect --memory-limit=32M --time-limit=3600
     ```
 In production, it is recommended to run this command under a process manager (e.g. Supervisor or systemd) to ensure it is kept running and restarted if necessary.
 For practical guidance, you can follow Symfony Messenger's recommendations:

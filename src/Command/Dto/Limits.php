@@ -39,7 +39,7 @@ class Limits
             return false;
         }
 
-        return memory_get_usage() > $this->memoryLimit;
+        return memory_get_usage(true) > $this->memoryLimit;
     }
 
     private function setTimeLimit(int|string|null $timeLimit): void
