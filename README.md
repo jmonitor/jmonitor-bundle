@@ -50,10 +50,15 @@ when@prod:
             # system:
             #     adapter: 'Jmonitor\\Collector\\System\\Adapter\\RandomAdapter'
             
-            # Apache via mod_status.
+            # Apache via mod_status module.
             # for more information, see https://github.com/jmonitor/collector?tab=readme-ov-file#apache
             apache:
-                server_status_url: 'https://localhost/server-status'  
+                server_status_url: 'http://localhost/server-status'
+
+            # Nginx via stub_status module.
+            # for more information, see https://github.com/jmonitor/collector?tab=readme-ov-file#nginx
+            nginx:
+                endpoint: 'http://localhost/nginx_status'
             
             # MySQL variables and status
             mysql:
