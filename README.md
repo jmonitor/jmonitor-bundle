@@ -195,3 +195,9 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_URI} !=/server-status    <---- add this
 RewriteRule ^ %{ENV:BASE}/index.php [L]
 ```
+
+---
+
+Need help?
+- Open an issue on this repo https://github.com/jmonitor/jmonitor-bundle/issues
+- Open a discussion on https://github.com/orgs/jmonitor/discussions
