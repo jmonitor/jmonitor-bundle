@@ -10,14 +10,13 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Command\SignalableCommandInterface;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand('jmonitor:collect', description: 'Collect and send metrics to Jmonitor')]
-class CollectorCommand extends Command implements SignalableCommandInterface
+class CollectorCommand extends Command
 {
     private Jmonitor $jmonitor;
     private LoggerInterface $logger;
