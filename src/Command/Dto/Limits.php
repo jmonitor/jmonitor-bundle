@@ -11,7 +11,7 @@ namespace Jmonitor\JmonitorBundle\Command\Dto;
 class Limits
 {
     private ?int $timeLimit;
-    private  ?int $memoryLimit;
+    private ?int $memoryLimit;
 
     public function __construct(int|string|null $timeLimit = null, int|string|null $memoryLimit = null)
     {

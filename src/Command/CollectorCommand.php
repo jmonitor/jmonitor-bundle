@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Command;
 
 use Jmonitor\Jmonitor;
+use Jmonitor\CollectionResult;
 use Jmonitor\JmonitorBundle\Command\Dto\Limits;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -21,6 +23,12 @@ class CollectorCommand extends Command
     private Jmonitor $jmonitor;
     private LoggerInterface $logger;
     private bool $stopSignalReceived = false;
+    private Limits $limits;
+
+    /**
+     * Number of times a 5xx error occurred.
+     */
+    private int $serverErrorCount = 0;
 
     public function __construct(Jmonitor $jmonitor, ?LoggerInterface $logger = null)
     {
@@ -40,7 +48,7 @@ class CollectorCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $limits = new Limits(
+        $this->limits = new Limits(
             timeLimit: $input->getOption('time-limit'),
             memoryLimit: $input->getOption('memory-limit'),
         );
@@ -50,7 +58,7 @@ class CollectorCommand extends Command
             : $this->jmonitor;
 
         do {
-            if ($this->shouldStop($limits)) {
+            if ($this->shouldStop()) {
                 break;
             }
 
@@ -60,45 +68,21 @@ class CollectorCommand extends Command
                 'metrics' => $result->getMetrics(),
             ]);
 
-            $statusCode = $result->getResponse()?->getStatusCode();
-
-            // 429 is rate limit error, if happened, log will be in conclusion
-            if ($statusCode >= 400 && $statusCode !== 429) {
-                $this->logger->error('Response error', [
-                    'body' => $result->getResponse()->getBody()->getContents(),
-                    'code' => $result->getResponse()->getStatusCode(),
-                    'headers' => $result->getResponse()->getHeaders(),
-                ]);
-            }
-
             if ($result->getErrors()) {
                 $this->logger->error('Errors', [
                     'errors' => $result->getErrors(),
                 ]);
             }
 
-            $this->logger->info('Collection done.', [
-                'conclusion' => $result->getConclusion(),
-            ]);
-
             if (!$result->getResponse()) {
-                break;
+                $this->logger->info('Collection done.', [
+                    'conclusion' => $result->getConclusion(),
+                ]);
             }
 
-            if ($limits->limitReached()) {
+            if (!$this->handleResult($result)) {
                 break;
             }
-
-            $sleepSeconds = (int) ($result->getResponse()->getHeader('x-ratelimit-retry-after')[0] ?? 0);
-
-            if ($sleepSeconds <= 0) {
-                // this is not normal
-                break;
-            }
-
-            $this->logger->debug('Next push in ' . $sleepSeconds . ' seconds');
-
-            $this->sleepInterruptible($sleepSeconds);
         } while (true);
 
         $this->logger->info('Collector stopped');
@@ -125,10 +109,30 @@ class CollectorCommand extends Command
         return false;
     }
 
-    private function sleepInterruptible(int $sleepSeconds): void
+    private function shouldStop(): bool
     {
-        for ($i = 0; $i < $sleepSeconds; $i++) {
-            if ($this->stopSignalReceived) {
+        if ($this->stopSignalReceived) {
+            return true;
+        }
+
+        if ($this->limits->limitReached()) {
+            $this->logger->info('Limits reached');
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Pause execution for a given number of seconds
+     * - allowing for signals to be handled each second
+     * - checking limits defined by the user each second
+     */
+    protected function sleepInterruptible(int $sleepSeconds): void
+    {
+        for ($i = 0; $i < abs($sleepSeconds); $i++) {
+            if ($this->shouldStop()) {
                 break;
             }
 
@@ -136,17 +140,78 @@ class CollectorCommand extends Command
         }
     }
 
-    private function shouldStop(Limits $limits): bool
+    /**
+     * @return bool does the worker should continue to loop?
+     */
+    private function handleResult(CollectionResult $result): bool
     {
-        if ($this->stopSignalReceived) {
+        $statusCode = $result->getResponse()->getStatusCode();
+
+        if ($statusCode >= 500) {
+            $this->handle5xxError();
+
             return true;
         }
 
-        if ($limits->limitReached()) {
-            $this->logger->info('Limits reached');
+        $this->serverErrorCount = 0;
+
+        if ($statusCode === 429) {
+            $this->handle429Error($result->getResponse());
+
             return true;
         }
 
-        return false;
+        if ($statusCode >= 400) {
+            $this->handleOther4xxError($result->getResponse());
+
+            return false;
+        }
+
+        $this->logger->info('Collection done.', [
+            'conclusion' => $result->getConclusion(),
+        ]);
+
+        $this->handle2xx($result->getResponse());
+
+        return true;
+    }
+
+    private function handle5xxError(): void
+    {
+        $delays = [15, 30, 60, 120, 300];
+        $sleepSeconds = $delays[$this->serverErrorCount] ?? 300;
+
+        $this->logger->error(sprintf('Server error on Jmonitor side, sorry about that. Retrying in %d seconds', $sleepSeconds));
+
+        $this->sleepInterruptible($sleepSeconds);
+
+        $this->serverErrorCount++;
+    }
+
+    private function handle429Error(ResponseInterface $response): void
+    {
+        $sleepSeconds = (int) ($response->getHeader('x-ratelimit-retry-after')[0] ?? 15);
+
+        $this->logger->info(sprintf('Rate limit reached, waiting for %d seconds', $sleepSeconds));
+
+        $this->sleepInterruptible($sleepSeconds);
+    }
+
+    private function handleOther4xxError(ResponseInterface $response): void
+    {
+        $this->logger->error('Client error, stopping collector', [
+            'body' => $response->getBody()->getContents(),
+            'code' => $response->getStatusCode(),
+            'headers' => $response->getHeaders(),
+        ]);
+    }
+
+    private function handle2xx(ResponseInterface $response): void
+    {
+        $sleepSeconds = (int) ($response->getHeader('x-ratelimit-retry-after')[0] ?? 15);
+
+        $this->logger->debug('Next push in ' . $sleepSeconds . ' seconds');
+
+        $this->sleepInterruptible($sleepSeconds);
     }
 }
