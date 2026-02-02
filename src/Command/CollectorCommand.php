@@ -129,7 +129,7 @@ class CollectorCommand extends Command
      * - allowing for signals to be handled each second
      * - checking limits defined by the user each second
      */
-    protected function sleepInterruptible(int $sleepSeconds): void
+    private function sleepInterruptible(int $sleepSeconds): void
     {
         for ($i = 0; $i < abs($sleepSeconds); $i++) {
             if ($this->shouldStop()) {
