@@ -78,6 +78,8 @@ class CollectorCommand extends Command
                 $this->logger->info('Collection done.', [
                     'conclusion' => $result->getConclusion(),
                 ]);
+
+                break;
             }
 
             if (!$this->handleResult($result)) {
