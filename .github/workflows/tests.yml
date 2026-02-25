@@ -27,7 +27,11 @@ jobs:
             - name: Install dependencies
               run: |
                   composer install --prefer-dist --no-progress
-                  composer mago:install-binary
+
+#            -   name: Install mago
+#                run: |
+#                    curl --proto '=https' --tlsv1.2 -sSf https://carthage.software/mago.sh | bash
+#                    mago --version
 
             - name: lint
               run: composer run-script lint:check
