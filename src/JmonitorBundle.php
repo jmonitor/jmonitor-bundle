@@ -91,6 +91,7 @@ final class JmonitorBundle extends AbstractBundle
                             ->canBeEnabled()
                             ->children()
                                 ->scalarNode('endpoint')->defaultValue('http://localhost:2019/metrics')->cannotBeEmpty()->info('Url of Caddy (or FrankenPHP) metrics endpoint.')->end()
+                                ->booleanNode('frankenphp')->defaultFalse()->info('Enable FrankenPhp metrics collection')->end()
                             ->end()
                         ->end()
                         ->arrayNode('symfony')

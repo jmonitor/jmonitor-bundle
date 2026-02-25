@@ -4,6 +4,7 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Jmonitor\Collector\Apache\ApacheCollector;
 use Jmonitor\Collector\Caddy\CaddyCollector;
+use Jmonitor\Collector\FrankenPhp\FrankenPhpCollector;
 use Jmonitor\Collector\Mysql\Adapter\DoctrineAdapter;
 use Jmonitor\Collector\Mysql\MysqlQueriesCountCollector;
 use Jmonitor\Collector\Mysql\MysqlStatusCollector;
@@ -13,6 +14,7 @@ use Jmonitor\Collector\Php\PhpCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
+use Jmonitor\Prometheus\PrometheusMetricsProvider;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
 use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
@@ -141,14 +143,31 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     }
 
     if ($config['collectors']['caddy']['enabled']) {
-        $services->set(CaddyCollector::class)
+        $services->set(PrometheusMetricsProvider::class)
             ->args([
                 $config['collectors']['caddy']['endpoint'],
+            ])
+        ;
+
+        $services->set(CaddyCollector::class)
+            ->args([
+                service(PrometheusMetricsProvider::class),
             ])
             ->tag('jmonitor.collector', ['name' => 'caddy'])
         ;
 
         $services->get(Jmonitor::class)->call('addCollector', [service(CaddyCollector::class)]);
+
+        if ($config['collectors']['caddy']['frankenphp']) {
+            $services->set(FrankenPhpCollector::class)
+                ->args([
+                    service(PrometheusMetricsProvider::class),
+                ])
+                ->tag('jmonitor.collector', ['name' => 'frankenphp'])
+            ;
+
+            $services->get(Jmonitor::class)->call('addCollector', [service(FrankenPhpCollector::class)]);
+        }
     }
 
     if ($config['collectors']['symfony']['enabled']) {

@@ -93,9 +93,10 @@ when@prod:
                 # adapter: 'some_redis_service_name'
                 
             # Metrics from Caddy / FrankenPHP
-            # see https://caddyserver.com/docs/metrics
+            # see https://caddyserver.com/docs/metrics and https://frankenphp.dev/docs/metrics/
             caddy:
                 endpoint: 'http://localhost:2019/metrics'
+                frankenphp: true # default is false
 ```
 4) Run a collection manually to verify. You may prefer doing this in the production environment, as configuring the bundle in development isn't always possible.
 ```bash
