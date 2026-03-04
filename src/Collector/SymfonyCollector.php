@@ -4,31 +4,30 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Collector;
 
-use Jmonitor\Collector\AbstractCollector;
+use Jmonitor\Collection;
+use Jmonitor\Collector\CollectorInterface;
 use Jmonitor\JmonitorBundle\Collector\Components\ComponentCollectorInterface;
 use Symfony\Component\HttpKernel\KernelInterface;
 
 /**
  * Collects metrics for Symfony
  */
-class SymfonyCollector extends AbstractCollector
+class SymfonyCollector implements CollectorInterface
 {
     private KernelInterface $kernel;
+
     /** @var ComponentCollectorInterface[] */
     private array $componentCollectors;
 
-    public function __construct(KernelInterface $kernel, iterable $componentCollectors)
+    public function __construct(KernelInterface $kernel, \traversable $componentCollectors)
     {
         $this->kernel = $kernel;
         $this->componentCollectors = iterator_to_array($componentCollectors);
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    public function collect(): array
+    public function collect(Collection $collection): void
     {
-        return [
+        $collection->setMetrics([
             'env' => $this->kernel->getEnvironment(),
             'debug' => $this->kernel->isDebug(),
             'version' => $this->getSymfonyVersion(),
@@ -46,7 +45,7 @@ class SymfonyCollector extends AbstractCollector
                 static fn(ComponentCollectorInterface $collector) => $collector->collect(),
                 $this->componentCollectors,
             )),
-        ];
+        ]);
     }
 
     public function getName(): string

@@ -7,22 +7,17 @@ namespace Jmonitor\JmonitorBundle\Collector\Components;
 use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
-final class FlexRecipesCollector implements CacheableComponentCollectorInterface
+final class FlexRecipesCollector implements ComponentCollectorInterface
 {
     private CommandRunner $commandRunner;
     private ?string $command;
-    private int $cacheTtl;
 
-    public function __construct(CommandRunner $commandRunner, ?string $command = null, int $cacheTtl = 3600 * 24)
+    private ?array $propertyCache = null;
+
+    public function __construct(CommandRunner $commandRunner, ?string $command = null)
     {
         $this->commandRunner = $commandRunner;
         $this->command = $command;
-        $this->cacheTtl = $cacheTtl;
-    }
-
-    public function getCacheTtl(): int
-    {
-        return $this->cacheTtl;
     }
 
     /**
@@ -30,11 +25,15 @@ final class FlexRecipesCollector implements CacheableComponentCollectorInterface
      */
     public function collect(): array
     {
+        if ($this->propertyCache !== null) {
+            return $this->propertyCache;
+        }
+
         $command = $this->command ?? ['composer', 'recipes', '-o'];
         $run = $this->commandRunner->runProcess($command);
 
         if ($run['exit_code'] === 0) {
-            return [
+            return $this->propertyCache = [
                 'up_to_date' => true,
             ];
         }
@@ -43,7 +42,7 @@ final class FlexRecipesCollector implements CacheableComponentCollectorInterface
             throw new CollectorException('Unable to run flex recipe command', __CLASS__);
         }
 
-        return [
+        return $this->propertyCache = [
             'up_to_date' => false,
             'outdated_recipes' => $this->parseOutput($run['output']),
         ];
