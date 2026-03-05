@@ -36,13 +36,6 @@ class FlexRecipesCollectorTest extends TestCase
         $collector->collect();
     }
 
-    public function testGetCacheTtl(): void
-    {
-        $commandRunner = $this->createMock(CommandRunner::class);
-        $collector = new FlexRecipesCollector($commandRunner, null, 123);
-        static::assertSame(123, $collector->getCacheTtl());
-    }
-
     public function testParseOutput(): void
     {
         $output = <<<TXT
