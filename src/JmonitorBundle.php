@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle;
 
-use Jmonitor\JmonitorBundle\DependencyInjection\Compiler\CacheableCollectorPass;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -15,13 +14,6 @@ use Symfony\Component\Messenger\Worker;
 
 final class JmonitorBundle extends AbstractBundle
 {
-    public function build(ContainerBuilder $builder): void
-    {
-        parent::build($builder);
-
-        $builder->addCompilerPass(new CacheableCollectorPass());
-    }
-
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         if (!$config['project_api_key']) {
