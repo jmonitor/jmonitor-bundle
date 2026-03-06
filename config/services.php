@@ -7,6 +7,7 @@ use Jmonitor\Collector\Caddy\CaddyCollector;
 use Jmonitor\Collector\FrankenPhp\FrankenPhpCollector;
 use Jmonitor\Collector\Mysql\Adapter\DoctrineAdapter;
 use Jmonitor\Collector\Mysql\MysqlQueriesCountCollector;
+use Jmonitor\Collector\Mysql\MysqlSlowQueriesCollector;
 use Jmonitor\Collector\Mysql\MysqlStatusCollector;
 use Jmonitor\Collector\Mysql\MysqlVariablesCollector;
 use Jmonitor\Collector\Nginx\NginxCollector;
@@ -77,10 +78,20 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             ->tag('jmonitor.collector', ['name' => 'mysql.variables'])
         ;
 
+        $services->set(MysqlSlowQueriesCollector::class)
+            ->args([
+                service(DoctrineAdapter::class),
+                $config['collectors']['mysql']['db_name'],
+                // TODO autre config
+            ])
+            ->tag('jmonitor.collector', ['name' => 'mysql.slow_queries'])
+        ;
+
         $services->get(Jmonitor::class)
             ->call('addCollector', [service(MysqlQueriesCountCollector::class)])
             ->call('addCollector', [service(MysqlStatusCollector::class)])
             ->call('addCollector', [service(MysqlVariablesCollector::class)])
+            ->call('addCollector', [service(MysqlSlowQueriesCollector::class)])
         ;
     }
 
