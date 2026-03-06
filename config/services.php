@@ -36,10 +36,11 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->args([
             $config['project_api_key'],
             $config['http_client'] ? service($config['http_client']) : null,
+            $config['logger'] ? service($config['logger']) : null,
         ])
     ;
 
-    $collector = $services->set(CollectorCommand::class)
+    $services->set(CollectorCommand::class)
         ->args([
             service(Jmonitor::class),
             $config['logger'] ? service($config['logger']) : null,

@@ -57,6 +57,8 @@ class CollectorCommand extends Command
             ? $this->jmonitor->withCollector($input->getArgument('collector'))
             : $this->jmonitor;
 
+        $output->writeln('Jmonitor collector started');
+
         do {
             if ($this->shouldStop()) {
                 break;
@@ -64,20 +66,8 @@ class CollectorCommand extends Command
 
             $result = $jmonitor->collect(!$input->getOption('dry-run'), false);
 
-            $this->logger->debug('Metrics collected', [
-                'metrics' => $result->getMetrics(),
-            ]);
-
-            if ($result->getErrors()) {
-                $this->logger->error('Errors', [
-                    'errors' => $result->getErrors(),
-                ]);
-            }
-
             if (!$result->getResponse()) {
-                $this->logger->info('Collection done.', [
-                    'conclusion' => $result->getConclusion(),
-                ]);
+                // output qqch ?
 
                 break;
             }
@@ -87,7 +77,7 @@ class CollectorCommand extends Command
             }
         } while (true);
 
-        $this->logger->info('Collector stopped');
+        $output->writeln('Jmonitor collector stopped');
 
         return Command::SUCCESS;
     }
@@ -97,16 +87,23 @@ class CollectorCommand extends Command
         $signals = [];
 
         foreach (['SIGINT', 'SIGTERM', 'SIGQUIT'] as $signal) {
-            defined($signal) && $signals[] = constant($signal);
+            if (defined($signal)) {
+                $signals[$signal] = constant($signal);
+            }
         }
 
-        return $signals;
+        return array_values($signals);
     }
 
     public function handleSignal(int $signal, int|false $previousExitCode = 0): int|false
     {
         $this->stopSignalReceived = true;
-        $this->logger->info('Stop signal received, stopping...', ['signal' => $signal]);
+
+        $subscribedSignals = $this->getSubscribedSignals();
+        $signals = array_reverse($subscribedSignals);
+        $signalName = $signals[$signal] ?? $signal;
+
+        $this->logger->notice('Stop signal received, stopping...', ['signal' => $signalName]);
 
         return false;
     }
@@ -169,10 +166,6 @@ class CollectorCommand extends Command
             return false;
         }
 
-        $this->logger->info('Collection done.', [
-            'conclusion' => $result->getConclusion(),
-        ]);
-
         $this->handle2xx($result->getResponse());
 
         return true;
@@ -183,7 +176,7 @@ class CollectorCommand extends Command
         $delays = [15, 30, 60, 120, 300];
         $sleepSeconds = $delays[$this->serverErrorCount] ?? 300;
 
-        $this->logger->error(sprintf('Server error on Jmonitor side, sorry about that. Retrying in %d seconds', $sleepSeconds));
+        $this->logger->info(sprintf('Jmonitor error, retrying in %d seconds', $sleepSeconds));
 
         $this->sleepInterruptible($sleepSeconds);
 
@@ -194,18 +187,12 @@ class CollectorCommand extends Command
     {
         $sleepSeconds = (int) ($response->getHeader('x-ratelimit-retry-after')[0] ?? 15);
 
-        $this->logger->info(sprintf('Rate limit reached, waiting for %d seconds', $sleepSeconds));
-
         $this->sleepInterruptible($sleepSeconds);
     }
 
     private function handleOther4xxError(ResponseInterface $response): void
     {
-        $this->logger->error('Client error, stopping collector', [
-            'body' => $response->getBody()->getContents(),
-            'code' => $response->getStatusCode(),
-            'headers' => $response->getHeaders(),
-        ]);
+        // R
     }
 
     private function handle2xx(ResponseInterface $response): void
