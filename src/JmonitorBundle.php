@@ -32,7 +32,7 @@ final class JmonitorBundle extends AbstractBundle
     {
         $definition->rootNode()
             ->children() // jmonitor
-                ->scalarNode('project_api_key')->defaultNull()->info('You can find it in your jmonitor.io settings. Let empty to disable.')->end()
+                ->scalarNode('project_api_key')->defaultNull()->info('You can find it in your jmonitor.io settings. Leave empty to disable sending.')->end()
                 ->scalarNode('http_client')->defaultNull()->info('Name of a Psr\Http\Client\ClientInterface service. Optional. If null, Psr18ClientDiscovery will be used.')->end()
                 ->scalarNode('logger')->defaultNull()->info('Name of a Psr\Log\LoggerInterface service.')->end()
                 ->arrayNode('collectors')

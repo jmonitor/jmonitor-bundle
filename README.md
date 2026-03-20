@@ -23,19 +23,26 @@ composer require jmonitor/jmonitor-bundle
 
 ```dotenv
 # .env
+JMONITOR_API_KEY=
+```
+
+```dotenv
+# .env.prod
 JMONITOR_API_KEY=your_api_key
 ```
 
 ```yaml
 # config/packages/jmonitor.yaml
 jmonitor:
+    # project_api_key can be empty to disable sending data to Jmonitor
+    # useful for testing pourposes in non-production environments
     project_api_key: '%env(JMONITOR_API_KEY)%'
 
 when@prod:
     jmonitor:
-        # Optional: use a specific logger service (Symfony's default is "logger").
-        # See "Debugging" section below for more information.
-        # logger: 'logger'
+        # Optional (recommended): use a specific logger service (Symfony's default is "logger").
+        # See "Debugging" section below for more informations.
+        logger: 'logger'
     
         # Optional: provide a custom HTTP client service
         # http_client: 'http_client'
@@ -43,7 +50,8 @@ when@prod:
         # Enable the collectors you want to use (remove the unused ones).
         # Refer to the collector library for deeper collector-specific doc: https://github.com/jmonitor/collector
         collectors:
-            # Cpu, Ram, Disk of the server. Linux only.
+            # Cpu, Ram, Disk... Linux only.
+
             # You can use a RandomAdapter on Windows for testing purpose.
             # system:
             #     adapter: 'Jmonitor\\Collector\\System\\Adapter\\RandomAdapter'
@@ -91,7 +99,7 @@ when@prod:
             #     flex:
             #         command: "composer.phar recipes -o" # default is "composer recipes -o"
             symfony: ~
-    
+
             # Redis metrics via INFO command
             # you can use either DSN or a service name (adapter).
             # redis:
@@ -105,7 +113,7 @@ when@prod:
                 endpoint: 'http://localhost:2019/metrics'
                 frankenphp: true # default is false
 ```
-4) Run a collection manually to verify. You may prefer doing this in the production environment, as configuring the bundle in development isn't always possible.
+4) Run a collection manually to verify. It may be easier to do this in the production environment, since configuring the bundle (or certain collectors) in development is not always possible.
 ```bash
 php bin/console jmonitor:collect -vvv --dry-run
 ```
@@ -130,7 +138,6 @@ when@prod:
         path: '/jmonitor/php-metrics'
         controller: Jmonitor\JmonitorBundle\Controller\JmonitorPhpController
         host: localhost
-
 ```
 
 Set up a firewall for this route **before** the main firewall to prevent your app from interfering with it:
@@ -160,7 +167,7 @@ jmonitor:
 ## Running the collector
 
 ```bash
-php bin/console jmonitor:collect -vvv
+php bin/console jmonitor:collect [-vv|-vvv] [--dry-run]
 ```
 
 This command runs as a long-lived worker: it periodically collects metrics from the enabled collectors and sends them to Jmonitor.io.
@@ -170,7 +177,7 @@ You can also limit how long it runs:
 - `--time-limit`: stop after the given number of seconds
 
     ```bash
-    php bin/console jmonitor:collect --memory-limit=32M --time-limit=3600
+    php bin/console jmonitor:collect --vv --memory-limit=32M --time-limit=3600
     ```
 
 You can pass a collector name as an argument to run only that collector — useful for debugging a specific integration:

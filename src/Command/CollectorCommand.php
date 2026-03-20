@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Command;
 
+use Jmonitor\Exceptions\NoCollectorException;
 use Jmonitor\Jmonitor;
 use Jmonitor\CollectionResult;
 use Jmonitor\JmonitorBundle\Command\Dto\Limits;
@@ -64,7 +65,12 @@ class CollectorCommand extends Command
                 break;
             }
 
-            $result = $jmonitor->collect(!$input->getOption('dry-run'), false);
+            try {
+                $result = $jmonitor->collect(!$input->getOption('dry-run'), false);
+            } catch (NoCollectorException) {
+                $this->logger->warning('No collector added.');
+                break;
+            }
 
             if (!$result->getResponse()) {
                 if ($input->getOption('dry-run')) {
@@ -73,7 +79,11 @@ class CollectorCommand extends Command
                     foreach ($result->getErrors() as $error) {
                         $this->logger->error($error->getMessage(), ['exception' => $error]);
                     }
-                    $this->logger->error('No response from Jmonitor');
+
+                    if (count($result->getErrors()) === 0) {
+                        // probably no api key, may be on purpose
+                        $this->logger->notice('No response from Jmonitor. If you haven\'t set an API key, this is expected.');
+                    }
                 }
 
                 break;
