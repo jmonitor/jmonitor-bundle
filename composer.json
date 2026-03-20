@@ -1,0 +1,49 @@
+{
+    "name": "jmonitor/jmonitor-bundle",
+    "description": "Symfony bundle to collect server metrics (PHP, MySQL, Redis, Apache, Nginx, Caddy) and send them to jmonitor.io.",
+    "keywords": ["monitoring", "metrics", "mysql", "apache", "php", "redis", "nginx", "system", "symfony", "caddy", "frankenphp"],
+    "homepage": "https://jmonitor.io",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Johndodev",
+            "homepage": "https://jonathan-plantey.fr/"
+        }
+    ],
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "require": {
+        "php": "^8.1",
+        "jmonitor/collector": "^1.0",
+        "nyholm/psr7": "^1.8",
+        "symfony/console": "^6.4|^7.0|^8.0",
+        "symfony/framework-bundle": "^6.4|^7.0|^8.0",
+        "symfony/http-client": "^6.4|^7.0|^8.0",
+        "symfony/process": "^6.4|^7.0|^8.0",
+        "symfony/polyfill-php82": "^1.33"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.86",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload": {
+        "psr-4": { "Jmonitor\\JmonitorBundle\\": "src/" }
+    },
+    "autoload-dev": {
+        "psr-4": { "Jmonitor\\JmonitorBundle\\Tests\\": "tests/" }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    },
+    "scripts": {
+        "lint:check": "./vendor/bin/php-cs-fixer check --verbose --diff",
+        "lint:fix": "./vendor/bin/php-cs-fixer fix --verbose --diff",
+        "phpstan": "./vendor/bin/phpstan",
+        "phpunit": "./vendor/bin/phpunit tests"
+    }
+}
