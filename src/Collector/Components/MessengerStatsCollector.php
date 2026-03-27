@@ -6,6 +6,12 @@ namespace Jmonitor\JmonitorBundle\Collector\Components;
 
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
+/**
+ * Collects the messenger stats via the messenger:stats command
+ *
+ * To avoid "Mysql server has gone away" errors, the command is run in a separate process
+ * (a "php bin/console messenger:stats" instead of using the Application::doRun() method)
+ */
 final class MessengerStatsCollector implements ComponentCollectorInterface
 {
     private CommandRunner $commandRunner;
@@ -17,9 +23,10 @@ final class MessengerStatsCollector implements ComponentCollectorInterface
 
     public function collect(): array
     {
-        $run = $this->commandRunner->run('messenger:stats', ['--format' => 'json']);
+        // TODO make bin/console (or the whole command ?) configurable
+        $run = $this->commandRunner->runPhpProcess(['bin/console', 'messenger:stats', '--format=json']);
 
-        if ($run === null || $run['exit_code'] !== 0) {
+        if ($run['exit_code'] !== 0) {
             return [];
         }
 
