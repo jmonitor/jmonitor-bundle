@@ -1,0 +1,11 @@
+/.claude export-ignore
+/.editorconfig export-ignore
+/.gitattributes export-ignore
+/.github export-ignore
+/.gitignore export-ignore
+/.junie export-ignore
+/.php-cs-fixer.php export-ignore
+/phpstan.neon export-ignore
+/phpunit.xml export-ignore
+/phpunit.xml.dist export-ignore
+/tests export-ignore
