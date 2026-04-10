@@ -139,6 +139,7 @@ final class JmonitorBundle extends AbstractBundle
                                     ->children()
                                         ->booleanNode('enabled')->defaultValue(class_exists(SymfonyBundle::class))->end()
                                         ->scalarNode('command')->defaultValue('composer recipes -o')->info('Command to collect Flex recipes metrics')->end()
+                                        ->integerNode('timeout')->defaultValue(5)->info('Timeout in seconds for the Flex recipes command')->end()
                                     ->end()
                                 ->end()
                                 ->booleanNode('scheduler')
