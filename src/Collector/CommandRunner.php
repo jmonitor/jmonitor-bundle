@@ -100,6 +100,10 @@ class CommandRunner
             return $this->phpBinary;
         }
 
+        if (PHP_SAPI === 'frankenphp') {
+            return $this->phpBinary = 'frankenphp php-cli';
+        }
+
         return $this->phpBinary = (new PhpExecutableFinder())->find(false);
     }
 }
