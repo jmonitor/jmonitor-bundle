@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - FrankenPHP support: when running under FrankenPHP (`PHP_SAPI === 'frankenphp'`), component collectors now spawn subprocesses via `frankenphp php-cli` instead of the standard PHP binary.
+- Configurable timeout for the Flex recipes collector via `jmonitor.symfony.flex.timeout` (default: 5 seconds).
 
 ## [1.1.1] - 2026-03-27
 

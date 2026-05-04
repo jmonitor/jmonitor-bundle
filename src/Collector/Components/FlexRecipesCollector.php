@@ -11,13 +11,15 @@ final class FlexRecipesCollector implements ComponentCollectorInterface
 {
     private CommandRunner $commandRunner;
     private ?string $command;
+    private ?int $timeout;
 
     private ?array $propertyCache = null;
 
-    public function __construct(CommandRunner $commandRunner, ?string $command = null)
+    public function __construct(CommandRunner $commandRunner, ?string $command = null, ?int $timeout = 5)
     {
         $this->commandRunner = $commandRunner;
         $this->command = $command;
+        $this->timeout = $timeout;
     }
 
     /**
@@ -30,7 +32,7 @@ final class FlexRecipesCollector implements ComponentCollectorInterface
         }
 
         $command = $this->command ?? ['composer', 'recipes', '-o'];
-        $run = $this->commandRunner->runProcess($command);
+        $run = $this->commandRunner->runProcess($command, $this->timeout);
 
         if ($run['exit_code'] === 0) {
             return $this->propertyCache = [
