@@ -23,7 +23,8 @@ class CommandRunner
     private string $projectDir;
 
     // property cache
-    private string|false|null $phpBinary = null;
+    /** @var list<string>|false|null */
+    private array|false|null $phpBinary = null;
 
     public function __construct(KernelInterface $kernel)
     {
@@ -83,10 +84,10 @@ class CommandRunner
         }
 
         if (is_array($command)) {
-            return $this->runProcess([$phpBinary, ...$command], $timeout);
+            return $this->runProcess([...$phpBinary, ...$command], $timeout);
         }
 
-        return $this->runProcess($phpBinary . ' ' . $command, $timeout);
+        return $this->runProcess(implode(' ', $phpBinary) . ' ' . $command, $timeout);
     }
 
     public function getApplication(): Application
@@ -94,16 +95,21 @@ class CommandRunner
         return $this->application;
     }
 
-    private function getPhpBinary(): string|false
+    /**
+     * @return list<string>|false
+     */
+    private function getPhpBinary(): array|false
     {
         if ($this->phpBinary !== null) {
             return $this->phpBinary;
         }
 
         if (PHP_SAPI === 'frankenphp') {
-            return $this->phpBinary = 'frankenphp php-cli';
+            return $this->phpBinary = ['frankenphp', 'php-cli'];
         }
 
-        return $this->phpBinary = (new PhpExecutableFinder())->find(false);
+        $binary = (new PhpExecutableFinder())->find(false);
+
+        return $this->phpBinary = $binary === false ? false : [$binary];
     }
 }
