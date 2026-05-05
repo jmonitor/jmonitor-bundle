@@ -14,6 +14,7 @@ use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
 use Jmonitor\Jmonitor;
 use Jmonitor\JmonitorBundle\Collector\Components\FlexRecipesCollector;
+use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\SchedulerCollector;
 use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
@@ -469,6 +470,77 @@ class JmonitorBundleTest extends TestCase
                 ],
             ],
         ]);
+    }
+
+    public function testMessengerCollectorRegistersWithBooleanTrue(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'symfony' => [
+                    'messenger' => true,
+                ],
+            ],
+        ]);
+
+        static::assertTrue($container->hasDefinition(MessengerStatsCollector::class));
+        $def = $container->getDefinition(MessengerStatsCollector::class);
+        static::assertNull($def->getArgument(1), 'Default command should be null');
+        static::assertSame(3, $def->getArgument(2), 'Default timeout should be 3');
+    }
+
+    public function testMessengerCollectorNotRegisteredWithBooleanFalse(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'symfony' => [
+                    'messenger' => false,
+                ],
+            ],
+        ]);
+
+        static::assertFalse($container->hasDefinition(MessengerStatsCollector::class));
+    }
+
+    public function testMessengerCollectorRegistersWithCustomCommandAndTimeout(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'symfony' => [
+                    'messenger' => [
+                        'enabled' => true,
+                        'command' => '/usr/bin/php bin/console messenger:stats --format=json',
+                        'timeout' => 10,
+                    ],
+                ],
+            ],
+        ]);
+
+        static::assertTrue($container->hasDefinition(MessengerStatsCollector::class));
+        $def = $container->getDefinition(MessengerStatsCollector::class);
+        static::assertSame('/usr/bin/php bin/console messenger:stats --format=json', $def->getArgument(1));
+        static::assertSame(10, $def->getArgument(2));
+    }
+
+    public function testMessengerCollectorRegistersWithDefaultsWhenEnabledExplicitly(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'symfony' => [
+                    'messenger' => [
+                        'enabled' => true,
+                    ],
+                ],
+            ],
+        ]);
+
+        static::assertTrue($container->hasDefinition(MessengerStatsCollector::class));
+        $def = $container->getDefinition(MessengerStatsCollector::class);
+        static::assertNull($def->getArgument(1));
+        static::assertSame(3, $def->getArgument(2));
     }
 
     public function testDoctrineAdapterRegisteredEvenWhenAllSubCollectorsDisabled(): void
