@@ -236,10 +236,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             ;
         }
 
-        if ($symfonyConfig['messenger']) {
+        if ($symfonyConfig['messenger']['enabled']) {
             $services->set(MessengerStatsCollector::class)
                 ->args([
                     service(CommandRunner::class),
+                    $symfonyConfig['messenger']['command'],
+                    $symfonyConfig['messenger']['timeout'],
                 ])
                 ->tag('jmonitor.symfony.component_collector', ['index' => 'messenger'])
             ;

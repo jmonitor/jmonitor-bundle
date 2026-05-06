@@ -15,16 +15,23 @@ use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 final class MessengerStatsCollector implements ComponentCollectorInterface
 {
     private CommandRunner $commandRunner;
+    private ?string $command;
+    private int $timeout;
 
-    public function __construct(CommandRunner $commandRunner)
+    public function __construct(CommandRunner $commandRunner, ?string $command = null, int $timeout = 3)
     {
         $this->commandRunner = $commandRunner;
+        $this->command = $command;
+        $this->timeout = $timeout;
     }
 
     public function collect(): array
     {
-        // TODO make bin/console (or the whole command ?) configurable
-        $run = $this->commandRunner->runPhpProcess(['bin/console', 'messenger:stats', '--format=json']);
+        if ($this->command !== null) {
+            $run = $this->commandRunner->runProcess($this->command, $this->timeout);
+        } else {
+            $run = $this->commandRunner->runPhpProcess(['bin/console', 'messenger:stats', '--format=json'], $this->timeout);
+        }
 
         if ($run['exit_code'] !== 0) {
             return [];
