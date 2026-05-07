@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Collector\Components;
 
+use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
 use PHPUnit\Framework\TestCase;
@@ -40,7 +41,7 @@ class MessengerStatsCollectorTest extends TestCase
         static::assertSame([], $result);
     }
 
-    public function testCollectReturnsEmptyArrayOnNonZeroExitCode(): void
+    public function testCollectThrowsOnNonZeroExitCode(): void
     {
         $commandRunner = $this->createMock(CommandRunner::class);
         $commandRunner
@@ -48,10 +49,11 @@ class MessengerStatsCollectorTest extends TestCase
             ->willReturn(['exit_code' => 1, 'output' => '', 'error_output' => 'error']);
 
         $collector = new MessengerStatsCollector($commandRunner);
-        static::assertSame([], $collector->collect());
+        $this->expectException(CollectorException::class);
+        $collector->collect();
     }
 
-    public function testCollectReturnsEmptyArrayOnInvalidJson(): void
+    public function testCollectThrowsOnInvalidJson(): void
     {
         $commandRunner = $this->createMock(CommandRunner::class);
         $commandRunner
@@ -59,7 +61,8 @@ class MessengerStatsCollectorTest extends TestCase
             ->willReturn(['exit_code' => 0, 'output' => 'not-json', 'error_output' => '']);
 
         $collector = new MessengerStatsCollector($commandRunner);
-        static::assertSame([], $collector->collect());
+        $this->expectException(CollectorException::class);
+        $collector->collect();
     }
 
     public function testCollectReturnsDecodedArray(): void
@@ -76,16 +79,5 @@ class MessengerStatsCollectorTest extends TestCase
 
         $collector = new MessengerStatsCollector($commandRunner);
         static::assertSame($data, $collector->collect());
-    }
-
-    public function testCollectReturnsEmptyArrayWhenJsonIsNotAnArray(): void
-    {
-        $commandRunner = $this->createMock(CommandRunner::class);
-        $commandRunner
-            ->method('runPhpProcess')
-            ->willReturn(['exit_code' => 0, 'output' => '"string"', 'error_output' => '']);
-
-        $collector = new MessengerStatsCollector($commandRunner);
-        static::assertSame([], $collector->collect());
     }
 }

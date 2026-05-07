@@ -5,14 +5,19 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Collector;
 
 use Jmonitor\Collector\CollectorInterface;
+use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\Components\ComponentCollectorInterface;
+use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LoggerAwareTrait;
 use Symfony\Component\HttpKernel\KernelInterface;
 
 /**
  * Collects metrics for Symfony
  */
-class SymfonyCollector implements CollectorInterface
+class SymfonyCollector implements CollectorInterface, LoggerAwareInterface
 {
+    use LoggerAwareTrait;
+
     private KernelInterface $kernel;
 
     /** @var ComponentCollectorInterface[] */
@@ -26,7 +31,7 @@ class SymfonyCollector implements CollectorInterface
 
     public function collect(): array
     {
-        return [
+        $output =  [
             'env' => $this->kernel->getEnvironment(),
             'debug' => $this->kernel->isDebug(),
             'version' => $this->getSymfonyVersion(),
@@ -40,11 +45,21 @@ class SymfonyCollector implements CollectorInterface
                 ? $this->kernel->getShareDir()
                 : null,
             'charset' => $this->kernel->getCharset(),
-            'components' => array_filter(array_map(
-                static fn(ComponentCollectorInterface $collector) => $collector->collect(),
-                $this->componentCollectors,
-            )),
+            'components' => [],
         ];
+
+        // make the collector resilient to component errors
+        foreach ($this->componentCollectors as $name => $collector) {
+            try {
+                $output['components'][$name] = $collector->collect();
+            } catch (CollectorException $e) {
+                $this->logger?->warning($e->getMessage(), ['exception' => $e]);
+            }
+        }
+
+        $output['components'] = array_filter($output['components']);
+
+        return $output;
     }
 
     public function getName(): string

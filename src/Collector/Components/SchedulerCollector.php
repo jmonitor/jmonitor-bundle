@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Collector\Components;
 
+use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
 final class SchedulerCollector implements ComponentCollectorInterface
@@ -19,8 +20,12 @@ final class SchedulerCollector implements ComponentCollectorInterface
     {
         $run = $this->commandRunner->run('debug:scheduler');
 
-        if ($run === null || $run['exit_code'] !== 0) {
-            return [];
+        if ($run === null) {
+            throw new CollectorException('Unable to run debug:scheduler command', __CLASS__);
+        }
+
+        if ($run['exit_code'] !== 0) {
+            throw new CollectorException('debug:scheduler command failed (exit code: ' . var_export($run['exit_code'], true) . ')', __CLASS__);
         }
 
         $commands = $this->parseOutput($run['output']);
@@ -70,7 +75,6 @@ final class SchedulerCollector implements ComponentCollectorInterface
                 try {
                     $date = new \DateTimeImmutable($nextRunStr);
                 } catch (\Exception) {
-                    // todo log something
                     continue;
                 }
                 $nextRun = $date->getTimestamp();

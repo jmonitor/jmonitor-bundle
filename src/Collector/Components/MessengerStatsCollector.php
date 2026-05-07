@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Collector\Components;
 
+use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
 /**
@@ -34,15 +35,13 @@ final class MessengerStatsCollector implements ComponentCollectorInterface
         }
 
         if ($run['exit_code'] !== 0) {
-            return [];
+            throw new CollectorException('messenger:stats command failed (exit code: ' . var_export($run['exit_code'], true) . ')', __CLASS__);
         }
 
         try {
-            $decoded = json_decode($run['output'], true, 4, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return [];
+            return json_decode($run['output'], true, 4, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new CollectorException('Failed to decode messenger:stats output: ' . $e->getMessage(), __CLASS__, $e);
         }
-
-        return is_array($decoded) ? $decoded : [];
     }
 }
