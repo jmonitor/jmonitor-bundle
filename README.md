@@ -89,15 +89,21 @@ when@prod:
                 endpoint: 'http://localhost/jmonitor/php-metrics'
             
             # symfony: some infos, loaded bundles, flex recipes, schedules...
-            # you can disable some components by setting them to false or let the bundle auto-detect
+            # Components are auto-detected based on installed packages.
+            # You can disable a component by setting it to false, or configure it:
             # symfony:
-            #     flex: false
-            #     scheduler: true
-            #     messenger: true
-            # you can provide the recipes command if the default one does not suit you
-            # symfony:
+            #     flex: false       # disable
+            #     scheduler: false  # disable
+            #     messenger: false  # disable
+            #
             #     flex:
-            #         command: "composer.phar recipes -o" # default is "composer recipes -o"
+            #         command: "composer.phar recipes -o"  # default: "composer recipes -o"
+            #         timeout: 10                          # default: 5 (seconds)
+            # Note: flex recipes are checked once per day and cached for the rest of the worker process lifetime.
+            #
+            #     messenger:
+            #         command: "php bin/console messenger:stats --format=json"  # default: auto
+            #         timeout: 5                                                # default: 3 (seconds)
             symfony: ~
 
             # Redis metrics via INFO command
@@ -191,6 +197,7 @@ https://symfony.com/doc/current/messenger.html#deploying-to-production
 
 ## Logging and Debugging
 - The command is resilient: individual collector failures do not crash the whole run; errors are logged (logging must be enabled in config).
+- Symfony component collectors (flex, scheduler, messenger) that fail at worker startup are disabled for the lifetime of that worker process and an error is logged. Restart the worker to re-enable them.
 - Log levels:
     - Errors (collector exceptions, HTTP responses with status >= 400): error
     - Collected metrics: debug
