@@ -6,5 +6,7 @@ namespace Jmonitor\JmonitorBundle\Collector\Components;
 
 interface ComponentCollectorInterface
 {
+    public function boot(): void;
+
     public function collect(): array;
 }

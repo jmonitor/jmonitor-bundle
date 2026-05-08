@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Collector\Components;
 
+use Jmonitor\Exceptions\BootFailedException;
+use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
 /**
@@ -18,6 +20,8 @@ final class MessengerStatsCollector implements ComponentCollectorInterface
     private ?string $command;
     private int $timeout;
 
+    private ?array $bootCollect = null;
+
     public function __construct(CommandRunner $commandRunner, ?string $command = null, int $timeout = 3)
     {
         $this->commandRunner = $commandRunner;
@@ -25,8 +29,24 @@ final class MessengerStatsCollector implements ComponentCollectorInterface
         $this->timeout = $timeout;
     }
 
+    public function boot(): void
+    {
+        try {
+            $this->bootCollect = $this->collect();
+        } catch (CollectorException $e) {
+            throw new BootFailedException($e->getMessage(), $e);
+        }
+    }
+
     public function collect(): array
     {
+        if ($this->bootCollect !== null) {
+            $output = $this->bootCollect;
+            $this->bootCollect = null;
+
+            return $output;
+        }
+
         if ($this->command !== null) {
             $run = $this->commandRunner->runProcess($this->command, $this->timeout);
         } else {
@@ -34,15 +54,13 @@ final class MessengerStatsCollector implements ComponentCollectorInterface
         }
 
         if ($run['exit_code'] !== 0) {
-            return [];
+            throw new CollectorException('messenger:stats command failed (exit code: ' . var_export($run['exit_code'], true) . ')', __CLASS__);
         }
 
         try {
-            $decoded = json_decode($run['output'], true, 4, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return [];
+            return json_decode($run['output'], true, 4, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new CollectorException('Failed to decode messenger:stats output: ' . $e->getMessage(), __CLASS__, $e);
         }
-
-        return is_array($decoded) ? $decoded : [];
     }
 }
