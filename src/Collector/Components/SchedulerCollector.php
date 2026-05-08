@@ -4,20 +4,38 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Collector\Components;
 
+use Jmonitor\Exceptions\BootFailedException;
 use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
 
 final class SchedulerCollector implements ComponentCollectorInterface
 {
     private CommandRunner $commandRunner;
+    private ?array $bootCollect = null;
 
     public function __construct(CommandRunner $commandRunner)
     {
         $this->commandRunner = $commandRunner;
     }
 
+    public function boot(): void
+    {
+        try {
+            $this->bootCollect = $this->collect();
+        } catch (CollectorException $e) {
+            throw new BootFailedException($e->getMessage(), $e);
+        }
+    }
+
     public function collect(): array
     {
+        if ($this->bootCollect !== null) {
+            $output = $this->bootCollect;
+            $this->bootCollect = null;
+
+            return $output;
+        }
+
         $run = $this->commandRunner->run('debug:scheduler');
 
         if ($run === null) {

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Collector;
 
+use Jmonitor\Collector\BootableCollectorInterface;
 use Jmonitor\Collector\CollectorInterface;
+use Jmonitor\Exceptions\BootFailedException;
 use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\Components\ComponentCollectorInterface;
 use Psr\Log\LoggerAwareInterface;
@@ -14,7 +16,7 @@ use Symfony\Component\HttpKernel\KernelInterface;
 /**
  * Collects metrics for Symfony
  */
-class SymfonyCollector implements CollectorInterface, LoggerAwareInterface
+class SymfonyCollector implements CollectorInterface, LoggerAwareInterface, BootableCollectorInterface
 {
     use LoggerAwareTrait;
 
@@ -23,10 +25,32 @@ class SymfonyCollector implements CollectorInterface, LoggerAwareInterface
     /** @var ComponentCollectorInterface[] */
     private array $componentCollectors;
 
+    /**
+     * @var array<string, true>
+     */
+    private array $disabledComponents = [];
+
     public function __construct(KernelInterface $kernel, iterable $componentCollectors)
     {
         $this->kernel = $kernel;
-        $this->componentCollectors = iterator_to_array($componentCollectors);
+        $this->componentCollectors = is_array($componentCollectors) ? $componentCollectors : iterator_to_array($componentCollectors);
+    }
+
+    public function boot(): void
+    {
+        foreach ($this->componentCollectors as $name => $collector) {
+            try {
+                $collector->boot();
+            } catch (BootFailedException $e) {
+                $this->logger?->error('Symfony component "{component}" failed to boot; component disabled until worker restart.', [
+                    'component' => $name,
+                    'message' => $e->getPrevious()?->getMessage() ?? $e->getMessage(),
+                    'exception' => $e->getPrevious() ?? $e,
+                ]);
+
+                $this->disabledComponents[$name] = true;
+            }
+        }
     }
 
     public function collect(): array
@@ -50,6 +74,10 @@ class SymfonyCollector implements CollectorInterface, LoggerAwareInterface
 
         // make the collector resilient to component errors
         foreach ($this->componentCollectors as $name => $collector) {
+            if (isset($this->disabledComponents[$name])) {
+                continue;
+            }
+
             try {
                 $output['components'][$name] = $collector->collect();
             } catch (CollectorException $e) {
