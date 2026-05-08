@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Configurable command and timeout for the Messenger stats collector via `jmonitor.symfony.messenger.command` and `jmonitor.symfony.messenger.timeout` (default: 3 seconds).
+- Collectors that fail at startup (e.g. missing binary or misconfigured service) are now automatically disabled, preventing the worker from crashing.
+
+### Changed
+- Flex recipes are now refreshed at least once per day (previously cached for the entire lifetime of the worker process).
+- Collector errors are now propagated instead of being silently ignored.
 
 ## [1.2.0] - 2026-05-04
 
