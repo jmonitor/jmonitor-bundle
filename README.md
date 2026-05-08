@@ -99,7 +99,7 @@ when@prod:
             #     flex:
             #         command: "composer.phar recipes -o"  # default: "composer recipes -o"
             #         timeout: 10                          # default: 5 (seconds)
-            # Note: flex recipes are checked once per day and cached for the rest of the worker process lifetime.
+            #     Note: flex recipes are checked once per day and cached for the rest of the worker process lifetime.
             #
             #     messenger:
             #         command: "php bin/console messenger:stats --format=json"  # default: auto

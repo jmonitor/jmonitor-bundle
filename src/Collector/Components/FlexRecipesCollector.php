@@ -15,8 +15,7 @@ final class FlexRecipesCollector implements ComponentCollectorInterface
     private ?string $command;
     private ?int $timeout;
 
-    // TODO array y-m-d
-    private ?array $propertyCache = null;
+    private array $propertyCache = [];
 
     public function __construct(CommandRunner $commandRunner, ?string $command = null, ?int $timeout = 5)
     {
@@ -39,8 +38,8 @@ final class FlexRecipesCollector implements ComponentCollectorInterface
      */
     public function collect(): array
     {
-        if ($this->propertyCache !== null) {
-            return $this->propertyCache;
+        if (isset($this->propertyCache[date('Y-m-d')])) {
+            return $this->propertyCache[date('Y-m-d')];
         }
 
         $command = $this->command ?? ['composer', 'recipes', '-o'];
@@ -52,19 +51,25 @@ final class FlexRecipesCollector implements ComponentCollectorInterface
         }
 
         if ($run['exit_code'] === 0) {
-            return $this->propertyCache = [
-                'up_to_date' => true,
+            $this->propertyCache = [
+                date('Y-m-d') => ['up_to_date' => true],
             ];
+
+            return $this->propertyCache[date('Y-m-d')];
         }
 
         if ($run['exit_code'] === null) {
             throw new CollectorException('Unable to run flex recipe command', __CLASS__);
         }
 
-        return $this->propertyCache = [
-            'up_to_date' => false,
-            'outdated_recipes' => $this->parseOutput($run['output']),
+        $this->propertyCache = [
+            date('Y-m-d') => [
+                'up_to_date' => false,
+                'outdated_recipes' => $this->parseOutput($run['output']),
+            ],
         ];
+
+        return $this->propertyCache[date('Y-m-d')];
     }
 
     private function parseOutput(string $output): array
