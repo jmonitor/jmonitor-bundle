@@ -2,3 +2,6 @@ parameters:
     level: 5
     paths:
         - src
+    # Some ignores (e.g. version-dependent Symfony methods like Kernel::getShareDir())
+    # only match on certain Symfony versions. Don't fail when an ignore is unmatched.
+    reportUnmatchedIgnoredErrors: false
