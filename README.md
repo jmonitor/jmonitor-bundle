@@ -69,9 +69,11 @@ when@prod:
             
             # MySQL - multiple sub-collectors available : status, variables, slow_queries, information_schema
             # all sub-collectors are enabled by default, disable some of them by setting them to false
+            # Queries run through a Doctrine DBAL connection (default: doctrine.dbal.default_connection).
             # SlowQueries collector is configurable:
             # mysql:
             #     db_name: 'your_db_name'
+            #     connection: 'doctrine.dbal.default_connection' # Doctrine DBAL connection service id
             #     slow_queries:
             #         limit: 5 # Maximum number of results to return (1-10)
             #         min_exec_count: 1 # Minimum number of executions required to include a query

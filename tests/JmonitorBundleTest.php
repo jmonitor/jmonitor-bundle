@@ -15,7 +15,6 @@ use Jmonitor\Collector\Postgresql\PostgresqlSettingsCollector;
 use Jmonitor\Collector\Postgresql\PostgresqlSlowQueriesCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
-use Jmonitor\Utils\DatabaseAdapter\DoctrineAdapter;
 use Jmonitor\Jmonitor;
 use Jmonitor\JmonitorBundle\Collector\Components\FlexRecipesCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
@@ -77,7 +76,7 @@ class JmonitorBundleTest extends TestCase
             ],
         ]);
 
-        static::assertTrue($container->hasDefinition(DoctrineAdapter::class));
+        static::assertTrue($container->hasDefinition('jmonitor.doctrine_adapter.mysql'));
         static::assertTrue($container->hasDefinition(MysqlStatusCollector::class));
         static::assertTrue($container->hasDefinition(MysqlVariablesCollector::class));
         static::assertTrue($container->hasDefinition(MysqlSlowQueriesCollector::class));
@@ -562,7 +561,7 @@ class JmonitorBundleTest extends TestCase
             ],
         ]);
 
-        static::assertTrue($container->hasDefinition(DoctrineAdapter::class));
+        static::assertTrue($container->hasDefinition('jmonitor.doctrine_adapter.mysql'));
         static::assertFalse($container->hasDefinition(MysqlStatusCollector::class));
         static::assertFalse($container->hasDefinition(MysqlVariablesCollector::class));
         static::assertFalse($container->hasDefinition(MysqlSlowQueriesCollector::class));
@@ -578,7 +577,7 @@ class JmonitorBundleTest extends TestCase
             ],
         ]);
 
-        static::assertTrue($container->hasDefinition(DoctrineAdapter::class));
+        static::assertTrue($container->hasDefinition('jmonitor.doctrine_adapter.postgresql'));
         static::assertTrue($container->hasDefinition(PostgresqlActivityCollector::class));
         static::assertTrue($container->hasDefinition(PostgresqlSettingsCollector::class));
         static::assertTrue($container->hasDefinition(PostgresqlDatabaseCollector::class));
@@ -607,11 +606,52 @@ class JmonitorBundleTest extends TestCase
             ],
         ]);
 
-        $adapterDef = $container->getDefinition(DoctrineAdapter::class);
+        $adapterDef = $container->getDefinition('jmonitor.doctrine_adapter.postgresql');
         static::assertSame(
             'doctrine.dbal.pgsql_connection',
             (string) $adapterDef->getArgument(0),
         );
+    }
+
+    public function testMysqlAdapterUsesConfiguredConnection(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'mysql' => [
+                    'db_name' => 'mydb',
+                    'connection' => 'doctrine.dbal.mysql_connection',
+                ],
+            ],
+        ]);
+
+        $adapterDef = $container->getDefinition('jmonitor.doctrine_adapter.mysql');
+        static::assertSame(
+            'doctrine.dbal.mysql_connection',
+            (string) $adapterDef->getArgument(0),
+        );
+    }
+
+    public function testMysqlAndPostgresqlUseSeparateAdaptersWithTheirOwnConnections(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'mysql' => [
+                    'db_name' => 'mydb',
+                    'connection' => 'doctrine.dbal.mysql_connection',
+                ],
+                'postgresql' => [
+                    'connection' => 'doctrine.dbal.pgsql_connection',
+                ],
+            ],
+        ]);
+
+        $mysqlAdapter = $container->getDefinition('jmonitor.doctrine_adapter.mysql');
+        $pgsqlAdapter = $container->getDefinition('jmonitor.doctrine_adapter.postgresql');
+
+        static::assertSame('doctrine.dbal.mysql_connection', (string) $mysqlAdapter->getArgument(0));
+        static::assertSame('doctrine.dbal.pgsql_connection', (string) $pgsqlAdapter->getArgument(0));
     }
 
     public function testPostgresqlSubCollectorCanBeDisabled(): void
@@ -719,7 +759,7 @@ class JmonitorBundleTest extends TestCase
             ],
         ]);
 
-        static::assertFalse($container->hasDefinition(DoctrineAdapter::class));
+        static::assertFalse($container->hasDefinition('jmonitor.doctrine_adapter.postgresql'));
         static::assertFalse($container->hasDefinition(PostgresqlActivityCollector::class));
     }
 }

@@ -41,6 +41,7 @@ final class JmonitorBundle extends AbstractBundle
                         ->arrayNode('mysql')
                             ->canBeEnabled()
                             ->children()
+                                ->scalarNode('connection')->defaultValue('doctrine.dbal.default_connection')->cannotBeEmpty()->info('Doctrine DBAL connection service id used to query MySQL.')->end()
                                 ->scalarNode('db_name')->cannotBeEmpty()->info('Db name of your project.')->end()
                                 ->arrayNode('status')
                                     ->treatFalseLike(['enabled' => false])

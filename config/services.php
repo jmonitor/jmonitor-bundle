@@ -54,18 +54,18 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     ;
 
     if ($config['collectors']['mysql']['enabled']) {
-        $services->set(DoctrineAdapter::class)
+        $mysqlConfig = $config['collectors']['mysql'];
+
+        $services->set('jmonitor.doctrine_adapter.mysql', DoctrineAdapter::class)
             ->args([
-                service('doctrine.dbal.default_connection'),
+                service($mysqlConfig['connection']),
             ])
         ;
-
-        $mysqlConfig = $config['collectors']['mysql'];
 
         if ($mysqlConfig['status']['enabled']) {
             $services->set(MysqlStatusCollector::class)
                 ->args([
-                    service(DoctrineAdapter::class),
+                    service('jmonitor.doctrine_adapter.mysql'),
                 ])
                 ->tag('jmonitor.collector', ['name' => 'mysql.status'])
             ;
@@ -76,7 +76,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($mysqlConfig['variables']['enabled']) {
             $services->set(MysqlVariablesCollector::class)
                 ->args([
-                    service(DoctrineAdapter::class),
+                    service('jmonitor.doctrine_adapter.mysql'),
                 ])
                 ->tag('jmonitor.collector', ['name' => 'mysql.variables'])
             ;
@@ -87,7 +87,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($mysqlConfig['slow_queries']['enabled']) {
             $services->set(MysqlSlowQueriesCollector::class)
                 ->args([
-                    service(DoctrineAdapter::class),
+                    service('jmonitor.doctrine_adapter.mysql'),
                     $mysqlConfig['db_name'],
                     $mysqlConfig['slow_queries']['limit'],
                     $mysqlConfig['slow_queries']['min_exec_count'],
@@ -103,7 +103,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($mysqlConfig['information_schema']['enabled']) {
             $services->set(MysqlInformationSchemaCollector::class)
                 ->args([
-                    service(DoctrineAdapter::class),
+                    service('jmonitor.doctrine_adapter.mysql'),
                     $mysqlConfig['db_name'],
                 ])
                 ->tag('jmonitor.collector', ['name' => 'mysql.information_schema'])
@@ -116,7 +116,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     if ($config['collectors']['postgresql']['enabled']) {
         $pgConfig = $config['collectors']['postgresql'];
 
-        $services->set(DoctrineAdapter::class)
+        $services->set('jmonitor.doctrine_adapter.postgresql', DoctrineAdapter::class)
             ->args([
                 service($pgConfig['connection']),
             ])
@@ -125,7 +125,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($pgConfig['activity']['enabled']) {
             $services->set(PostgresqlActivityCollector::class)
                 ->args([
-                    service(DoctrineAdapter::class),
+                    service('jmonitor.doctrine_adapter.postgresql'),
                 ])
                 ->tag('jmonitor.collector', ['name' => 'postgresql.activity'])
             ;
@@ -136,7 +136,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($pgConfig['settings']['enabled']) {
             $services->set(PostgresqlSettingsCollector::class)
                 ->args([
-                    service(DoctrineAdapter::class),
+                    service('jmonitor.doctrine_adapter.postgresql'),
                 ])
                 ->tag('jmonitor.collector', ['name' => 'postgresql.settings'])
             ;
@@ -147,7 +147,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($pgConfig['database']['enabled']) {
             $services->set(PostgresqlDatabaseCollector::class)
                 ->args([
-                    service(DoctrineAdapter::class),
+                    service('jmonitor.doctrine_adapter.postgresql'),
                     $pgConfig['schema'],
                 ])
                 ->tag('jmonitor.collector', ['name' => 'postgresql.database'])
@@ -159,7 +159,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($pgConfig['slow_queries']['enabled']) {
             $services->set(PostgresqlSlowQueriesCollector::class)
                 ->args([
-                    service(DoctrineAdapter::class),
+                    service('jmonitor.doctrine_adapter.postgresql'),
                     $pgConfig['slow_queries']['limit'],
                     $pgConfig['slow_queries']['min_exec_count'],
                     $pgConfig['slow_queries']['min_avg_time_ms'],
