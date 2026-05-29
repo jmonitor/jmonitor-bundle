@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests;
 
 use Jmonitor\Collector\Apache\ApacheCollector;
-use Jmonitor\Collector\Mysql\Adapter\DoctrineAdapter;
 use Jmonitor\Collector\Mysql\MysqlStatusCollector;
 use Jmonitor\Collector\Mysql\MysqlInformationSchemaCollector;
 use Jmonitor\Collector\Mysql\MysqlSlowQueriesCollector;
@@ -16,7 +15,7 @@ use Jmonitor\Collector\Postgresql\PostgresqlSettingsCollector;
 use Jmonitor\Collector\Postgresql\PostgresqlSlowQueriesCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
-use Jmonitor\Utils\DatabaseAdapter\DoctrineAdapter as PostgresqlDoctrineAdapter;
+use Jmonitor\Utils\DatabaseAdapter\DoctrineAdapter;
 use Jmonitor\Jmonitor;
 use Jmonitor\JmonitorBundle\Collector\Components\FlexRecipesCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
@@ -579,7 +578,7 @@ class JmonitorBundleTest extends TestCase
             ],
         ]);
 
-        static::assertTrue($container->hasDefinition(PostgresqlDoctrineAdapter::class));
+        static::assertTrue($container->hasDefinition(DoctrineAdapter::class));
         static::assertTrue($container->hasDefinition(PostgresqlActivityCollector::class));
         static::assertTrue($container->hasDefinition(PostgresqlSettingsCollector::class));
         static::assertTrue($container->hasDefinition(PostgresqlDatabaseCollector::class));
@@ -608,7 +607,7 @@ class JmonitorBundleTest extends TestCase
             ],
         ]);
 
-        $adapterDef = $container->getDefinition(PostgresqlDoctrineAdapter::class);
+        $adapterDef = $container->getDefinition(DoctrineAdapter::class);
         static::assertSame(
             'doctrine.dbal.pgsql_connection',
             (string) $adapterDef->getArgument(0),
@@ -720,7 +719,7 @@ class JmonitorBundleTest extends TestCase
             ],
         ]);
 
-        static::assertFalse($container->hasDefinition(PostgresqlDoctrineAdapter::class));
+        static::assertFalse($container->hasDefinition(DoctrineAdapter::class));
         static::assertFalse($container->hasDefinition(PostgresqlActivityCollector::class));
     }
 }

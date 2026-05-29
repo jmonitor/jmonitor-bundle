@@ -5,7 +5,6 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 use Jmonitor\Collector\Apache\ApacheCollector;
 use Jmonitor\Collector\Caddy\CaddyCollector;
 use Jmonitor\Collector\FrankenPhp\FrankenPhpCollector;
-use Jmonitor\Collector\Mysql\Adapter\DoctrineAdapter;
 use Jmonitor\Collector\Mysql\MysqlInformationSchemaCollector;
 use Jmonitor\Collector\Mysql\MysqlSlowQueriesCollector;
 use Jmonitor\Collector\Mysql\MysqlStatusCollector;
@@ -18,7 +17,7 @@ use Jmonitor\Collector\Postgresql\PostgresqlSettingsCollector;
 use Jmonitor\Collector\Postgresql\PostgresqlSlowQueriesCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
-use Jmonitor\Utils\DatabaseAdapter\DoctrineAdapter as PostgresqlDoctrineAdapter;
+use Jmonitor\Utils\DatabaseAdapter\DoctrineAdapter;
 use Jmonitor\Jmonitor;
 use Jmonitor\Prometheus\PrometheusMetricsProvider;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
@@ -117,7 +116,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     if ($config['collectors']['postgresql']['enabled']) {
         $pgConfig = $config['collectors']['postgresql'];
 
-        $services->set(PostgresqlDoctrineAdapter::class)
+        $services->set(DoctrineAdapter::class)
             ->args([
                 service($pgConfig['connection']),
             ])
@@ -126,7 +125,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($pgConfig['activity']['enabled']) {
             $services->set(PostgresqlActivityCollector::class)
                 ->args([
-                    service(PostgresqlDoctrineAdapter::class),
+                    service(DoctrineAdapter::class),
                 ])
                 ->tag('jmonitor.collector', ['name' => 'postgresql.activity'])
             ;
@@ -137,7 +136,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($pgConfig['settings']['enabled']) {
             $services->set(PostgresqlSettingsCollector::class)
                 ->args([
-                    service(PostgresqlDoctrineAdapter::class),
+                    service(DoctrineAdapter::class),
                 ])
                 ->tag('jmonitor.collector', ['name' => 'postgresql.settings'])
             ;
@@ -148,7 +147,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($pgConfig['database']['enabled']) {
             $services->set(PostgresqlDatabaseCollector::class)
                 ->args([
-                    service(PostgresqlDoctrineAdapter::class),
+                    service(DoctrineAdapter::class),
                     $pgConfig['schema'],
                 ])
                 ->tag('jmonitor.collector', ['name' => 'postgresql.database'])
@@ -160,7 +159,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         if ($pgConfig['slow_queries']['enabled']) {
             $services->set(PostgresqlSlowQueriesCollector::class)
                 ->args([
-                    service(PostgresqlDoctrineAdapter::class),
+                    service(DoctrineAdapter::class),
                     $pgConfig['slow_queries']['limit'],
                     $pgConfig['slow_queries']['min_exec_count'],
                     $pgConfig['slow_queries']['min_avg_time_ms'],
