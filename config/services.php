@@ -12,8 +12,13 @@ use Jmonitor\Collector\Mysql\MysqlStatusCollector;
 use Jmonitor\Collector\Mysql\MysqlVariablesCollector;
 use Jmonitor\Collector\Nginx\NginxCollector;
 use Jmonitor\Collector\Php\PhpCollector;
+use Jmonitor\Collector\Postgresql\PostgresqlActivityCollector;
+use Jmonitor\Collector\Postgresql\PostgresqlDatabaseCollector;
+use Jmonitor\Collector\Postgresql\PostgresqlSettingsCollector;
+use Jmonitor\Collector\Postgresql\PostgresqlSlowQueriesCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
+use Jmonitor\Utils\DatabaseAdapter\DoctrineAdapter as PostgresqlDoctrineAdapter;
 use Jmonitor\Jmonitor;
 use Jmonitor\Prometheus\PrometheusMetricsProvider;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
@@ -106,6 +111,66 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             ;
 
             $services->get(Jmonitor::class)->call('addCollector', [service(MysqlInformationSchemaCollector::class)]);
+        }
+    }
+
+    if ($config['collectors']['postgresql']['enabled']) {
+        $pgConfig = $config['collectors']['postgresql'];
+
+        $services->set(PostgresqlDoctrineAdapter::class)
+            ->args([
+                service($pgConfig['connection']),
+            ])
+        ;
+
+        if ($pgConfig['activity']['enabled']) {
+            $services->set(PostgresqlActivityCollector::class)
+                ->args([
+                    service(PostgresqlDoctrineAdapter::class),
+                ])
+                ->tag('jmonitor.collector', ['name' => 'postgresql.activity'])
+            ;
+
+            $services->get(Jmonitor::class)->call('addCollector', [service(PostgresqlActivityCollector::class)]);
+        }
+
+        if ($pgConfig['settings']['enabled']) {
+            $services->set(PostgresqlSettingsCollector::class)
+                ->args([
+                    service(PostgresqlDoctrineAdapter::class),
+                ])
+                ->tag('jmonitor.collector', ['name' => 'postgresql.settings'])
+            ;
+
+            $services->get(Jmonitor::class)->call('addCollector', [service(PostgresqlSettingsCollector::class)]);
+        }
+
+        if ($pgConfig['database']['enabled']) {
+            $services->set(PostgresqlDatabaseCollector::class)
+                ->args([
+                    service(PostgresqlDoctrineAdapter::class),
+                    $pgConfig['schema'],
+                ])
+                ->tag('jmonitor.collector', ['name' => 'postgresql.database'])
+            ;
+
+            $services->get(Jmonitor::class)->call('addCollector', [service(PostgresqlDatabaseCollector::class)]);
+        }
+
+        if ($pgConfig['slow_queries']['enabled']) {
+            $services->set(PostgresqlSlowQueriesCollector::class)
+                ->args([
+                    service(PostgresqlDoctrineAdapter::class),
+                    $pgConfig['slow_queries']['limit'],
+                    $pgConfig['slow_queries']['min_exec_count'],
+                    $pgConfig['slow_queries']['min_avg_time_ms'],
+                    $pgConfig['slow_queries']['order_by'],
+                    $pgConfig['slow_queries']['auto_create_extension'],
+                ])
+                ->tag('jmonitor.collector', ['name' => 'postgresql.slow_queries'])
+            ;
+
+            $services->get(Jmonitor::class)->call('addCollector', [service(PostgresqlSlowQueriesCollector::class)]);
         }
     }
 

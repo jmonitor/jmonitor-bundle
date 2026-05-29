@@ -1,7 +1,7 @@
 {
     "name": "jmonitor/jmonitor-bundle",
-    "description": "Symfony bundle to collect server metrics (PHP, MySQL, Redis, Apache, Nginx, Caddy) and send them to jmonitor.io.",
-    "keywords": ["monitoring", "metrics", "mysql", "apache", "php", "redis", "nginx", "system", "symfony", "caddy", "frankenphp"],
+    "description": "Symfony bundle to collect server metrics (PHP, MySQL, PostgreSQL, Redis, Apache, Nginx, Caddy) and send them to jmonitor.io.",
+    "keywords": ["monitoring", "metrics", "mysql", "postgresql", "postgres", "apache", "php", "redis", "nginx", "system", "symfony", "caddy", "frankenphp"],
     "homepage": "https://jmonitor.io",
     "type": "symfony-bundle",
     "license": "MIT",

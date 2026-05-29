@@ -1,6 +1,6 @@
 # Jmonitor Bundle
 
-Integration of the *jmonitor/collector* library into Symfony to collect metrics from your stack (Php, MySQL, Apache / Nginx / Caddy / FrankenPHP, Redis...) and send them to Jmonitor.io.
+Integration of the *jmonitor/collector* library into Symfony to collect metrics from your stack (Php, MySQL, PostgreSQL, Apache / Nginx / Caddy / FrankenPHP, Redis...) and send them to Jmonitor.io.
 
 - Jmonitor.io: https://jmonitor.io
 - Collector library (standalone): https://github.com/jmonitor/collector
@@ -79,7 +79,23 @@ when@prod:
             #         order_by: 'avg' # Allowed values: sum, avg, max
             mysql:
                 db_name: 'your_db_name'
-                
+
+            # PostgreSQL - multiple sub-collectors available : activity, settings, database, slow_queries
+            # all sub-collectors are enabled by default, disable some of them by setting them to false.
+            # Queries run through a Doctrine DBAL connection (default: doctrine.dbal.default_connection).
+            # The slow_queries sub-collector relies on the pg_stat_statements extension.
+            # postgresql:
+            #     connection: 'doctrine.dbal.default_connection' # Doctrine DBAL connection service id
+            #     schema: 'public'                               # schema inspected by the database sub-collector
+            #     slow_queries:
+            #         limit: 5                  # Maximum number of results to return (1-10)
+            #         min_exec_count: 1         # Minimum number of executions (calls) required to include a query
+            #         min_avg_time_ms: 0        # Minimum mean execution time in ms for a query to be included
+            #         order_by: 'avg'           # Allowed values: avg, total, max
+            #         auto_create_extension: false # CREATE EXTENSION IF NOT EXISTS pg_stat_statements when missing
+            postgresql:
+                connection: 'doctrine.dbal.default_connection'
+
             # PHP : some ini keys, apcu, opcache, loaded extensions... 
             # /!\ See below for more informations about CLI vs Web-context metrics
             # CLI only:

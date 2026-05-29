@@ -10,8 +10,13 @@ use Jmonitor\Collector\Mysql\MysqlStatusCollector;
 use Jmonitor\Collector\Mysql\MysqlInformationSchemaCollector;
 use Jmonitor\Collector\Mysql\MysqlSlowQueriesCollector;
 use Jmonitor\Collector\Mysql\MysqlVariablesCollector;
+use Jmonitor\Collector\Postgresql\PostgresqlActivityCollector;
+use Jmonitor\Collector\Postgresql\PostgresqlDatabaseCollector;
+use Jmonitor\Collector\Postgresql\PostgresqlSettingsCollector;
+use Jmonitor\Collector\Postgresql\PostgresqlSlowQueriesCollector;
 use Jmonitor\Collector\Redis\RedisCollector;
 use Jmonitor\Collector\System\SystemCollector;
+use Jmonitor\Utils\DatabaseAdapter\DoctrineAdapter as PostgresqlDoctrineAdapter;
 use Jmonitor\Jmonitor;
 use Jmonitor\JmonitorBundle\Collector\Components\FlexRecipesCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
@@ -563,5 +568,159 @@ class JmonitorBundleTest extends TestCase
         static::assertFalse($container->hasDefinition(MysqlVariablesCollector::class));
         static::assertFalse($container->hasDefinition(MysqlSlowQueriesCollector::class));
         static::assertFalse($container->hasDefinition(MysqlInformationSchemaCollector::class));
+    }
+
+    public function testPostgresqlCollectorsRegisterServicesAndMethodCalls(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'postgresql' => true,
+            ],
+        ]);
+
+        static::assertTrue($container->hasDefinition(PostgresqlDoctrineAdapter::class));
+        static::assertTrue($container->hasDefinition(PostgresqlActivityCollector::class));
+        static::assertTrue($container->hasDefinition(PostgresqlSettingsCollector::class));
+        static::assertTrue($container->hasDefinition(PostgresqlDatabaseCollector::class));
+        static::assertTrue($container->hasDefinition(PostgresqlSlowQueriesCollector::class));
+
+        $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
+        $flat = array_merge(...array_map(static fn(array $c) => array_map(
+            static fn($a) => (string) $a,
+            $c[1],
+        ), $calls));
+
+        static::assertContains(PostgresqlActivityCollector::class, $flat);
+        static::assertContains(PostgresqlSettingsCollector::class, $flat);
+        static::assertContains(PostgresqlDatabaseCollector::class, $flat);
+        static::assertContains(PostgresqlSlowQueriesCollector::class, $flat);
+    }
+
+    public function testPostgresqlAdapterUsesConfiguredConnection(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'postgresql' => [
+                    'connection' => 'doctrine.dbal.pgsql_connection',
+                ],
+            ],
+        ]);
+
+        $adapterDef = $container->getDefinition(PostgresqlDoctrineAdapter::class);
+        static::assertSame(
+            'doctrine.dbal.pgsql_connection',
+            (string) $adapterDef->getArgument(0),
+        );
+    }
+
+    public function testPostgresqlSubCollectorCanBeDisabled(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'postgresql' => [
+                    'slow_queries' => false,
+                    'activity' => false,
+                ],
+            ],
+        ]);
+
+        static::assertFalse($container->hasDefinition(PostgresqlSlowQueriesCollector::class));
+        static::assertFalse($container->hasDefinition(PostgresqlActivityCollector::class));
+        static::assertTrue($container->hasDefinition(PostgresqlSettingsCollector::class));
+        static::assertTrue($container->hasDefinition(PostgresqlDatabaseCollector::class));
+    }
+
+    public function testPostgresqlDatabaseCollectorUsesConfiguredSchema(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'postgresql' => [
+                    'schema' => 'analytics',
+                ],
+            ],
+        ]);
+
+        $def = $container->getDefinition(PostgresqlDatabaseCollector::class);
+        static::assertSame('analytics', $def->getArgument(1));
+    }
+
+    public function testPostgresqlSlowQueriesCollectorWithCustomConfig(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'postgresql' => [
+                    'slow_queries' => [
+                        'limit' => 8,
+                        'min_exec_count' => 20,
+                        'min_avg_time_ms' => 12.5,
+                        'order_by' => 'total',
+                        'auto_create_extension' => true,
+                    ],
+                ],
+            ],
+        ]);
+
+        $def = $container->getDefinition(PostgresqlSlowQueriesCollector::class);
+        static::assertSame(8, $def->getArgument(1));
+        static::assertSame(20, $def->getArgument(2));
+        static::assertEquals(12.5, $def->getArgument(3));
+        static::assertSame('total', $def->getArgument(4));
+        static::assertTrue($def->getArgument(5));
+    }
+
+    public function testPostgresqlSlowQueriesCollectorDefaultArgs(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'postgresql' => [
+                    'slow_queries' => null,
+                ],
+            ],
+        ]);
+
+        $def = $container->getDefinition(PostgresqlSlowQueriesCollector::class);
+        static::assertSame(5, $def->getArgument(1));
+        static::assertSame(1, $def->getArgument(2));
+        static::assertEquals(0, $def->getArgument(3));
+        static::assertSame('avg', $def->getArgument(4));
+        static::assertFalse($def->getArgument(5));
+    }
+
+    public function testPostgresqlSlowQueriesInvalidOrderByThrows(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('Invalid order_by value');
+
+        $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'postgresql' => [
+                    'slow_queries' => [
+                        'order_by' => 'invalid',
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    public function testPostgresqlCanBeDisabledExplicitly(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'postgresql' => [
+                    'enabled' => false,
+                ],
+            ],
+        ]);
+
+        static::assertFalse($container->hasDefinition(PostgresqlDoctrineAdapter::class));
+        static::assertFalse($container->hasDefinition(PostgresqlActivityCollector::class));
     }
 }
