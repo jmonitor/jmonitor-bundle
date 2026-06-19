@@ -2,10 +2,10 @@
 
 ### Simple monitoring for PHP & Symfony stacks
 
-Jmonitor is a monitoring service for PHP web stacks. It collects server and application metrics and turns them into readable, premade dashboards and alerts.
+Jmonitor is a **monitoring service for PHP web stacks**. It collects server and application metrics and turns them into **readable, premade dashboards and alerts**.
 
-This bundle integrates the [*jmonitor/collector*](https://github.com/jmonitor/collector) PHP library into Symfony.  
-It ships a Symfony-specific collector and a console command that runs the collectors in a long-lived PHP worker process.
+This bundle integrates the [*jmonitor/collector*](https://github.com/jmonitor/collector) PHP library into **Symfony**.  
+It ships a **Symfony-specific collector** and a **console command** that runs the collectors in a **long-lived PHP worker process**.
 
 [![Packagist Version](https://img.shields.io/packagist/v/jmonitor/jmonitor-bundle?style=flat-square)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
 [![Tests](https://img.shields.io/github/actions/workflow/status/jmonitor/jmonitor-bundle/tests.yml?branch=1.x&label=tests&style=flat-square)](https://github.com/jmonitor/jmonitor-bundle/actions)
