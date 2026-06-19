@@ -1,11 +1,12 @@
-# Jmonitor
+# Jmonitor Bundle
 
 ### Simple monitoring for PHP & Symfony stacks
 
-Plug the collectors, get clear dashboards in minutes — without building and maintaining a Grafana/Prometheus stack.
+Jmonitor is a monitoring service for PHP web stacks. It collects server and application metrics and turns them into readable dashboards, alerts and notifications.
 
-[![Packagist Version](https://img.shields.io/packagist/v/jmonitor/collector?style=flat-square)](https://packagist.org/packages/jmonitor/collector)
-[![PHP Version](https://img.shields.io/packagist/php-v/jmonitor/jmonitor-bundle?style=flat-square)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
+This bundle is the Symfony integration of the [*jmonitor/collector*](https://github.com/jmonitor/collector) library. It provides a Symfony-specific collector and a command to run the collectors in a long-lived worker process.
+
+[![Packagist Version](https://img.shields.io/packagist/v/jmonitor/jmonitor-bundle?style=flat-square)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
 [![Tests](https://img.shields.io/github/actions/workflow/status/jmonitor/jmonitor-bundle/tests.yml?branch=1.x&label=tests&style=flat-square)](https://github.com/jmonitor/jmonitor-bundle/actions)
 [![License](https://img.shields.io/github/license/jmonitor/jmonitor-bundle?style=flat-square)](LICENSE)
 [![Last Commit](https://img.shields.io/github/last-commit/jmonitor/jmonitor-bundle?style=flat-square)](https://github.com/jmonitor/jmonitor-bundle/commits)
@@ -18,23 +19,20 @@ Plug the collectors, get clear dashboards in minutes — without building and ma
 
 Grafana, Prometheus and Datadog are powerful, but they take time to configure and expertise to run. Jmonitor focuses on getting you readable dashboards fast, made for the PHP world.
 
-- **Built for the PHP/Symfony ecosystem** — dedicated collectors for MySQL, Redis, Apache, Nginx, Caddy, PHP, FrankenPHP & PostgreSQL, plus a Symfony bundle for drop-in integration.
+- **Native Symfony integration** — install the bundle, enable the collectors you need in a single config file, run one command. No glue code.
+- **Built for the PHP ecosystem** — dedicated collectors for MySQL, Redis, Apache, Nginx, Caddy, PHP, FrankenPHP & PostgreSQL.
 - **Readable out of the box** — premade dashboards (gauges + graphs) anyone on the team can understand, not just observability experts.
-- **Lightweight to install** — a small PHP collector library running as a worker. No agent, no heavy infra to maintain.
+- **Lightweight** — runs as a long-lived worker process. No agent, no heavy infra to maintain.
 - **Multi-project & team-ready** — manage several projects with role-based access (Owner / Admin / Member).
 
 > Jmonitor monitors itself with Jmonitor.
 
 ---
 
-# Jmonitor Bundle
-
-This bundle is the integration of the [*jmonitor/collector*](https://github.com/jmonitor/collector) library into Symfony to collect metrics from your stack. 
-It also provides a Symfony specific collector and a command to run the collectors in a long-lived worker process.
-
 ## Requirements
-- PHP 8.1+ for this bundle. (The standalone collector library supports PHP 7.4.)
-- Symfony 6.4+.
+- [![PHP Version](https://img.shields.io/packagist/php-v/jmonitor/jmonitor-bundle?style=flat-square&label=PHP)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
+- [![Symfony Version](https://img.shields.io/packagist/dependency-v/jmonitor/jmonitor-bundle/symfony%2Fframework-bundle?style=flat-square&label=Symfony)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
+- A project using [Composer](https://getcomposer.org/)
 
 ## Quick Start
 
