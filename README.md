@@ -2,9 +2,10 @@
 
 ### Simple monitoring for PHP & Symfony stacks
 
-Jmonitor is a monitoring service for PHP web stacks. It collects server and application metrics and turns them into readable dashboards, alerts and notifications.
+Jmonitor is a monitoring service for PHP web stacks. It collects server and application metrics and turns them into readable, premade dashboards and alerts.
 
-This bundle is the Symfony integration of the [*jmonitor/collector*](https://github.com/jmonitor/collector) library. It provides a Symfony-specific collector and a command to run the collectors in a long-lived worker process.
+This bundle integrates the [*jmonitor/collector*](https://github.com/jmonitor/collector) PHP library into Symfony.  
+It ships a Symfony-specific collector and a console command that runs the collectors in a long-lived PHP worker process.
 
 [![Packagist Version](https://img.shields.io/packagist/v/jmonitor/jmonitor-bundle?style=flat-square)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
 [![Tests](https://img.shields.io/github/actions/workflow/status/jmonitor/jmonitor-bundle/tests.yml?branch=1.x&label=tests&style=flat-square)](https://github.com/jmonitor/jmonitor-bundle/actions)
@@ -15,24 +16,19 @@ This bundle is the Symfony integration of the [*jmonitor/collector*](https://git
 
 <img src=".github/assets/hero-dashboard.png" alt="Jmonitor symfony dashboard" width="700">
 
-## Why Jmonitor?
+## Supported components
 
-Grafana, Prometheus and Datadog are powerful, but they take time to configure and expertise to run. Jmonitor focuses on getting you readable dashboards fast, made for the PHP world.
-
-- **Native Symfony integration** — install the bundle, enable the collectors you need in a single config file, run one command. No glue code.
-- **Built for the PHP ecosystem** — dedicated collectors for MySQL, Redis, Apache, Nginx, Caddy, PHP, FrankenPHP & PostgreSQL.
-- **Readable out of the box** — premade dashboards (gauges + graphs) anyone on the team can understand, not just observability experts.
-- **Lightweight** — runs as a long-lived worker process. No agent, no heavy infra to maintain.
-- **Multi-project & team-ready** — manage several projects with role-based access (Owner / Admin / Member).
-
-> Jmonitor monitors itself with Jmonitor.
-
----
+| Category          | Components                                                                                                                                                                                                                                                                                                |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime           | ![PHP](https://img.shields.io/badge/PHP-777BB4?style=flat-square&logo=php&logoColor=white) ![FrankenPHP](https://img.shields.io/badge/FrankenPHP-444444?style=flat-square)                                                                                                                                  |
+| Framework         | ![Symfony](https://img.shields.io/badge/Symfony-000000?style=flat-square&logo=symfony&logoColor=white)                                                                                                                                                                                                     |
+| Web servers       | ![Apache](https://img.shields.io/badge/Apache-D22128?style=flat-square&logo=apache&logoColor=white) ![Nginx](https://img.shields.io/badge/Nginx-009639?style=flat-square&logo=nginx&logoColor=white) ![Caddy](https://img.shields.io/badge/Caddy-1F88C0?style=flat-square&logo=caddy&logoColor=white)        |
+| Databases & cache | ![MySQL](https://img.shields.io/badge/MySQL-4479A1?style=flat-square&logo=mysql&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white) ![Redis](https://img.shields.io/badge/Redis-FF4438?style=flat-square&logo=redis&logoColor=white) |
+| System            | ![Linux](https://img.shields.io/badge/CPU%20·%20RAM%20·%20Disk-FCC624?style=flat-square&logo=linux&logoColor=black)                                                                                                                                                                                        |
 
 ## Requirements
 - [![PHP Version](https://img.shields.io/packagist/php-v/jmonitor/jmonitor-bundle?style=flat-square&label=PHP)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
 - [![Symfony Version](https://img.shields.io/packagist/dependency-v/jmonitor/jmonitor-bundle/symfony%2Fframework-bundle?style=flat-square&label=Symfony)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
-- A project using [Composer](https://getcomposer.org/)
 
 ## Quick Start
 
@@ -60,13 +56,13 @@ JMONITOR_API_KEY=your_api_key
 # config/packages/jmonitor.yaml
 jmonitor:
     # project_api_key can be empty to disable sending data to Jmonitor
-    # useful for testing pourposes in non-production environments
+    # useful for testing purposes in non-production environments
     project_api_key: '%env(JMONITOR_API_KEY)%'
 
 when@prod:
     jmonitor:
         # Optional (recommended): use a specific logger service (Symfony's default is "logger").
-        # See "Debugging" section below for more informations.
+        # See "Debugging" section below for more information.
         logger: 'logger'
     
         # Optional: provide a custom HTTP client service
