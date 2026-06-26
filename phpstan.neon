@@ -5,3 +5,10 @@ parameters:
     # Some ignores (e.g. version-dependent Symfony methods like Kernel::getShareDir())
     # only match on certain Symfony versions. Don't fail when an ignore is unmatched.
     reportUnmatchedIgnoredErrors: false
+    ignoreErrors:
+        # On Symfony 6.4, DefinitionConfigurator::rootNode() is typed as NodeDefinition
+        # (no children()), while at runtime it always returns an ArrayNodeDefinition.
+        # From Symfony 7.0 the return type is ArrayNodeDefinition and this won't match.
+        -
+            message: '#^Call to an undefined method Symfony\\Component\\Config\\Definition\\Builder\\NodeDefinition::children\(\)\.$#'
+            path: src/JmonitorBundle.php

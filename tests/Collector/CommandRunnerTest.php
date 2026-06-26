@@ -32,6 +32,21 @@ class CommandRunnerTest extends TestCase
         $this->commandRunner = new CommandRunner($this->kernel);
     }
 
+    /**
+     * Application::add() was removed in Symfony 8.0 in favor of addCommand()
+     * (introduced in 7.4). Pick the method available on the running version.
+     */
+    private function registerCommand(Command $command): void
+    {
+        $application = $this->commandRunner->getApplication();
+
+        if (method_exists($application, 'addCommand')) {
+            $application->addCommand($command);
+        } else {
+            $application->add($command);
+        }
+    }
+
     public function testGetApplication(): void
     {
         static::assertInstanceOf(Application::class, $this->commandRunner->getApplication());
@@ -53,7 +68,7 @@ class CommandRunnerTest extends TestCase
             }
         };
 
-        $this->commandRunner->getApplication()->add($command);
+        $this->registerCommand($command);
 
         $result = $this->commandRunner->run('test:command');
         static::assertSame(0, $result['exit_code']);
@@ -69,7 +84,7 @@ class CommandRunnerTest extends TestCase
             }
         };
 
-        $this->commandRunner->getApplication()->add($command);
+        $this->registerCommand($command);
 
         $result = $this->commandRunner->run('test:empty');
         static::assertSame(0, $result['exit_code']);
@@ -91,7 +106,7 @@ class CommandRunnerTest extends TestCase
             }
         };
 
-        $this->commandRunner->getApplication()->add($command);
+        $this->registerCommand($command);
 
         $result = $this->commandRunner->run('test:input', ['arg' => 'hello']);
         static::assertSame(0, $result['exit_code']);
