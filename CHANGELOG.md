@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+- **BREAKING**: Requires `jmonitor/collector` `^2.0` (was `^1.3`). This does not change the bundle's own PHP floor (already `^8.1`), but composer will now refuse to resolve `jmonitor/collector` 1.x.
+
 ## [1.4.0] - 2026-06-01
 
 ### Added
