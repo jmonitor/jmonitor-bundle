@@ -8,7 +8,7 @@ This bundle integrates the [*jmonitor/collector*](https://github.com/jmonitor/co
 It ships a **Symfony-specific collector** and a **console command** that runs the collectors in a **long-lived PHP worker process**.
 
 [![Packagist Version](https://img.shields.io/packagist/v/jmonitor/jmonitor-bundle?style=flat-square)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
-[![Tests](https://img.shields.io/github/actions/workflow/status/jmonitor/jmonitor-bundle/tests.yml?branch=1.x&label=tests&style=flat-square)](https://github.com/jmonitor/jmonitor-bundle/actions)
+[![Tests](https://img.shields.io/github/actions/workflow/status/jmonitor/jmonitor-bundle/tests.yml?branch=2.x&label=tests&style=flat-square)](https://github.com/jmonitor/jmonitor-bundle/actions)
 [![License](https://img.shields.io/github/license/jmonitor/jmonitor-bundle?style=flat-square)](LICENSE)
 [![Last Commit](https://img.shields.io/github/last-commit/jmonitor/jmonitor-bundle?style=flat-square)](https://github.com/jmonitor/jmonitor-bundle/commits)
 
