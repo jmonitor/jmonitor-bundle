@@ -8,6 +8,7 @@ use Jmonitor\Exceptions\NoCollectorException;
 use Jmonitor\Jmonitor;
 use Jmonitor\CollectionResult;
 use Jmonitor\JmonitorBundle\Command\Dto\Limits;
+use Monolog\ResettableInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -17,6 +18,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Contracts\Service\ResetInterface;
 
 #[AsCommand('jmonitor:collect', description: 'Collect and send metrics to Jmonitor')]
 class CollectorCommand extends Command
@@ -92,6 +94,8 @@ class CollectorCommand extends Command
             if (!$this->handleResult($result)) {
                 break;
             }
+
+            $this->resetLogger();
         } while (true);
 
         $output->writeln('Jmonitor collector stopped');
@@ -127,6 +131,16 @@ class CollectorCommand extends Command
         $this->logger->notice('Stop signal received, stopping...', ['signal' => $signalName]);
 
         return false;
+    }
+
+    /**
+     * Avoid memory leak
+     */
+    private function resetLogger(): void
+    {
+        if ($this->logger instanceof ResetInterface || $this->logger instanceof ResettableInterface) {
+            $this->logger->reset();
+        }
     }
 
     private function shouldStop(): bool
