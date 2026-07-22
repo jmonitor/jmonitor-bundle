@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.1] - 2026-07-22
 
 ### Fixed
 - The worker now resets the logger after each iteration (if it implements a `reset()` interface), preventing a memory leak with buffering handlers (e.g. `fingers_crossed`).
