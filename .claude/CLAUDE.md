@@ -23,6 +23,12 @@ composer lint:fix
 ./vendor/bin/phpunit tests/path/to/TestFile.php
 ```
 
+## CHANGELOG
+
+Record changes under `## [Unreleased]`, creating the section if absent.
+
+Never write a version number or a date in `CHANGELOG.md`, even when the task names a target version. Only the `release` skill assigns one, by renaming `## [Unreleased]` to `## [X.Y.Z] - DATE`.
+
 ## Documentation
 
 `README.md` is the public documentation for this bundle. You can read it if you need context on how the bundle works or how it is configured. Keep it up to date whenever changes affect the end user (new options, changed behavior, etc.).
