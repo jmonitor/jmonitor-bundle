@@ -65,6 +65,23 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($commandDef->hasTag('console.command'));
     }
 
+    public function testJmonitorServiceDeclaresTheBundlePackage(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+        ]);
+
+        $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
+        $setBundleCalls = array_values(array_filter($calls, static fn(array $c) => 'setBundle' === $c[0]));
+
+        static::assertCount(1, $setBundleCalls, 'Jmonitor should be told which bundle it runs behind');
+        static::assertSame(['jmonitor/jmonitor-bundle'], $setBundleCalls[0][1]);
+        static::assertTrue(
+            method_exists(Jmonitor::class, 'setBundle'),
+            'The installed collector should expose the setBundle hook',
+        );
+    }
+
     public function testMysqlCollectorsRegisterServicesAndMethodCalls(): void
     {
         $container = $this->loadBundle([

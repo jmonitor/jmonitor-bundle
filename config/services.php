@@ -43,6 +43,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             $config['http_client'] ? service($config['http_client']) : null,
             $config['logger'] ? service($config['logger']) : null,
         ])
+        ->call('setBundle', ['jmonitor/jmonitor-bundle'])
     ;
 
     $services->set(CollectorCommand::class)
