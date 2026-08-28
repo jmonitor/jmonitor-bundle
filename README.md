@@ -1,10 +1,6 @@
 # Jmonitor Bundle
 
-### Simple monitoring for PHP & Symfony stacks
-
-Jmonitor is a **monitoring service for PHP web stacks**. It collects server and application metrics and turns them into **readable, premade dashboards and alerts**.
-
-This bundle integrates the [*jmonitor/collector*](https://github.com/jmonitor/collector) PHP library into **Symfony**.  
+This bundle integrates the [*jmonitor/collector*](https://github.com/jmonitor/collector) PHP library into **Symfony**.    
 It ships a **Symfony-specific collector** and a **console command** that runs the collectors in a **long-lived PHP worker process**.
 
 [![Packagist Version](https://img.shields.io/packagist/v/jmonitor/jmonitor-bundle?style=flat-square)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
@@ -12,7 +8,24 @@ It ships a **Symfony-specific collector** and a **console command** that runs th
 [![License](https://img.shields.io/github/license/jmonitor/jmonitor-bundle?style=flat-square)](LICENSE)
 [![Last Commit](https://img.shields.io/github/last-commit/jmonitor/jmonitor-bundle?style=flat-square)](https://github.com/jmonitor/jmonitor-bundle/commits)
 
-[**https://jmonitor.io**](https://jmonitor.io)
+<table>
+  <tr>
+    <th valign="top"><a href="https://github.com/jmonitor/jmonitor">jmonitor/jmonitor</a><br>&nbsp;</th>
+    <th valign="top"><a href="https://github.com/jmonitor/collector">jmonitor/collector</a><br>&nbsp;</th>
+    <th valign="top">jmonitor/jmonitor-bundle<br><img src="https://img.shields.io/badge/you_are_here-0969da?style=flat-square" alt="you are here"></th>
+  </tr>
+  <tr>
+    <td>Self-hostable backend — not needed with the cloud version</td>
+    <td>The collectors — install them in the project to monitor</td>
+    <td>Symfony-specific integration of the collectors</td>
+  </tr>
+  <tr>
+    <td colspan="3" align="center">
+      <a href="https://jmonitor.io">Website and cloud edition</a> ·
+      <a href="https://hub.docker.com/r/jmonitor/jmonitor">Docker Hub image for self-hosting</a>
+    </td>
+  </tr>
+</table>
 
 <img src=".github/assets/hero-dashboard.png" alt="Jmonitor symfony dashboard" width="700">
 
@@ -30,17 +43,21 @@ It ships a **Symfony-specific collector** and a **console command** that runs th
 - [![PHP Version](https://img.shields.io/packagist/php-v/jmonitor/jmonitor-bundle?style=flat-square&label=PHP)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
 - [![Symfony Version](https://img.shields.io/packagist/dependency-v/jmonitor/jmonitor-bundle/symfony%2Fframework-bundle?style=flat-square&label=Symfony)](https://packagist.org/packages/jmonitor/jmonitor-bundle)
 
-## Quick Start
+## Getting started
 
-1) Install the bundle:
+### 1. Create your project
+
+Create a project on [jmonitor.io](https://jmonitor.io) — or on your self-hosted instance — and copy its API key.
+
+### 2. Install the bundle
 
 ```bash
 composer require jmonitor/jmonitor-bundle
 ```
 
-2) Create a project on https://jmonitor.io and copy your Project API key.
-3) Configure your API key and collectors.
+### 3. Configure the bundle
 
+Store your API key in an environment variable:
 
 ```dotenv
 # .env
@@ -51,6 +68,8 @@ JMONITOR_API_KEY=
 # .env.prod
 JMONITOR_API_KEY=your_api_key
 ```
+
+Then enable the collectors matching your stack:
 
 ```yaml
 # config/packages/jmonitor.yaml
@@ -158,9 +177,47 @@ when@prod:
                 endpoint: 'http://localhost:2019/metrics'
                 frankenphp: true # default is false
 ```
-4) Run a collection manually to verify. It may be easier to do this in the production environment, since configuring the bundle (or certain collectors) in development is not always possible.
+
+### 4. Run the worker
+
+The bundle ships a **console command that runs the collectors in a long-lived worker process**. This means you
+**must not** collect metrics on every web request.
+
+First, check your setup with a dry run — it collects the metrics and prints them without sending anything.
+It is often easier to do this in the production environment, since configuring the bundle (or some collectors)
+in development is not always possible.
+
 ```bash
 php bin/console jmonitor:collect -vvv --dry-run
+```
+
+You can pass a collector name as an argument to run only that one, which helps to debug a specific integration:
+
+```bash
+php bin/console jmonitor:collect mysql -vvv --dry-run
+```
+
+Once everything looks right, run it for real:
+
+```bash
+php bin/console jmonitor:collect
+```
+
+### 5. Run it in production
+
+Run the command under a process manager (Supervisor, systemd…) so it stays up and is restarted periodically.
+Symfony Messenger's recommendations apply as-is:
+https://symfony.com/doc/current/messenger.html#deploying-to-production
+
+Some metrics are fairly static and remain cached for the lifetime of the process, so among other reasons
+(memory…), it is **strongly recommended** to restart the worker regularly, at least once a day. Two options
+are available for that:
+
+- `--time-limit`: stop after the given number of seconds
+- `--memory-limit`: stop when the process memory usage exceeds the given limit (e.g. `128M`)
+
+```bash
+php bin/console jmonitor:collect -vv --memory-limit=32M --time-limit=3600
 ```
 
 ## PHP metrics: CLI vs Web context
@@ -209,31 +266,6 @@ jmonitor:
             endpoint: 'http://localhost/jmonitor/php-metrics'
 ```
 
-## Running the collector
-
-```bash
-php bin/console jmonitor:collect [-vv|-vvv] [--dry-run]
-```
-
-This command runs as a long-lived worker: it periodically collects metrics from the enabled collectors and sends them to Jmonitor.io.
-
-You can also limit how long it runs:
-- `--memory-limit`: stop when the process memory usage exceeds the given limit (e.g. `128M`)
-- `--time-limit`: stop after the given number of seconds
-
-    ```bash
-    php bin/console jmonitor:collect --vv --memory-limit=32M --time-limit=3600
-    ```
-
-You can pass a collector name as an argument to run only that collector — useful for debugging a specific integration:
-```bash
-php bin/console jmonitor:collect mysql -vvv --dry-run
-```
-In production, it is recommended to run this command under a process manager (e.g. Supervisor or systemd) to ensure it is kept running and restarted if necessary.
-For practical guidance, you can follow Symfony Messenger's recommendations:
-https://symfony.com/doc/current/messenger.html#deploying-to-production
-
-
 ## Logging and Debugging
 - The command is resilient: individual collector failures do not crash the whole run; errors are logged (logging must be enabled in config).
 - Symfony component collectors (flex, scheduler, messenger) that fail at worker startup are disabled for the lifetime of that worker process and an error is logged. Restart the worker to re-enable them.
@@ -241,18 +273,6 @@ https://symfony.com/doc/current/messenger.html#deploying-to-production
     - Errors (collector exceptions, HTTP responses with status >= 400): error
     - Collected metrics: debug
     - Summary: info
-
-Useful commands:
-```bash
-# Verbose with debug logs
-php bin/console jmonitor:collect -vvv
-
-# Dry-run (collect but do not send)
-php bin/console jmonitor:collect -vvv --dry-run
-
-# Only summary
-php bin/console jmonitor:collect -vv
-```
 
 ## Troubleshooting
 
@@ -267,8 +287,7 @@ RewriteCond %{REQUEST_URI} !=/server-status    <---- add this
 RewriteRule ^ %{ENV:BASE}/index.php [L]
 ```
 
----
-
-Need help?
-- Open an issue on this repo https://github.com/jmonitor/jmonitor-bundle/issues
-- Open a discussion on https://github.com/orgs/jmonitor/discussions
+## Need help?
+- Anything about this bundle — installation, Symfony configuration, the `jmonitor:collect` command, the Symfony collector: open an issue on this repo https://github.com/jmonitor/jmonitor-bundle/issues
+- Anything about a metric — a missing or wrong value, a collector that does not gather what you expect: open an issue on https://github.com/jmonitor/collector/issues
+- Anything about the app itself — dashboards, alerts, [dash.jmonitor.io](https://dash.jmonitor.io): open an issue on https://github.com/jmonitor/jmonitor/issues
