@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Scheduler tasks now report their arguments in a separate `arguments` field.
+
+### Fixed
+- A scheduled task with arguments (e.g. `#[AsPeriodicTask(..., arguments: ['--apply'])]`) no longer causes the whole `symfony` collector to be skipped: the command name is now correctly extracted from its arguments.
+- A scheduled command that cannot be found now reports a `null` description instead of failing.
+- An unexpected error in a Symfony component (flex, scheduler, messenger) now only affects that component: at boot it is disabled until worker restart, during collection it is logged and the other components are still collected.
+
 ## [2.1.0] - 2026-08-14
 
 ### Added

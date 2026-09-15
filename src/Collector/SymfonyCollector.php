@@ -41,11 +41,13 @@ class SymfonyCollector implements CollectorInterface, LoggerAwareInterface, Boot
         foreach ($this->componentCollectors as $name => $collector) {
             try {
                 $collector->boot();
-            } catch (BootFailedException $e) {
+            } catch (\Throwable $e) {
+                $cause = $e instanceof BootFailedException ? ($e->getPrevious() ?? $e) : $e;
+
                 $this->logger?->error('Symfony component "{component}" failed to boot; component disabled until worker restart.', [
                     'component' => $name,
-                    'message' => $e->getPrevious()?->getMessage() ?? $e->getMessage(),
-                    'exception' => $e->getPrevious() ?? $e,
+                    'message' => $cause->getMessage(),
+                    'exception' => $cause,
                 ]);
 
                 $this->disabledComponents[$name] = true;
@@ -82,6 +84,12 @@ class SymfonyCollector implements CollectorInterface, LoggerAwareInterface, Boot
                 $output['components'][$name] = $collector->collect();
             } catch (CollectorException $e) {
                 $this->logger?->warning($e->getMessage(), ['exception' => $e]);
+            } catch (\Throwable $e) {
+                $this->logger?->error('Symfony component "{component}" failed to collect.', [
+                    'component' => $name,
+                    'message' => $e->getMessage(),
+                    'exception' => $e,
+                ]);
             }
         }
 
