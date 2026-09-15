@@ -7,6 +7,8 @@ namespace Jmonitor\JmonitorBundle\Collector\Components;
 use Jmonitor\Exceptions\BootFailedException;
 use Jmonitor\Exceptions\CollectorException;
 use Jmonitor\JmonitorBundle\Collector\CommandRunner;
+use Symfony\Component\Console\Exception\CommandNotFoundException;
+use Symfony\Component\Console\Input\StringInput;
 
 final class SchedulerCollector implements ComponentCollectorInterface
 {
@@ -48,19 +50,53 @@ final class SchedulerCollector implements ComponentCollectorInterface
 
         $commands = $this->parseOutput($run['output']);
 
-        // ajoute la description de chaque commande
         foreach ($commands as &$command) {
-            $command['description'] = $this->commandRunner
-                ->getApplication()
-                ->find($command['command'])
-                ->getDescription();
+            $command['description'] = $this->getDescription($command['command']);
         }
 
         return $commands;
     }
 
+    private function getDescription(string $commandName): ?string
+    {
+        try {
+            return $this->commandRunner->getApplication()->find($commandName)->getDescription();
+        } catch (CommandNotFoundException) {
+            return null;
+        }
+    }
+
     /**
-     * @return array<int, array{trigger: string, command: string, next_run: int}>
+     * @return array{0: string, 1: list<string>}
+     */
+    private function splitCommandInput(string $commandInput): array
+    {
+        // StringInput only exposes its tokens since Symfony 7.1 (getRawTokens())
+        $input = new class ($commandInput) extends StringInput {
+            /** @var list<string> */
+            public array $parsedTokens = [];
+
+            protected function setTokens(array $tokens): void
+            {
+                $this->parsedTokens = $tokens;
+                parent::setTokens($tokens);
+            }
+        };
+
+        $tokens = $input->parsedTokens;
+        $name = $input->getFirstArgument();
+
+        if ($name === null) {
+            return [$commandInput, $tokens];
+        }
+
+        unset($tokens[array_search($name, $tokens, true)]);
+
+        return [$name, array_values($tokens)];
+    }
+
+    /**
+     * @return array<int, array{trigger: string, command: string, arguments: list<string>, next_run: int}>
      */
     private function parseOutput(?string $output): array
     {
@@ -82,12 +118,12 @@ final class SchedulerCollector implements ComponentCollectorInterface
             $matches = [];
 
             if (preg_match(
-                '/^(.+?)\s+Symfony\\\\Component\\\\Console\\\\Messenger\\\\RunCommandMessage\s+\((.+?)\)\s+(.+)$/',
+                '/^(.+?)\s+Symfony\\\\Component\\\\Console\\\\Messenger\\\\RunCommandMessage\s+\((.+)\)\s+(.+)$/',
                 $line,
                 $matches,
             )) {
                 $trigger = trim($matches[1]);
-                $command = trim($matches[2]);
+                [$command, $arguments] = $this->splitCommandInput(trim($matches[2]));
                 $nextRunStr = trim($matches[3]);
 
                 try {
@@ -100,6 +136,7 @@ final class SchedulerCollector implements ComponentCollectorInterface
                 $data[] = [
                     'trigger' => $trigger,
                     'command' => $command,
+                    'arguments' => $arguments,
                     'next_run' => $nextRun,
                 ];
             }
