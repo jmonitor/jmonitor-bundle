@@ -21,8 +21,13 @@ It ships a **Symfony-specific collector** and a **console command** that runs th
   </tr>
   <tr>
     <td colspan="3" align="center">
-      <a href="https://jmonitor.io">Website and cloud edition</a> ·
-      <a href="https://hub.docker.com/r/jmonitor/jmonitor">Docker Hub image for self-hosting</a>
+      <a href="https://github.com/jmonitor/easyadmin-bundle">jmonitor/easyadmin-bundle</a><br>
+      Live monitoring pages inside EasyAdmin — no backend, no worker
+    </td>
+  </tr>
+  <tr>
+    <td colspan="3" align="center">
+      <a href="https://jmonitor.io">https://jmonitor.io</a>
     </td>
   </tr>
 </table>
