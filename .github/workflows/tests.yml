@@ -20,15 +20,15 @@ jobs:
             fail-fast: false
             matrix:
                 # Explicit include-list. Impossible combos are simply not listed
-                # (Symfony 7.4 requires PHP >= 8.2, Symfony 8.0 requires PHP >= 8.4).
-                # Symfony 7.0-7.3 are EOL and uninstallable under modern Composer
+                # (Symfony 7.4 requires PHP >= 8.2, Symfony 8.1 requires PHP >= 8.4).
+                # Symfony 7.0-7.3 and 8.0 are EOL and uninstallable under modern Composer
                 # (every release is blocked by security advisories), so the 7.x line
-                # is covered by 7.4 (the lowest maintained 7.x).
+                # is covered by 7.4 (the lowest maintained 7.x) and the 8.x line by 8.1.
                 include:
                     - { php: '8.1', symfony: '6.4.*' }   # bundle PHP floor + Symfony LTS floor
                     - { php: '8.4', symfony: '6.4.*' }   # LTS on the newest PHP (catches deprecations)
                     - { php: '8.3', symfony: '7.4.*' }   # lowest maintained 7.x on a recent PHP
-                    - { php: '8.4', symfony: '8.0.*' }   # newest + newest
+                    - { php: '8.4', symfony: '8.1.*' }   # newest + newest
 
         steps:
             - uses: actions/checkout@v4
