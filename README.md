@@ -163,6 +163,7 @@ when@prod:
             #         command: "composer.phar recipes -o"  # default: "composer recipes -o"
             #         timeout: 10                          # default: 5 (seconds)
             #     Note: flex recipes are checked once per day and cached for the rest of the worker process lifetime.
+            #     A failed check (e.g. network timeout) is retried after one hour; if composer cannot be run, the check is disabled until the worker restarts.
             #
             #     messenger:
             #         command: "php bin/console messenger:stats --format=json"  # default: auto
@@ -273,7 +274,7 @@ jmonitor:
 
 ## Logging and Debugging
 - The command is resilient: individual collector failures do not crash the whole run; errors are logged (logging must be enabled in config).
-- Symfony component collectors (flex, scheduler, messenger) that fail at worker startup are disabled for the lifetime of that worker process and an error is logged. Restart the worker to re-enable them.
+- Symfony component collectors (scheduler, messenger) that fail at worker startup are disabled for the lifetime of that worker process and an error is logged. Restart the worker to re-enable them.
 - Log levels:
     - Errors (collector exceptions, HTTP responses with status >= 400): error
     - Collected metrics: debug

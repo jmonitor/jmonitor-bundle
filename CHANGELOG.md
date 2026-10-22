@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- A slow network no longer disables the Flex recipes check until worker restart with an `error` log: the worker no longer runs `composer recipes` at startup, a failed check (e.g. timeout) is logged as a `warning` and retried after one hour, and only a composer that cannot be run (exit code 126/127, process that cannot start) disables the check.
+- A failing `composer recipes` command (e.g. download error) is no longer reported as outdated recipes with an empty list.
+
 ## [2.2.0] - 2026-09-15
 
 ### Added
