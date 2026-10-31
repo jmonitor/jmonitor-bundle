@@ -799,6 +799,8 @@ class JmonitorBundleTest extends TestCase
             'collectors' => [
                 'cloudflare' => [
                     'enabled' => false,
+                    'api_token' => '',
+                    'zone' => null,
                 ],
             ],
         ]);
@@ -910,9 +912,12 @@ class JmonitorBundleTest extends TestCase
      */
     public static function invalidCloudflareConfigProvider(): iterable
     {
-        yield 'empty api_token' => [['api_token' => '', 'zone' => 'example.com'], '"jmonitor.collectors.cloudflare.api_token"'];
-        yield 'missing zone' => [['api_token' => 't'], 'The "api_token" and "zone" options are required to enable the cloudflare collector.'];
-        yield 'enabled without credentials' => [null, 'The "api_token" and "zone" options are required to enable the cloudflare collector.'];
+        $credentialsMessage = 'The "api_token" and "zone" options must not be empty to enable the cloudflare collector.';
+
+        yield 'empty api_token' => [['api_token' => '', 'zone' => 'example.com'], $credentialsMessage];
+        yield 'blank api_token' => [['api_token' => " \n", 'zone' => 'example.com'], $credentialsMessage];
+        yield 'missing zone' => [['api_token' => 't'], $credentialsMessage];
+        yield 'enabled without credentials' => [null, $credentialsMessage];
         yield 'lookback above 60' => [['api_token' => 't', 'zone' => 'example.com', 'lookback' => 61], '"jmonitor.collectors.cloudflare.lookback"'];
         yield 'non-positive refresh' => [['api_token' => 't', 'zone' => 'example.com', 'refresh' => ['traffic' => 0]], '"jmonitor.collectors.cloudflare.refresh.traffic"'];
         yield 'non-positive lag' => [['api_token' => 't', 'zone' => 'example.com', 'lag' => 0], '"jmonitor.collectors.cloudflare.lag"'];

@@ -188,6 +188,8 @@ when@prod:
             # Token permissions: https://github.com/jmonitor/collector?tab=readme-ov-file#cloudflare
             # This collector calls a remote API: the refresh intervals keep it within Cloudflare's rate limits,
             # lowering them is rarely useful.
+            # Without any http_client, the collector uses a client with a 5-second timeout. Give the one you pass
+            # a timeout too: an unanswered Cloudflare call would otherwise hold up the whole worker.
             # cloudflare:
             #     http_client: 'some_psr18_client' # default: the bundle http_client, then discovery
             #     refresh:                         # seconds

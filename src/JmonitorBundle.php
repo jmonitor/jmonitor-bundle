@@ -188,12 +188,14 @@ final class JmonitorBundle extends AbstractBundle
                         ->arrayNode('cloudflare')
                             ->canBeEnabled()
                             ->validate()
-                                ->ifTrue(static fn(array $v): bool => $v['enabled'] && (!isset($v['api_token']) || !isset($v['zone'])))
-                                ->thenInvalid('The "api_token" and "zone" options are required to enable the cloudflare collector.')
+                                ->ifTrue(static fn(array $v): bool => $v['enabled'] && (
+                                    trim((string) ($v['api_token'] ?? '')) === '' || trim((string) ($v['zone'] ?? '')) === ''
+                                ))
+                                ->thenInvalid('The "api_token" and "zone" options must not be empty to enable the cloudflare collector.')
                             ->end()
                             ->children()
-                                ->scalarNode('api_token')->cannotBeEmpty()->info('Cloudflare API token. See the permissions it needs: https://github.com/jmonitor/collector?tab=readme-ov-file#cloudflare')->end()
-                                ->scalarNode('zone')->cannotBeEmpty()->info('Zone name (example.com) or zone id.')->end()
+                                ->scalarNode('api_token')->info('Cloudflare API token. See the permissions it needs: https://github.com/jmonitor/collector?tab=readme-ov-file#cloudflare')->end()
+                                ->scalarNode('zone')->info('Zone name (example.com) or zone id.')->end()
                                 ->scalarNode('http_client')->defaultNull()->info('Name of a Psr\Http\Client\ClientInterface service. Defaults to the bundle "http_client", then to Psr18ClientDiscovery.')->end()
                                 ->arrayNode('refresh')
                                     ->addDefaultsIfNotSet()
