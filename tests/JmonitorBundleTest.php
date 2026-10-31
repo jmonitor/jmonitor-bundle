@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests;
 
 use Jmonitor\Collector\Apache\ApacheCollector;
+use Jmonitor\Collector\Cloudflare\CloudflareCollector;
 use Jmonitor\Collector\Mysql\MysqlStatusCollector;
 use Jmonitor\Collector\Mysql\MysqlInformationSchemaCollector;
 use Jmonitor\Collector\Mysql\MysqlSlowQueriesCollector;
@@ -21,9 +22,11 @@ use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\SchedulerCollector;
 use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Reference;
 
 class JmonitorBundleTest extends TestCase
 {
@@ -778,5 +781,163 @@ class JmonitorBundleTest extends TestCase
 
         static::assertFalse($container->hasDefinition('jmonitor.doctrine_adapter.postgresql'));
         static::assertFalse($container->hasDefinition(PostgresqlActivityCollector::class));
+    }
+
+    public function testCloudflareCollectorNotRegisteredWhenAbsent(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+        ]);
+
+        static::assertFalse($container->hasDefinition(CloudflareCollector::class));
+    }
+
+    public function testCloudflareCollectorCanBeDisabledWithoutCredentials(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'cloudflare' => [
+                    'enabled' => false,
+                    'api_token' => '',
+                    'zone' => null,
+                ],
+            ],
+        ]);
+
+        static::assertFalse($container->hasDefinition(CloudflareCollector::class));
+    }
+
+    public function testCloudflareCollectorRegistersWithDefaults(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'cloudflare' => [
+                    'api_token' => 't',
+                    'zone' => 'example.com',
+                ],
+            ],
+        ]);
+
+        static::assertTrue($container->hasDefinition(CloudflareCollector::class));
+
+        $def = $container->getDefinition(CloudflareCollector::class);
+        static::assertSame([['name' => 'cloudflare']], $def->getTag('jmonitor.collector'));
+        static::assertSame([
+            't',
+            'example.com',
+            null,
+            [
+                'refresh' => [
+                    'traffic' => 60,
+                    'today' => 300,
+                    'web_analytics' => 300,
+                    'storage' => 900,
+                    'zone' => 3600,
+                ],
+                'lag' => 180,
+                'lookback' => 5,
+                'window' => 15,
+            ],
+        ], $def->getArguments());
+
+        $calls = $container->getDefinition(Jmonitor::class)->getMethodCalls();
+        $flat = array_merge(...array_map(static fn(array $c) => array_map(
+            static fn($a) => (string) $a,
+            $c[1],
+        ), $calls));
+        static::assertContains(CloudflareCollector::class, $flat);
+    }
+
+    public function testCloudflareCollectorUsesBundleHttpClient(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'http_client' => 'my_client',
+            'collectors' => [
+                'cloudflare' => [
+                    'api_token' => 't',
+                    'zone' => 'example.com',
+                ],
+            ],
+        ]);
+
+        $client = $container->getDefinition(CloudflareCollector::class)->getArgument(2);
+        static::assertInstanceOf(Reference::class, $client);
+        static::assertSame('my_client', (string) $client);
+    }
+
+    public function testCloudflareCollectorOwnHttpClientWinsOverBundleOne(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'http_client' => 'my_client',
+            'collectors' => [
+                'cloudflare' => [
+                    'api_token' => 't',
+                    'zone' => 'example.com',
+                    'http_client' => 'cf_client',
+                ],
+            ],
+        ]);
+
+        $client = $container->getDefinition(CloudflareCollector::class)->getArgument(2);
+        static::assertInstanceOf(Reference::class, $client);
+        static::assertSame('cf_client', (string) $client);
+    }
+
+    public function testCloudflareCollectorPassesCustomOptions(): void
+    {
+        $container = $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'cloudflare' => [
+                    'api_token' => 't',
+                    'zone' => 'example.com',
+                    'refresh' => ['traffic' => 30],
+                    'lookback' => 10,
+                ],
+            ],
+        ]);
+
+        $options = $container->getDefinition(CloudflareCollector::class)->getArgument(3);
+        static::assertSame(30, $options['refresh']['traffic']);
+        static::assertSame(300, $options['refresh']['today']);
+        static::assertSame(10, $options['lookback']);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>|null, string}>
+     */
+    public static function invalidCloudflareConfigProvider(): iterable
+    {
+        $credentialsMessage = 'The "api_token" and "zone" options must not be empty to enable the cloudflare collector.';
+
+        yield 'empty api_token' => [['api_token' => '', 'zone' => 'example.com'], $credentialsMessage];
+        yield 'blank api_token' => [['api_token' => " \n", 'zone' => 'example.com'], $credentialsMessage];
+        yield 'missing zone' => [['api_token' => 't'], $credentialsMessage];
+        yield 'enabled without credentials' => [null, $credentialsMessage];
+        yield 'lookback above 60' => [['api_token' => 't', 'zone' => 'example.com', 'lookback' => 61], '"jmonitor.collectors.cloudflare.lookback"'];
+        yield 'non-positive refresh' => [['api_token' => 't', 'zone' => 'example.com', 'refresh' => ['traffic' => 0]], '"jmonitor.collectors.cloudflare.refresh.traffic"'];
+        yield 'non-positive lag' => [['api_token' => 't', 'zone' => 'example.com', 'lag' => 0], '"jmonitor.collectors.cloudflare.lag"'];
+        yield 'unknown refresh key' => [['api_token' => 't', 'zone' => 'example.com', 'refresh' => ['dns' => 60]], '"dns" under "jmonitor.collectors.cloudflare.refresh"'];
+    }
+
+    /**
+     * @param array<string, mixed>|null $cloudflare
+     */
+    #[DataProvider('invalidCloudflareConfigProvider')]
+    public function testCloudflareCollectorRejectsInvalidConfig(?array $cloudflare, string $expectedMessage): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage($expectedMessage);
+
+        $this->loadBundle([
+            'project_api_key' => 'key',
+            'collectors' => [
+                'cloudflare' => $cloudflare,
+            ],
+        ]);
     }
 }

@@ -42,6 +42,7 @@ It ships a **Symfony-specific collector** and a **console command** that runs th
 | Framework         | ![Symfony](https://img.shields.io/badge/Symfony-000000?style=flat-square&logo=symfony&logoColor=white)                                                                                                                                                                                                     |
 | Web servers       | ![Apache](https://img.shields.io/badge/Apache-D22128?style=flat-square&logo=apache&logoColor=white) ![Nginx](https://img.shields.io/badge/Nginx-009639?style=flat-square&logo=nginx&logoColor=white) ![Caddy](https://img.shields.io/badge/Caddy-1F88C0?style=flat-square&logo=caddy&logoColor=white)        |
 | Databases & cache | ![MySQL](https://img.shields.io/badge/MySQL-4479A1?style=flat-square&logo=mysql&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white) ![Redis](https://img.shields.io/badge/Redis-FF4438?style=flat-square&logo=redis&logoColor=white) |
+| CDN               | ![Cloudflare](https://img.shields.io/badge/Cloudflare-F38020?style=flat-square&logo=cloudflare&logoColor=white)                                                                                                                                                                                           |
 | System            | ![Linux](https://img.shields.io/badge/CPU%20·%20RAM%20·%20Disk-FCC624?style=flat-square&logo=linux&logoColor=black)                                                                                                                                                                                        |
 
 ## Requirements
@@ -182,6 +183,27 @@ when@prod:
             caddy:
                 endpoint: 'http://localhost:2019/metrics'
                 frankenphp: true # default is false
+
+            # Cloudflare: what your server cannot see (cache, security, edge latency, Web Analytics, R2, Images)
+            # Token permissions: https://github.com/jmonitor/collector?tab=readme-ov-file#cloudflare
+            # This collector calls a remote API: the refresh intervals keep it within Cloudflare's rate limits,
+            # lowering them is rarely useful.
+            # Without any http_client, the collector uses a client with a 5-second timeout. Give the one you pass
+            # a timeout too: an unanswered Cloudflare call would otherwise hold up the whole worker.
+            # cloudflare:
+            #     http_client: 'some_psr18_client' # default: the bundle http_client, then discovery
+            #     refresh:                         # seconds
+            #         traffic: 60
+            #         today: 300
+            #         web_analytics: 300
+            #         storage: 900                 # r2 and images
+            #         zone: 3600
+            #     lag: 180                         # seconds: the data window ends at the start of the minute of now - lag
+            #     lookback: 5                      # minutes of per-minute traffic re-read on every refresh (60 at most)
+            #     window: 15                       # minutes covered by the traffic breakdowns
+            cloudflare:
+                api_token: '%env(CLOUDFLARE_API_TOKEN)%'
+                zone: 'example.com' # zone name or zone id
 ```
 
 ### 4. Run the worker

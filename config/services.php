@@ -4,6 +4,7 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Jmonitor\Collector\Apache\ApacheCollector;
 use Jmonitor\Collector\Caddy\CaddyCollector;
+use Jmonitor\Collector\Cloudflare\CloudflareCollector;
 use Jmonitor\Collector\FrankenPhp\FrankenPhpCollector;
 use Jmonitor\Collector\Mysql\MysqlInformationSchemaCollector;
 use Jmonitor\Collector\Mysql\MysqlSlowQueriesCollector;
@@ -259,6 +260,28 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
             $services->get(Jmonitor::class)->call('addCollector', [service(FrankenPhpCollector::class)]);
         }
+    }
+
+    if ($config['collectors']['cloudflare']['enabled']) {
+        $cloudflareConfig = $config['collectors']['cloudflare'];
+        $httpClient = $cloudflareConfig['http_client'] ?? $config['http_client'];
+
+        $services->set(CloudflareCollector::class)
+            ->args([
+                $cloudflareConfig['api_token'],
+                $cloudflareConfig['zone'],
+                $httpClient ? service($httpClient) : null,
+                [
+                    'refresh' => $cloudflareConfig['refresh'],
+                    'lag' => $cloudflareConfig['lag'],
+                    'lookback' => $cloudflareConfig['lookback'],
+                    'window' => $cloudflareConfig['window'],
+                ],
+            ])
+            ->tag('jmonitor.collector', ['name' => 'cloudflare'])
+        ;
+
+        $services->get(Jmonitor::class)->call('addCollector', [service(CloudflareCollector::class)]);
     }
 
     if ($config['collectors']['symfony']['enabled']) {
