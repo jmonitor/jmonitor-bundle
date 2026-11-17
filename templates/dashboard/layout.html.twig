@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <meta name="color-scheme" content="dark">
+    <title>{% block title %}JMonitor{% endblock %}</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="{{ app.request.basePath }}/bundles/jmonitor/jmonitor.css">
+    <script src="{{ app.request.basePath }}/bundles/jmonitor/jmonitor.js" defer></script>
+</head>
+<body class="jm">
+    <a class="jm-skip" href="#jm-main">Skip to content</a>
+    <header class="jm-header">
+        <div class="jm-header__inner">
+            <span class="jm-brand">
+                <svg class="jm-brand__mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <defs>
+                        <linearGradient id="jm-brand-gradient" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0" stop-color="#2fceeb"/>
+                            <stop offset="1" stop-color="#809dff"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="24" height="24" rx="6" fill="url(#jm-brand-gradient)"/>
+                    <polyline points="4,13 8,13 10,8 14,17 16,11 20,11" fill="none" stroke="#14171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="jm-brand__name">JMonitor</span>
+            </span>
+            <nav class="jm-nav" aria-label="Screens">
+                {% block nav %}{% endblock %}
+            </nav>
+            <div class="jm-toolbar">
+                {% block toolbar %}{% endblock %}
+            </div>
+        </div>
+    </header>
+    {% block body %}{% endblock %}
+</body>
+</html>

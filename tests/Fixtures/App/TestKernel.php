@@ -132,5 +132,6 @@ final class TestKernel extends Kernel
         $routes->add('app_slow', '/slow')->controller([DemoController::class, 'slow']);
         $routes->add('app_boom', '/boom')->controller([DemoController::class, 'boom']);
         $routes->add('app_teapot', '/teapot')->controller([DemoController::class, 'teapot']);
+        $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');
     }
 }

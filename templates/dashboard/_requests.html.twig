@@ -1,0 +1,113 @@
+{% set state = screen.state.value %}
+<div class="jm-screen" data-jm-state="{{ state }}">
+{% if state == 'ready' %}
+    {% set summary = screen.summary %}
+    {% set period_text = {'1h': 'Last hour', '6h': 'Last 6 hours', '24h': 'Last 24 hours', '7d': 'Last 7 days'} %}
+    <section class="jm-cards" aria-label="Summary">
+        <article class="jm-card jm-card--wide">
+            <h2 class="jm-card__label">Requests</h2>
+            <div class="jm-card__row">
+                <p class="jm-card__value">{{ summary.requests|jmonitor_number }}</p>
+                {{ jmonitor_sparkline(screen.series) }}
+            </div>
+            <p class="jm-card__hint">{{ period_text[screen.period.label] }}</p>
+        </article>
+        <article class="jm-card">
+            <h2 class="jm-card__label">Avg duration</h2>
+            <p class="jm-card__value">{{ summary.avgMs|jmonitor_duration }}</p>
+            <p class="jm-card__hint">Mean response time</p>
+        </article>
+        <article class="jm-card">
+            <h2 class="jm-card__label">p95</h2>
+            <p class="jm-card__value">{{ summary.p95Ms|jmonitor_duration }}</p>
+            <p class="jm-card__hint">95 % of requests are faster</p>
+        </article>
+        <article class="jm-card{{ summary.errorRate > 0 ? ' jm-card--bad' }}">
+            <h2 class="jm-card__label">5xx errors</h2>
+            <p class="jm-card__value">{{ summary.errorRate|jmonitor_percent }}</p>
+            <p class="jm-card__hint">Share of server errors</p>
+        </article>
+    </section>
+
+    {% set columns = [
+        {sort: 'route', label: 'Route'},
+        {sort: 'requests', label: 'Requests'},
+        {sort: 'total', label: 'Total time'},
+        {sort: 'avg', label: 'Avg'},
+        {sort: 'p95', label: 'p95'},
+        {sort: 'max', label: 'Max'},
+        {sort: 'errors', label: '5xx'},
+        {sort: 'slow', label: 'Slow'},
+        {sort: 'memory', label: 'Peak memory'},
+    ] %}
+    <section class="jm-panel" aria-labelledby="jm-routes-title">
+        <div class="jm-panel__header">
+            <h2 class="jm-panel__title" id="jm-routes-title">Routes</h2>
+            <p class="jm-panel__meta">{{ screen.routes|length|jmonitor_number }} {{ screen.routes|length == 1 ? 'route' : 'routes' }}</p>
+        </div>
+        <div class="jm-table-wrap" role="region" aria-labelledby="jm-routes-title" tabindex="0">
+            <table class="jm-table">
+                <thead>
+                    <tr>
+                        {% for column in columns %}
+                            {% set active = column.sort == screen.sort %}
+                            <th scope="col" class="{{ column.sort == 'route' ? 'jm-col-route' : 'jm-num' }}{{ active ? ' is-sorted' }}"
+                                {% if active %}aria-sort="{{ screen.direction == 'asc' ? 'ascending' : 'descending' }}"{% endif %}>
+                                <a class="jm-sort" href="{{ path('jmonitor_dashboard', {period: screen.period.label, sort: column.sort, dir: screen.directionFor(column.sort)}) }}">
+                                    <span>{{ column.label }}</span>
+                                    <span class="jm-sort__icon" aria-hidden="true">{{ active ? (screen.direction == 'asc' ? '↑' : '↓') : '↕' }}</span>
+                                </a>
+                            </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for route in screen.routes %}
+                        {% set method = route.method|lower %}
+                        <tr data-jm-route="{{ route.key }}" data-jm-requests="{{ route.requests }}">
+                            <th scope="row" class="jm-col-route">
+                                <span class="jm-method jm-method--{{ method in ['get', 'post', 'put', 'patch', 'delete'] ? method : 'other' }}">{{ route.method }}</span>
+                                <code class="jm-route{{ route.route == '(unmatched)' ? ' jm-route--unmatched' }}">{{ route.route }}</code>
+                            </th>
+                            <td class="jm-num">{{ route.requests|jmonitor_number }}</td>
+                            <td class="jm-num">{{ route.totalMs|jmonitor_duration }}</td>
+                            <td class="jm-num">{{ route.avgMs|jmonitor_duration }}</td>
+                            <td class="jm-num{{ route.slow * 20 > route.requests ? ' jm-warn' }}">{{ route.p95Ms|jmonitor_duration }}</td>
+                            <td class="jm-num{{ route.slow > 0 ? ' jm-warn' }}">{{ route.maxMs|jmonitor_duration }}</td>
+                            <td class="jm-num{{ route.errors > 0 ? ' jm-bad' : ' jm-zero' }}">{{ route.errors|jmonitor_number }}</td>
+                            <td class="jm-num{{ route.slow > 0 ? ' jm-warn' : ' jm-zero' }}">{{ route.slow|jmonitor_number }}</td>
+                            <td class="jm-num">{{ route.peakMemoryBytes|jmonitor_bytes }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+{% else %}
+    {% set tone = state in ['no_connection', 'storage_error'] ? 'bad' : 'info' %}
+    <div class="jm-state jm-state--{{ tone }}">
+        <svg class="jm-state__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.75"/>
+            {% if tone == 'bad' %}
+                <line x1="12" y1="7.5" x2="12" y2="13" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+                <circle cx="12" cy="16.25" r="1.1" fill="currentColor"/>
+            {% else %}
+                <polyline points="12,7.5 12,12 15,14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+            {% endif %}
+        </svg>
+        {% if state == 'empty' %}
+            <h2 class="jm-state__title">Waiting for traffic</h2>
+            <p class="jm-state__text">No requests recorded yet. Browse your application, then come back: data shows up within a few seconds.</p>
+        {% elseif state == 'recording_disabled' %}
+            <h2 class="jm-state__title">Recording is off</h2>
+            <p class="jm-state__text">Recording is disabled in this environment (<code>jmonitor.recording.enabled</code>).</p>
+        {% elseif state == 'no_connection' %}
+            <h2 class="jm-state__title">No storage configured</h2>
+            <p class="jm-state__text">JMonitor needs a Doctrine DBAL connection to store its data. Install doctrine/doctrine-bundle or set <code>jmonitor.storage.connection</code>.</p>
+        {% else %}
+            <h2 class="jm-state__title">Storage unavailable</h2>
+            <p class="jm-state__text">JMonitor could not read or write its data. Check the application logs.</p>
+        {% endif %}
+    </div>
+{% endif %}
+</div>
