@@ -1,0 +1,22 @@
+name: jmonitor-bundle-e2e
+
+services:
+  php:
+    image: php:8.4-fpm-alpine
+    working_dir: /app
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+      JMONITOR_FLUSH_INTERVAL: "1"
+    volumes:
+      - ../../..:/app:ro
+
+  web:
+    image: caddy:2-alpine
+    depends_on:
+      - php
+    ports:
+      - "${JMONITOR_E2E_PORT:-8089}:80"
+    volumes:
+      - ../../..:/app:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro

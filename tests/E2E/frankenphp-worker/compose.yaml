@@ -1,0 +1,15 @@
+name: jmonitor-bundle-e2e-worker
+
+services:
+  app:
+    image: dunglas/frankenphp:1.13.0-php8.4
+    working_dir: /app
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+      JMONITOR_FLUSH_INTERVAL: "${JMONITOR_FLUSH_INTERVAL:-1}"
+    ports:
+      - "${JMONITOR_E2E_PORT:-8090}:80"
+    volumes:
+      - ../../..:/app:ro
+      - ./Caddyfile:/etc/frankenphp/Caddyfile:ro

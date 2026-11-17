@@ -1,0 +1,31 @@
+name: jmonitor-bundle-tests
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: jmonitor
+      MYSQL_USER: jmonitor
+      MYSQL_PASSWORD: jmonitor
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "33306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ujmonitor", "-pjmonitor"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: jmonitor
+      POSTGRES_USER: jmonitor
+      POSTGRES_PASSWORD: jmonitor
+    ports:
+      - "35432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jmonitor -d jmonitor"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

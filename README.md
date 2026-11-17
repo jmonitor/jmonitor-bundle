@@ -248,6 +248,66 @@ are available for that:
 php bin/console jmonitor:collect -vv --memory-limit=32M --time-limit=3600
 ```
 
+## Application monitoring (preview)
+
+The bundle can also record the HTTP requests your application serves and show them on a `/jmonitor` page: requests, response times (average, p95, max), slow requests, 5xx errors and peak memory, per route, over the last hour, 6 hours, 24 hours or 7 days. Only HTTP requests are covered for now.
+
+It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` table is created automatically in the configured connection, and Doctrine migrations will not try to drop it. Your database receives batched writes, at most once per `flush_interval` per server, never one write per request.
+
+If the database user of your application is not allowed to create tables, run `php bin/console jmonitor:setup` at deployment with a user that is. It creates the table, or tells you it already exists.
+
+Import the routes (the bundle assets are published by `assets:install`, which Symfony Flex runs automatically):
+
+```yaml
+# config/routes/jmonitor.yaml
+jmonitor:
+    resource: '@JmonitorBundle/config/routes.php'
+    prefix: /jmonitor
+```
+
+If your routes carry a `host`, give this import the same `host`. If your `access_control` ends with a catch-all rule, add a rule that covers `/jmonitor` before it.
+
+Defaults, all optional:
+
+```yaml
+# config/packages/jmonitor.yaml
+jmonitor:
+    recording:
+        enabled: ~            # default: true, except in the "test" environment
+        flush_interval: 10    # seconds between two writes to the database (3600 maximum)
+        slow_threshold: 1000  # ms above which a request counts as slow
+        ignore_routes: []     # route names not recorded, fnmatch patterns allowed (e.g. 'app_health*')
+        buffer_dir: ~         # where the buffer gets its private subdirectory; default: the system temporary directory
+    storage:
+        connection: 'default' # name of the Doctrine DBAL connection
+        retention: 604800     # seconds the data is kept (7 days, 3600 minimum)
+    dashboard:
+        enabled: true         # false: the page answers 404
+        permission: ~         # role or voter attribute required to see the page
+```
+
+`recording.enabled` can come from an environment variable, read at runtime, to switch recording off without a new deployment:
+
+```yaml
+jmonitor:
+    recording:
+        enabled: '%env(bool:JMONITOR_RECORDING)%'
+```
+
+### Access
+
+- Without `dashboard.permission`, the page is open in debug mode and answers 404 otherwise.
+- With `dashboard.permission`, for example `ROLE_ADMIN`, the page requires that permission in every environment. This option needs the SecurityBundle.
+- The route must sit behind one of your firewalls: outside any firewall nobody is authenticated, so the page is denied to everyone.
+
+### What is recorded
+
+Main requests only. Not recorded: any route whose name starts with `jmonitor_`, the web debug toolbar and profiler, sub-requests, and the routes matching `ignore_routes`. A request that matches no route is recorded as `(unmatched)`. Methods other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are grouped under `OTHER`.
+
+Requests are buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access. When the web server and the console run as different users, each keeps and flushes its own buffer.
+
+Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
+
 ## PHP metrics: CLI vs Web context
 
 - PHP settings and extensions can differ significantly between CLI and your web server context.

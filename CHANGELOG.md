@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `/jmonitor` page: requests, response times and errors per route, stored in the application database.
+- `jmonitor:setup` command: creates the `jmonitor_aggregates` table.
+
+### Changed
+- Requires PHP 8.2.
+- Requires `symfony/twig-bundle`.
+- HTTP requests are recorded by default, except in the `test` environment; `recording.enabled: false` turns this off.
+- Recording creates a `jmonitor_aggregates` table in the default Doctrine connection on its first flush, even when the routes are not imported.
+
 ## [2.3.0] - 2026-10-31
 
 ### Added

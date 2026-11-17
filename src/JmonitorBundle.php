@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle;
 
+use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -14,8 +16,45 @@ use Symfony\Component\Messenger\Worker;
 
 final class JmonitorBundle extends AbstractBundle
 {
+    public function build(ContainerBuilder $container): void
+    {
+        $container->addCompilerPass(new StorageConnectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+    }
+
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
+        $environment = $builder->getParameter('kernel.environment');
+        $projectDir = $builder->getParameter('kernel.project_dir');
+        $permission = $config['dashboard']['permission'];
+
+        if ($permission === '') {
+            throw new \LogicException('The "jmonitor.dashboard.permission" option must not be empty.');
+        }
+
+        if ($permission !== null && !isset($builder->getParameter('kernel.bundles')['SecurityBundle'])) {
+            throw new \LogicException('The "jmonitor.dashboard.permission" option requires the SecurityBundle.');
+        }
+
+        $recordingEnabled = $config['recording']['enabled'] ?? $environment !== 'test';
+
+        $builder->setParameter('jmonitor.recording.enabled', $recordingEnabled);
+        $builder->setParameter('jmonitor.recording.flush_interval', $config['recording']['flush_interval']);
+        $builder->setParameter('jmonitor.recording.slow_threshold', $config['recording']['slow_threshold']);
+        $builder->setParameter('jmonitor.recording.ignore_routes', $config['recording']['ignore_routes']);
+        $builder->setParameter('jmonitor.recording.buffer_dir', $config['recording']['buffer_dir']);
+        $builder->setParameter('jmonitor.recording.app_id', substr(hash('xxh128', $projectDir . '|' . $environment), 0, 12));
+        $builder->setParameter('jmonitor.storage.connection', $config['storage']['connection']);
+        $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
+        $builder->setParameter('jmonitor.dashboard.enabled', $config['dashboard']['enabled']);
+        $builder->setParameter('jmonitor.dashboard.permission', $permission);
+        $builder->setParameter('jmonitor.logger', $config['logger'] ?: null);
+
+        if ($recordingEnabled !== false || $config['dashboard']['enabled'] !== false) {
+            $container->import('../config/recording.php');
+        }
+
+        $container->import('../config/dashboard.php');
+
         if (!$config['project_api_key']) {
             return;
         }
@@ -243,6 +282,34 @@ final class JmonitorBundle extends AbstractBundle
                                 ->end()
                             ->end()
                         ->end()
+                    ->end()
+                ->end()
+                ->arrayNode('recording')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->booleanNode('enabled')->defaultNull()->info('Record HTTP requests. Defaults to true, except in the "test" environment.')->end()
+                        ->integerNode('flush_interval')->defaultValue(10)->min(1)->max(3600)->info('Seconds between two flushes of the buffer to the storage.')->end()
+                        ->integerNode('slow_threshold')->defaultValue(1000)->min(1)->info('Duration in ms above which a request counts as slow.')->end()
+                        ->arrayNode('ignore_routes')
+                            ->scalarPrototype()->end()
+                            ->defaultValue([])
+                            ->info('Route names that are not recorded.')
+                        ->end()
+                        ->scalarNode('buffer_dir')->defaultNull()->info('Directory in which the recording buffer gets its private subdirectory. Defaults to the system temporary directory.')->end()
+                    ->end()
+                ->end()
+                ->arrayNode('storage')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->scalarNode('connection')->defaultValue('default')->info('Name of the Doctrine DBAL connection that stores the metrics.')->end()
+                        ->integerNode('retention')->defaultValue(604800)->min(3600)->info('Seconds the metrics are kept.')->end()
+                    ->end()
+                ->end()
+                ->arrayNode('dashboard')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->booleanNode('enabled')->defaultTrue()->info('Serve the /jmonitor page.')->end()
+                        ->scalarNode('permission')->defaultNull()->info('Role or attribute required to see the /jmonitor page. Requires the SecurityBundle.')->end()
                     ->end()
                 ->end()
             ->end()

@@ -1,0 +1,15 @@
+{
+	auto_https off
+}
+
+:80 {
+	handle_path /bundles/jmonitor/* {
+		root * /app/public
+		file_server
+	}
+
+	handle {
+		root * /app/tests/Fixtures/App/public
+		php_fastcgi php:9000
+	}
+}
