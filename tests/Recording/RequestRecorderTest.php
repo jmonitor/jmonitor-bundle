@@ -80,6 +80,16 @@ final class RequestRecorderTest extends TestCase
         static::assertGreaterThanOrEqual(0.0, $entry->durationMs);
     }
 
+    public function testDisabledRecorderNeitherRecordsNorFlushes(): void
+    {
+        $recorder = new RequestRecorder($this->buffer, $this->flusher($this->buffer), [], $this->logger, false);
+
+        $this->handle($recorder, Request::create('/'), 'app_home', 200);
+
+        static::assertSame([], $this->buffer->entries);
+        static::assertSame([], glob($this->dir . '/*'));
+    }
+
     public function testUnmatchedRoute(): void
     {
         $this->handle($this->recorder(), Request::create('/nope'), null, 404);

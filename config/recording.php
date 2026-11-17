@@ -70,7 +70,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ])
         ->tag('monolog.logger', ['channel' => 'jmonitor']);
 
-    if (!$builder->getParameter('jmonitor.recording.enabled')) {
+    if ($builder->getParameter('jmonitor.recording.enabled') === false) {
         return;
     }
 
@@ -80,6 +80,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service(Flusher::class),
             param('jmonitor.recording.ignore_routes'),
             service('logger')->nullOnInvalid(),
+            param('jmonitor.recording.enabled'),
         ])
         ->tag('kernel.event_subscriber')
         ->tag('monolog.logger', ['channel' => 'jmonitor']);

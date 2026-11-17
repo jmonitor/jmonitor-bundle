@@ -32,6 +32,7 @@ final class RequestRecorder implements EventSubscriberInterface
         private readonly Flusher $flusher,
         private readonly array $ignoreRoutes = [],
         private readonly ?LoggerInterface $logger = null,
+        private readonly bool $enabled = true,
     ) {}
 
     public static function getSubscribedEvents(): array
@@ -44,6 +45,10 @@ final class RequestRecorder implements EventSubscriberInterface
 
     public function onRequest(RequestEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             if (!$event->isMainRequest()) {
                 return;
@@ -69,6 +74,10 @@ final class RequestRecorder implements EventSubscriberInterface
 
     public function onTerminate(TerminateEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $now = microtime(true);
             $request = $event->getRequest();
@@ -97,6 +106,10 @@ final class RequestRecorder implements EventSubscriberInterface
 
     public function onTerminateFlush(TerminateEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $this->flusher->flushIfDue();
         } catch (\Throwable $e) {

@@ -75,6 +75,51 @@ final class RecordingTest extends WebTestCase
         static::assertSame([], glob($this->bufferDir . '/*') ?: []);
     }
 
+    public function testRecordingSwitchIsReadFromTheEnvironmentAtRuntime(): void
+    {
+        $config = ['recording' => ['enabled' => '%env(bool:JMONITOR_TEST_RECORDING)%', 'flush_interval' => 1, 'buffer_dir' => $this->bufferDir]];
+
+        try {
+            $this->setEnv('JMONITOR_TEST_RECORDING', '0');
+            $client = static::createClient(['jmonitor' => $config]);
+            $client->request('GET', '/hello/world');
+            sleep(1);
+            $crawler = $client->request('GET', '/jmonitor/');
+
+            static::assertTrue(static::getContainer()->has(RequestRecorder::class));
+            static::assertCount(1, $crawler->filter('[data-jm-state="recording_disabled"]'));
+
+            self::ensureKernelShutdown();
+            $this->setEnv('JMONITOR_TEST_RECORDING', '1');
+            $client = static::createClient(['jmonitor' => $config]);
+            $client->request('GET', '/hello/world');
+            sleep(1);
+            $crawler = $client->request('GET', '/jmonitor/');
+
+            static::assertSame('1', $crawler->filter('tr[data-jm-route="GET app_hello"]')->attr('data-jm-requests'));
+        } finally {
+            $this->setEnv('JMONITOR_TEST_RECORDING', null);
+        }
+    }
+
+    public function testDashboardSwitchIsReadFromTheEnvironmentAtRuntime(): void
+    {
+        $config = ['dashboard' => ['enabled' => '%env(bool:JMONITOR_TEST_DASHBOARD)%'], 'recording' => ['buffer_dir' => $this->bufferDir]];
+
+        try {
+            foreach (['0' => 404, '1' => 200] as $value => $status) {
+                self::ensureKernelShutdown();
+                $this->setEnv('JMONITOR_TEST_DASHBOARD', (string) $value);
+                $client = static::createClient(['jmonitor' => $config]);
+                $client->request('GET', '/jmonitor/');
+
+                static::assertResponseStatusCodeSame($status);
+            }
+        } finally {
+            $this->setEnv('JMONITOR_TEST_DASHBOARD', null);
+        }
+    }
+
     public function testWithoutDoctrineTheApplicationStillWorks(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording(), 'doctrine' => false]);
@@ -129,6 +174,19 @@ final class RecordingTest extends WebTestCase
 
         static::assertTrue($flusher->flush());
         static::assertNull($flusher->lastFailure());
+    }
+
+    private function setEnv(string $name, ?string $value): void
+    {
+        if ($value === null) {
+            unset($_ENV[$name], $_SERVER[$name]);
+            putenv($name);
+
+            return;
+        }
+
+        $_ENV[$name] = $_SERVER[$name] = $value;
+        putenv($name . '=' . $value);
     }
 
     private function connection(): Connection

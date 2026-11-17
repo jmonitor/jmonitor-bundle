@@ -34,7 +34,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service('twig'),
         ]);
 
-    if (!$builder->getParameter('jmonitor.dashboard.enabled')) {
+    if ($builder->getParameter('jmonitor.dashboard.enabled') === false) {
         return;
     }
 
