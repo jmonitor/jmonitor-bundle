@@ -163,6 +163,48 @@ final class DbalStorageTest extends TestCase
         $connection->executeStatement('DROP TABLE app_rows');
     }
 
+    #[DataProvider('connections')]
+    public function testPrimaryKeyStartsWithPeriodThenBucket(Connection $connection): void
+    {
+        $sql = implode("\n", $connection->getDatabasePlatform()->getCreateTableSQL(AggregatesTable::definition()));
+
+        static::assertSame(1, preg_match('/PRIMARY KEY\s*\(([^)]*)\)/i', $sql, $matches));
+        static::assertSame('period,bucket,metric_type,key_hash', str_replace([' ', '"', '`'], '', $matches[1]));
+    }
+
+    public function testRowsAreSentInPrimaryKeyOrder(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $aggregates = [];
+        foreach ([Period::SevenDays, Period::OneHour, Period::OneDay] as $period) {
+            foreach ([1700000100, 1700000040] as $bucket) {
+                foreach ([Metric::REQUEST_SLOW, Metric::REQUEST_DURATION, Metric::REQUEST_MEMORY] as $type) {
+                    for ($i = 70; $i > 0; --$i) {
+                        $aggregates[] = new Aggregate($period, $bucket, $type, 'GET route_' . $i, 1, 1.0, 1.0);
+                    }
+                }
+            }
+        }
+        mt_srand(42);
+        shuffle($aggregates);
+
+        $this->storage($connection)->store($aggregates);
+
+        $sent = [];
+        foreach ($recorder->paramsOf('INSERT INTO ' . AggregatesTable::NAME) as $params) {
+            ksort($params);
+            foreach (array_chunk(array_values($params), 8) as $row) {
+                $sent[] = [(int) $row[0], (int) $row[2], $row[1], $row[3]];
+            }
+        }
+        $expected = $sent;
+        usort($expected, static fn(array $a, array $b): int => $a[0] <=> $b[0] ?: $a[1] <=> $b[1] ?: strcmp($a[2], $b[2]) ?: strcmp($a[3], $b[3]));
+
+        static::assertCount(\count($aggregates), $sent);
+        static::assertGreaterThan(1, \count($recorder->paramsOf('INSERT INTO ' . AggregatesTable::NAME)));
+        static::assertSame($expected, $sent);
+    }
+
     private function reset(Connection $connection): void
     {
         $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);

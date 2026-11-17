@@ -27,7 +27,7 @@ final class UpsertSql
                 . ' value_max = GREATEST(value_max, VALUES(value_max))';
         }
 
-        $conflict = ' ON CONFLICT (period, metric_type, bucket, key_hash) DO UPDATE SET'
+        $conflict = ' ON CONFLICT (period, bucket, metric_type, key_hash) DO UPDATE SET'
             . ' entry_count = ' . $table . '.entry_count + excluded.entry_count,'
             . ' value_sum = ' . $table . '.value_sum + excluded.value_sum,';
 

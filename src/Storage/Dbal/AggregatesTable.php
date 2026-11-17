@@ -23,7 +23,7 @@ final class AggregatesTable
         $table->addColumn('entry_count', Types::BIGINT);
         $table->addColumn('value_sum', Types::FLOAT);
         $table->addColumn('value_max', Types::FLOAT);
-        $table->setPrimaryKey(['period', 'metric_type', 'bucket', 'key_hash']);
+        $table->setPrimaryKey(['period', 'bucket', 'metric_type', 'key_hash']);
 
         return $table;
     }

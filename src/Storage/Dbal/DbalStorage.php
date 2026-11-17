@@ -32,25 +32,11 @@ final class DbalStorage implements StorageInterface
         $this->ensureTable();
         $platform = $this->connection->getDatabasePlatform();
 
-        $this->connection->transactional(function (Connection $connection) use ($aggregates, $platform): void {
-            foreach (array_chunk($aggregates, self::CHUNK_SIZE) as $chunk) {
-                $params = [];
-                foreach ($chunk as $aggregate) {
-                    $key = mb_scrub($aggregate->key, 'UTF-8');
-                    array_push(
-                        $params,
-                        $aggregate->period->value,
-                        $aggregate->type,
-                        $aggregate->bucket,
-                        AggregatesTable::keyHash($aggregate->key),
-                        mb_strcut($key, 0, AggregatesTable::KEY_MAX_LENGTH, 'UTF-8'),
-                        $aggregate->count,
-                        $aggregate->sum,
-                        $aggregate->max,
-                    );
-                }
+        $rows = self::rows($aggregates);
 
-                $connection->executeStatement(UpsertSql::for($platform, count($chunk)), $params);
+        $this->connection->transactional(function (Connection $connection) use ($rows, $platform): void {
+            foreach (array_chunk($rows, self::CHUNK_SIZE) as $chunk) {
+                $connection->executeStatement(UpsertSql::for($platform, count($chunk)), array_merge(...$chunk));
             }
         });
     }
@@ -71,6 +57,36 @@ final class DbalStorage implements StorageInterface
                 return;
             }
         }
+    }
+
+    /**
+     * Rows follow the primary key order so that concurrent flushes from several servers lock them
+     * in the same order.
+     *
+     * @param list<Aggregate> $aggregates
+     *
+     * @return list<list<int|float|string>>
+     */
+    private static function rows(array $aggregates): array
+    {
+        $rows = [];
+        foreach ($aggregates as $aggregate) {
+            $rows[] = [
+                $aggregate->period->value,
+                $aggregate->type,
+                $aggregate->bucket,
+                AggregatesTable::keyHash($aggregate->key),
+                mb_strcut(mb_scrub($aggregate->key, 'UTF-8'), 0, AggregatesTable::KEY_MAX_LENGTH, 'UTF-8'),
+                $aggregate->count,
+                $aggregate->sum,
+                $aggregate->max,
+            ];
+        }
+
+        usort($rows, static fn(array $a, array $b): int
+            => $a[0] <=> $b[0] ?: $a[2] <=> $b[2] ?: strcmp($a[1], $b[1]) ?: strcmp($a[3], $b[3]));
+
+        return $rows;
     }
 
     /**
