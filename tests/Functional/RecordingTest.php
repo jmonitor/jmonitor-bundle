@@ -17,6 +17,8 @@ use Symfony\Component\HttpKernel\KernelInterface;
 
 final class RecordingTest extends WebTestCase
 {
+    use PollsThePage;
+
     private string $bufferDir;
 
     /** @var list<string> */
@@ -83,18 +85,17 @@ final class RecordingTest extends WebTestCase
             $this->setEnv('JMONITOR_TEST_RECORDING', '0');
             $client = static::createClient(['jmonitor' => $config]);
             $client->request('GET', '/hello/world');
-            sleep(1);
             $crawler = $client->request('GET', '/jmonitor/');
 
             static::assertTrue(static::getContainer()->has(RequestRecorder::class));
+            static::assertSame([], $this->slotFiles());
             static::assertCount(1, $crawler->filter('[data-jm-state="recording_disabled"]'));
 
             self::ensureKernelShutdown();
             $this->setEnv('JMONITOR_TEST_RECORDING', '1');
             $client = static::createClient(['jmonitor' => $config]);
             $client->request('GET', '/hello/world');
-            sleep(1);
-            $crawler = $client->request('GET', '/jmonitor/');
+            $crawler = self::requestUntil($client, '/jmonitor/', 'tr[data-jm-route="GET app_hello"]');
 
             static::assertSame('1', $crawler->filter('tr[data-jm-route="GET app_hello"]')->attr('data-jm-requests'));
         } finally {
@@ -169,11 +170,26 @@ final class RecordingTest extends WebTestCase
     {
         $flusher = static::getContainer()->get(Flusher::class);
         \assert($flusher instanceof Flusher);
+        $deadline = microtime(true) + 10;
 
-        sleep(1);
+        do {
+            static::assertTrue($flusher->flush());
+            static::assertNull($flusher->lastFailure());
+            if ($this->slotFiles() === []) {
+                return;
+            }
+            usleep(100_000);
+        } while (microtime(true) < $deadline);
 
-        static::assertTrue($flusher->flush());
-        static::assertNull($flusher->lastFailure());
+        static::fail('The buffer was not drained within 10 s.');
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function slotFiles(): array
+    {
+        return glob($this->bufferDir . '/*/*.ndjson') ?: [];
     }
 
     private function setEnv(string $name, ?string $value): void

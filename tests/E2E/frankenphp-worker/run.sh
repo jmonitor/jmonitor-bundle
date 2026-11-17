@@ -43,8 +43,8 @@ hit() {
     counter="$value"
 }
 
-# A slot of a billion seconds does not complete during the run, so the lines stay in the buffer files.
-start 1000000000
+# The readiness check flushed, so no flush is due for an hour and the lines stay in the buffer files.
+start 3600
 
 sleep 5
 for i in 1 2 3 4; do

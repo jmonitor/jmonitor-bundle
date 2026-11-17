@@ -14,6 +14,8 @@ use Symfony\Component\HttpKernel\KernelInterface;
 
 final class DashboardTest extends WebTestCase
 {
+    use PollsThePage;
+
     private string $bufferDir;
 
     /** @var list<string> */
@@ -39,8 +41,7 @@ final class DashboardTest extends WebTestCase
         for ($i = 0; $i < 3; ++$i) {
             $client->request('GET', '/hello/world');
         }
-        sleep(1);
-        $crawler = $client->request('GET', '/jmonitor/');
+        $crawler = self::requestUntil($client, '/jmonitor/', 'tr[data-jm-route="GET app_hello"]');
         $response = $client->getResponse();
 
         static::assertResponseIsSuccessful();
@@ -54,8 +55,7 @@ final class DashboardTest extends WebTestCase
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
         $client->request('POST', '/hello/world', server: ['HTTP_X_HTTP_METHOD_OVERRIDE' => 'ZZZ']);
-        sleep(1);
-        $crawler = $client->request('GET', '/jmonitor/');
+        $crawler = self::requestUntil($client, '/jmonitor/', 'tr[data-jm-route="OTHER app_hello"]');
 
         $badge = $crawler->filter('tr[data-jm-route="OTHER app_hello"] .jm-method');
         static::assertCount(1, $badge);
@@ -72,8 +72,7 @@ final class DashboardTest extends WebTestCase
             $client->request('GET', '/jmonitor/');
             static::assertResponseIsSuccessful();
         }
-        sleep(1);
-        $crawler = $client->request('GET', '/jmonitor/');
+        $crawler = self::requestUntil($client, '/jmonitor/', 'tr[data-jm-route="GET app_hello"]');
 
         static::assertCount(1, $crawler->filter('tr[data-jm-route="GET app_hello"]'));
         static::assertCount(0, $crawler->filter('tr[data-jm-route^="GET jmonitor_"]'));
@@ -84,8 +83,7 @@ final class DashboardTest extends WebTestCase
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
         $client->request('GET', '/hello/world');
-        sleep(1);
-        $client->request('GET', '/jmonitor/_fragment');
+        self::requestUntil($client, '/jmonitor/_fragment', 'tr[data-jm-route="GET app_hello"]');
         $html = (string) $client->getResponse()->getContent();
 
         static::assertResponseIsSuccessful();
@@ -196,13 +194,12 @@ final class DashboardTest extends WebTestCase
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
         $client->request('GET', '/hello/world');
-        sleep(1);
         $client->disableReboot();
         $connection = static::getContainer()->get('doctrine.dbal.default_connection');
         \assert($connection instanceof Connection);
         $connection->beginTransaction();
 
-        $crawler = $client->request('GET', '/jmonitor/');
+        $crawler = self::requestUntil($client, '/jmonitor/', '[data-jm-state="storage_error"]');
         $connection->rollBack();
 
         static::assertResponseStatusCodeSame(200);

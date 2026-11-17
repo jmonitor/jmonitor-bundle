@@ -104,6 +104,14 @@ class JmonitorBundleTest extends TestCase
         $this->loadBundle(['dashboard' => ['permission' => '']], environment: 'prod');
     }
 
+    public function testFlushIntervalIsAtMostOneHour(): void
+    {
+        static::assertSame(3600, $this->loadBundle(['recording' => ['flush_interval' => 3600]])->getParameter('jmonitor.recording.flush_interval'));
+
+        $this->expectException(InvalidConfigurationException::class);
+        $this->loadBundle(['recording' => ['flush_interval' => 3601]]);
+    }
+
     public function testMinimalConfigRegistersCoreServices(): void
     {
         $container = $this->loadBundle([

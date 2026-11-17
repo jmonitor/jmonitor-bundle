@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Buffer;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Recording\Entry;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Filesystem\Filesystem;
@@ -107,7 +108,7 @@ final class FileBufferTest extends TestCase
         $clock = new MockClock('@1000');
         $buffer = $this->buffer($clock);
         $buffer->append($this->entry('a'));
-        file_put_contents($this->private . '/100.ndjson', "{\"type\":\"requ\n", \FILE_APPEND);
+        file_put_contents($this->private . '/1000.ndjson', "{\"type\":\"requ\n", \FILE_APPEND);
         $buffer->append($this->entry('b'));
         $clock->sleep(11);
 
@@ -122,20 +123,129 @@ final class FileBufferTest extends TestCase
         static::assertSame(['a', 'b'], $keys);
     }
 
-    public function testSlotOlderThanMaxAgeIsDeletedUnread(): void
+    public function testSlotOlderThanMaxAgeIsDrainedWhenTheConsumerSucceeds(): void
     {
         $clock = new MockClock('@1000');
         $buffer = $this->buffer($clock);
         $buffer->append($this->entry('a'));
-        $clock->sleep(3601);
+        $clock->sleep(7200);
 
-        $called = false;
-        $count = $buffer->drain(static function () use (&$called): void {
-            $called = true;
+        $keys = [];
+        $count = $buffer->drain(static function (iterable $entries) use (&$keys): void {
+            foreach ($entries as $entry) {
+                $keys[] = $entry->key;
+            }
         });
 
-        static::assertSame(0, $count);
+        static::assertSame(1, $count);
+        static::assertSame(['a'], $keys);
+        static::assertSame([], glob($this->private . '/*'));
+    }
+
+    public function testSlotsOlderThanMaxAgeAreDeletedWhenTheConsumerThrows(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        for ($i = 0; $i < 70; ++$i) {
+            $buffer->append($this->entry('old'));
+            $clock->sleep(10);
+        }
+        $clock->sleep(7200);
+        $buffer->append($this->entry('recent'));
+        $clock->sleep(11);
+
+        try {
+            $buffer->drain(static function (iterable $entries): void {
+                throw new \RuntimeException('boom');
+            });
+            static::fail('The exception should propagate.');
+        } catch (\RuntimeException $e) {
+            static::assertSame('boom', $e->getMessage());
+        }
+
+        static::assertSame(['8900.ndjson'], array_map('basename', glob($this->private . '/*') ?: []));
+    }
+
+    public function testBacklogIsDrainedOldestFirstOverSeveralCalls(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        for ($i = 0; $i < 70; ++$i) {
+            $buffer->append($this->entry('k' . $i));
+            $clock->sleep(10);
+        }
+        $clock->sleep(1);
+
+        $keys = [];
+        $consumer = static function (iterable $entries) use (&$keys): void {
+            foreach ($entries as $entry) {
+                $keys[] = $entry->key;
+            }
+        };
+
+        static::assertSame(60, $buffer->drain($consumer));
+        static::assertCount(10, glob($this->private . '/*') ?: []);
+        static::assertSame(10, $buffer->drain($consumer));
+        static::assertSame(0, $buffer->drain($consumer));
+        static::assertSame(array_map(static fn(int $i): string => 'k' . $i, range(0, 69)), $keys);
+    }
+
+    public function testSlotIsDrainedOnlyOnceTheGraceDelayIsOver(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        $buffer->append($this->entry('a'));
+        $clock->sleep(10);
+
+        $called = false;
+        static::assertSame(0, $buffer->drain(static function () use (&$called): void {
+            $called = true;
+        }));
         static::assertFalse($called);
+
+        $clock->sleep(1);
+
+        static::assertSame(1, $buffer->drain(static function (iterable $entries): void {
+            foreach ($entries as $entry) {
+            }
+        }));
+    }
+
+    /**
+     * @return iterable<string, array{int, int, list<int>}>
+     */
+    public static function intervalChanges(): iterable
+    {
+        yield 'from 10 to 60 seconds' => [10, 60, [0, 15, 30]];
+        yield 'from 60 to 10 seconds' => [60, 10, [0, 70]];
+    }
+
+    /**
+     * @param list<int> $offsets
+     */
+    #[DataProvider('intervalChanges')]
+    public function testSlotsWrittenWithAnotherIntervalAreDrained(int $written, int $read, array $offsets): void
+    {
+        $clock = new MockClock('@1700000000');
+        $writer = new FileBuffer(new BufferDirectory($this->dir, 'app'), $written, $clock);
+        $elapsed = 0;
+        foreach ($offsets as $i => $offset) {
+            $clock->sleep($offset - $elapsed);
+            $elapsed = $offset;
+            $writer->append($this->entry('k' . $i));
+        }
+        $clock->sleep(100 - $elapsed);
+
+        $keys = [];
+        $reader = new FileBuffer(new BufferDirectory($this->dir, 'app'), $read, $clock);
+        $count = $reader->drain(static function (iterable $entries) use (&$keys): void {
+            foreach ($entries as $entry) {
+                $keys[] = $entry->key;
+            }
+        });
+
+        static::assertSame(\count($offsets), $count);
+        static::assertSame(array_map(static fn(int $i): string => 'k' . $i, array_keys($offsets)), $keys);
         static::assertSame([], glob($this->private . '/*'));
     }
 
@@ -149,7 +259,7 @@ final class FileBufferTest extends TestCase
 
         $line = \strlen($this->entry('GET route_10')->toLine()) + 1;
         clearstatcache();
-        $size = filesize($this->private . '/100.ndjson');
+        $size = filesize($this->private . '/1000.ndjson');
 
         static::assertGreaterThan(0, $size);
         static::assertLessThanOrEqual(200 + $line, $size);
@@ -173,7 +283,7 @@ final class FileBufferTest extends TestCase
         });
 
         static::assertSame(['from-one'], $keys);
-        static::assertSame([$this->privateDir('two') . '/100.ndjson'], glob($this->dir . '/*/*'));
+        static::assertSame([$this->privateDir('two') . '/1000.ndjson'], glob($this->dir . '/*/*'));
     }
 
     public function testUnwritableDirectoryIsSilent(): void
@@ -200,7 +310,7 @@ final class FileBufferTest extends TestCase
     {
         $clock = new MockClock('@1000');
         mkdir($this->private, 0o700);
-        symlink('/dev/full', $this->private . '/100.ndjson');
+        symlink('/dev/full', $this->private . '/1000.ndjson');
         $errors = [];
         set_error_handler(static function (int $no, string $message) use (&$errors): bool {
             $errors[] = $message;
@@ -222,7 +332,7 @@ final class FileBufferTest extends TestCase
         $this->buffer(new MockClock('@1000'))->append($this->entry('a'));
 
         static::assertSame(0o700, fileperms($this->private) & 0o777);
-        static::assertSame(0, fileperms($this->private . '/100.ndjson') & 0o077);
+        static::assertSame(0, fileperms($this->private . '/1000.ndjson') & 0o077);
     }
 
     public function testWithoutBaseDirectoryTheSystemTemporaryDirectoryIsUsed(): void

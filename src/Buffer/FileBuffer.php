@@ -15,6 +15,8 @@ final class FileBuffer implements BufferInterface
         private readonly ClockInterface $clock,
         private readonly int $maxSlotBytes = 16_777_216,
         private readonly int $maxSlotAge = 3600,
+        private readonly int $maxSlotsPerDrain = 60,
+        private readonly int $graceSeconds = 1,
     ) {}
 
     public function append(Entry $entry): void
@@ -25,7 +27,7 @@ final class FileBuffer implements BufferInterface
             return;
         }
 
-        $path = sprintf('%s/%d.ndjson', $directory, intdiv($this->clock->now()->getTimestamp(), $this->slotSeconds));
+        $path = sprintf('%s/%d.ndjson', $directory, intdiv($this->clock->now()->getTimestamp(), $this->slotSeconds) * $this->slotSeconds);
 
         BufferDirectory::quietly(fn() => $this->write($path, $line));
     }
@@ -38,18 +40,13 @@ final class FileBuffer implements BufferInterface
         }
 
         $now = $this->clock->now()->getTimestamp();
-        $currentSlot = intdiv($now, $this->slotSeconds);
+        $slots = $this->slotFiles($directory);
 
         $files = [];
-        foreach ($this->slotFiles($directory) as $slot => $file) {
-            if ($slot >= $currentSlot) {
-                continue;
-            }
-
-            if ($now - $slot * $this->slotSeconds > $this->maxSlotAge) {
-                BufferDirectory::quietly(static fn(): bool => unlink($file));
-
-                continue;
+        foreach ($slots as $start => $file) {
+            // An append that resolved its path just before the slot ended may still be writing.
+            if ($start + $this->slotSeconds + $this->graceSeconds > $now || \count($files) === $this->maxSlotsPerDrain) {
+                break;
             }
 
             $files[] = $file;
@@ -60,13 +57,29 @@ final class FileBuffer implements BufferInterface
         }
 
         $count = 0;
-        $consumer($this->read($files, $count));
+
+        try {
+            $consumer($this->read($files, $count));
+        } catch (\Throwable $e) {
+            foreach ($slots as $start => $file) {
+                if ($now - $start > $this->maxSlotAge) {
+                    self::discard($file);
+                }
+            }
+
+            throw $e;
+        }
 
         foreach ($files as $file) {
-            BufferDirectory::quietly(static fn(): bool => unlink($file) || file_put_contents($file, '') === 0);
+            self::discard($file);
         }
 
         return $count;
+    }
+
+    private static function discard(string $file): void
+    {
+        BufferDirectory::quietly(static fn(): bool => unlink($file) || file_put_contents($file, '') === 0);
     }
 
     private function write(string $path, string $line): void
@@ -99,7 +112,7 @@ final class FileBuffer implements BufferInterface
     }
 
     /**
-     * @return array<int, string> slot number => path, ascending
+     * @return array<int, string> slot start => path, ascending
      */
     private function slotFiles(string $directory): array
     {

@@ -137,7 +137,18 @@ final class FlusherTest extends TestCase
 
         static::assertFalse($this->flusher($this->refusingStorage())->flush());
 
-        static::assertSame(['460.ndjson'], array_map('basename', glob($this->dir . '/*/*.ndjson') ?: []));
+        static::assertSame(['4600.ndjson'], array_map('basename', glob($this->dir . '/*/*.ndjson') ?: []));
+    }
+
+    public function testSlotLeftAloneForHoursIsStoredOnTheNextFlush(): void
+    {
+        $this->record(5);
+        $this->clock->sleep(7200);
+
+        static::assertTrue($this->flusher($this->dbalStorage())->flushIfDue());
+
+        static::assertSame(5, $this->storedRequests(86400));
+        static::assertSame([], glob($this->dir . '/*/*.ndjson'));
     }
 
     public function testLockIsReleasedWhenTheClockFailsWhileAcquiring(): void
@@ -205,11 +216,11 @@ final class FlusherTest extends TestCase
     {
         $flusher = $this->flusher($this->dbalStorage());
         $this->record(2);
-        $this->clock->sleep(11);
+        $this->clock->sleep(19);
         static::assertTrue($flusher->flushIfDue());
 
         $this->record(3);
-        $this->clock->sleep(9);
+        $this->clock->sleep(2);
 
         static::assertFalse($flusher->flushIfDue());
         static::assertTrue($flusher->flush());
@@ -318,10 +329,11 @@ final class FlusherTest extends TestCase
         }
     }
 
-    private function storedRequests(): int
+    private function storedRequests(int $period = 3600): int
     {
         return (int) $this->connection->fetchOne(
-            "SELECT SUM(entry_count) FROM jmonitor_aggregates WHERE metric_type = 'request.duration' AND period = 3600",
+            "SELECT SUM(entry_count) FROM jmonitor_aggregates WHERE metric_type = 'request.duration' AND period = ?",
+            [$period],
         );
     }
 }
