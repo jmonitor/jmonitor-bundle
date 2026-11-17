@@ -96,7 +96,7 @@ final class TestKernel extends Kernel
             'router' => ['utf8' => true],
         ]);
 
-        $container->extension('jmonitor', $this->jmonitorConfig);
+        $container->extension('jmonitor', $this->jmonitorConfig ?: $this->environmentConfig());
 
         if ($this->withDoctrine) {
             $container->extension('doctrine', [
@@ -124,6 +124,16 @@ final class TestKernel extends Kernel
             ->args([LogLevel::WARNING, $this->getLogDir() . '/' . $this->environment . '.log']);
         $services->set(DemoController::class)
             ->tag('controller.service_arguments');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function environmentConfig(): array
+    {
+        $interval = getenv('JMONITOR_FLUSH_INTERVAL');
+
+        return \is_string($interval) && $interval !== '' ? ['recording' => ['flush_interval' => (int) $interval]] : [];
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void

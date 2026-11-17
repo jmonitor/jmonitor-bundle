@@ -111,3 +111,23 @@ jobs:
 
             - name: phpunit
               run: composer run-script phpunit
+
+    e2e-fpm:
+        name: End-to-end under PHP-FPM
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup PHP 8.4
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.4'
+                  coverage: none
+                  tools: composer:v2
+
+            - name: Install dependencies
+              run: composer update --prefer-dist --no-progress
+
+            - name: End-to-end run
+              run: sh tests/E2E/fpm/run.sh
