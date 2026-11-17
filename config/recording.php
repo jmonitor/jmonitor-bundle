@@ -6,6 +6,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
+use Jmonitor\JmonitorBundle\Command\SetupCommand;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
@@ -18,6 +19,7 @@ use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 
+use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
@@ -59,6 +61,13 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
     $services->set(SchemaAssetFilter::class)
         ->tag('doctrine.dbal.schema_filter', ['connection' => $connectionName]);
+
+    $services->set(SetupCommand::class)
+        ->args([
+            inline_service(DbalStorage::class)->args([$connection, param('jmonitor.storage.retention')]),
+            $connectionName,
+        ])
+        ->tag('console.command');
 
     $services->set(FlushLock::class)
         ->args([

@@ -21,13 +21,19 @@ final class DbalStorage implements StorageInterface
 
     public function prepare(): void
     {
-        $platform = $this->connection->getDatabasePlatform();
-        if (!UpsertSql::supports($platform)) {
-            throw new \LogicException(sprintf('Unsupported database platform "%s".', $platform::class));
-        }
-
-        $this->assertNoOpenTransaction();
+        $this->assertWritable();
         $this->ensureTable();
+    }
+
+    /**
+     * @return bool whether the table was created
+     */
+    public function setUp(): bool
+    {
+        $this->assertWritable();
+        $this->tableReady = false;
+
+        return $this->ensureTable();
     }
 
     public function store(array $aggregates): void
@@ -133,17 +139,30 @@ final class DbalStorage implements StorageInterface
         });
     }
 
-    private function ensureTable(): void
+    private function assertWritable(): void
+    {
+        $platform = $this->connection->getDatabasePlatform();
+        if (!UpsertSql::supports($platform)) {
+            throw new \LogicException(sprintf('Unsupported database platform "%s".', $platform::class));
+        }
+
+        $this->assertNoOpenTransaction();
+    }
+
+    private function ensureTable(): bool
     {
         if ($this->tableReady) {
-            return;
+            return false;
         }
+
+        $created = false;
 
         if (!$this->tableExists()) {
             try {
                 foreach ($this->connection->getDatabasePlatform()->getCreateTableSQL(AggregatesTable::definition()) as $sql) {
                     $this->connection->executeStatement($sql);
                 }
+                $created = true;
             } catch (\Throwable $e) {
                 if (!$this->tableExists()) {
                     throw $e;
@@ -152,6 +171,8 @@ final class DbalStorage implements StorageInterface
         }
 
         $this->tableReady = true;
+
+        return $created;
     }
 
     /** @phpstan-impure */
