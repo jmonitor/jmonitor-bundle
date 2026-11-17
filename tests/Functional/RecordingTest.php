@@ -67,6 +67,24 @@ final class RecordingTest extends WebTestCase
         static::assertArrayNotHasKey('ZZZ app_hello', $routes);
     }
 
+    public function testReaderIsResetBetweenRequestsOfTheSameKernel(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+        $client->disableReboot();
+        $client->request('GET', '/hello/world');
+        $reader = static::getContainer()->get(DbalReader::class);
+        \assert($reader instanceof DbalReader);
+        $now = time();
+
+        static::assertSame(0, $reader->summary(Period::OneHour, $now)->requests);
+        $this->flush();
+        static::assertSame(0, $reader->summary(Period::OneHour, $now)->requests);
+
+        $client->request('GET', '/hello/world');
+
+        static::assertSame(1, $reader->summary(Period::OneHour, $now)->requests);
+    }
+
     public function testNothingIsRecordedWhenDisabled(): void
     {
         $client = static::createClient(['jmonitor' => ['recording' => ['enabled' => false, 'buffer_dir' => $this->bufferDir]]]);

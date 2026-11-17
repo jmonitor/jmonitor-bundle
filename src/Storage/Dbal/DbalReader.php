@@ -12,12 +12,21 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\RequestSummary;
 use Jmonitor\JmonitorBundle\Storage\Read\RouteStats;
+use Symfony\Contracts\Service\ResetInterface;
 
-final class DbalReader implements ReaderInterface
+final class DbalReader implements ReaderInterface, ResetInterface
 {
     private const SERIES_BUCKETS = 60;
 
+    /** @var array{int, int, array<string, array{key: string, requests: int, total: float, max: float, errors: int, slow: int, memory: float, counts: array<string, int>}>}|null */
+    private ?array $collected = null;
+
     public function __construct(private readonly Connection $connection) {}
+
+    public function reset(): void
+    {
+        $this->collected = null;
+    }
 
     public function summary(Period $period, int $now): RequestSummary
     {
@@ -103,6 +112,21 @@ final class DbalReader implements ReaderInterface
      * @return array<string, array{key: string, requests: int, total: float, max: float, errors: int, slow: int, memory: float, counts: array<string, int>}>
      */
     private function collect(Period $period, int $now): array
+    {
+        if ($this->collected !== null && $this->collected[0] === $period->value && $this->collected[1] === $now) {
+            return $this->collected[2];
+        }
+
+        $routes = $this->query($period, $now);
+        $this->collected = [$period->value, $now, $routes];
+
+        return $routes;
+    }
+
+    /**
+     * @return array<string, array{key: string, requests: int, total: float, max: float, errors: int, slow: int, memory: float, counts: array<string, int>}>
+     */
+    private function query(Period $period, int $now): array
     {
         try {
             $rows = $this->connection->fetchAllAssociative(

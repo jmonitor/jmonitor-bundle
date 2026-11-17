@@ -119,6 +119,25 @@ final class DbalReaderTest extends TestCase
         static::assertCount(2, (new DbalReader($connection))->routes(Period::OneHour, self::NOW));
     }
 
+    public function testSummaryAndRoutesShareOneGroupedQueryUntilReset(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $this->seed($connection, $this->currentEntries());
+        $reader = new DbalReader($connection);
+        $grouped = static fn(): int => \count($recorder->paramsOf('SELECT metric_type'));
+
+        static::assertSame(4, $reader->summary(Period::OneHour, self::NOW)->requests);
+        static::assertCount(2, $reader->routes(Period::OneHour, self::NOW));
+        static::assertSame(1, $grouped());
+
+        $reader->routes(Period::OneHour, self::NOW + 60);
+        static::assertSame(2, $grouped());
+
+        $reader->reset();
+        $reader->routes(Period::OneHour, self::NOW + 60);
+        static::assertSame(3, $grouped());
+    }
+
     /** @param list<Entry> $entries */
     private function seed(Connection $connection, array $entries): void
     {
