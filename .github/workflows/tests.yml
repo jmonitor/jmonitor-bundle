@@ -25,10 +25,42 @@ jobs:
                 # (every release is blocked by security advisories), so the 7.x line
                 # is covered by 7.4 (the lowest maintained 7.x) and the 8.x line by 8.1.
                 include:
-                    - { php: '8.1', symfony: '6.4.*' }   # bundle PHP floor + Symfony LTS floor
-                    - { php: '8.4', symfony: '6.4.*' }   # LTS on the newest PHP (catches deprecations)
-                    - { php: '8.3', symfony: '7.4.*' }   # lowest maintained 7.x on a recent PHP
-                    - { php: '8.4', symfony: '8.1.*' }   # newest + newest
+                    - { php: '8.2', symfony: '6.4.*', dbal: '^3.8' }   # bundle PHP floor + Symfony LTS floor
+                    - { php: '8.4', symfony: '6.4.*', dbal: '^4.0' }   # LTS on the newest PHP (catches deprecations)
+                    - { php: '8.3', symfony: '7.4.*', dbal: '^3.8' }   # lowest maintained 7.x on a recent PHP
+                    - { php: '8.5', symfony: '7.4.*', dbal: '^4.0' }
+                    - { php: '8.4', symfony: '8.1.*', dbal: '^4.0' }
+                    - { php: '8.5', symfony: '8.1.*', dbal: '^4.0' }
+
+        services:
+            mysql:
+                image: mysql:8.4
+                env:
+                    MYSQL_ROOT_PASSWORD: root
+                    MYSQL_DATABASE: jmonitor_test
+                ports:
+                    - 3306:3306
+                options: >-
+                    --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+                    --health-interval=10s
+                    --health-timeout=5s
+                    --health-retries=10
+            postgres:
+                image: postgres:17
+                env:
+                    POSTGRES_PASSWORD: root
+                    POSTGRES_DB: jmonitor_test
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd="pg_isready -U postgres"
+                    --health-interval=10s
+                    --health-timeout=5s
+                    --health-retries=10
+
+        env:
+            JMONITOR_TEST_MYSQL_URL: mysql://root:root@127.0.0.1:3306/jmonitor_test
+            JMONITOR_TEST_PGSQL_URL: postgresql://postgres:root@127.0.0.1:5432/jmonitor_test
 
         steps:
             - uses: actions/checkout@v4
@@ -62,6 +94,9 @@ jobs:
               run: |
                   composer global config --no-plugins allow-plugins.symfony/flex true
                   composer global require --no-progress --no-scripts --no-plugins symfony/flex
+
+            - name: Pin doctrine/dbal
+              run: composer require --dev --no-update "doctrine/dbal:${{ matrix.dbal }}"
 
             - name: Install dependencies (Symfony ${{ matrix.symfony }})
               env:

@@ -27,14 +27,27 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
+use Symfony\Bundle\SecurityBundle\SecurityBundle;
 
 class JmonitorBundleTest extends TestCase
 {
-    private function loadBundle(array $config): ContainerBuilder
-    {
+    /**
+     * @param array<string, mixed> $config
+     * @param array<string, class-string>|null $bundles
+     */
+    private function loadBundle(
+        array $config,
+        string $environment = 'test',
+        string $projectDir = '/srv/app',
+        ?array $bundles = null,
+        bool $debug = false,
+    ): ContainerBuilder {
         $container = new ContainerBuilder();
         // Minimal kernel params expected by Symfony's ExtensionTrait
-        $container->setParameter('kernel.environment', 'test');
+        $container->setParameter('kernel.environment', $environment);
+        $container->setParameter('kernel.debug', $debug);
+        $container->setParameter('kernel.project_dir', $projectDir);
+        $container->setParameter('kernel.bundles', $bundles ?? ['SecurityBundle' => SecurityBundle::class]);
         $container->setParameter('kernel.build_dir', sys_get_temp_dir());
 
         $bundle = new JmonitorBundle();
@@ -43,6 +56,52 @@ class JmonitorBundleTest extends TestCase
         $extension->load([$config], $container);
 
         return $container;
+    }
+
+    public function testRecordingParametersHaveDefaultsWithoutApiKey(): void
+    {
+        $container = $this->loadBundle([], environment: 'prod');
+
+        static::assertTrue($container->getParameter('jmonitor.recording.enabled'));
+        static::assertSame(10, $container->getParameter('jmonitor.recording.flush_interval'));
+        static::assertSame(1000, $container->getParameter('jmonitor.recording.slow_threshold'));
+        static::assertSame([], $container->getParameter('jmonitor.recording.ignore_routes'));
+        static::assertSame(sys_get_temp_dir(), $container->getParameter('jmonitor.recording.buffer_dir'));
+        static::assertSame('default', $container->getParameter('jmonitor.storage.connection'));
+        static::assertSame(604800, $container->getParameter('jmonitor.storage.retention'));
+        static::assertTrue($container->getParameter('jmonitor.dashboard.enabled'));
+        static::assertNull($container->getParameter('jmonitor.dashboard.permission'));
+        static::assertFalse($container->hasDefinition(Jmonitor::class));
+    }
+
+    public function testRecordingIsDisabledByDefaultInTestEnvironment(): void
+    {
+        static::assertFalse($this->loadBundle([], environment: 'test')->getParameter('jmonitor.recording.enabled'));
+        static::assertTrue($this->loadBundle(['recording' => ['enabled' => true]], environment: 'test')->getParameter('jmonitor.recording.enabled'));
+        static::assertFalse($this->loadBundle(['recording' => ['enabled' => false]], environment: 'prod')->getParameter('jmonitor.recording.enabled'));
+    }
+
+    public function testAppIdDependsOnProjectDirAndEnvironment(): void
+    {
+        $a = $this->loadBundle([], environment: 'prod', projectDir: '/srv/a')->getParameter('jmonitor.recording.app_id');
+        $b = $this->loadBundle([], environment: 'prod', projectDir: '/srv/b')->getParameter('jmonitor.recording.app_id');
+        $c = $this->loadBundle([], environment: 'dev', projectDir: '/srv/a')->getParameter('jmonitor.recording.app_id');
+
+        static::assertMatchesRegularExpression('/^[a-f0-9]{12}$/', $a);
+        static::assertNotSame($a, $b);
+        static::assertNotSame($a, $c);
+    }
+
+    public function testPermissionWithoutSecurityBundleIsRefused(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->loadBundle(['dashboard' => ['permission' => 'ROLE_ADMIN']], environment: 'prod', bundles: []);
+    }
+
+    public function testEmptyPermissionIsRefused(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->loadBundle(['dashboard' => ['permission' => '']], environment: 'prod');
     }
 
     public function testMinimalConfigRegistersCoreServices(): void
