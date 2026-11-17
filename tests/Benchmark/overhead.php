@@ -62,11 +62,15 @@ function flushMillis(Connection $connection): float
     $flusher = new Flusher($buffer, new Aggregator(500), new DbalStorage($connection, 31_536_000), $lock, $clock, null, 300);
 
     $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
+    $lock->markPurged();
+    if (!$flusher->flush()) {
+        throw new RuntimeException('Warm-up flush did not run', 0, $flusher->lastFailure());
+    }
+
     for ($i = 0; $i < FLUSH_ENTRIES; ++$i) {
         $buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET route_' . ($i % FLUSH_ROUTES), 1000.0 + $i % 10, 20.0 + $i % 200, ['status' => 200, 'memory' => 2_097_152]));
     }
     $clock->sleep(11);
-    $lock->markPurged();
 
     $start = hrtime(true);
     $flushed = $flusher->flush();
