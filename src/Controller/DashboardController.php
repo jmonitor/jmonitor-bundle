@@ -20,7 +20,7 @@ final class DashboardController
         private readonly DashboardAccess $access,
         private readonly ?RequestsScreenFactory $screens,
         private readonly ?Flusher $flusher,
-        private readonly Environment $twig,
+        private readonly ?Environment $twig,
     ) {}
 
     public function index(Request $request): Response
@@ -37,7 +37,7 @@ final class DashboardController
     {
         $this->access->assertGranted();
 
-        if ($this->screens === null) {
+        if ($this->screens === null || $this->twig === null) {
             throw new NotFoundHttpException();
         }
 

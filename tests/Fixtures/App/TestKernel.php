@@ -33,17 +33,21 @@ final class TestKernel extends Kernel
         private readonly array $jmonitorConfig = [],
         private readonly bool $withDoctrine = true,
         private readonly bool $withSecurity = false,
+        private readonly bool $withTwig = true,
     ) {
         parent::__construct($environment, $debug);
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig]));
     }
 
     public function registerBundles(): iterable
     {
         yield new FrameworkBundle();
-        yield new TwigBundle();
+
+        if ($this->withTwig) {
+            yield new TwigBundle();
+        }
 
         if ($this->withDoctrine) {
             yield new DoctrineBundle();

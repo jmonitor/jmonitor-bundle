@@ -163,6 +163,20 @@ final class DashboardTest extends WebTestCase
         static::assertResponseStatusCodeSame($status);
     }
 
+    public function testWithoutTwigTheApplicationStillWorksAndThePageIsNotFound(): void
+    {
+        $client = static::createClient(['twig' => false, 'jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/hello/world');
+        static::assertResponseIsSuccessful();
+
+        $client->request('GET', '/jmonitor/');
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('GET', '/jmonitor/_fragment');
+        static::assertResponseStatusCodeSame(404);
+    }
+
     public function testPermission(): void
     {
         $client = static::createClient(['debug' => false, 'security' => true, 'jmonitor' => ['dashboard' => ['permission' => 'ROLE_ADMIN']]]);
@@ -214,7 +228,7 @@ final class DashboardTest extends WebTestCase
     }
 
     /**
-     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool} $options
+     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -224,6 +238,7 @@ final class DashboardTest extends WebTestCase
             $options['jmonitor'] ?? [],
             $options['doctrine'] ?? true,
             $options['security'] ?? false,
+            $options['twig'] ?? true,
         );
         self::$varDirs[] = $kernel->getVarDir();
 

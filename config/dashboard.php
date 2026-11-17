@@ -31,7 +31,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service(DashboardAccess::class),
             service(RequestsScreenFactory::class)->nullOnInvalid(),
             service(Flusher::class)->nullOnInvalid(),
-            service('twig'),
+            service('twig')->nullOnInvalid(),
         ]);
 
     if ($builder->getParameter('jmonitor.dashboard.enabled') === false) {
