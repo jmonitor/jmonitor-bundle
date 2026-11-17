@@ -54,6 +54,7 @@ final class Flusher
             }
 
             try {
+                $this->storage->prepare();
                 $this->buffer->drain(fn(iterable $entries) => $this->store($entries));
                 $this->purgeIfDue();
             } finally {

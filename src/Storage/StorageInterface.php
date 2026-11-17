@@ -8,6 +8,9 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 
 interface StorageInterface
 {
+    /** Throws when the storage cannot write now. */
+    public function prepare(): void;
+
     /** @param list<Aggregate> $aggregates */
     public function store(array $aggregates): void;
 

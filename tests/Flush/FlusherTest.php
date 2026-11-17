@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Flush;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -77,6 +78,8 @@ final class FlusherTest extends TestCase
             }
         };
         $failing = new class implements StorageInterface {
+            public function prepare(): void {}
+
             public function store(array $aggregates): void
             {
                 throw new \RuntimeException('database down');
@@ -97,10 +100,46 @@ final class FlusherTest extends TestCase
         static::assertSame(5, $this->storedRequests());
     }
 
+    public function testBufferIsNotReadWhenTheStorageCannotWrite(): void
+    {
+        $logger = $this->memoryLogger();
+        $buffer = new class implements BufferInterface {
+            public int $drains = 0;
+
+            public function append(Entry $entry): void {}
+
+            public function drain(callable $consumer): int
+            {
+                ++$this->drains;
+
+                return 0;
+            }
+        };
+        $storage = new class implements StorageInterface {
+            public function prepare(): void
+            {
+                throw new \RuntimeException('no CREATE privilege');
+            }
+
+            public function store(array $aggregates): void {}
+
+            public function purge(int $now): void {}
+        };
+        $flusher = new Flusher($buffer, new Aggregator(500), $storage, new FlushLock($this->dir, 'app', 10, $this->clock), $this->clock, $logger, 300);
+
+        static::assertFalse($flusher->flush());
+
+        static::assertSame(0, $buffer->drains);
+        static::assertInstanceOf(\RuntimeException::class, $flusher->lastFailure());
+        static::assertCount(1, $logger->records);
+    }
+
     public function testLastFailureIsExposedThenCleared(): void
     {
         $failing = new class implements StorageInterface {
             public bool $fail = true;
+
+            public function prepare(): void {}
 
             public function store(array $aggregates): void
             {
@@ -144,6 +183,8 @@ final class FlusherTest extends TestCase
     {
         $spy = new class implements StorageInterface {
             public int $purges = 0;
+
+            public function prepare(): void {}
 
             public function store(array $aggregates): void {}
 

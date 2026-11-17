@@ -21,14 +21,24 @@ final class DbalStorage implements StorageInterface
         private readonly int $retention,
     ) {}
 
+    public function prepare(): void
+    {
+        $platform = $this->connection->getDatabasePlatform();
+        if (!UpsertSql::supports($platform)) {
+            throw new \LogicException(sprintf('Unsupported database platform "%s".', $platform::class));
+        }
+
+        $this->assertNoOpenTransaction();
+        $this->ensureTable();
+    }
+
     public function store(array $aggregates): void
     {
         if ($aggregates === []) {
             return;
         }
 
-        $this->assertNoOpenTransaction();
-        $this->ensureTable();
+        $this->prepare();
         $rows = self::rows($aggregates);
 
         try {
@@ -95,11 +105,20 @@ final class DbalStorage implements StorageInterface
      */
     private function assertNoOpenTransaction(): void
     {
-        $native = $this->connection->getNativeConnection();
-
-        if ($this->connection->isTransactionActive() || ($native instanceof \PDO && $native->inTransaction())) {
+        if ($this->connection->isTransactionActive() || self::nativeTransactionActive($this->connection)) {
             throw new \RuntimeException('The connection has an open transaction.');
         }
+    }
+
+    private static function nativeTransactionActive(Connection $connection): bool
+    {
+        try {
+            $native = $connection->getNativeConnection();
+        } catch (\LogicException) {
+            return false;
+        }
+
+        return $native instanceof \PDO && $native->inTransaction();
     }
 
     /**

@@ -14,6 +14,13 @@ final class UpsertSql
     private const INSERT = 'INSERT INTO ' . AggregatesTable::NAME
         . ' (period, metric_type, bucket, key_hash, metric_key, entry_count, value_sum, value_max) VALUES ';
 
+    public static function supports(AbstractPlatform $platform): bool
+    {
+        return $platform instanceof AbstractMySQLPlatform
+            || $platform instanceof PostgreSQLPlatform
+            || $platform instanceof SQLitePlatform;
+    }
+
     /** One positional parameter per column and per row, in column order. */
     public static function for(AbstractPlatform $platform, int $rows): string
     {

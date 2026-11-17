@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Storage\Dbal;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Platforms\AbstractPlatform;
+use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
@@ -245,6 +248,37 @@ final class DbalStorageTest extends TestCase
         static::assertSame($expected, $sent);
     }
 
+    public function testUnsupportedPlatformCreatesNoTable(): void
+    {
+        $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true, 'wrapperClass' => SqlServerReportingConnection::class]);
+        $storage = $this->storage($connection);
+
+        foreach ([
+            static fn() => $storage->prepare(),
+            fn() => $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)]),
+        ] as $operation) {
+            try {
+                $operation();
+                static::fail('An unsupported platform must be refused.');
+            } catch (\LogicException $e) {
+                static::assertStringContainsString('Unsupported database platform', $e->getMessage());
+            }
+        }
+
+        static::assertSame(0, (int) $connection->fetchOne("SELECT COUNT(*) FROM sqlite_master WHERE name = 'jmonitor_aggregates'"));
+    }
+
+    public function testDriverWithoutNativeConnectionIsTreatedAsHavingNoTransaction(): void
+    {
+        $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true, 'wrapperClass' => NoNativeConnection::class]);
+        $storage = $this->storage($connection);
+
+        $storage->prepare();
+        $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)]);
+
+        static::assertSame(1, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
+    }
+
     private function reset(Connection $connection): void
     {
         $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
@@ -258,5 +292,21 @@ final class DbalStorageTest extends TestCase
     private function aggregate(Period $period, int $bucket, string $key, int $count, float $sum, float $max): Aggregate
     {
         return new Aggregate($period, $bucket, Metric::REQUEST_DURATION, $key, $count, $sum, $max);
+    }
+}
+
+final class SqlServerReportingConnection extends Connection
+{
+    public function getDatabasePlatform(): AbstractPlatform
+    {
+        return new SQLServerPlatform();
+    }
+}
+
+final class NoNativeConnection extends Connection
+{
+    public function getNativeConnection(): mixed
+    {
+        throw new \LogicException('The driver does not expose its native connection.');
     }
 }
