@@ -12,9 +12,9 @@ interface ReaderInterface
 {
     public function summary(Period $period, int $now): RequestSummary;
 
-    /** @return list<RouteStats> sans ordre garanti */
+    /** @return list<RouteStats> unordered */
     public function routes(Period $period, int $now): array;
 
-    /** @return list<int> 60 valeurs, la plus ancienne en premier */
+    /** @return list<int> 60 values, oldest first */
     public function requestSeries(Period $period, int $now): array;
 }

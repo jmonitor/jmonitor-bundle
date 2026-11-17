@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Requires PHP 8.2.
+- Requires `symfony/twig-bundle`.
+- HTTP requests are recorded by default, except in the `test` environment; `recording.enabled: false` turns this off.
+- Recording creates a `jmonitor_aggregates` table in the default Doctrine connection on its first flush, even when the routes are not imported.
 
 ## [2.3.0] - 2026-10-31
 
