@@ -36,6 +36,9 @@
         "symfony/security-bundle": "^6.4|^7.0|^8.0",
         "symfony/yaml": "^6.4|^7.0|^8.0"
     },
+    "conflict": {
+        "doctrine/dbal": "<3.8"
+    },
     "suggest": {
         "doctrine/doctrine-bundle": "Stores the application metrics shown on the /jmonitor page"
     },
