@@ -20,10 +20,10 @@ final class FileBuffer implements BufferInterface
 
     public function append(Entry $entry): void
     {
-        try {
-            $this->write($entry);
-        } catch (\Throwable) {
-        }
+        $line = $entry->toLine() . "\n";
+        $path = $this->path(intdiv($this->clock->now()->getTimestamp(), $this->slotSeconds));
+
+        self::quietly(fn() => $this->write($path, $line));
     }
 
     public function drain(callable $consumer): int
@@ -60,9 +60,9 @@ final class FileBuffer implements BufferInterface
         return $count;
     }
 
-    private function write(Entry $entry): void
+    private function write(string $path, string $line): void
     {
-        if (!is_dir($this->directory) && !self::quietly(fn(): bool => mkdir($this->directory, 0o777, true)) && !is_dir($this->directory)) {
+        if (!is_dir($this->directory) && !mkdir($this->directory, 0o777, true) && !is_dir($this->directory)) {
             return;
         }
 
@@ -70,22 +70,19 @@ final class FileBuffer implements BufferInterface
             return;
         }
 
-        $slot = intdiv($this->clock->now()->getTimestamp(), $this->slotSeconds);
-        $path = $this->path($slot);
-
         clearstatcache(true, $path);
         if (is_file($path) && (filesize($path) ?: 0) >= $this->maxSlotBytes) {
             return;
         }
 
-        $handle = self::quietly(static fn(): mixed => fopen($path, 'a'));
+        $handle = fopen($path, 'a');
         if ($handle === false) {
             return;
         }
 
         try {
             if (flock($handle, \LOCK_EX)) {
-                fwrite($handle, $entry->toLine() . "\n");
+                fwrite($handle, $line);
                 flock($handle, \LOCK_UN);
             }
         } finally {

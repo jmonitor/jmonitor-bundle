@@ -192,6 +192,26 @@ final class FileBufferTest extends TestCase
         static::assertSame([], $errors);
     }
 
+    public function testFailedWriteIsSilent(): void
+    {
+        $clock = new MockClock('@1000');
+        symlink('/dev/full', $this->dir . '/jmonitor-app-100.ndjson');
+        $errors = [];
+        set_error_handler(static function (int $no, string $message) use (&$errors): bool {
+            $errors[] = $message;
+
+            return true;
+        });
+
+        try {
+            $this->buffer($clock)->append($this->entry('a'));
+        } finally {
+            restore_error_handler();
+        }
+
+        static::assertSame([], $errors);
+    }
+
     private function buffer(MockClock $clock, string $appId = 'app', int $maxSlotBytes = 16_777_216): FileBuffer
     {
         return new FileBuffer($this->dir, $appId, 10, $clock, $maxSlotBytes);
