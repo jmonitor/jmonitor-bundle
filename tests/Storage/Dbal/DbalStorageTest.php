@@ -93,6 +93,22 @@ final class DbalStorageTest extends TestCase
     }
 
     #[DataProvider('connections')]
+    public function testKeysAreCutOnCharactersNotBytes(Connection $connection): void
+    {
+        $this->reset($connection);
+        $fits = 'GET ' . str_repeat('é', 251);
+        $tooLong = 'GET ' . str_repeat('ü', 300);
+
+        $this->storage($connection)->store([
+            $this->aggregate(Period::OneHour, 1700000040, $fits, 1, 1.0, 1.0),
+            $this->aggregate(Period::OneHour, 1700000040, $tooLong, 1, 1.0, 1.0),
+        ]);
+
+        $keys = $connection->fetchFirstColumn('SELECT metric_key FROM jmonitor_aggregates ORDER BY metric_key');
+        static::assertSame([$fits, mb_substr($tooLong, 0, 255)], $keys);
+    }
+
+    #[DataProvider('connections')]
     public function testPurgeKeepsEachPeriodWindow(Connection $connection): void
     {
         $this->reset($connection);

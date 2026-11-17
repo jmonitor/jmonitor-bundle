@@ -76,7 +76,7 @@ final class DbalStorage implements StorageInterface
                 $aggregate->type,
                 $aggregate->bucket,
                 AggregatesTable::keyHash($aggregate->key),
-                mb_strcut(mb_scrub($aggregate->key, 'UTF-8'), 0, AggregatesTable::KEY_MAX_LENGTH, 'UTF-8'),
+                mb_substr(mb_scrub($aggregate->key, 'UTF-8'), 0, AggregatesTable::KEY_MAX_LENGTH, 'UTF-8'),
                 $aggregate->count,
                 $aggregate->sum,
                 $aggregate->max,
