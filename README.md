@@ -248,6 +248,52 @@ are available for that:
 php bin/console jmonitor:collect -vv --memory-limit=32M --time-limit=3600
 ```
 
+## Application monitoring (preview)
+
+The bundle can also record the HTTP requests your application serves and show them on a `/jmonitor` page: requests, response times (average, p95, max), slow requests, 5xx errors and peak memory, per route, over the last hour, 6 hours, 24 hours or 7 days. Only HTTP requests are covered for now.
+
+It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and Twig. Nothing else to set up: the `jmonitor_aggregates` table is created automatically in the configured connection, and Doctrine migrations will not try to drop it. Your database receives batched writes, at most once per `flush_interval` per server, never one write per request.
+
+Import the routes (the bundle assets are published by `assets:install`, which Symfony Flex runs automatically):
+
+```yaml
+# config/routes/jmonitor.yaml
+jmonitor:
+    resource: '@JmonitorBundle/config/routes.php'
+    prefix: /jmonitor
+```
+
+Defaults, all optional:
+
+```yaml
+# config/packages/jmonitor.yaml
+jmonitor:
+    recording:
+        enabled: ~            # default: true, except in the "test" environment
+        flush_interval: 10    # seconds between two writes to the database
+        slow_threshold: 1000  # ms above which a request counts as slow
+        ignore_routes: []     # route names not recorded, fnmatch patterns allowed (e.g. 'app_health*')
+        buffer_dir: ~         # default: the system temporary directory
+    storage:
+        connection: 'default' # name of the Doctrine DBAL connection
+        retention: 604800     # seconds the data is kept (7 days, 3600 minimum)
+    dashboard:
+        enabled: true
+        permission: ~         # role or voter attribute required to see the page
+```
+
+### Access
+
+- In debug mode, the page is open.
+- Otherwise it answers 404 until `dashboard.permission` is set, for example to `ROLE_ADMIN`. The page then requires that permission. This option needs the SecurityBundle.
+- The route must sit behind one of your firewalls: outside any firewall nobody is authenticated, so the page is denied to everyone.
+
+### What is recorded
+
+Main requests only. Not recorded: the bundle's own routes, the web debug toolbar and profiler, sub-requests, and the routes matching `ignore_routes`. A request that matches no route is recorded as `(unmatched)`.
+
+Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
+
 ## PHP metrics: CLI vs Web context
 
 - PHP settings and extensions can differ significantly between CLI and your web server context.
