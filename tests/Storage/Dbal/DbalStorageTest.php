@@ -248,6 +248,24 @@ final class DbalStorageTest extends TestCase
         static::assertSame($expected, $sent);
     }
 
+    public function testSqliteStatementsStayWithinTheOldParameterLimit(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $aggregates = [];
+        for ($i = 0; $i < 250; ++$i) {
+            $aggregates[] = $this->aggregate(Period::OneHour, 1700000040, 'GET route_' . $i, 1, 1.0, 1.0);
+        }
+
+        $this->storage($connection)->store($aggregates);
+
+        $inserts = $recorder->paramsOf('INSERT INTO ' . AggregatesTable::NAME);
+        static::assertSame(250, (int) $connection->fetchOne('SELECT COUNT(*) FROM ' . AggregatesTable::NAME));
+        static::assertCount(3, $inserts);
+        foreach ($inserts as $params) {
+            static::assertLessThanOrEqual(999, \count($params));
+        }
+    }
+
     public function testUnsupportedPlatformCreatesNoTable(): void
     {
         $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true, 'wrapperClass' => SqlServerReportingConnection::class]);

@@ -21,6 +21,12 @@ final class UpsertSql
             || $platform instanceof SQLitePlatform;
     }
 
+    /** SQLite before 3.32 accepts at most 999 parameters per statement. */
+    public static function maxRows(AbstractPlatform $platform): int
+    {
+        return $platform instanceof SQLitePlatform ? 100 : 500;
+    }
+
     /** One positional parameter per column and per row, in column order. */
     public static function for(AbstractPlatform $platform, int $rows): string
     {

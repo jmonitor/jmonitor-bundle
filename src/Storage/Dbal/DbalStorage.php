@@ -12,8 +12,6 @@ use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 
 final class DbalStorage implements StorageInterface
 {
-    private const CHUNK_SIZE = 500;
-
     private bool $tableReady = false;
 
     public function __construct(
@@ -129,7 +127,7 @@ final class DbalStorage implements StorageInterface
         $platform = $this->connection->getDatabasePlatform();
 
         $this->connection->transactional(function (Connection $connection) use ($rows, $platform): void {
-            foreach (array_chunk($rows, self::CHUNK_SIZE) as $chunk) {
+            foreach (array_chunk($rows, UpsertSql::maxRows($platform)) as $chunk) {
                 $connection->executeStatement(UpsertSql::for($platform, count($chunk)), array_merge(...$chunk));
             }
         });
