@@ -28,7 +28,6 @@ final class StorageConnectionPassTest extends TestCase
 
         (new StorageConnectionPass())->process($container);
 
-        static::assertTrue($container->getParameter('jmonitor.storage.available'));
         foreach (self::STORAGE_SERVICES as $id) {
             static::assertTrue($container->hasDefinition($id), $id);
         }
@@ -42,7 +41,6 @@ final class StorageConnectionPassTest extends TestCase
 
         (new StorageConnectionPass())->process($container);
 
-        static::assertFalse($container->getParameter('jmonitor.storage.available'));
         foreach (self::STORAGE_SERVICES as $id) {
             static::assertFalse($container->hasDefinition($id), $id);
         }
@@ -58,24 +56,35 @@ final class StorageConnectionPassTest extends TestCase
 
         (new StorageConnectionPass())->process($container);
 
-        static::assertFalse($container->getParameter('jmonitor.storage.available'));
         static::assertFalse($container->hasDefinition(DbalStorage::class));
 
         $container = $this->container('analytics', ['doctrine.dbal.analytics_connection']);
 
         (new StorageConnectionPass())->process($container);
 
-        static::assertTrue($container->getParameter('jmonitor.storage.available'));
         static::assertTrue($container->hasDefinition(DbalStorage::class));
     }
 
     public function testDoesNothingWhenTheBundleIsNotConfigured(): void
     {
         $container = new ContainerBuilder();
+        $container->setDefinition(DbalStorage::class, new Definition(\stdClass::class));
 
         (new StorageConnectionPass())->process($container);
 
-        static::assertFalse($container->hasParameter('jmonitor.storage.available'));
+        static::assertTrue($container->hasDefinition(DbalStorage::class));
+    }
+
+    public function testDefinesNoParameter(): void
+    {
+        foreach ([[], ['doctrine.dbal.default_connection']] as $connections) {
+            $container = $this->container('default', $connections);
+            $parameters = $container->getParameterBag()->all();
+
+            (new StorageConnectionPass())->process($container);
+
+            static::assertSame($parameters, $container->getParameterBag()->all());
+        }
     }
 
     /**

@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Read\RouteStats;
+use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\Filesystem\Filesystem;
@@ -129,7 +130,8 @@ final class RecordingTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertFalse(static::getContainer()->has(RequestRecorder::class));
-        static::assertFalse(static::getContainer()->getParameter('jmonitor.storage.available'));
+        static::assertFalse(static::getContainer()->has(Flusher::class));
+        static::assertFalse(static::getContainer()->has(StorageInterface::class));
     }
 
     public function testSchemaDiffIgnoresTheTable(): void

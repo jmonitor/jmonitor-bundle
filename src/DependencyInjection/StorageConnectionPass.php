@@ -22,10 +22,7 @@ final class StorageConnectionPass implements CompilerPassInterface
             return;
         }
 
-        $available = $container->has(sprintf('doctrine.dbal.%s_connection', $container->getParameter('jmonitor.storage.connection')));
-        $container->setParameter('jmonitor.storage.available', $available);
-
-        if ($available) {
+        if ($container->has(sprintf('doctrine.dbal.%s_connection', $container->getParameter('jmonitor.storage.connection')))) {
             return;
         }
 
