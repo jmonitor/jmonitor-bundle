@@ -141,11 +141,11 @@ final class CountingConnection extends AbstractConnectionMiddleware
         return parent::query($sql);
     }
 
-    public function exec(string $sql): int|string
+    public function exec(string $sql): int
     {
         ++$this->counter->count;
 
-        return parent::exec($sql);
+        return (int) parent::exec($sql);
     }
 }
 
@@ -156,10 +156,10 @@ final class CountingStatement extends AbstractStatementMiddleware
         parent::__construct($statement);
     }
 
-    public function execute(): Result
+    public function execute($params = null): Result
     {
         ++$this->counter->count;
 
-        return parent::execute();
+        return $params === null ? parent::execute() : parent::execute($params);
     }
 }
