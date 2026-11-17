@@ -5,10 +5,8 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Buffer;
 
 /**
- * The directory holding the buffer and flush markers of one application for one system user.
- * It is refused unless it is a real directory owned by the effective user with no group or other permission.
- * Without ext-posix the owner cannot be compared, since getmyuid() returns the script owner; a writable directory
- * with no group or other permission then belongs to the process user anyway, unless the process runs as root.
+ * Without ext-posix the owner is not checked, getmyuid() being the script owner: a writable directory closed
+ * to group and others belongs to the process user anyway, unless that user is root.
  */
 final class BufferDirectory
 {

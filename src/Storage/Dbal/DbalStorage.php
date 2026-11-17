@@ -102,11 +102,7 @@ final class DbalStorage implements StorageInterface
         return $rows;
     }
 
-    /**
-     * Writing inside a transaction left open by the application would mix both: MySQL commits it
-     * implicitly on CREATE TABLE, PostgreSQL aborts it on a failed query, and a later rollback
-     * silently loses the drained slots.
-     */
+    /** Writes made inside a transaction of the application would be committed or rolled back with it. */
     private function assertNoOpenTransaction(): void
     {
         if ($this->connection->isTransactionActive() || self::nativeTransactionActive($this->connection)) {

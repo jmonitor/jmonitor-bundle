@@ -11,9 +11,6 @@ final class Aggregator
     public function __construct(private readonly int $slowThresholdMs) {}
 
     /**
-     * Counts each entry once per one-minute bucket and key, then spreads those counters over the
-     * periods, whose buckets are all whole minutes.
-     *
      * @param iterable<Entry> $entries
      *
      * @return list<Aggregate>
