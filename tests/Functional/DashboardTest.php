@@ -49,6 +49,20 @@ final class DashboardTest extends WebTestCase
         static::assertSame('noindex', $response->headers->get('X-Robots-Tag'));
     }
 
+    public function testNonStandardMethodsShowAsOtherWithTheNeutralBadge(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('POST', '/hello/world', server: ['HTTP_X_HTTP_METHOD_OVERRIDE' => 'ZZZ']);
+        sleep(1);
+        $crawler = $client->request('GET', '/jmonitor/');
+
+        $badge = $crawler->filter('tr[data-jm-route="OTHER app_hello"] .jm-method');
+        static::assertCount(1, $badge);
+        static::assertSame('OTHER', $badge->text());
+        static::assertStringContainsString('jm-method--other', (string) $badge->attr('class'));
+    }
+
     public function testDashboardRoutesAreNotRecorded(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);

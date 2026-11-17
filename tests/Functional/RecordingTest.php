@@ -49,6 +49,8 @@ final class RecordingTest extends WebTestCase
         static::assertResponseStatusCodeSame(500);
         $client->request('GET', '/nope');
         static::assertResponseStatusCodeSame(404);
+        $client->request('POST', '/hello/world', server: ['HTTP_X_HTTP_METHOD_OVERRIDE' => 'ZZZ']);
+        static::assertResponseIsSuccessful();
 
         $this->flush();
         $reader = new DbalReader($this->connection());
@@ -58,6 +60,8 @@ final class RecordingTest extends WebTestCase
         static::assertSame(1, $routes['GET app_boom']->errors);
         static::assertSame(1, $routes['GET app_teapot']->requests);
         static::assertSame(1, $routes['GET (unmatched)']->requests);
+        static::assertSame(1, $routes['OTHER app_hello']->requests);
+        static::assertArrayNotHasKey('ZZZ app_hello', $routes);
     }
 
     public function testNothingIsRecordedWhenDisabled(): void

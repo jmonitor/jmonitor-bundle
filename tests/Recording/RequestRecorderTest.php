@@ -89,6 +89,29 @@ final class RequestRecorderTest extends TestCase
         static::assertSame(404, $this->buffer->entries[0]->attributes['status']);
     }
 
+    public function testNonStandardMethodsAreGroupedUnderOther(): void
+    {
+        $recorder = $this->recorder();
+
+        foreach (['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'ZZZ9', 'PURGE', 'get'] as $method) {
+            $this->handle($recorder, Request::create('/', $method), 'app_home', 200);
+        }
+
+        $override = Request::create('/', 'POST');
+        $override->headers->set('X-HTTP-Method-Override', 'FOOBAR');
+        $this->handle($recorder, $override, 'app_home', 200);
+
+        $invalid = Request::create('/', 'POST');
+        $invalid->headers->set('X-HTTP-Method-Override', 'NOT-A-METHOD');
+        $this->handle($recorder, $invalid, 'app_home', 200);
+
+        static::assertSame(
+            ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'OTHER', 'OTHER', 'GET', 'OTHER', 'OTHER'],
+            array_map(static fn(Entry $entry): string => explode(' ', $entry->key)[0], $this->buffer->entries),
+        );
+        static::assertSame([], $this->logger->records);
+    }
+
     public function testSubRequestsAreIgnored(): void
     {
         $recorder = $this->recorder();

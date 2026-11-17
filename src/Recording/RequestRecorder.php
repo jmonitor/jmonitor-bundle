@@ -8,6 +8,8 @@ use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\HttpFoundation\Exception\SuspiciousOperationException;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\TerminateEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
@@ -17,6 +19,7 @@ final class RequestRecorder implements EventSubscriberInterface
     private const STARTED_AT = '_jmonitor_started_at';
     private const MAX_REQUEST_AGE = 300;
     private const INTERNAL_ROUTE_PREFIXES = ['_wdt', '_profiler', 'jmonitor_'];
+    private const STANDARD_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 
     private int $handledRequests = 0;
     private bool $failureLogged = false;
@@ -82,7 +85,7 @@ final class RequestRecorder implements EventSubscriberInterface
 
             $this->buffer->append(new Entry(
                 Entry::TYPE_REQUEST,
-                $request->getMethod() . ' ' . (\is_string($route) ? $route : '(unmatched)'),
+                self::method($request) . ' ' . (\is_string($route) ? $route : '(unmatched)'),
                 $startedAt,
                 ($now - $startedAt) * 1000,
                 ['status' => $event->getResponse()->getStatusCode(), 'memory' => memory_get_peak_usage(true)],
@@ -99,6 +102,17 @@ final class RequestRecorder implements EventSubscriberInterface
         } catch (\Throwable $e) {
             $this->logFailure($e);
         }
+    }
+
+    private static function method(Request $request): string
+    {
+        try {
+            $method = $request->getMethod();
+        } catch (SuspiciousOperationException) {
+            return 'OTHER';
+        }
+
+        return \in_array($method, self::STANDARD_METHODS, true) ? $method : 'OTHER';
     }
 
     private function isIgnored(string $route): bool
