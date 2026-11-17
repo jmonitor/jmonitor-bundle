@@ -38,14 +38,18 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         return;
     }
 
-    $services->set(RequestsScreenFactory::class)
+    $customLogger = $builder->getParameter('jmonitor.logger');
+    $screens = $services->set(RequestsScreenFactory::class)
         ->args([
             service(ReaderInterface::class)->nullOnInvalid(),
             param('jmonitor.recording.enabled'),
             service('jmonitor.clock'),
-            service('logger')->nullOnInvalid(),
-        ])
-        ->tag('monolog.logger', ['channel' => 'jmonitor']);
+            \is_string($customLogger) ? service($customLogger) : service('logger')->nullOnInvalid(),
+        ]);
+
+    if ($customLogger === null) {
+        $screens->tag('monolog.logger', ['channel' => 'jmonitor']);
+    }
 
     $services->set(JmonitorExtension::class)
         ->tag('twig.extension');

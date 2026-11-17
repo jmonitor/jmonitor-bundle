@@ -25,6 +25,8 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $connectionName = $builder->getParameter('jmonitor.storage.connection');
     $connection = service(sprintf('doctrine.dbal.%s_connection', $connectionName));
     $services = $container->services();
+    $customLogger = $builder->getParameter('jmonitor.logger');
+    $logger = \is_string($customLogger) ? service($customLogger) : service('logger')->nullOnInvalid();
 
     $services->set('jmonitor.clock', NativeClock::class);
 
@@ -64,29 +66,35 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service('jmonitor.clock'),
         ]);
 
-    $services->set(Flusher::class)
+    $flusher = $services->set(Flusher::class)
         ->args([
             service(BufferInterface::class),
             service(Aggregator::class),
             service(StorageInterface::class),
             service(FlushLock::class),
             service('jmonitor.clock'),
-            service('logger')->nullOnInvalid(),
-        ])
-        ->tag('monolog.logger', ['channel' => 'jmonitor']);
+            $logger,
+        ]);
+
+    if ($customLogger === null) {
+        $flusher->tag('monolog.logger', ['channel' => 'jmonitor']);
+    }
 
     if ($builder->getParameter('jmonitor.recording.enabled') === false) {
         return;
     }
 
-    $services->set(RequestRecorder::class)
+    $recorder = $services->set(RequestRecorder::class)
         ->args([
             service(BufferInterface::class),
             service(Flusher::class),
             param('jmonitor.recording.ignore_routes'),
-            service('logger')->nullOnInvalid(),
+            $logger,
             param('jmonitor.recording.enabled'),
         ])
-        ->tag('kernel.event_subscriber')
-        ->tag('monolog.logger', ['channel' => 'jmonitor']);
+        ->tag('kernel.event_subscriber');
+
+    if ($customLogger === null) {
+        $recorder->tag('monolog.logger', ['channel' => 'jmonitor']);
+    }
 };

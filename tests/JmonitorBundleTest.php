@@ -25,7 +25,11 @@ use Jmonitor\JmonitorBundle\JmonitorBundle;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Jmonitor\JmonitorBundle\Dashboard\RequestsScreenFactory;
+use Jmonitor\JmonitorBundle\Flush\Flusher;
+use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
 
@@ -110,6 +114,43 @@ class JmonitorBundleTest extends TestCase
 
         $this->expectException(InvalidConfigurationException::class);
         $this->loadBundle(['recording' => ['flush_interval' => 3601]]);
+    }
+
+    /**
+     * @return array<class-string, int>
+     */
+    private static function loggingServices(): array
+    {
+        return [Flusher::class => 5, RequestRecorder::class => 3, RequestsScreenFactory::class => 3];
+    }
+
+    public function testApplicationMonitoringUsesTheConfiguredLogger(): void
+    {
+        $container = $this->loadBundle(['logger' => 'app.jmonitor_logger'], environment: 'prod');
+
+        foreach (self::loggingServices() as $id => $index) {
+            $definition = $container->getDefinition($id);
+            $logger = $definition->getArgument($index);
+
+            static::assertInstanceOf(Reference::class, $logger, $id);
+            static::assertSame('app.jmonitor_logger', (string) $logger, $id);
+            static::assertFalse($definition->hasTag('monolog.logger'), $id);
+        }
+    }
+
+    public function testApplicationMonitoringUsesTheJmonitorChannelByDefault(): void
+    {
+        $container = $this->loadBundle([], environment: 'prod');
+
+        foreach (self::loggingServices() as $id => $index) {
+            $definition = $container->getDefinition($id);
+            $logger = $definition->getArgument($index);
+
+            static::assertInstanceOf(Reference::class, $logger, $id);
+            static::assertSame('logger', (string) $logger, $id);
+            static::assertSame(ContainerInterface::NULL_ON_INVALID_REFERENCE, $logger->getInvalidBehavior(), $id);
+            static::assertSame([['channel' => 'jmonitor']], $definition->getTag('monolog.logger'), $id);
+        }
     }
 
     public function testMinimalConfigRegistersCoreServices(): void

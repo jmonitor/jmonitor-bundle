@@ -47,6 +47,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
         $builder->setParameter('jmonitor.dashboard.enabled', $config['dashboard']['enabled']);
         $builder->setParameter('jmonitor.dashboard.permission', $permission);
+        $builder->setParameter('jmonitor.logger', $config['logger'] ?: null);
 
         if ($recordingEnabled !== false || $config['dashboard']['enabled'] !== false) {
             $container->import('../config/recording.php');
