@@ -103,18 +103,45 @@ final class FlusherTest extends TestCase
     {
         $logger = $this->memoryLogger();
         $buffer = new class implements BufferInterface {
-            public int $drains = 0;
+            public int $consumed = 0;
 
             public function append(Entry $entry): void {}
 
             public function drain(callable $consumer): int
             {
-                ++$this->drains;
+                $consumer((function (): \Generator {
+                    ++$this->consumed;
 
-                return 0;
+                    yield new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1000.0, 1.0);
+                })());
+
+                return $this->consumed;
             }
         };
-        $storage = new class implements StorageInterface {
+        $flusher = new Flusher($buffer, new Aggregator(500), $this->refusingStorage(), new FlushLock(new BufferDirectory($this->dir, 'app'), 10, $this->clock), $this->clock, $logger, 300);
+
+        static::assertFalse($flusher->flush());
+
+        static::assertSame(0, $buffer->consumed);
+        static::assertInstanceOf(\RuntimeException::class, $flusher->lastFailure());
+        static::assertCount(1, $logger->records);
+    }
+
+    public function testExpiredSlotIsDeletedEvenWhenTheStorageRefuses(): void
+    {
+        $this->record(5);
+        $this->clock->sleep(3601);
+        $this->record(2);
+        $this->clock->sleep(11);
+
+        static::assertFalse($this->flusher($this->refusingStorage())->flush());
+
+        static::assertSame(['460.ndjson'], array_map('basename', glob($this->dir . '/*/*.ndjson') ?: []));
+    }
+
+    private function refusingStorage(): StorageInterface
+    {
+        return new class implements StorageInterface {
             public function prepare(): void
             {
                 throw new \RuntimeException('no CREATE privilege');
@@ -124,13 +151,6 @@ final class FlusherTest extends TestCase
 
             public function purge(int $now): void {}
         };
-        $flusher = new Flusher($buffer, new Aggregator(500), $storage, new FlushLock(new BufferDirectory($this->dir, 'app'), 10, $this->clock), $this->clock, $logger, 300);
-
-        static::assertFalse($flusher->flush());
-
-        static::assertSame(0, $buffer->drains);
-        static::assertInstanceOf(\RuntimeException::class, $flusher->lastFailure());
-        static::assertCount(1, $logger->records);
     }
 
     public function testLastFailureIsExposedThenCleared(): void

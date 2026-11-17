@@ -54,7 +54,6 @@ final class Flusher
             }
 
             try {
-                $this->storage->prepare();
                 $this->buffer->drain(fn(iterable $entries) => $this->store($entries));
                 $this->purgeIfDue();
             } finally {
@@ -75,6 +74,7 @@ final class Flusher
      */
     private function store(iterable $entries): void
     {
+        $this->storage->prepare();
         $this->storage->store($this->aggregator->aggregate($entries));
     }
 
