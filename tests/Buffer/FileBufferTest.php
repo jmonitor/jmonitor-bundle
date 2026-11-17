@@ -166,6 +166,38 @@ final class FileBufferTest extends TestCase
         static::assertSame(['8900.ndjson'], array_map('basename', glob($this->private . '/*') ?: []));
     }
 
+    public function testHourLongSlotSurvivesAFailureRightAfterItEnds(): void
+    {
+        $clock = new MockClock('@3600');
+        $buffer = new FileBuffer(new BufferDirectory($this->dir, 'app'), 3600, $clock);
+        $buffer->append($this->entry('a'));
+        $clock->sleep(3601);
+
+        $this->drainWithFailure($buffer);
+
+        $keys = [];
+        $count = $buffer->drain(static function (iterable $entries) use (&$keys): void {
+            foreach ($entries as $entry) {
+                $keys[] = $entry->key;
+            }
+        });
+
+        static::assertSame(1, $count);
+        static::assertSame(['a'], $keys);
+    }
+
+    public function testHourLongSlotEndedMoreThanMaxAgeAgoIsDeletedWhenTheConsumerThrows(): void
+    {
+        $clock = new MockClock('@3600');
+        $buffer = new FileBuffer(new BufferDirectory($this->dir, 'app'), 3600, $clock);
+        $buffer->append($this->entry('a'));
+        $clock->sleep(3600 + 3601);
+
+        $this->drainWithFailure($buffer);
+
+        static::assertSame([], glob($this->private . '/*'));
+    }
+
     public function testBacklogIsDrainedOldestFirstOverSeveralCalls(): void
     {
         $clock = new MockClock('@1000');
@@ -428,6 +460,18 @@ final class FileBufferTest extends TestCase
         static::assertSame('', $errors);
         static::assertSame($this->dir . '/jmonitor-app-u0', $output);
         static::assertSame(0o700, fileperms($output) & 0o777);
+    }
+
+    private function drainWithFailure(FileBuffer $buffer): void
+    {
+        try {
+            $buffer->drain(static function (iterable $entries): void {
+                throw new \RuntimeException('deadlock');
+            });
+            static::fail('The exception should propagate.');
+        } catch (\RuntimeException $e) {
+            static::assertSame('deadlock', $e->getMessage());
+        }
     }
 
     private function assertRefused(): void

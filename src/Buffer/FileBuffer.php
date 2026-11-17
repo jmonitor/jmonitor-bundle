@@ -62,7 +62,7 @@ final class FileBuffer implements BufferInterface
             $consumer($this->read($files, $count));
         } catch (\Throwable $e) {
             foreach ($slots as $start => $file) {
-                if ($now - $start > $this->maxSlotAge) {
+                if ($now - $start - $this->slotSeconds > $this->maxSlotAge) {
                     self::discard($file);
                 }
             }
