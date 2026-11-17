@@ -281,6 +281,45 @@ final class FileBufferTest extends TestCase
         static::assertSame(0, $second);
     }
 
+    public function testSymlinkSwappedInAfterValidationIsRefused(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        $buffer->append($this->entry('a'));
+        $target = $this->dir . '/open';
+        mkdir($target);
+        chmod($target, 0o777);
+
+        rename($this->private, $this->dir . '/moved');
+        symlink($target, $this->private);
+        $buffer->append($this->entry('b'));
+
+        static::assertSame([], glob($target . '/*'));
+    }
+
+    public function testWithoutPosixTheOwnerIsNotComparedWithTheScriptOwner(): void
+    {
+        if (posix_geteuid() === 0 || fileowner('/etc/passwd') !== 0) {
+            static::markTestSkipped('Needs a non-root process and a root-owned /etc/passwd.');
+        }
+
+        $command = [
+            \PHP_BINARY,
+            '-d', 'disable_functions=posix_geteuid',
+            '-d', 'auto_prepend_file=' . \dirname(__DIR__) . '/Fixtures/Buffer/resolve_directory.php',
+            '/etc/passwd',
+        ];
+        $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['JMONITOR_BUFFER_BASE' => $this->dir] + getenv());
+        static::assertIsResource($process);
+        $output = stream_get_contents($pipes[1]);
+        $errors = stream_get_contents($pipes[2]);
+        proc_close($process);
+
+        static::assertSame('', $errors);
+        static::assertSame($this->dir . '/jmonitor-app-u0', $output);
+        static::assertSame(0o700, fileperms($output) & 0o777);
+    }
+
     private function assertRefused(): void
     {
         $clock = new MockClock('@1000');

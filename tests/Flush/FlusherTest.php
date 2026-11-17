@@ -17,6 +17,7 @@ use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 use Jmonitor\JmonitorBundle\Tests\Storage\Dbal\ConnectionProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Clock\ClockInterface;
 use Psr\Log\AbstractLogger;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Filesystem\Filesystem;
@@ -137,6 +138,23 @@ final class FlusherTest extends TestCase
         static::assertFalse($this->flusher($this->refusingStorage())->flush());
 
         static::assertSame(['460.ndjson'], array_map('basename', glob($this->dir . '/*/*.ndjson') ?: []));
+    }
+
+    public function testLockIsReleasedWhenTheClockFailsWhileAcquiring(): void
+    {
+        $broken = new class implements ClockInterface {
+            public function now(): \DateTimeImmutable
+            {
+                throw new \RuntimeException('clock stopped');
+            }
+        };
+        $directory = new BufferDirectory($this->dir, 'app');
+        $flusher = new Flusher($this->buffer, new Aggregator(500), $this->dbalStorage(), new FlushLock($directory, 10, $broken), $broken);
+
+        static::assertFalse($flusher->flush());
+        static::assertInstanceOf(\RuntimeException::class, $flusher->lastFailure());
+
+        static::assertTrue((new FlushLock($directory, 10, $this->clock))->acquire());
     }
 
     private function refusingStorage(): StorageInterface

@@ -49,11 +49,11 @@ final class Flusher
         $this->lastFailure = null;
 
         try {
-            if (!$this->lock->acquire()) {
-                return false;
-            }
-
             try {
+                if (!$this->lock->acquire()) {
+                    return false;
+                }
+
                 $this->buffer->drain(fn(iterable $entries) => $this->store($entries));
                 $this->purgeIfDue();
             } finally {
