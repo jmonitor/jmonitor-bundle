@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Storage\Dbal;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\Exception\TableExistsException;
 use Doctrine\DBAL\Exception\TableNotFoundException;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
@@ -30,15 +29,15 @@ final class DbalStorage implements StorageInterface
 
         $this->assertNoOpenTransaction();
         $this->ensureTable();
-        $platform = $this->connection->getDatabasePlatform();
-
         $rows = self::rows($aggregates);
 
-        $this->connection->transactional(function (Connection $connection) use ($rows, $platform): void {
-            foreach (array_chunk($rows, self::CHUNK_SIZE) as $chunk) {
-                $connection->executeStatement(UpsertSql::for($platform, count($chunk)), array_merge(...$chunk));
-            }
-        });
+        try {
+            $this->write($rows);
+        } catch (TableNotFoundException) {
+            $this->tableReady = false;
+            $this->ensureTable();
+            $this->write($rows);
+        }
     }
 
     public function purge(int $now): void
@@ -103,23 +102,50 @@ final class DbalStorage implements StorageInterface
         }
     }
 
+    /**
+     * @param list<list<int|float|string>> $rows
+     */
+    private function write(array $rows): void
+    {
+        $platform = $this->connection->getDatabasePlatform();
+
+        $this->connection->transactional(function (Connection $connection) use ($rows, $platform): void {
+            foreach (array_chunk($rows, self::CHUNK_SIZE) as $chunk) {
+                $connection->executeStatement(UpsertSql::for($platform, count($chunk)), array_merge(...$chunk));
+            }
+        });
+    }
+
     private function ensureTable(): void
     {
         if ($this->tableReady) {
             return;
         }
 
-        try {
-            $this->connection->executeQuery('SELECT 1 FROM ' . AggregatesTable::NAME . ' WHERE 1 = 0');
-        } catch (TableNotFoundException) {
+        if (!$this->tableExists()) {
             try {
                 foreach ($this->connection->getDatabasePlatform()->getCreateTableSQL(AggregatesTable::definition()) as $sql) {
                     $this->connection->executeStatement($sql);
                 }
-            } catch (TableExistsException) {
+            } catch (\Throwable $e) {
+                if (!$this->tableExists()) {
+                    throw $e;
+                }
             }
         }
 
         $this->tableReady = true;
+    }
+
+    /** @phpstan-impure */
+    private function tableExists(): bool
+    {
+        try {
+            $this->connection->executeQuery('SELECT 1 FROM ' . AggregatesTable::NAME . ' WHERE 1 = 0');
+        } catch (TableNotFoundException) {
+            return false;
+        }
+
+        return true;
     }
 }

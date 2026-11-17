@@ -49,6 +49,19 @@ final class DbalStorageTest extends TestCase
     }
 
     #[DataProvider('connections')]
+    public function testTableDroppedWhileTheProcessRunsIsCreatedAgain(Connection $connection): void
+    {
+        $this->reset($connection);
+        $storage = $this->storage($connection);
+        $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)]);
+
+        $this->reset($connection);
+        $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 2, 1.0, 1.0)]);
+
+        static::assertSame(2, (int) $connection->fetchOne('SELECT SUM(entry_count) FROM jmonitor_aggregates'));
+    }
+
+    #[DataProvider('connections')]
     public function testMoreRowsThanOneChunk(Connection $connection): void
     {
         $this->reset($connection);
