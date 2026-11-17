@@ -24,6 +24,8 @@ final class AggregatesTable
         $table->addColumn('value_sum', Types::FLOAT);
         $table->addColumn('value_max', Types::FLOAT);
         $table->setPrimaryKey(['period', 'bucket', 'metric_type', 'key_hash']);
+        $table->addOption('charset', 'utf8mb4');
+        $table->addOption('collation', 'utf8mb4_unicode_ci');
 
         return $table;
     }

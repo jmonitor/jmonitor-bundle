@@ -122,6 +122,17 @@ final class DbalStorageTest extends TestCase
     }
 
     #[DataProvider('connections')]
+    public function testKeysKeepFourByteCharacters(Connection $connection): void
+    {
+        $this->reset($connection);
+        $key = "GET app_\u{1F680}_launch";
+
+        $this->storage($connection)->store([$this->aggregate(Period::OneHour, 1700000040, $key, 1, 1.0, 1.0)]);
+
+        static::assertSame($key, $connection->fetchOne('SELECT metric_key FROM jmonitor_aggregates'));
+    }
+
+    #[DataProvider('connections')]
     public function testPurgeKeepsEachPeriodWindow(Connection $connection): void
     {
         $this->reset($connection);
