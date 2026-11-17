@@ -16,6 +16,7 @@ use Doctrine\DBAL\Driver\Result;
 use Doctrine\DBAL\Driver\Statement;
 use Doctrine\DBAL\DriverManager;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -23,6 +24,7 @@ use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class TrafficIndependenceTest extends TestCase
 {
@@ -46,21 +48,19 @@ final class TrafficIndependenceTest extends TestCase
     protected function tearDown(): void
     {
         $this->connection->close();
-        foreach (glob($this->dir . '/*') ?: [] as $file) {
-            unlink($file);
-        }
-        rmdir($this->dir);
+        (new Filesystem())->remove($this->dir);
     }
 
     public function testWriteStatementsFollowFlushesNotRequests(): void
     {
         $clock = new MockClock('@1000000');
-        $buffer = new FileBuffer($this->dir, 'app', 10, $clock);
+        $directory = new BufferDirectory($this->dir, 'app');
+        $buffer = new FileBuffer($directory, 10, $clock);
         $flusher = new Flusher(
             $buffer,
             new Aggregator(500),
             new DbalStorage($this->connection, 31_536_000),
-            new FlushLock($this->dir, 'app', 10, $clock),
+            new FlushLock($directory, 10, $clock),
             $clock,
             null,
             300,

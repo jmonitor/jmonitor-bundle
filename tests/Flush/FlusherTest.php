@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Flush;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
@@ -18,6 +19,7 @@ use Jmonitor\JmonitorBundle\Tests\Storage\Dbal\ConnectionProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\AbstractLogger;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class FlusherTest extends TestCase
 {
@@ -31,16 +33,13 @@ final class FlusherTest extends TestCase
         $this->dir = sys_get_temp_dir() . '/jmonitor-flush-' . bin2hex(random_bytes(6));
         mkdir($this->dir);
         $this->clock = new MockClock('@1000');
-        $this->buffer = new FileBuffer($this->dir, 'app', 10, $this->clock);
+        $this->buffer = new FileBuffer(new BufferDirectory($this->dir, 'app'), 10, $this->clock);
         [$this->connection] = ConnectionProvider::all()['sqlite'];
     }
 
     protected function tearDown(): void
     {
-        foreach (glob($this->dir . '/*') ?: [] as $file) {
-            unlink($file);
-        }
-        rmdir($this->dir);
+        (new Filesystem())->remove($this->dir);
     }
 
     public function testFlushMovesCompletedSlotsToStorage(): void
@@ -52,7 +51,7 @@ final class FlusherTest extends TestCase
         static::assertTrue($flusher->flushIfDue());
 
         static::assertSame(5, $this->storedRequests());
-        static::assertSame([], glob($this->dir . '/*.ndjson'));
+        static::assertSame([], glob($this->dir . '/*/*.ndjson'));
     }
 
     public function testNotDueDoesNothing(): void
@@ -92,7 +91,7 @@ final class FlusherTest extends TestCase
 
         static::assertFalse($this->flusher($failing, $logger)->flushIfDue());
 
-        static::assertCount(1, glob($this->dir . '/*.ndjson'));
+        static::assertCount(1, glob($this->dir . '/*/*.ndjson'));
         static::assertCount(1, $logger->errors);
 
         $this->clock->sleep(11);
@@ -125,7 +124,7 @@ final class FlusherTest extends TestCase
 
             public function purge(int $now): void {}
         };
-        $flusher = new Flusher($buffer, new Aggregator(500), $storage, new FlushLock($this->dir, 'app', 10, $this->clock), $this->clock, $logger, 300);
+        $flusher = new Flusher($buffer, new Aggregator(500), $storage, new FlushLock(new BufferDirectory($this->dir, 'app'), 10, $this->clock), $this->clock, $logger, 300);
 
         static::assertFalse($flusher->flush());
 
@@ -222,7 +221,7 @@ final class FlusherTest extends TestCase
 
         static::assertNotNull($flusher->lastFailure());
         static::assertCount(1, $logger->records);
-        static::assertCount(1, glob($this->dir . '/*.ndjson') ?: []);
+        static::assertCount(1, glob($this->dir . '/*/*.ndjson') ?: []);
 
         static::assertTrue($flusher->flush());
         static::assertSame(5, $this->storedRequests());
@@ -240,7 +239,7 @@ final class FlusherTest extends TestCase
 
         static::assertNotNull($flusher->lastFailure());
         static::assertCount(1, $logger->records);
-        static::assertCount(1, glob($this->dir . '/*.ndjson') ?: []);
+        static::assertCount(1, glob($this->dir . '/*/*.ndjson') ?: []);
     }
 
     private function memoryLogger(): AbstractLogger
@@ -262,7 +261,7 @@ final class FlusherTest extends TestCase
             $this->buffer,
             new Aggregator(500),
             $storage,
-            new FlushLock($this->dir, 'app', 10, $this->clock),
+            new FlushLock(new BufferDirectory($this->dir, 'app'), 10, $this->clock),
             $this->clock,
             $logger,
             300,

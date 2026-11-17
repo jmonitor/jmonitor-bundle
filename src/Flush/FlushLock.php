@@ -4,34 +4,26 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Flush;
 
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Psr\Clock\ClockInterface;
 
 final class FlushLock
 {
+    private const FLUSH_MARKER = 'last-flush';
+    private const PURGE_MARKER = 'last-purge';
+
     /** @var resource|null */
     private $handle;
 
-    private readonly string $directory;
-    private readonly string $flushMarker;
-    private readonly string $purgeMarker;
-
     public function __construct(
-        string $directory,
-        string $appId,
+        private readonly BufferDirectory $directory,
         private readonly int $intervalSeconds,
         private readonly ClockInterface $clock,
-    ) {
-        $this->directory = $directory;
-        $this->flushMarker = sprintf('%s/jmonitor-%s.flush', $directory, $appId);
-        $this->purgeMarker = sprintf('%s/jmonitor-%s.purge', $directory, $appId);
-    }
+    ) {}
 
     public function isDue(): bool
     {
-        $elapsed = $this->elapsedSince($this->flushMarker);
-
-        return $elapsed >= $this->intervalSeconds
-            && ($elapsed !== \PHP_INT_MAX || self::quietly(fn(): bool => is_writable($this->directory)));
+        return $this->isOlderThan(self::FLUSH_MARKER, $this->intervalSeconds);
     }
 
     public function acquire(): bool
@@ -40,9 +32,18 @@ final class FlushLock
             return false;
         }
 
-        return self::quietly(function (): bool {
-            $handle = fopen($this->flushMarker, 'c');
+        $directory = $this->directory->path();
+        if ($directory === null) {
+            return false;
+        }
+
+        $marker = $directory . '/' . self::FLUSH_MARKER;
+
+        return BufferDirectory::quietly(function () use ($marker): bool {
+            $handle = fopen($marker, 'c');
             if ($handle === false) {
+                $this->directory->invalidate();
+
                 return false;
             }
 
@@ -53,7 +54,7 @@ final class FlushLock
             }
 
             $this->handle = $handle;
-            touch($this->flushMarker, $this->clock->now()->getTimestamp());
+            $this->stamp($marker);
 
             return true;
         });
@@ -68,7 +69,7 @@ final class FlushLock
         $handle = $this->handle;
         $this->handle = null;
 
-        self::quietly(static function () use ($handle): void {
+        BufferDirectory::quietly(static function () use ($handle): void {
             flock($handle, \LOCK_UN);
             fclose($handle);
         });
@@ -76,37 +77,47 @@ final class FlushLock
 
     public function isPurgeDue(int $intervalSeconds): bool
     {
-        return $this->elapsedSince($this->purgeMarker) >= $intervalSeconds;
+        return $this->isOlderThan(self::PURGE_MARKER, $intervalSeconds);
     }
 
     public function markPurged(): void
     {
-        self::quietly(fn(): bool => touch($this->purgeMarker, $this->clock->now()->getTimestamp()));
+        $directory = $this->directory->path();
+        if ($directory === null) {
+            return;
+        }
+
+        BufferDirectory::quietly(fn() => $this->stamp($directory . '/' . self::PURGE_MARKER));
     }
 
-    private function elapsedSince(string $marker): int
+    private function stamp(string $marker): void
     {
-        $modified = self::quietly(static function () use ($marker): int|false {
+        touch($marker, $this->clock->now()->getTimestamp()) || touch($marker);
+    }
+
+    /**
+     * A marker dated in the future, as after the clock was set back, counts as due.
+     */
+    private function isOlderThan(string $name, int $seconds): bool
+    {
+        $directory = $this->directory->path();
+        if ($directory === null) {
+            return false;
+        }
+
+        $marker = $directory . '/' . $name;
+        $modified = BufferDirectory::quietly(static function () use ($marker): int|false {
             clearstatcache(true, $marker);
 
             return filemtime($marker);
         });
 
         if ($modified === false) {
-            return \PHP_INT_MAX;
+            return true;
         }
 
-        return $this->clock->now()->getTimestamp() - $modified;
-    }
+        $elapsed = $this->clock->now()->getTimestamp() - $modified;
 
-    private static function quietly(callable $operation): mixed
-    {
-        set_error_handler(static fn(): bool => true);
-
-        try {
-            return $operation();
-        } finally {
-            restore_error_handler();
-        }
+        return $elapsed < 0 || $elapsed >= $seconds;
     }
 }

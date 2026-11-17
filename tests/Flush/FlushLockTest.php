@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Flush;
 
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class FlushLockTest extends TestCase
 {
@@ -20,16 +22,13 @@ final class FlushLockTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (glob($this->dir . '/*') ?: [] as $file) {
-            unlink($file);
-        }
-        rmdir($this->dir);
+        (new Filesystem())->remove($this->dir);
     }
 
     public function testDueOnFirstCallThenNotUntilTheIntervalElapses(): void
     {
         $clock = new MockClock('@1000');
-        $lock = new FlushLock($this->dir, 'app', 10, $clock);
+        $lock = $this->lock($clock);
 
         static::assertTrue($lock->isDue());
 
@@ -46,8 +45,8 @@ final class FlushLockTest extends TestCase
     public function testOnlyOneHolder(): void
     {
         $clock = new MockClock('@1000');
-        $first = new FlushLock($this->dir, 'app', 10, $clock);
-        $second = new FlushLock($this->dir, 'app', 10, $clock);
+        $first = $this->lock($clock);
+        $second = $this->lock($clock);
 
         static::assertTrue($first->acquire());
         static::assertFalse($second->acquire());
@@ -59,7 +58,7 @@ final class FlushLockTest extends TestCase
 
     public function testUnwritableDirectoryNeverAcquires(): void
     {
-        $lock = new FlushLock('/proc/jmonitor-nope', 'app', 10, new MockClock('@1000'));
+        $lock = new FlushLock(new BufferDirectory('/proc/jmonitor-nope', 'app'), 10, new MockClock('@1000'));
 
         $warnings = [];
         set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {
@@ -79,5 +78,43 @@ final class FlushLockTest extends TestCase
         static::assertFalse($due);
         static::assertFalse($acquired);
         static::assertSame([], $warnings);
+    }
+
+    public function testMarkerDatedInTheFutureIsDue(): void
+    {
+        $clock = new MockClock('@1000');
+        $lock = $this->lock($clock);
+        static::assertTrue($lock->acquire());
+        $lock->release();
+        $lock->markPurged();
+
+        $marker = $this->dir . '/jmonitor-app-u' . posix_geteuid() . '/last-flush';
+        touch($marker, 5000);
+        touch(\dirname($marker) . '/last-purge', 5000);
+
+        static::assertTrue($lock->isDue());
+        static::assertTrue($lock->isPurgeDue(300));
+        static::assertTrue($lock->acquire());
+        $lock->release();
+        clearstatcache(true, $marker);
+        static::assertSame(1000, filemtime($marker));
+        static::assertFalse($lock->isDue());
+    }
+
+    public function testRefusedDirectoryIsNeverDue(): void
+    {
+        $private = $this->dir . '/jmonitor-app-u' . posix_geteuid();
+        mkdir($private, 0o700);
+        chmod($private, 0o777);
+        $lock = $this->lock(new MockClock('@1000'));
+
+        static::assertFalse($lock->isDue());
+        static::assertFalse($lock->acquire());
+        static::assertSame([], glob($private . '/*'));
+    }
+
+    private function lock(MockClock $clock): FlushLock
+    {
+        return new FlushLock(new BufferDirectory($this->dir, 'app'), 10, $clock);
     }
 }

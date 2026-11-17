@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 $entries = [];
-foreach (glob(sys_get_temp_dir() . '/jmonitor-*-*.ndjson') ?: [] as $file) {
+foreach (glob(sys_get_temp_dir() . '/jmonitor-*-u*/*.ndjson') ?: [] as $file) {
     foreach (file($file, \FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
         $entries[] = json_decode($line, true, 512, \JSON_THROW_ON_ERROR);
     }

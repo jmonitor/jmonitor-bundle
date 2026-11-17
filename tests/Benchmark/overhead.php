@@ -6,6 +6,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -15,6 +16,7 @@ use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Clock\NativeClock;
+use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
@@ -37,10 +39,7 @@ function workDir(): string
 
 function removeDir(string $dir): void
 {
-    foreach (glob($dir . '/*') ?: [] as $file) {
-        unlink($file);
-    }
-    rmdir($dir);
+    (new Filesystem())->remove($dir);
 }
 
 function microsPerCall(callable $operation): float
@@ -57,8 +56,9 @@ function flushMillis(Connection $connection): float
 {
     $dir = workDir();
     $clock = new MockClock('@1000');
-    $buffer = new FileBuffer($dir, 'bench', 10, $clock);
-    $lock = new FlushLock($dir, 'bench', 10, $clock);
+    $directory = new BufferDirectory($dir, 'bench');
+    $buffer = new FileBuffer($directory, 10, $clock);
+    $lock = new FlushLock($directory, 10, $clock);
     $flusher = new Flusher($buffer, new Aggregator(500), new DbalStorage($connection, 31_536_000), $lock, $clock, null, 300);
 
     $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
@@ -83,17 +83,18 @@ function flushMillis(Connection $connection): float
 
 $dir = workDir();
 $clock = new NativeClock();
-$buffer = new FileBuffer($dir, 'bench', 10, $clock);
+$buffer = new FileBuffer(new BufferDirectory($dir, 'bench'), 10, $clock);
 $entry = new Entry(Entry::TYPE_REQUEST, 'GET app_hello', microtime(true), 12.5, ['status' => 200, 'memory' => 2_097_152]);
 printf("append: %.2f µs/call\n", microsPerCall(static fn() => $buffer->append($entry)));
 removeDir($dir);
 
 $dir = workDir();
 $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'path' => $dir . '/bench.sqlite']);
-$lock = new FlushLock($dir, 'bench', 3600, $clock);
+$directory = new BufferDirectory($dir, 'bench');
+$lock = new FlushLock($directory, 3600, $clock);
 $lock->markPurged();
-touch($dir . '/jmonitor-bench.flush');
-$buffer = new FileBuffer($dir, 'bench', 10, $clock);
+touch($directory->path() . '/last-flush');
+$buffer = new FileBuffer($directory, 10, $clock);
 $flusher = new Flusher($buffer, new Aggregator(500), new DbalStorage($connection, 31_536_000), $lock, $clock, null, 300);
 $recorder = new RequestRecorder($buffer, $flusher);
 

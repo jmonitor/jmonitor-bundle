@@ -66,7 +66,7 @@ class JmonitorBundleTest extends TestCase
         static::assertSame(10, $container->getParameter('jmonitor.recording.flush_interval'));
         static::assertSame(1000, $container->getParameter('jmonitor.recording.slow_threshold'));
         static::assertSame([], $container->getParameter('jmonitor.recording.ignore_routes'));
-        static::assertSame(sys_get_temp_dir(), $container->getParameter('jmonitor.recording.buffer_dir'));
+        static::assertNull($container->getParameter('jmonitor.recording.buffer_dir'));
         static::assertSame('default', $container->getParameter('jmonitor.storage.connection'));
         static::assertSame(604800, $container->getParameter('jmonitor.storage.retention'));
         static::assertTrue($container->getParameter('jmonitor.dashboard.enabled'));

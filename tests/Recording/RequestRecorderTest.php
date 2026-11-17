@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Recording;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -15,6 +16,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Clock\ClockInterface;
 use Psr\Log\AbstractLogger;
 use Symfony\Component\Clock\NativeClock;
+use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
@@ -61,10 +63,7 @@ final class RequestRecorderTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (glob($this->dir . '/*') ?: [] as $file) {
-            unlink($file);
-        }
-        rmdir($this->dir);
+        (new Filesystem())->remove($this->dir);
     }
 
     public function testRecordsOneEntryPerMainRequest(): void
@@ -191,7 +190,8 @@ final class RequestRecorderTest extends TestCase
 
     public function testFlusherFailureNeverReachesTheApplication(): void
     {
-        touch($this->dir . '/jmonitor-app.flush');
+        $directory = new BufferDirectory($this->dir, 'app');
+        touch($directory->path() . '/last-flush');
         $broken = new class implements ClockInterface {
             public function now(): \DateTimeImmutable
             {
@@ -202,7 +202,7 @@ final class RequestRecorderTest extends TestCase
             $this->buffer,
             new Aggregator(500),
             $this->storage(),
-            new FlushLock($this->dir, 'app', 1, $broken),
+            new FlushLock($directory, 1, $broken),
             $broken,
         );
         $recorder = new RequestRecorder($this->buffer, $flusher, [], $this->logger);
@@ -228,7 +228,7 @@ final class RequestRecorderTest extends TestCase
     {
         $clock = new NativeClock();
 
-        return new Flusher($buffer, new Aggregator(500), $this->storage(), new FlushLock($this->dir, 'app', 3600, $clock), $clock);
+        return new Flusher($buffer, new Aggregator(500), $this->storage(), new FlushLock(new BufferDirectory($this->dir, 'app'), 3600, $clock), $clock);
     }
 
     private function storage(): StorageInterface

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
@@ -27,10 +28,15 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
     $services->set('jmonitor.clock', NativeClock::class);
 
-    $services->set(FileBuffer::class)
+    $services->set(BufferDirectory::class)
         ->args([
             param('jmonitor.recording.buffer_dir'),
             param('jmonitor.recording.app_id'),
+        ]);
+
+    $services->set(FileBuffer::class)
+        ->args([
+            service(BufferDirectory::class),
             param('jmonitor.recording.flush_interval'),
             service('jmonitor.clock'),
         ]);
@@ -53,8 +59,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
     $services->set(FlushLock::class)
         ->args([
-            param('jmonitor.recording.buffer_dir'),
-            param('jmonitor.recording.app_id'),
+            service(BufferDirectory::class),
             param('jmonitor.recording.flush_interval'),
             service('jmonitor.clock'),
         ]);
