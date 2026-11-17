@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `/jmonitor` page: requests, response times and errors per route, stored in the application database.
+- `jmonitor:setup` command: creates the `jmonitor_aggregates` table.
 
 ### Changed
 - Requires PHP 8.2.

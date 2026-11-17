@@ -254,6 +254,8 @@ The bundle can also record the HTTP requests your application serves and show th
 
 It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` table is created automatically in the configured connection, and Doctrine migrations will not try to drop it. Your database receives batched writes, at most once per `flush_interval` per server, never one write per request.
 
+If the database user of your application is not allowed to create tables, run `php bin/console jmonitor:setup` at deployment with a user that is. It creates the table, or tells you it already exists.
+
 Import the routes (the bundle assets are published by `assets:install`, which Symfony Flex runs automatically):
 
 ```yaml
@@ -272,7 +274,7 @@ Defaults, all optional:
 jmonitor:
     recording:
         enabled: ~            # default: true, except in the "test" environment
-        flush_interval: 10    # seconds between two writes to the database
+        flush_interval: 10    # seconds between two writes to the database (3600 maximum)
         slow_threshold: 1000  # ms above which a request counts as slow
         ignore_routes: []     # route names not recorded, fnmatch patterns allowed (e.g. 'app_health*')
         buffer_dir: ~         # where the buffer gets its private subdirectory; default: the system temporary directory
