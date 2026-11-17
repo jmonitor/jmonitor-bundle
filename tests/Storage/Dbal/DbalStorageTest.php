@@ -132,6 +132,37 @@ final class DbalStorageTest extends TestCase
         static::assertFalse($connection->createSchemaManager()->tablesExist([AggregatesTable::NAME]));
     }
 
+    #[DataProvider('connections')]
+    public function testNeverWritesInsideAnOpenTransaction(Connection $connection): void
+    {
+        $this->reset($connection);
+        $connection->executeStatement('DROP TABLE IF EXISTS app_rows');
+        $connection->executeStatement('CREATE TABLE app_rows (id INTEGER NOT NULL PRIMARY KEY)');
+        $storage = $this->storage($connection);
+
+        $connection->beginTransaction();
+        $connection->executeStatement('INSERT INTO app_rows (id) VALUES (1)');
+
+        $refusals = 0;
+        foreach ([
+            fn() => $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)]),
+            fn() => $storage->purge(1700700000),
+        ] as $write) {
+            try {
+                $write();
+            } catch (\RuntimeException) {
+                ++$refusals;
+            }
+        }
+
+        static::assertSame(2, $refusals);
+        static::assertSame(1, $connection->getTransactionNestingLevel());
+        $connection->rollBack();
+        static::assertSame(0, (int) $connection->fetchOne('SELECT COUNT(*) FROM app_rows'));
+        static::assertFalse($connection->createSchemaManager()->tablesExist([AggregatesTable::NAME]));
+        $connection->executeStatement('DROP TABLE app_rows');
+    }
+
     private function reset(Connection $connection): void
     {
         $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);

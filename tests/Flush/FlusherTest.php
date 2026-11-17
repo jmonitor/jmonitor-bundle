@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Flush;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\DriverManager;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
@@ -162,6 +163,56 @@ final class FlusherTest extends TestCase
         $this->clock->sleep(300);
         static::assertTrue($flusher->flush());
         static::assertSame(2, $spy->purges);
+    }
+
+    public function testOpenTransactionOnTheConnectionKeepsTheSlots(): void
+    {
+        $logger = $this->memoryLogger();
+        $flusher = $this->flusher($this->dbalStorage(), $logger);
+        $this->record(5);
+        $this->clock->sleep(11);
+
+        $this->connection->beginTransaction();
+        try {
+            static::assertFalse($flusher->flush());
+        } finally {
+            $this->connection->rollBack();
+        }
+
+        static::assertNotNull($flusher->lastFailure());
+        static::assertCount(1, $logger->records);
+        static::assertCount(1, glob($this->dir . '/*.ndjson') ?: []);
+
+        static::assertTrue($flusher->flush());
+        static::assertSame(5, $this->storedRequests());
+    }
+
+    public function testUnreachableDatabaseKeepsTheSlots(): void
+    {
+        $unreachable = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'path' => $this->dir . '/missing/db.sqlite']);
+        $logger = $this->memoryLogger();
+        $flusher = $this->flusher(new DbalStorage($unreachable, 31_536_000), $logger);
+        $this->record(5);
+        $this->clock->sleep(11);
+
+        static::assertFalse($flusher->flush());
+
+        static::assertNotNull($flusher->lastFailure());
+        static::assertCount(1, $logger->records);
+        static::assertCount(1, glob($this->dir . '/*.ndjson') ?: []);
+    }
+
+    private function memoryLogger(): AbstractLogger
+    {
+        return new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $records = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->records[] = $level . ' ' . $message;
+            }
+        };
     }
 
     private function flusher(StorageInterface $storage, ?AbstractLogger $logger = null): Flusher

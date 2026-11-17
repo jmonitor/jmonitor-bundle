@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle;
 
+use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -14,6 +16,11 @@ use Symfony\Component\Messenger\Worker;
 
 final class JmonitorBundle extends AbstractBundle
 {
+    public function build(ContainerBuilder $container): void
+    {
+        $container->addCompilerPass(new StorageConnectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+    }
+
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         $environment = $builder->getParameter('kernel.environment');

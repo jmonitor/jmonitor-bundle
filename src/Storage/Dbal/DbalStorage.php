@@ -28,6 +28,7 @@ final class DbalStorage implements StorageInterface
             return;
         }
 
+        $this->assertNoOpenTransaction();
         $this->ensureTable();
         $platform = $this->connection->getDatabasePlatform();
 
@@ -56,6 +57,8 @@ final class DbalStorage implements StorageInterface
 
     public function purge(int $now): void
     {
+        $this->assertNoOpenTransaction();
+
         foreach (Period::cases() as $period) {
             $threshold = $now - min($period->value, $this->retention) - $period->bucketSeconds();
 
@@ -67,6 +70,20 @@ final class DbalStorage implements StorageInterface
             } catch (TableNotFoundException) {
                 return;
             }
+        }
+    }
+
+    /**
+     * Writing inside a transaction left open by the application would mix both: MySQL commits it
+     * implicitly on CREATE TABLE, PostgreSQL aborts it on a failed query, and a later rollback
+     * silently loses the drained slots.
+     */
+    private function assertNoOpenTransaction(): void
+    {
+        $native = $this->connection->getNativeConnection();
+
+        if ($this->connection->isTransactionActive() || ($native instanceof \PDO && $native->inTransaction())) {
+            throw new \RuntimeException('The connection has an open transaction.');
         }
     }
 
