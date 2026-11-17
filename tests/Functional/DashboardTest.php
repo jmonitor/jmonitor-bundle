@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Doctrine\DBAL\Connection;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
@@ -120,6 +121,32 @@ final class DashboardTest extends WebTestCase
         $kernel->shutdown();
 
         static::assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * @return iterable<string, array{bool, bool, int}>
+     */
+    public static function enabledCombinations(): iterable
+    {
+        yield 'recording on, page off' => [true, false, 404];
+        yield 'recording off, page off' => [false, false, 404];
+        yield 'recording on, page on' => [true, true, 200];
+        yield 'recording off, page on' => [false, true, 200];
+    }
+
+    #[DataProvider('enabledCombinations')]
+    public function testDisabledPageIsNotFound(bool $recording, bool $dashboard, int $status): void
+    {
+        $client = static::createClient(['jmonitor' => [
+            'recording' => ['enabled' => $recording, 'buffer_dir' => $this->bufferDir],
+            'dashboard' => ['enabled' => $dashboard],
+        ]]);
+
+        $client->request('GET', '/jmonitor/');
+        static::assertResponseStatusCodeSame($status);
+
+        $client->request('GET', '/jmonitor/_fragment');
+        static::assertResponseStatusCodeSame($status);
     }
 
     public function testPermission(): void

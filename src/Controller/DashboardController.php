@@ -11,13 +11,14 @@ use Jmonitor\JmonitorBundle\Dashboard\RequestsScreenFactory;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Twig\Environment;
 
 final class DashboardController
 {
     public function __construct(
         private readonly DashboardAccess $access,
-        private readonly RequestsScreenFactory $screens,
+        private readonly ?RequestsScreenFactory $screens,
         private readonly ?Flusher $flusher,
         private readonly Environment $twig,
     ) {}
@@ -36,8 +37,12 @@ final class DashboardController
     {
         $this->access->assertGranted();
 
+        if ($this->screens === null) {
+            throw new NotFoundHttpException();
+        }
+
         $response = new Response($this->twig->render($template, [
-            'screen' => $this->screen($request),
+            'screen' => $this->screen($request, $this->screens),
             'periods' => Period::cases(),
         ]));
         $response->headers->set('Cache-Control', 'no-store');
@@ -46,7 +51,7 @@ final class DashboardController
         return $response;
     }
 
-    private function screen(Request $request): RequestsScreen
+    private function screen(Request $request, RequestsScreenFactory $screens): RequestsScreen
     {
         $storageFailed = false;
 
@@ -55,7 +60,7 @@ final class DashboardController
             $storageFailed = $this->flusher->lastFailure() !== null;
         }
 
-        return $this->screens->create(
+        return $screens->create(
             self::query($request, 'period'),
             self::query($request, 'sort'),
             self::query($request, 'dir'),

@@ -8,12 +8,13 @@ use Jmonitor\JmonitorBundle\Dashboard\RequestsScreenFactory;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
-return static function (ContainerConfigurator $container): void {
+return static function (ContainerConfigurator $container, ContainerBuilder $builder): void {
     $services = $container->services();
 
     $services->set(DashboardAccess::class)
@@ -23,6 +24,19 @@ return static function (ContainerConfigurator $container): void {
             param('jmonitor.dashboard.permission'),
             service('security.authorization_checker')->nullOnInvalid(),
         ]);
+
+    $services->set(DashboardController::class)
+        ->public()
+        ->args([
+            service(DashboardAccess::class),
+            service(RequestsScreenFactory::class)->nullOnInvalid(),
+            service(Flusher::class)->nullOnInvalid(),
+            service('twig'),
+        ]);
+
+    if (!$builder->getParameter('jmonitor.dashboard.enabled')) {
+        return;
+    }
 
     $services->set(RequestsScreenFactory::class)
         ->args([
@@ -35,13 +49,4 @@ return static function (ContainerConfigurator $container): void {
 
     $services->set(JmonitorExtension::class)
         ->tag('twig.extension');
-
-    $services->set(DashboardController::class)
-        ->public()
-        ->args([
-            service(DashboardAccess::class),
-            service(RequestsScreenFactory::class),
-            service(Flusher::class)->nullOnInvalid(),
-            service('twig'),
-        ]);
 };

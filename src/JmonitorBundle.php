@@ -52,9 +52,7 @@ final class JmonitorBundle extends AbstractBundle
             $container->import('../config/recording.php');
         }
 
-        if ($config['dashboard']['enabled']) {
-            $container->import('../config/dashboard.php');
-        }
+        $container->import('../config/dashboard.php');
 
         if (!$config['project_api_key']) {
             return;
