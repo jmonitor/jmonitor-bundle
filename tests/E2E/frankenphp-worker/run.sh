@@ -43,8 +43,8 @@ hit() {
     counter="$value"
 }
 
-# A slot of one hour never completes during the run, so the lines stay in the buffer files.
-start 3600
+# A slot of a billion seconds does not complete during the run, so the lines stay in the buffer files.
+start 1000000000
 
 sleep 5
 for i in 1 2 3 4; do
@@ -66,11 +66,16 @@ for _ in $(seq 1 30); do
 done
 echo "worker request counter after the page phase: $counter"
 
-sleep 2
-
-page="$(curl -sf "$BASE/jmonitor/")" || fail "GET /jmonitor/ did not return 2xx"
-printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' \
-    || fail 'the page does not list 30 requests for "GET app_hello"'
+listed=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/")" || fail "GET /jmonitor/ did not return 2xx"
+    if printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"'; then
+        listed=1
+        break
+    fi
+    sleep 1
+done
+[ "$listed" = 1 ] || fail 'the page did not list 30 requests for "GET app_hello" within 30 s'
 
 css="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/bundles/jmonitor/jmonitor.css")"
 [ "$css" = 200 ] || fail "/bundles/jmonitor/jmonitor.css answered $css"
