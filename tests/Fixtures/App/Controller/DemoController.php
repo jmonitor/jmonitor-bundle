@@ -20,6 +20,13 @@ final class DemoController
         return new Response('Slow');
     }
 
+    public function alloc(): Response
+    {
+        $block = str_repeat('x', 32 * 1024 * 1024);
+
+        return new Response((string) \strlen($block));
+    }
+
     public function boom(): Response
     {
         throw new \RuntimeException('Boom');
