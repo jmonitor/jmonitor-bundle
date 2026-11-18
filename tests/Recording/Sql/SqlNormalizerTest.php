@@ -34,6 +34,8 @@ final class SqlNormalizerTest extends TestCase
         yield ['SELECT * FROM u WHERE a <> "x" OR b != "y" OR c < "z" OR d > "w" OR e <= "v"', 'SELECT * FROM u WHERE a <> ? OR b != ? OR c < ? OR d > ? OR e <= ?'];
         yield ['INSERT INTO u (a) VALUES (CONCAT("a(", "b"))', 'INSERT INTO u (a) VALUES (CONCAT(?, ?))'];
         yield ["SELECT * FROM u WHERE a = 'unterminated", 'SELECT * FROM u WHERE a = ?'];
+        yield ['SELECT "IN (?, ?)", "VALUES (?), (?)" FROM t', 'SELECT "IN (?, ?)", "VALUES (?), (?)" FROM t'];
+        yield ['INSERT INTO t VALUES ("a"), ("b")); SELECT * FROM u WHERE id IN ("x", "y")', 'INSERT INTO t VALUES (?)); SELECT * FROM u WHERE id IN (?)'];
         yield ['SELECT 1 /* unterminated', 'SELECT ?'];
     }
 
@@ -74,6 +76,21 @@ final class SqlNormalizerTest extends TestCase
         yield 'unterminated comments' => ['SELECT 1 ' . str_repeat('/* ', 200_000), 'SELECT ?'];
         yield 'unterminated identifiers' => ['SELECT ' . str_repeat('"a""', 100_000), 'SELECT ' . mb_substr(str_repeat('"a""', 100_000), 0, SqlNormalizer::MAX_LENGTH - 7)];
         yield 'unterminated values groups' => ['INSERT INTO t VALUES ' . str_repeat('VALUES (', 50_000), 'INSERT INTO t VALUES ' . mb_substr(str_repeat('VALUES (', 50_000), 0, SqlNormalizer::MAX_LENGTH - 21)];
+
+        $sql = 'INSERT INTO t ' . str_repeat('VALUES (' . str_repeat('x', 250) . ' ', 4000) . ')';
+        yield 'nested values groups closed once' => [$sql, mb_substr($sql, 0, SqlNormalizer::MAX_LENGTH)];
+
+        $sql = 'INSERT INTO t VALUES ' . str_repeat('VALUES (', 20_000) . ')';
+        yield 'adjacent values groups closed once' => [$sql, mb_substr($sql, 0, SqlNormalizer::MAX_LENGTH)];
+
+        $sql = 'INSERT INTO t VALUES ' . str_repeat('VALUES ("', 20_000) . ')';
+        yield 'quoted values groups closed once' => [$sql, mb_substr($sql, 0, SqlNormalizer::MAX_LENGTH)];
+
+        yield 'five thousand groups of markers' => ['INSERT INTO t (a, b) VALUES ' . implode(', ', array_fill(0, 5000, '(?, ?)')), 'INSERT INTO t (a, b) VALUES (?, ?)'];
+        yield 'five thousand groups of literals' => [
+            'INSERT INTO t (a, b) VALUES ' . implode(', ', array_map(static fn(int $i): string => \sprintf("(%d, 'x%d')", $i, $i), range(1, 5000))),
+            'INSERT INTO t (a, b) VALUES (?, ?)',
+        ];
     }
 
     #[DataProvider('hostileQueries')]
