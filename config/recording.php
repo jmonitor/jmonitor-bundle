@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
@@ -46,8 +47,11 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ]);
     $services->alias(BufferInterface::class, FileBuffer::class);
 
+    $services->set(HotKeys::class)
+        ->args([service(BufferDirectory::class), service('jmonitor.clock')]);
+
     $services->set(Aggregator::class)
-        ->args([param('jmonitor.recording.slow_threshold')]);
+        ->args([param('jmonitor.recording.slow_threshold'), service(HotKeys::class)]);
 
     $services->set(DbalStorage::class)
         ->args([$connection, param('jmonitor.storage.retention')])
@@ -84,7 +88,8 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service(FlushLock::class),
             service('jmonitor.clock'),
             $logger,
-        ]);
+        ])
+        ->arg('$hotKeys', service(HotKeys::class));
 
     if ($customLogger === null) {
         $flusher->tag('monolog.logger', ['channel' => 'jmonitor']);

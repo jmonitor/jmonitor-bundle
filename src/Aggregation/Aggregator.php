@@ -13,7 +13,10 @@ final class Aggregator
     private const MAX_OCCURRENCES = 1e9;
     private const MAX_WEIGHT = 1e6;
 
-    public function __construct(private readonly int $slowThresholdMs) {}
+    public function __construct(
+        private readonly int $slowThresholdMs,
+        private readonly ?HotKeys $hotKeys = null,
+    ) {}
 
     /**
      * @param iterable<Entry> $entries
@@ -67,7 +70,7 @@ final class Aggregator
             }
         }
 
-        $groups = self::capKeys($groups);
+        $groups = $this->capKeys($groups);
 
         /** @var array<string, Aggregate> $merged */
         $merged = [];
@@ -148,7 +151,7 @@ final class Aggregator
      *
      * @return array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}>
      */
-    private static function capKeys(array $groups): array
+    private function capKeys(array $groups): array
     {
         $weights = [];
         foreach ($groups as ['family' => $family, 'key' => $key, 'counters' => $counters]) {
@@ -159,6 +162,15 @@ final class Aggregator
         $folded = [];
         foreach (Family::cases() as $family) {
             $keys = $weights[$family->value] ?? [];
+            if ($this->hotKeys !== null && $family->isOpen()) {
+                $dropped = array_diff_key($keys, $this->hotKeys->select($family, $keys, $family->cap()));
+                if ($dropped !== []) {
+                    $folded[$family->value] = $dropped;
+                }
+
+                continue;
+            }
+
             if (\count($keys) <= $family->cap()) {
                 continue;
             }

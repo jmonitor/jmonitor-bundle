@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Flush;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
@@ -312,6 +313,36 @@ final class FlusherTest extends TestCase
         static::assertNotNull($flusher->lastFailure());
         static::assertCount(1, $logger->records);
         static::assertCount(1, glob($this->dir . '/*/*.ndjson') ?: []);
+    }
+
+    public function testTheRegistryIsWrittenOnlyAfterASuccessfulStore(): void
+    {
+        $failing = new class implements StorageInterface {
+            public function prepare(): void {}
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                throw new \RuntimeException('database down');
+            }
+
+            public function purge(int $now): void {}
+        };
+        $this->record(2);
+        $this->clock->sleep(11);
+
+        static::assertFalse($this->flusherWithRegistry($failing)->flush());
+        static::assertSame([], glob($this->dir . '/*/hot-keys.json'));
+
+        static::assertTrue($this->flusherWithRegistry($this->dbalStorage())->flush());
+        static::assertCount(1, glob($this->dir . '/*/hot-keys.json') ?: []);
+    }
+
+    private function flusherWithRegistry(StorageInterface $storage): Flusher
+    {
+        $directory = new BufferDirectory($this->dir, 'app');
+        $registry = new HotKeys($directory, $this->clock);
+
+        return new Flusher($this->buffer, new Aggregator(500, $registry), $storage, new FlushLock($directory, 10, $this->clock), $this->clock, null, 300, $registry);
     }
 
     private function memoryLogger(): AbstractLogger

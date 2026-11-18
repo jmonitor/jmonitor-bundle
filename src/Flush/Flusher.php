@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Flush;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
@@ -23,6 +24,7 @@ final class Flusher
         private readonly ClockInterface $clock,
         private readonly ?LoggerInterface $logger = null,
         private readonly int $purgeIntervalSeconds = 300,
+        private readonly ?HotKeys $hotKeys = null,
     ) {}
 
     public function flushIfDue(): bool
@@ -76,6 +78,7 @@ final class Flusher
     {
         $this->storage->prepare();
         $this->storage->store($this->aggregator->aggregate($entries), $this->clock->now()->getTimestamp());
+        $this->hotKeys?->commit();
     }
 
     private function purgeIfDue(): void

@@ -6,10 +6,15 @@ namespace Jmonitor\JmonitorBundle\Tests\Aggregation;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\Family;
+use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Clock\MockClock;
+use Symfony\Component\Filesystem\Filesystem;
 
 class AggregatorTest extends TestCase
 {
@@ -441,6 +446,34 @@ class AggregatorTest extends TestCase
                 static::assertGreaterThan(9_000_000_000_000_000_000, $aggregate->count);
             }
         }
+    }
+
+    public function testOpenFamiliesFollowTheRegistry(): void
+    {
+        $dir = sys_get_temp_dir() . '/jmonitor-aggregator-' . bin2hex(random_bytes(6));
+        mkdir($dir);
+
+        try {
+            $registry = new HotKeys(new BufferDirectory($dir, 'app'), new MockClock('@1700000000'));
+            $registry->select(Family::Query, ['known' => 10_000.0], Family::Query->cap());
+
+            $children = [new Entry(Entry::TYPE_QUERY, 'known', 1700000045.0, 1.0, ['n' => 1, 'm' => 1.0])];
+            for ($i = 1; $i < 250; ++$i) {
+                $children[] = new Entry(Entry::TYPE_QUERY, sprintf('q%03d', $i), 1700000045.0, 10.0 + $i, ['n' => 1, 'm' => 1.0]);
+            }
+
+            $aggregates = (new Aggregator(1000, $registry))->aggregate([
+                new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0, [], $children),
+            ]);
+        } finally {
+            (new Filesystem())->remove($dir);
+        }
+
+        $rows = array_filter($aggregates, static fn(Aggregate $a): bool => $a->period === Period::OneHour && $a->type === Metric::QUERY_DURATION);
+        static::assertCount(201, $rows);
+        static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, 'known'));
+        static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, Aggregator::OTHER));
+        static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, 'GET a'));
     }
 
     /**
