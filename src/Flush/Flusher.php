@@ -109,8 +109,6 @@ final class Flusher
     }
 
     /**
-     * Runs on every flush, stored or not, because it is what bounds the label directory.
-     *
      * @param array<string, ?string> $labels
      */
     private function confirmLabels(array $labels, ?int $now): void
