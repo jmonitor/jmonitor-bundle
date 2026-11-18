@@ -63,6 +63,7 @@ final class DbalReportTest extends TestCase
         static::assertNull($report->other);
         foreach ($rows as $key => $row) {
             static::assertSame($key, $row->label);
+            static::assertSame(AggregatesTable::keyHash($key), $row->hash);
             static::assertSame(3, $row->count(Metric::REQUEST_DURATION));
             static::assertSame(400.0, $row->sum(Metric::REQUEST_DURATION));
             static::assertSame(300.0, $row->max(Metric::REQUEST_DURATION));
@@ -85,6 +86,7 @@ final class DbalReportTest extends TestCase
         static::assertSame(['GET app_home'], array_keys($this->indexByKey($report->rows)));
         static::assertSame(1, $report->keyCount);
         static::assertSame(Aggregator::OTHER, $report->other?->key);
+        static::assertSame(AggregatesTable::keyHash(Aggregator::OTHER), $report->other->hash);
         static::assertSame(5, $report->other->count(Metric::REQUEST_DURATION));
     }
 
@@ -108,9 +110,11 @@ final class DbalReportTest extends TestCase
         static::assertSame('q51', $report->rows[99]->key);
         static::assertSame(150, $report->keyCount);
         static::assertSame(1_000_000.0, $report->other?->sum(Metric::QUERY_DURATION));
+        static::assertSame(AggregatesTable::keyHash(Aggregator::OTHER), $report->other->hash);
         foreach ($report->rows as $row) {
             $i = (int) substr($row->key, 1);
             static::assertSame($row->key, $row->label);
+            static::assertSame(AggregatesTable::keyHash($row->key), $row->hash);
             static::assertSame((float) $i, $row->sum(Metric::QUERY_DURATION));
             static::assertSame($i % 2 === 0 ? 1 : 0, $row->count(Metric::QUERY_SLOW));
         }
@@ -191,6 +195,7 @@ final class DbalReportTest extends TestCase
         static::assertCount(1, $report->rows);
         static::assertNull($report->rows[0]->label);
         static::assertSame(AggregatesTable::keyHash('abc'), $report->rows[0]->key);
+        static::assertSame(AggregatesTable::keyHash('abc'), $report->rows[0]->hash);
         static::assertSame(1, $report->rows[0]->count(Metric::QUERY_DURATION));
     }
 
@@ -202,7 +207,10 @@ final class DbalReportTest extends TestCase
 
         static::assertSame(['abc' => 'SELECT 1'], $reader->labels(['abc', 'nope']));
         static::assertSame([], $reader->labels([]));
-        static::assertSame('SELECT 1', $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_DURATION))->rows[0]->label);
+        $row = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_DURATION))->rows[0];
+        static::assertSame('SELECT 1', $row->label);
+        static::assertSame('SELECT 1', $row->key);
+        static::assertSame(AggregatesTable::keyHash('abc'), $row->hash);
     }
 
     #[DataProvider('connections')]

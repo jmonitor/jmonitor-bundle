@@ -127,9 +127,9 @@ final class DbalReader implements ReaderInterface, ResetInterface
         $labels = $this->labelsByHash(array_map('strval', array_keys($metrics)));
         $rows = [];
         foreach ($hashes as $hash) {
-            $rows[] = new ReportRow($labels[$hash] ?? $hash, $labels[$hash] ?? null, $metrics[$hash] ?? []);
+            $rows[] = new ReportRow($hash, $labels[$hash] ?? $hash, $labels[$hash] ?? null, $metrics[$hash] ?? []);
         }
-        $other = isset($metrics[$otherHash]) ? new ReportRow(Aggregator::OTHER, $labels[$otherHash] ?? null, $metrics[$otherHash]) : null;
+        $other = isset($metrics[$otherHash]) ? new ReportRow($otherHash, Aggregator::OTHER, $labels[$otherHash] ?? null, $metrics[$otherHash]) : null;
 
         return new Report($rows, $other, $keyCount, $series);
     }

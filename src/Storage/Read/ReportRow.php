@@ -8,6 +8,7 @@ final class ReportRow
 {
     /** @param array<string, MetricValue> $metrics metric type => value */
     public function __construct(
+        public readonly string $hash,
         public readonly string $key,
         public readonly ?string $label,
         public readonly array $metrics,
