@@ -453,6 +453,19 @@ final class DbalStorageTest extends TestCase
     }
 
     #[DataProvider('connections')]
+    public function testALabelWithoutAggregateIsWrittenOnlyWithItsText(Connection $connection): void
+    {
+        $this->reset($connection);
+        $repeated = new Aggregate(Period::OneHour, 1700000040, Metric::NPLUS1_DURATION, 'request' . Entry::KEY_SEPARATOR . 'GET app_list' . Entry::KEY_SEPARATOR . 'a1b2c3d4e5f6a7b8', 1, 1.0, 1.0);
+
+        $this->storage($connection)->store([$repeated], 1000, ['a1b2c3d4e5f6a7b8' => 'SELECT 1', 'ffffffffffffffff' => null]);
+
+        static::assertSame('SELECT 1', $connection->fetchOne('SELECT metric_key FROM jmonitor_keys WHERE key_hash = ?', [AggregatesTable::keyHash('a1b2c3d4e5f6a7b8')]));
+        static::assertFalse($connection->fetchOne('SELECT metric_key FROM jmonitor_keys WHERE key_hash = ?', [AggregatesTable::keyHash('ffffffffffffffff')]));
+        static::assertCount(2, $this->labels($connection));
+    }
+
+    #[DataProvider('connections')]
     public function testPurgeDropsKeysNotSeenForTheRetentionPlusADay(Connection $connection): void
     {
         $this->reset($connection);

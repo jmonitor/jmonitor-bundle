@@ -94,6 +94,36 @@ final class LabelSyncTest extends TestCase
         static::assertTrue($this->store->exists($kept));
     }
 
+    public function testTheQueryOfARepeatedQueryIsMappedWithoutItsOwnAggregate(): void
+    {
+        $this->store->write(self::ID, self::TEXT);
+
+        $labels = (new LabelSync($this->store))->labelsFor([
+            self::aggregate(Metric::QUERY_DURATION, Aggregator::OTHER),
+            self::aggregate(Metric::NPLUS1_DURATION, Aggregator::OTHER),
+            self::aggregate(Metric::NPLUS1_DURATION, self::repeated(self::ID)),
+            self::aggregate(Metric::NPLUS1_CALLS, self::repeated(self::ID)),
+        ], time());
+
+        static::assertSame([self::ID => self::TEXT], $labels);
+    }
+
+    public function testConfirmKeepsTheQueriesOfTheRepeatedQueriesInTheRegistry(): void
+    {
+        $this->store->write(self::ID, self::TEXT);
+        $hotKeys = new HotKeys($this->directory, new MockClock());
+        $hotKeys->select(Family::NPlusOne, [self::repeated(self::ID) => 1.0], 10);
+
+        (new LabelSync($this->store, $hotKeys))->confirm([], time() + LabelStore::STORE_EVERY + 10);
+
+        static::assertTrue($this->store->exists(self::ID));
+    }
+
+    private static function repeated(string $id): string
+    {
+        return 'request' . Entry::KEY_SEPARATOR . 'GET app_list' . Entry::KEY_SEPARATOR . $id;
+    }
+
     private static function aggregate(string $type, string $key): Aggregate
     {
         return new Aggregate(Period::OneHour, 0, $type, $key, 1, 1.0, 1.0);

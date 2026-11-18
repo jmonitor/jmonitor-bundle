@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
+use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 
 final class LabelSync
@@ -20,14 +21,18 @@ final class LabelSync
     /**
      * @param list<Aggregate> $aggregates
      *
-     * @return array<string, ?string> for the keys of the query family: the text to store, or null when it is not due or cannot be read
+     * @return array<string, ?string> for the queries of the batch, repeated ones included: the text to store, or null when it is not due or cannot be read
      */
     public function labelsFor(array $aggregates, int $now): array
     {
         $labels = [];
         foreach ($aggregates as $aggregate) {
-            $id = $aggregate->key;
-            if ($id === Aggregator::OTHER || \array_key_exists($id, $labels) || Family::ofMetric($aggregate->type) !== Family::Query) {
+            $id = match (Family::ofMetric($aggregate->type)) {
+                Family::Query => $aggregate->key,
+                Family::NPlusOne => self::repeatedQuery($aggregate->key),
+                default => null,
+            };
+            if ($id === null || $id === Aggregator::OTHER || \array_key_exists($id, $labels)) {
                 continue;
             }
 
@@ -48,6 +53,14 @@ final class LabelSync
             }
         }
 
-        $this->labels->prune($this->hotKeys?->keys(Family::Query) ?? [], $now);
+        $repeated = array_filter(array_map(self::repeatedQuery(...), $this->hotKeys?->keys(Family::NPlusOne) ?? []));
+        $this->labels->prune([...$this->hotKeys?->keys(Family::Query) ?? [], ...array_values($repeated)], $now);
+    }
+
+    private static function repeatedQuery(string $key): ?string
+    {
+        $parts = explode(Entry::KEY_SEPARATOR, $key);
+
+        return \count($parts) === 3 ? $parts[2] : null;
     }
 }

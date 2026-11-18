@@ -7,6 +7,13 @@ namespace Jmonitor\JmonitorBundle\Tests\Flush;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
+use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
+use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
@@ -501,6 +508,40 @@ final class FlusherTest extends TestCase
         $clock->sleep(11);
         static::assertFalse($flusher->flush());
         static::assertFalse($labelStore->exists('fedcba9876543210'));
+    }
+
+    public function testARepeatedQueryKeepsItsTextWhenItsOwnRowIsFoldedIntoOther(): void
+    {
+        $directory = new BufferDirectory($this->dir, 'app');
+        $labelStore = new LabelStore($directory);
+        $registry = new HotKeys($directory, $this->clock);
+        $flusher = new Flusher($this->buffer, new Aggregator(500, $registry), $this->dbalStorage(), new FlushLock($directory, 10, $this->clock), $this->clock, null, 300, $registry, null, new LabelSync($labelStore, $registry));
+        $now = (float) $this->clock->now()->getTimestamp();
+
+        $heavy = [];
+        for ($i = 1; $i <= 250; ++$i) {
+            $id = SqlNormalizer::id('SELECT * FROM heavy_' . $i);
+            $labelStore->write($id, 'SELECT * FROM heavy_' . $i);
+            $heavy[] = new Entry(Entry::TYPE_QUERY, $id, $now, 50.0, ['n' => 1, 'm' => 50.0]);
+        }
+        $light = SqlNormalizer::id('SELECT * FROM items WHERE id = ?');
+        $labelStore->write($light, 'SELECT * FROM items WHERE id = ?');
+        $this->buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET app_heavy', $now, 13000.0, [], $heavy));
+        $this->buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET app_list', $now, 20.0, [], [
+            new Entry(Entry::TYPE_QUERY, $light, $now, 3.6, ['n' => 12, 'm' => 0.3]),
+            new Entry(Entry::TYPE_NPLUS1, $light, $now, 3.6, ['n' => 12]),
+        ]));
+        $this->clock->sleep(11);
+
+        static::assertTrue($flusher->flush());
+
+        $reader = new DbalReader($this->connection);
+        $queries = $reader->read(new ReportQuery(Period::OneHour, $this->clock->now()->getTimestamp(), Family::Query, Metric::QUERY_DURATION, limit: 300));
+        static::assertNotContains($light, array_map(static fn(ReportRow $row): string => $row->key, $queries->rows));
+        $repeated = $reader->read(new ReportQuery(Period::OneHour, $this->clock->now()->getTimestamp(), Family::NPlusOne, Metric::NPLUS1_DURATION));
+        static::assertCount(1, $repeated->rows);
+        static::assertSame([$light => 'SELECT * FROM items WHERE id = ?'], $reader->labels([$light]));
+        static::assertFalse($labelStore->isDue($light, $this->clock->now()->getTimestamp()));
     }
 
     private function labelCapturingStorage(): StorageInterface

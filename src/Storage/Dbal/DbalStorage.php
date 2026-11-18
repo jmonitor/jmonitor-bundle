@@ -121,7 +121,13 @@ final class DbalStorage implements StorageInterface
             }
 
             $label = \array_key_exists($aggregate->key, $labels) ? $labels[$aggregate->key] : $aggregate->key;
-            $keys[$hash] = $label === null ? null : mb_substr(mb_scrub($label, 'UTF-8'), 0, KeysTable::LABEL_MAX_LENGTH, 'UTF-8');
+            $keys[$hash] = $label === null ? null : self::fit($label);
+        }
+        foreach ($labels as $key => $label) {
+            $hash = AggregatesTable::keyHash((string) $key);
+            if ($label !== null && !\array_key_exists($hash, $keys)) {
+                $keys[$hash] = self::fit($label);
+            }
         }
         ksort($keys, \SORT_STRING);
 
@@ -139,6 +145,11 @@ final class DbalStorage implements StorageInterface
         }
 
         return $batches;
+    }
+
+    private static function fit(string $label): string
+    {
+        return mb_substr(mb_scrub($label, 'UTF-8'), 0, KeysTable::LABEL_MAX_LENGTH, 'UTF-8');
     }
 
     /** Writes made inside a transaction of the application would be committed or rolled back with it. */

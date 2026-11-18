@@ -13,7 +13,8 @@ interface StorageInterface
 
     /**
      * @param list<Aggregate>        $aggregates
-     * @param array<string, ?string> $labels     key => label to write, or null to only refresh its last sight; a key absent from the map is its own label
+     * @param array<string, ?string> $labels     key => label to write, or null to only refresh its last sight; a key absent from the map is its
+     *                                           own label, a key of the map without aggregate is written only with a label
      */
     public function store(array $aggregates, int $now, array $labels = []): void;
 
