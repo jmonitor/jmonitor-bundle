@@ -176,6 +176,21 @@ final class QueryDigesterTest extends TestCase
         static::assertSame(14.0, $digest->children[0]->durationMs);
     }
 
+    public function testAQueryThatCannotBeNormalizedIsFoldedIntoOtherAndNeverWritten(): void
+    {
+        $limit = \ini_get('pcre.backtrack_limit');
+        ini_set('pcre.backtrack_limit', '1');
+
+        try {
+            $digest = $this->digester()->digest(["SELECT * FROM t WHERE a = 'secret'" => [1, 1.0, 1.0, 0]], 1000.0);
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $limit);
+        }
+
+        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
+        static::assertSame([], $this->labelFiles());
+    }
+
     public function testAnUnusableDirectoryFoldsEverythingIntoOther(): void
     {
         touch($this->dir . '/file');

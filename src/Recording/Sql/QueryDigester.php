@@ -73,7 +73,7 @@ final class QueryDigester
     }
 
     /**
-     * @return array{string, bool}|null null when the label does not exist and cannot be written
+     * @return array{string, bool}|null null when the text cannot be normalized, or its label does not exist and cannot be written
      */
     private function label(string $sql, int &$writes): ?array
     {
@@ -83,6 +83,10 @@ final class QueryDigester
         }
 
         $normalized = SqlNormalizer::normalize($sql);
+        if ($normalized === null) {
+            return null;
+        }
+
         $id = SqlNormalizer::id($normalized);
 
         if (!$this->labels->exists($id)) {

@@ -25,6 +25,16 @@ final class SqlNormalizerTest extends TestCase
         yield ["SELECT 1 /* trace 8f3a */ FROM t -- note\n WHERE a = -1.5e3 OR b = 0xFF;", 'SELECT ? FROM t WHERE a = ? OR b = ?'];
         yield ["  SELECT\n\t*  FROM   t\n LIMIT 10 OFFSET 20 ", 'SELECT * FROM t LIMIT ? OFFSET ?'];
         yield ['SELECT "col 1", `col2` FROM "My Table"', 'SELECT "col 1", `col2` FROM "My Table"'];
+        yield ['SELECT * FROM u WHERE email = "secret@example.com"', 'SELECT * FROM u WHERE email = ?'];
+        yield ['SELECT * FROM u WHERE name LIKE "%smith%" AND age >= "18"', 'SELECT * FROM u WHERE name LIKE ? AND age >= ?'];
+        yield ['SELECT * FROM u WHERE code IN ("a", "b", "c")', 'SELECT * FROM u WHERE code IN (?)'];
+        yield ['INSERT INTO u (a, b) VALUES ("x", "y"), ("z", "w")', 'INSERT INTO u (a, b) VALUES (?, ?)'];
+        yield ['INSERT INTO "u" ("a", "b") VALUES (?, ?)', 'INSERT INTO "u" ("a", "b") VALUES (?, ?)'];
+        yield ['SELECT "t"."col 1" FROM "My Table" "t" WHERE "t"."id" = ?', 'SELECT "t"."col 1" FROM "My Table" "t" WHERE "t"."id" = ?'];
+        yield ['SELECT * FROM u WHERE a <> "x" OR b != "y" OR c < "z" OR d > "w" OR e <= "v"', 'SELECT * FROM u WHERE a <> ? OR b != ? OR c < ? OR d > ? OR e <= ?'];
+        yield ['INSERT INTO u (a) VALUES (CONCAT("a(", "b"))', 'INSERT INTO u (a) VALUES (CONCAT(?, ?))'];
+        yield ["SELECT * FROM u WHERE a = 'unterminated", 'SELECT * FROM u WHERE a = ?'];
+        yield ['SELECT 1 /* unterminated', 'SELECT ?'];
     }
 
     #[DataProvider('queries')]
@@ -55,9 +65,44 @@ final class SqlNormalizerTest extends TestCase
         static::assertSame('SELECT * FROM t WHERE id IN (?)', $normalized);
     }
 
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function hostileQueries(): iterable
+    {
+        yield 'unterminated escaped quotes' => ['SELECT * FROM t WHERE a = ' . str_repeat("'\\", 200_000), 'SELECT * FROM t WHERE a = ?'];
+        yield 'unterminated comments' => ['SELECT 1 ' . str_repeat('/* ', 200_000), 'SELECT ?'];
+        yield 'unterminated identifiers' => ['SELECT ' . str_repeat('"a""', 100_000), 'SELECT ' . mb_substr(str_repeat('"a""', 100_000), 0, SqlNormalizer::MAX_LENGTH - 7)];
+        yield 'unterminated values groups' => ['INSERT INTO t VALUES ' . str_repeat('VALUES (', 50_000), 'INSERT INTO t VALUES ' . mb_substr(str_repeat('VALUES (', 50_000), 0, SqlNormalizer::MAX_LENGTH - 21)];
+    }
+
+    #[DataProvider('hostileQueries')]
+    public function testAHostileQueryIsNormalizedInLinearTime(string $sql, string $expected): void
+    {
+        $start = microtime(true);
+        $normalized = SqlNormalizer::normalize($sql);
+
+        static::assertLessThan(1.0, microtime(true) - $start);
+        static::assertSame($expected, $normalized);
+    }
+
+    public function testAFailingPatternNeverGivesTheTextBack(): void
+    {
+        $limit = \ini_get('pcre.backtrack_limit');
+        ini_set('pcre.backtrack_limit', '1');
+
+        try {
+            static::assertNull(SqlNormalizer::normalize("SELECT * FROM t WHERE a = 'secret' AND b IN (1, 2) AND c = \"x\""));
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $limit);
+        }
+
+        static::assertSame('SELECT ?', SqlNormalizer::normalize('SELECT 1'));
+    }
+
     public function testInvalidUtf8IsScrubbed(): void
     {
-        static::assertTrue(mb_check_encoding(SqlNormalizer::normalize("SELECT '\xC3\x28'"), 'UTF-8'));
+        static::assertTrue(mb_check_encoding((string) SqlNormalizer::normalize("SELECT '\xC3\x28'"), 'UTF-8'));
     }
 
     public function testMarkupIsKeptAsText(): void
