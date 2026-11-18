@@ -15,16 +15,21 @@ final class DbalStorage implements StorageInterface
     private const KEY_GRACE_SECONDS = 86400;
 
     private bool $schemaReady = false;
+    private bool $installed = false;
 
     public function __construct(
         private readonly Connection $connection,
         private readonly int $retention,
     ) {}
 
-    public function prepare(): void
+    public function prepare(): bool
     {
         $this->assertWritable();
         $this->ensureSchema();
+        $installed = $this->installed;
+        $this->installed = false;
+
+        return $installed;
     }
 
     public function setUp(): SetupResult
@@ -41,7 +46,8 @@ final class DbalStorage implements StorageInterface
             return;
         }
 
-        $this->prepare();
+        $this->assertWritable();
+        $this->ensureSchema();
         $rows = self::rows($aggregates);
         $keyBatches = self::keyBatches($aggregates, $labels);
 
@@ -244,11 +250,13 @@ final class DbalStorage implements StorageInterface
             }
 
             $this->schemaReady = true;
+            $this->installed = true;
 
             return SetupResult::Unchanged;
         }
 
         $this->schemaReady = true;
+        $this->installed = true;
 
         return $aggregatesExist || $keysExist ? SetupResult::Upgraded : SetupResult::Created;
     }

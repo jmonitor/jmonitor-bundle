@@ -90,6 +90,22 @@ final class LabelStoreTest extends TestCase
         static::assertTrue($store->isDue(self::ID, $now + LabelStore::STORE_EVERY));
     }
 
+    public function testForgettingWhatWasStoredMakesEveryLabelDueAgain(): void
+    {
+        $store = new LabelStore($this->directory);
+        $now = time();
+        foreach ([self::ID, '1111111111111111'] as $id) {
+            $store->write($id, 'SELECT ?');
+            $store->markStored($id, $now);
+        }
+
+        $store->forgetStored();
+
+        static::assertTrue($store->isDue(self::ID, $now));
+        static::assertTrue($store->isDue('1111111111111111', $now));
+        static::assertSame('SELECT ?', $store->read(self::ID));
+    }
+
     public function testMarkingAMissingLabelCreatesNothing(): void
     {
         $store = new LabelStore($this->directory);
@@ -175,6 +191,7 @@ final class LabelStoreTest extends TestCase
         static::assertNull($store->read(self::ID));
         static::assertFalse($store->isDue(self::ID, time()));
         $store->markStored(self::ID, time());
+        $store->forgetStored();
         $store->prune([], time());
     }
 

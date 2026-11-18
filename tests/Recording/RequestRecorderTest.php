@@ -247,7 +247,10 @@ final class RequestRecorderTest extends TestCase
     private function storage(): StorageInterface
     {
         return new class implements StorageInterface {
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void {}
 

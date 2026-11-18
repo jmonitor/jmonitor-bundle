@@ -89,7 +89,10 @@ final class FlusherTest extends TestCase
             }
         };
         $failing = new class implements StorageInterface {
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void
             {
@@ -187,7 +190,7 @@ final class FlusherTest extends TestCase
     private function refusingStorage(): StorageInterface
     {
         return new class implements StorageInterface {
-            public function prepare(): void
+            public function prepare(): bool
             {
                 throw new \RuntimeException('no CREATE privilege');
             }
@@ -203,7 +206,10 @@ final class FlusherTest extends TestCase
         $failing = new class implements StorageInterface {
             public bool $fail = true;
 
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void
             {
@@ -249,7 +255,10 @@ final class FlusherTest extends TestCase
             /** @var list<int> */
             public array $times = [];
 
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void
             {
@@ -271,7 +280,10 @@ final class FlusherTest extends TestCase
         $spy = new class implements StorageInterface {
             public int $purges = 0;
 
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void {}
 
@@ -333,7 +345,10 @@ final class FlusherTest extends TestCase
     public function testTheRegistryIsWrittenOnlyAfterASuccessfulStore(): void
     {
         $failing = new class implements StorageInterface {
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void
             {
@@ -357,7 +372,10 @@ final class FlusherTest extends TestCase
         $flaky = new class implements StorageInterface {
             public bool $fail = true;
 
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void
             {
@@ -395,9 +413,11 @@ final class FlusherTest extends TestCase
             /** @var list<bool> */
             public array $recording = [];
 
-            public function prepare(): void
+            public function prepare(): bool
             {
                 $this->recording[] = (bool) $this->recorder?->isRecording();
+
+                return false;
             }
 
             public function store(array $aggregates, int $now, array $labels = []): void
@@ -452,7 +472,10 @@ final class FlusherTest extends TestCase
         $storage = new class implements StorageInterface {
             public int $stores = 0;
 
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void
             {
@@ -488,7 +511,10 @@ final class FlusherTest extends TestCase
         $labelStore = new LabelStore($directory);
         $buffer = new FileBuffer($directory, 10, $clock);
         $failing = new class implements StorageInterface {
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void
             {
@@ -544,13 +570,80 @@ final class FlusherTest extends TestCase
         static::assertFalse($labelStore->isDue($light, $this->clock->now()->getTimestamp()));
     }
 
+    public function testEveryTextIsStoredAgainAfterTheTablesWereInstalledAgain(): void
+    {
+        [$a, $b] = $this->writeLabels('SELECT * FROM a WHERE id = ?', 'SELECT * FROM b WHERE id = ?');
+        $this->recordQuery($a);
+        $this->recordQuery($b);
+        $this->clock->sleep(11);
+        static::assertTrue($this->labelledFlusher($this->dbalStorage())->flush());
+
+        ConnectionProvider::dropTables($this->connection);
+        $this->clock->sleep(600);
+        $flusher = $this->labelledFlusher($this->dbalStorage());
+
+        $this->recordQuery($a);
+        $this->clock->sleep(11);
+        static::assertTrue($flusher->flush());
+        static::assertSame([$a => 'SELECT * FROM a WHERE id = ?'], (new DbalReader($this->connection))->labels([$a, $b]));
+
+        $this->clock->sleep(600);
+        $this->recordQuery($b);
+        $this->clock->sleep(11);
+        static::assertTrue($flusher->flush());
+        static::assertSame('SELECT * FROM b WHERE id = ?', (new DbalReader($this->connection))->labels([$a, $b])[$b] ?? null);
+    }
+
+    public function testAProcessThatOutlivesItsTablesStoresEveryTextAgainFromItsNextFlush(): void
+    {
+        [$a] = $this->writeLabels('SELECT * FROM a WHERE id = ?');
+        $flusher = $this->labelledFlusher($this->dbalStorage());
+        $this->recordQuery($a);
+        $this->clock->sleep(11);
+        static::assertTrue($flusher->flush());
+
+        ConnectionProvider::dropTables($this->connection);
+        $this->clock->sleep(600);
+        foreach ([1, 2] as $round) {
+            $this->recordQuery($a);
+            $this->clock->sleep(11);
+            static::assertTrue($flusher->flush(), "round {$round}");
+        }
+
+        static::assertSame([$a => 'SELECT * FROM a WHERE id = ?'], (new DbalReader($this->connection))->labels([$a]));
+    }
+
+    /** @return list<string> the ids of the texts */
+    private function writeLabels(string ...$texts): array
+    {
+        $labelStore = new LabelStore(new BufferDirectory($this->dir, 'app'));
+        $ids = [];
+        foreach ($texts as $text) {
+            $ids[] = $id = SqlNormalizer::id($text);
+            $labelStore->write($id, $text);
+        }
+
+        return $ids;
+    }
+
+    private function labelledFlusher(StorageInterface $storage): Flusher
+    {
+        $directory = new BufferDirectory($this->dir, 'app');
+        $registry = new HotKeys($directory, $this->clock);
+
+        return new Flusher($this->buffer, new Aggregator(500, $registry), $storage, new FlushLock($directory, 10, $this->clock), $this->clock, null, 300, $registry, null, new LabelSync(new LabelStore($directory), $registry));
+    }
+
     private function labelCapturingStorage(): StorageInterface
     {
         return new class implements StorageInterface {
             /** @var list<array<string, ?string>> */
             public array $labels = [];
 
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
             public function store(array $aggregates, int $now, array $labels = []): void
             {

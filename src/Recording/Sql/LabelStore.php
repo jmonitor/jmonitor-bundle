@@ -112,6 +112,24 @@ final class LabelStore
         BufferDirectory::quietly(static fn(): bool => is_file($path) && touch($path, $now));
     }
 
+    public function forgetStored(): void
+    {
+        $base = $this->directory->path();
+        if ($base === null) {
+            return;
+        }
+
+        $directory = $base . '/' . self::DIRECTORY;
+
+        BufferDirectory::quietly(static function () use ($directory): void {
+            foreach ((is_dir($directory) ? scandir($directory) : false) ?: [] as $name) {
+                if (self::isValid($name)) {
+                    touch($directory . '/' . $name, self::NEVER_STORED);
+                }
+            }
+        });
+    }
+
     /**
      * @param list<string> $keepIds
      */

@@ -83,6 +83,26 @@ final class DbalStorageTest extends TestCase
     }
 
     #[DataProvider('connections')]
+    public function testPrepareTellsOnceThatTheTablesWereJustInstalled(Connection $connection): void
+    {
+        $this->reset($connection);
+        $storage = $this->storage($connection);
+        $aggregate = $this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0);
+
+        static::assertTrue($storage->prepare());
+        static::assertFalse($storage->prepare());
+        static::assertFalse($this->storage($connection)->prepare());
+
+        $storage->store([$aggregate], 1700000100);
+        static::assertFalse($storage->prepare());
+
+        $this->reset($connection);
+        $storage->store([$aggregate], 1700000100);
+        static::assertTrue($storage->prepare());
+        static::assertFalse($storage->prepare());
+    }
+
+    #[DataProvider('connections')]
     public function testMoreRowsThanOneChunk(Connection $connection): void
     {
         $this->reset($connection);

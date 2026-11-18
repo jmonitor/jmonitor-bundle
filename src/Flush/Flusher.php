@@ -91,7 +91,9 @@ final class Flusher
      */
     private function store(iterable $entries): void
     {
-        $this->storage->prepare();
+        if ($this->storage->prepare()) {
+            $this->forgetStoredLabels();
+        }
         $aggregates = $this->aggregator->aggregate($entries);
         $now = $this->clock->now()->getTimestamp();
         $labels = $this->labels?->labelsFor($aggregates, $now) ?? [];
@@ -120,6 +122,15 @@ final class Flusher
 
         try {
             $this->labels->confirm($labels, $now ?? $this->clock->now()->getTimestamp());
+        } catch (\Throwable $e) {
+            $this->logBookkeepingFailure($e);
+        }
+    }
+
+    private function forgetStoredLabels(): void
+    {
+        try {
+            $this->labels?->forgetStored();
         } catch (\Throwable $e) {
             $this->logBookkeepingFailure($e);
         }

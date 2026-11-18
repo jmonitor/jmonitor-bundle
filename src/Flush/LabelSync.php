@@ -57,6 +57,11 @@ final class LabelSync
         $this->labels->prune([...$this->hotKeys?->keys(Family::Query) ?? [], ...array_values($repeated)], $now);
     }
 
+    public function forgetStored(): void
+    {
+        $this->labels->forgetStored();
+    }
+
     private static function repeatedQuery(string $key): ?string
     {
         $parts = explode(Entry::KEY_SEPARATOR, $key);
