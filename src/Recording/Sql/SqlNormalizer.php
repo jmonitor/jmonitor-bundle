@@ -74,7 +74,11 @@ final class SqlNormalizer
 
     public static function isSelect(string $normalized): bool
     {
-        return preg_match('~^(?:SELECT|WITH)\b~i', $normalized) === 1;
+        if (preg_match('~^(?:\(\s*+)*+(SELECT|WITH)\b~i', $normalized, $match) !== 1) {
+            return false;
+        }
+
+        return strtoupper($match[1]) === 'SELECT' || preg_match('~\b(?:INSERT|UPDATE|DELETE|MERGE)\b~i', $normalized) === 0;
     }
 
     /**

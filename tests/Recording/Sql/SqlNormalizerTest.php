@@ -181,11 +181,29 @@ final class SqlNormalizerTest extends TestCase
         static::assertNotSame($id, SqlNormalizer::id('SELECT ? FROM t'));
     }
 
-    public function testIsSelect(): void
+    /**
+     * @return iterable<array{string, bool}>
+     */
+    public static function selects(): iterable
     {
-        static::assertTrue(SqlNormalizer::isSelect('select * FROM t'));
-        static::assertTrue(SqlNormalizer::isSelect('WITH x AS (SELECT ?) SELECT * FROM x'));
-        static::assertFalse(SqlNormalizer::isSelect('UPDATE t SET a = ?'));
-        static::assertFalse(SqlNormalizer::isSelect('SELECTED'));
+        yield ['select * FROM t', true];
+        yield ['WITH x AS (SELECT ?) SELECT * FROM x', true];
+        yield ['UPDATE t SET a = ?', false];
+        yield ['SELECTED', false];
+        yield ['(SELECT a FROM t) UNION (SELECT a FROM u)', true];
+        yield ['((SELECT a FROM t))', true];
+        yield ['( SELECT a FROM t)', true];
+        yield ['(UPDATE t SET a = ?)', false];
+        yield ['WITH x AS (SELECT ?) UPDATE t SET a = ?', false];
+        yield ['with x AS (SELECT ?) insert INTO t SELECT * FROM x', false];
+        yield ['WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x', false];
+        yield ['WITH x AS (SELECT ?) MERGE INTO t USING x ON t.id = x.id', false];
+        yield ['WITH x AS (SELECT last_update, deleted_at FROM t) SELECT * FROM x', true];
+    }
+
+    #[DataProvider('selects')]
+    public function testIsSelect(string $normalized, bool $expected): void
+    {
+        static::assertSame($expected, SqlNormalizer::isSelect($normalized));
     }
 }
