@@ -10,6 +10,9 @@ final class Aggregator
 {
     public const OTHER = '(other)';
 
+    private const MAX_OCCURRENCES = 1e9;
+    private const MAX_WEIGHT = 1e6;
+
     public function __construct(private readonly int $slowThresholdMs) {}
 
     /**
@@ -57,7 +60,7 @@ final class Aggregator
             unset($counters);
 
             $weight = self::number($entry->attributes['cw'] ?? null);
-            $weight = $weight !== null && $weight >= 1 ? $weight : 1.0;
+            $weight = $weight !== null && $weight >= 1 && $weight <= self::MAX_WEIGHT ? $weight : 1.0;
 
             foreach ($entry->children as $child) {
                 $this->addChild($groups, $minute, $entry, $child, $weight);
@@ -98,17 +101,17 @@ final class Aggregator
     private function addChild(array &$groups, int $minute, Entry $unit, Entry $child, float $weight): void
     {
         $occurrences = self::number($child->attributes['n'] ?? null);
-        if ($occurrences === null || $occurrences < 0 || !is_finite($child->durationMs)) {
+        if ($occurrences === null || $occurrences < 0 || $occurrences > self::MAX_OCCURRENCES || !is_finite($child->durationMs)) {
             return;
         }
 
         if ($child->type === Entry::TYPE_QUERY) {
             $max = self::number($child->attributes['m'] ?? null);
-            if ($max === null) {
+            $slow = self::number($child->attributes['sl'] ?? null) ?? 0.0;
+            if ($max === null || $slow < 0 || $slow > self::MAX_OCCURRENCES) {
                 return;
             }
 
-            $slow = self::number($child->attributes['sl'] ?? null) ?? 0.0;
             $counters = &self::counters($groups, $minute, Family::Query, $child->key);
             self::add($counters, Metric::QUERY_DURATION, $child->durationMs * $weight, $max, (int) round($occurrences * $weight));
             if ($slow > 0) {

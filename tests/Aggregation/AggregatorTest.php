@@ -393,6 +393,24 @@ class AggregatorTest extends TestCase
         );
     }
 
+    public function testHugeCountsAndWeightsDoNotBreakTheFlush(): void
+    {
+        $hostile = static fn(float $at): Entry => new Entry(Entry::TYPE_REQUEST, 'GET a', $at, 50.0, ['cw' => 1e300], [
+            new Entry(Entry::TYPE_QUERY, 'abc', $at, 12.0, ['n' => \PHP_INT_MAX, 'm' => 5.0, 'sl' => \PHP_INT_MAX]),
+            new Entry(Entry::TYPE_NPLUS1, 'abc', $at, 40.0, ['n' => \PHP_INT_MAX]),
+        ]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([$hostile(1700000045.0), $hostile(1700000046.0)]);
+
+        foreach ($aggregates as $aggregate) {
+            static::assertGreaterThanOrEqual(0, $aggregate->count);
+            static::assertTrue(is_finite($aggregate->sum));
+        }
+        $request = $this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, 'GET a');
+        static::assertNotNull($request);
+        static::assertSame(2, $request->count);
+    }
+
     /**
      * @param list<Aggregate> $aggregates
      */
