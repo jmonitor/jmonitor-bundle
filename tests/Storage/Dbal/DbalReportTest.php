@@ -188,6 +188,53 @@ final class DbalReportTest extends TestCase
         static::assertNotNull($report->other);
     }
 
+    /** @return iterable<string, array{Connection, string, bool, list<string>}> */
+    public static function sparseSorts(): iterable
+    {
+        foreach (ConnectionProvider::all() as $name => [$connection]) {
+            yield $name . ' count desc' => [$connection, 'count', true, ['q2', 'q6', 'q4', '*', '*', '*']];
+            yield $name . ' count asc' => [$connection, 'count', false, ['*', '*', '*', 'q4', 'q6', 'q2']];
+            yield $name . ' max desc' => [$connection, 'max', true, ['q6', 'q2', 'q4', '*', '*', '*']];
+            yield $name . ' avg asc' => [$connection, 'avg', false, ['*', '*', '*', 'q4', 'q2', 'q6']];
+        }
+    }
+
+    /**
+     * @param list<string> $order the expected keys, * for a key without the sort metric
+     */
+    #[DataProvider('sparseSorts')]
+    public function testASortMetricSomeKeysLackOnlyOrdersTheKeysOfTheWeightMetric(Connection $connection, string $field, bool $descending, array $order): void
+    {
+        $this->seed($connection, [
+            $this->aggregate(Metric::QUERY_DURATION, 'q1', 1, 1.0, 1.0),
+            $this->aggregate(Metric::QUERY_DURATION, 'q2', 5, 2000.0, 400.0),
+            $this->aggregate(Metric::QUERY_DURATION, 'q3', 3, 3.0, 1.0),
+            $this->aggregate(Metric::QUERY_DURATION, 'q4', 1, 150.0, 150.0),
+            $this->aggregate(Metric::QUERY_DURATION, 'q5', 2, 5.0, 3.0),
+            $this->aggregate(Metric::QUERY_DURATION, 'q6', 4, 1300.0, 500.0),
+            $this->aggregate(Metric::QUERY_SLOW, 'q2', 5, 1000.0, 300.0),
+            $this->aggregate(Metric::QUERY_SLOW, 'q4', 1, 150.0, 150.0),
+            $this->aggregate(Metric::QUERY_SLOW, 'q6', 3, 1200.0, 500.0),
+            $this->aggregate(Metric::QUERY_SLOW, 'orphan', 9, 900.0, 900.0),
+            $this->aggregate(Metric::QUERY_DURATION, Aggregator::OTHER, 1000, 1_000_000.0, 5000.0),
+            $this->aggregate(Metric::QUERY_SLOW, Aggregator::OTHER, 1000, 1_000_000.0, 5000.0),
+        ]);
+
+        $report = (new DbalReader($connection))->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_SLOW, $field, $descending, 10));
+
+        $keys = array_map(static fn(ReportRow $row): string => $row->key, $report->rows);
+        static::assertSame(6, $report->keyCount);
+        static::assertCount(6, $keys);
+        foreach ($order as $i => $expected) {
+            if ($expected === '*') {
+                static::assertContains($keys[$i], ['q1', 'q3', 'q5'], implode(', ', $keys));
+            } else {
+                static::assertSame($expected, $keys[$i], implode(', ', $keys));
+            }
+        }
+        static::assertNotNull($report->other);
+    }
+
     #[DataProvider('connections')]
     public function testRowsOutsideThePeriodAreNotRead(Connection $connection): void
     {

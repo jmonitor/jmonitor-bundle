@@ -285,6 +285,19 @@ final class DashboardTest extends WebTestCase
         static::assertSame('Queries', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
     }
 
+    public function testSortingOnSlowQueriesWhenNoneIsSlowStillListsTheQueries(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/n-plus-one');
+        static::assertResponseIsSuccessful();
+        $crawler = self::requestUntil($client, '/jmonitor/queries?sort=slow', 'tr[data-jm-query][data-jm-executions="12"]');
+
+        static::assertSame('ready', $crawler->filter('.jm-screen')->attr('data-jm-state'));
+        static::assertStringContainsString('demo_items', $crawler->filter('tr[data-jm-query][data-jm-executions="12"]')->text());
+        static::assertStringStartsWith('Slow', trim($crawler->filter('th.is-sorted')->text()));
+    }
+
     public function testAHostileQueryTextIsShownEscaped(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);

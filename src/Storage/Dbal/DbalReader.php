@@ -20,10 +20,11 @@ final class DbalReader implements ReaderInterface
     private const SERIES_BUCKETS = 60;
     private const LABELS_PER_QUERY = 500;
     private const SORT_EXPRESSIONS = [
-        'count' => 'SUM(entry_count)',
-        'sum' => 'SUM(value_sum)',
-        'max' => 'MAX(value_max)',
-        'avg' => 'SUM(value_sum) / NULLIF(SUM(entry_count), 0)',
+        'count' => 'SUM(CASE WHEN metric_type = ? THEN entry_count ELSE 0 END)',
+        'sum' => 'SUM(CASE WHEN metric_type = ? THEN value_sum ELSE 0 END)',
+        'max' => 'MAX(CASE WHEN metric_type = ? THEN value_max ELSE 0 END)',
+        'avg' => 'COALESCE(SUM(CASE WHEN metric_type = ? THEN value_sum ELSE 0 END)'
+            . ' / NULLIF(SUM(CASE WHEN metric_type = ? THEN entry_count ELSE 0 END), 0), 0)',
     ];
 
     public function __construct(private readonly Connection $connection) {}
@@ -75,17 +76,33 @@ final class DbalReader implements ReaderInterface
         return $labels;
     }
 
-    /** @return list<string> the hashes of the first keys on the sort metric, in the requested order */
+    /**
+     * @return list<string> the hashes of the first keys of the weight metric, in the requested order on the sort
+     *                      metric, a key without it sorting as zero
+     */
     private function topKeys(ReportQuery $query): array
     {
         [$period, $since] = self::window($query);
+        $sortExpression = self::SORT_EXPRESSIONS[$query->sortField];
+        $weightMetric = $query->family->weightMetric();
+        $params = [
+            $period,
+            $since,
+            $weightMetric,
+            $query->sortMetric,
+            AggregatesTable::keyHash(Aggregator::OTHER),
+            $weightMetric,
+            ...array_fill(0, substr_count($sortExpression, '?'), $query->sortMetric),
+            $query->limit,
+        ];
 
         return array_map('strval', $this->connection->fetchFirstColumn(
             'SELECT key_hash FROM ' . AggregatesTable::NAME
-            . ' WHERE period = ? AND bucket > ? AND metric_type = ? AND key_hash <> ? GROUP BY key_hash'
-            . ' ORDER BY ' . self::SORT_EXPRESSIONS[$query->sortField] . ($query->descending ? ' DESC' : ' ASC') . ', key_hash LIMIT ?',
-            [$period, $since, $query->sortMetric, AggregatesTable::keyHash(Aggregator::OTHER), $query->limit],
-            [4 => ParameterType::INTEGER],
+            . ' WHERE period = ? AND bucket > ? AND metric_type IN (?, ?) AND key_hash <> ? GROUP BY key_hash'
+            . ' HAVING SUM(CASE WHEN metric_type = ? THEN 1 ELSE 0 END) > 0'
+            . ' ORDER BY ' . $sortExpression . ($query->descending ? ' DESC' : ' ASC') . ', key_hash LIMIT ?',
+            $params,
+            [\count($params) - 1 => ParameterType::INTEGER],
         ));
     }
 
@@ -96,7 +113,7 @@ final class DbalReader implements ReaderInterface
         return (int) $this->connection->fetchOne(
             'SELECT COUNT(DISTINCT key_hash) FROM ' . AggregatesTable::NAME
             . ' WHERE period = ? AND bucket > ? AND metric_type = ? AND key_hash <> ?',
-            [$period, $since, $query->sortMetric, AggregatesTable::keyHash(Aggregator::OTHER)],
+            [$period, $since, $query->family->weightMetric(), AggregatesTable::keyHash(Aggregator::OTHER)],
         );
     }
 
