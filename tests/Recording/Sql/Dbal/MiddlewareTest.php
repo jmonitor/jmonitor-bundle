@@ -100,6 +100,19 @@ final class MiddlewareTest extends TestCase
         static::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM items'));
     }
 
+    public function testATransactionEndReturnsWhatItReturnsWithoutTheMiddleware(): void
+    {
+        $expected = self::transactionEnds(self::connection(null));
+
+        $outside = self::transactionEnds($this->connection);
+        $token = $this->recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        $inside = self::transactionEnds($this->connection);
+
+        static::assertSame($expected, $outside);
+        static::assertSame($expected, $inside);
+        static::assertSame(2, $this->end($token)->attributes['sql_n'] ?? null);
+    }
+
     public function testAFailingQueryKeepsItsExceptionAndIsCounted(): void
     {
         $expected = self::failure(self::connection(null));
@@ -140,6 +153,19 @@ final class MiddlewareTest extends TestCase
         static::assertInstanceOf(Entry::class, $entry);
 
         return $entry;
+    }
+
+    /**
+     * @return array{mixed, mixed} what commit() then rollBack() return: true under DBAL 3, null under DBAL 4
+     */
+    private static function transactionEnds(Connection $connection): array
+    {
+        $connection->beginTransaction();
+        $committed = $connection->commit();
+        $connection->beginTransaction();
+        $rolledBack = $connection->rollBack();
+
+        return [$committed, $rolledBack];
     }
 
     private static function failure(Connection $connection): \Throwable

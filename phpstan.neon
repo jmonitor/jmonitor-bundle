@@ -2,6 +2,11 @@ parameters:
     level: 5
     paths:
         - src
+    # Only loaded under DBAL 3: its untyped commit() and rollBack() cannot override DBAL 4's void ones,
+    # an error phpstan marks as non-ignorable.
+    excludePaths:
+        analyse:
+            - src/Recording/Sql/Dbal/Dbal3Connection.php
     # Some ignores (e.g. version-dependent Symfony methods like Kernel::getShareDir())
     # only match on certain Symfony versions. Don't fail when an ignore is unmatched.
     reportUnmatchedIgnoredErrors: false
