@@ -34,7 +34,8 @@ final class SqlNormalizer
 
     /**
      * Whether a backslash escapes a quote depends on the dialect and its settings, which are not known here: a text
-     * holding one, or a PostgreSQL dollar quote, gives null rather than risk reading a value as SQL.
+     * holding one, a PostgreSQL dollar quote, a MySQL `#` comment or a comment PostgreSQL would read as nested gives
+     * null rather than risk reading a value as SQL.
      *
      * @return string|null null as well when a pattern fails, the text then possibly still holding values
      */
@@ -42,6 +43,9 @@ final class SqlNormalizer
     {
         $sql = mb_scrub($sql, 'UTF-8');
         if (str_contains($sql, '\\\'') || str_contains($sql, '\\"') || preg_match(self::DOLLAR_QUOTE, $sql) !== 0) {
+            return null;
+        }
+        if (self::holdsDialectComment($sql)) {
             return null;
         }
 
@@ -71,6 +75,52 @@ final class SqlNormalizer
     public static function isSelect(string $normalized): bool
     {
         return preg_match('~^(?:SELECT|WITH)\b~i', $normalized) === 1;
+    }
+
+    /**
+     * A `#` opens a comment in MySQL but not in the PostgreSQL operators `#>`, `#>>` and `#-`; a comment body is
+     * searched up to the `*` of its end, since PostgreSQL reads a slash right before that `*` as a nested opening.
+     */
+    private static function holdsDialectComment(string $sql): bool
+    {
+        $length = \strlen($sql);
+
+        for ($i = 0; $i < $length; ++$i) {
+            $i += strcspn($sql, '\'"`#-/', $i);
+            $char = $sql[$i] ?? null;
+            $next = $sql[$i + 1] ?? '';
+
+            if ($char === '#') {
+                if ($next !== '>' && $next !== '-') {
+                    return true;
+                }
+            } elseif ($char === '-') {
+                if ($next === '-') {
+                    $i = strpos($sql, "\n", $i);
+                    if ($i === false) {
+                        return false;
+                    }
+                }
+            } elseif ($char === '/') {
+                if ($next === '*') {
+                    $close = strpos($sql, '*/', $i + 2);
+                    if ($close === false) {
+                        return false;
+                    }
+                    if (str_contains(substr($sql, $i + 2, $close - $i - 1), '/*')) {
+                        return true;
+                    }
+                    $i = $close + 1;
+                }
+            } elseif ($char !== null) {
+                $i = self::quoteEnd($sql, $i);
+                if ($i === null) {
+                    return false;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

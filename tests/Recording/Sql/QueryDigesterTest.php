@@ -206,6 +206,18 @@ final class QueryDigesterTest extends TestCase
         static::assertSame([], $this->labelFiles());
     }
 
+    public function testACommentThatCannotBeDelimitedIsFoldedIntoOtherAndNeverWritten(): void
+    {
+        $digest = $this->digester()->digest([
+            "SELECT id FROM users # don't use the cache\nWHERE email = 'john@example.com' AND token = 'abc'" => [1, 1.0, 1.0, 0],
+            "SELECT 1 /* /* */ it's */ FROM t WHERE a = 'secret' AND b = 'x'" => [1, 1.0, 1.0, 0],
+        ], 1000.0);
+
+        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
+        static::assertSame(['n' => 2, 'm' => 1.0], $digest->children[0]->attributes);
+        static::assertSame([], $this->labelFiles());
+    }
+
     public function testAnUnusableDirectoryFoldsEverythingIntoOther(): void
     {
         touch($this->dir . '/file');
