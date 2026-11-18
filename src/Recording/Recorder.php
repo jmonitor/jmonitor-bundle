@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Recording;
 
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
+use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
@@ -12,8 +13,9 @@ final class Recorder implements ResetInterface
 {
     public const SAMPLE_WEIGHT = 10;
     public const MAX_DEPTH = 8;
+    public const MAX_SQL_PER_UNIT = 200;
 
-    /** @var array<int, array{string, float}> token => [type, started at], in opening order */
+    /** @var array<int, array{string, float, array<string, array{int, float, float, int}>}> token => [type, started at, SQL], in opening order */
     private array $units = [];
     private int $lastToken = 0;
     private bool $paused = false;
@@ -27,6 +29,8 @@ final class Recorder implements ResetInterface
         private readonly BufferInterface $buffer,
         private readonly ?LoggerInterface $logger = null,
         ?\Closure $sampler = null,
+        private readonly ?QueryDigester $queries = null,
+        private readonly int $sqlSlowThresholdMs = 100,
     ) {
         $this->sampler = $sampler ?? static fn(): bool => mt_rand(1, self::SAMPLE_WEIGHT) === 1;
     }
@@ -37,7 +41,7 @@ final class Recorder implements ResetInterface
             $this->units = [];
         }
 
-        $this->units[++$this->lastToken] = [$type, $startedAt];
+        $this->units[++$this->lastToken] = [$type, $startedAt, []];
 
         return $this->lastToken;
     }
@@ -52,11 +56,44 @@ final class Recorder implements ResetInterface
             return;
         }
 
+        $children = [];
+        if ($unit[2] !== [] && $this->queries !== null) {
+            try {
+                $digest = $this->queries->digest($unit[2], $unit[1]);
+                $attributes['sql_ms'] = round($digest->totalMs, 3);
+                $attributes['sql_n'] = $digest->count;
+                $children = $digest->children;
+            } catch (\Throwable $e) {
+                $this->logFailure($e);
+            }
+        }
+
         try {
-            $this->buffer->append($this->entry($unit, $key, $durationMs, $attributes, []));
+            $this->buffer->append($this->entry($unit, $key, $durationMs, $attributes, $children));
         } catch (\Throwable $e) {
             $this->logFailure($e);
         }
+    }
+
+    public function addSql(string $sql, float $durationMs): void
+    {
+        if ($this->paused || $this->units === [] || $this->queries === null) {
+            return;
+        }
+
+        $token = array_key_last($this->units);
+        if (!isset($this->units[$token][2][$sql])) {
+            if (\count($this->units[$token][2]) >= self::MAX_SQL_PER_UNIT) {
+                $sql = QueryDigester::OTHER;
+            }
+            $this->units[$token][2][$sql] ??= [0, 0.0, 0.0, 0];
+        }
+
+        $stats = &$this->units[$token][2][$sql];
+        ++$stats[0];
+        $stats[1] += $durationMs;
+        $stats[2] = max($stats[2], $durationMs);
+        $stats[3] += (int) ($durationMs >= $this->sqlSlowThresholdMs);
     }
 
     public function discard(int $token): void
@@ -86,7 +123,7 @@ final class Recorder implements ResetInterface
     }
 
     /**
-     * @return array{string, float}|null
+     * @return array{string, float, array<string, array{int, float, float, int}>}|null
      */
     private function close(int $token): ?array
     {
@@ -104,7 +141,7 @@ final class Recorder implements ResetInterface
     }
 
     /**
-     * @param array{string, float} $unit
+     * @param array{string, float, array<string, array{int, float, float, int}>} $unit
      * @param array<string, int|float|string> $attributes
      * @param list<Entry> $children
      */
