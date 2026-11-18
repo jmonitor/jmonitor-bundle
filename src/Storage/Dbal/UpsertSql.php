@@ -11,7 +11,7 @@ use Doctrine\DBAL\Platforms\SQLitePlatform;
 
 final class UpsertSql
 {
-    /** A label weighs up to 16 KB: a hundred of them stay below the smallest default MySQL packet size. */
+    /** A key row carries its label, so a statement holds fewer of them than aggregate rows to stay within one MySQL packet. */
     public const MAX_KEY_ROWS = 100;
 
     private const INSERT = 'INSERT INTO ' . AggregatesTable::NAME

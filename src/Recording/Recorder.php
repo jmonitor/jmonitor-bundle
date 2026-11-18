@@ -26,7 +26,7 @@ final class Recorder implements ResetInterface
     /**
      * @param LoggerInterface|(\Closure(): ?LoggerInterface)|null $logger a closure is only called on the first failure to log, which keeps
      *                                                              the logger out of the graph of the Doctrine connection
-     * @param (\Closure(): bool)|null                             $sampler whether a unit under pressure keeps its children; one in ten by default
+     * @param (\Closure(): bool)|null                             $sampler whether a unit under pressure keeps its children
      */
     public function __construct(
         private readonly BufferInterface $buffer,
