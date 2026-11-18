@@ -26,3 +26,9 @@ parameters:
         -
             message: '#^Method Doctrine\\DBAL\\Driver\\Middleware\\AbstractStatementMiddleware::execute\(\) invoked with 1 parameter, 0 required\.$#'
             path: src/Recording/Sql/Dbal/Statement.php
+        # Under DBAL 3 the parent's commit() and rollBack() are documented as returning bool; this class
+        # is only loaded under DBAL 4, where they are void.
+        -
+            message: '#^Return type \(void\) of method Jmonitor\\JmonitorBundle\\Recording\\Sql\\Dbal\\Connection::(commit|rollBack)\(\) should be compatible with return type \(bool\) of method Doctrine\\DBAL\\Driver\\(Connection|Middleware\\AbstractConnectionMiddleware)::(commit|rollBack)\(\)\.?$#'
+            identifier: method.childReturnType
+            path: src/Recording/Sql/Dbal/Connection.php
