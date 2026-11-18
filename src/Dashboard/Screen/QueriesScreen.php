@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
 
+use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
@@ -79,9 +80,6 @@ final class QueriesScreen implements ScreenInterface
         [$metric, $field] = self::SORTS[$sort] ?? self::SORTS['total'];
         $descending = $direction !== 'asc';
         $report = $reader->read(new ReportQuery($period, $now, Family::Query, $metric, $field, $descending, self::LIMIT, Metric::QUERY_DURATION));
-        $heaviest = $metric === Metric::QUERY_DURATION && $field === 'sum' && $descending
-            ? $report
-            : $reader->read(new ReportQuery($period, $now, Family::Query, Metric::QUERY_DURATION, 'sum', true, self::LIMIT));
 
         $rows = array_map(self::queryRow(...), $report->rows);
         if ($report->other !== null) {
@@ -94,22 +92,17 @@ final class QueriesScreen implements ScreenInterface
             $tables[] = $repeated;
         }
 
-        return new ScreenView($this->cards($report, $heaviest, \count($repeated->rows) + $repeated->remaining, $period), $tables);
+        return new ScreenView($this->cards($report, \count($repeated->rows) + $repeated->remaining, $period), $tables);
     }
 
     /** @return list<Card> */
-    private function cards(Report $report, Report $heaviest, int $repeated, Period $period): array
+    private function cards(Report $report, int $repeated, Period $period): array
     {
-        $total = 0.0;
-        $slow = 0;
-        foreach ([...$heaviest->rows, ...($heaviest->other === null ? [] : [$heaviest->other])] as $row) {
-            $total += $row->sum(Metric::QUERY_DURATION);
-            $slow += $row->count(Metric::QUERY_SLOW);
-        }
+        $slow = $report->totals[Metric::QUERY_SLOW]->count ?? 0;
 
         return [
-            new Card('Queries', Format::number(array_sum($report->series)), Format::period($period), series: $report->series, wide: true),
-            new Card('SQL time', Format::duration($total), 'Total time spent in queries'),
+            new Card('Queries', Format::number($report->totals[Metric::QUERY_DURATION]->count ?? 0), Format::period($period), series: $report->series, wide: true),
+            new Card('SQL time', Format::duration($report->totals[Metric::QUERY_DURATION]->sum ?? 0), 'Total time spent in queries'),
             new Card('Slow queries', Format::number($slow), $this->slowThresholdMs . ' ms or more', $slow > 0 ? 'warn' : null),
             new Card('Repeated queries', Format::number($repeated), 'Same query ' . $this->nPlusOneThreshold . ' times or more in one request', $repeated > 0 ? 'warn' : null),
         ];
@@ -163,20 +156,13 @@ final class QueriesScreen implements ScreenInterface
 
         $rows = [];
         foreach ($entries as [$row, $entryPoint, $queryId]) {
-            $calls = $row->count(Metric::NPLUS1_CALLS);
-            $maxRepeats = (int) $row->max(Metric::NPLUS1_CALLS);
-
-            $rows[] = new Row($row->hash, [
+            $rows[] = self::repeatedRow($row, $entryPoint, [
                 'where' => Cell::route($entryPoint),
                 'query' => self::sqlCell($labels[$queryId] ?? null),
-                'calls' => new Cell(Format::number($calls)),
-                'avg_repeats' => new Cell(Format::number($calls === 0 ? 0 : $row->sum(Metric::NPLUS1_CALLS) / $calls, 1)),
-                'max_repeats' => new Cell(Format::number($maxRepeats)),
-                'total' => new Cell(Format::duration($row->sum(Metric::NPLUS1_DURATION))),
-            ], [
-                'data-jm-nplus1' => $entryPoint,
-                'data-jm-repeats-max' => (string) $maxRepeats,
             ]);
+        }
+        if ($report->other !== null) {
+            $rows[] = self::repeatedRow($report->other, Aggregator::OTHER, ['where' => new Cell('Other repeated queries')], true);
         }
 
         return new Table('nplus1', 'Repeated queries (N+1)', [
@@ -187,6 +173,23 @@ final class QueriesScreen implements ScreenInterface
             new Column('max_repeats', 'Max repeats'),
             new Column('total', 'Total time'),
         ], $rows, max(0, $report->keyCount - \count($report->rows)), 'query', 'queries');
+    }
+
+    /** @param array<string, Cell> $cells */
+    private static function repeatedRow(ReportRow $row, string $entryPoint, array $cells, bool $other = false): Row
+    {
+        $calls = $row->count(Metric::NPLUS1_CALLS);
+        $maxRepeats = (int) $row->max(Metric::NPLUS1_CALLS);
+
+        return new Row($row->hash, $cells + [
+            'calls' => new Cell(Format::number($calls)),
+            'avg_repeats' => new Cell(Format::number($calls === 0 ? 0 : $row->sum(Metric::NPLUS1_CALLS) / $calls, 1)),
+            'max_repeats' => new Cell(Format::number($maxRepeats)),
+            'total' => new Cell(Format::duration($row->sum(Metric::NPLUS1_DURATION))),
+        ], [
+            'data-jm-nplus1' => $entryPoint,
+            'data-jm-repeats-max' => (string) $maxRepeats,
+        ], $other);
     }
 
     private static function sqlCell(?string $sql): Cell

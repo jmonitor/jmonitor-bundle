@@ -37,10 +37,12 @@ final class DbalReader implements ReaderInterface
                 $hashes = $this->topKeys($query);
                 $metrics = $this->metrics($query, [...$hashes, $otherHash]);
                 $keyCount = $this->keyCount($query);
+                $totals = $this->totals($query);
             } else {
                 $metrics = $this->metrics($query);
                 $hashes = array_values(array_diff(array_map('strval', array_keys($metrics)), [$otherHash]));
                 $keyCount = \count($hashes);
+                $totals = self::sumKeys($metrics);
             }
 
             $series = $query->seriesMetric === null ? [] : $this->series($query->period, $query->now, $query->seriesMetric);
@@ -55,7 +57,7 @@ final class DbalReader implements ReaderInterface
         }
         $other = isset($metrics[$otherHash]) ? new ReportRow($otherHash, Aggregator::OTHER, $labels[$otherHash] ?? null, $metrics[$otherHash]) : null;
 
-        return new Report($rows, $other, $keyCount, $series);
+        return new Report($rows, $other, $keyCount, $series, $totals);
     }
 
     public function labels(array $keys): array
@@ -126,6 +128,42 @@ final class DbalReader implements ReaderInterface
         }
 
         return $metrics;
+    }
+
+    /** @return array<string, MetricValue> metric type => total over every key */
+    private function totals(ReportQuery $query): array
+    {
+        [$period, $since] = self::window($query);
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max FROM '
+            . AggregatesTable::NAME . ' WHERE period = ? AND bucket > ? AND metric_type LIKE ? GROUP BY metric_type',
+            [$period, $since, $query->family->value . '.%'],
+        );
+
+        $totals = [];
+        foreach ($rows as $row) {
+            $totals[(string) $row['metric_type']] = new MetricValue((int) $row['entry_count'], (float) $row['value_sum'], (float) $row['value_max']);
+        }
+
+        return $totals;
+    }
+
+    /**
+     * @param array<string, array<string, MetricValue>> $metrics hash => metric type => value
+     *
+     * @return array<string, MetricValue> metric type => total over every key
+     */
+    private static function sumKeys(array $metrics): array
+    {
+        $totals = [];
+        foreach ($metrics as $values) {
+            foreach ($values as $type => $value) {
+                $total = $totals[(string) $type] ?? null;
+                $totals[(string) $type] = $total === null ? $value : new MetricValue($total->count + $value->count, $total->sum + $value->sum, max($total->max, $value->max));
+            }
+        }
+
+        return $totals;
     }
 
     /** @return list<int> 60 values, oldest first */

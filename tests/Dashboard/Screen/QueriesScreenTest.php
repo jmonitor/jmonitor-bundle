@@ -75,7 +75,8 @@ final class QueriesScreenTest extends TestCase
                 static::assertSame(100, $query->limit);
                 static::assertSame(Metric::QUERY_DURATION, $query->seriesMetric);
 
-                $nPlusOne = $reader->queries[\count($reader->queries) - 1];
+                static::assertCount(2, $reader->queries, $sort . ' ' . $direction);
+                $nPlusOne = $reader->queries[1];
                 static::assertSame(Family::NPlusOne, $nPlusOne->family);
                 static::assertSame(Metric::NPLUS1_DURATION, $nPlusOne->sortMetric);
                 static::assertSame('sum', $nPlusOne->sortField);
@@ -156,7 +157,7 @@ final class QueriesScreenTest extends TestCase
         $view = $this->build([
             $this->query('h1', 'SELECT 1', 12, 60.0, 30.0, 2),
             $this->query('h2', 'SELECT 2', 3, 1500.0, 900.0, 1),
-        ], other: $other, series: [10, 15], nPlusOne: [$this->nPlusOne('n1', 'GET app_home', self::QUERY_ID)], period: Period::SixHours);
+        ], other: $other, series: [10, 15], nPlusOne: [$this->nPlusOne('n1', 'GET app_home', self::QUERY_ID)], period: Period::SixHours, totals: self::totals(25, 1600.0, 3));
 
         static::assertSame(['Queries', 'SQL time', 'Slow queries', 'Repeated queries'], array_map(static fn(Card $card): string => $card->label, $view->cards));
         static::assertSame(['25', '1.6 s', '3', '1'], array_map(static fn(Card $card): string => $card->value, $view->cards));
@@ -177,22 +178,23 @@ final class QueriesScreenTest extends TestCase
         static::assertNull($view->cards[3]->tone);
     }
 
-    public function testTheCardsDoNotDependOnTheSort(): void
+    public function testTheCardsTakeTheTotalsOfThePeriodAndNotTheRowsShownWhateverTheSort(): void
     {
-        $heaviest = new Report([$this->query('h1', 'SELECT 1', 12, 600.0, 90.0, 0), $this->query('h2', 'SELECT 2', 3, 300.0, 200.0, 2)], keyCount: 2, series: [15]);
-        $slowOnly = new Report([$this->query('h2', 'SELECT 2', 3, 300.0, 200.0, 2)], keyCount: 1, series: [15]);
-        $reader = new FixedReader(static fn(ReportQuery $query): Report => match (true) {
-            $query->family === Family::NPlusOne => new Report(),
-            $query->sortMetric === Metric::QUERY_SLOW => $slowOnly,
-            $query->sortMetric === Metric::QUERY_DURATION && $query->sortField === 'sum' && $query->descending => $heaviest,
-            default => new Report(),
-        });
+        $rows = [$this->query('h1', 'SELECT 1', 12, 600.0, 90.0, 0), $this->query('h2', 'SELECT 2', 3, 300.0, 200.0, 2)];
 
-        $view = $this->screen()->build($reader, Period::OneHour, self::NOW, 'slow', 'desc');
+        foreach (array_keys($this->screen()->sorts()) as $sort) {
+            foreach (['desc', 'asc'] as $direction) {
+                $reader = $this->reader($rows, keyCount: 250, series: [1, 2], totals: self::totals(500, 4200.0, 17));
+                $view = $this->screen()->build($reader, Period::OneHour, self::NOW, $sort, $direction);
 
-        static::assertSame(['15', '900 ms', '2'], [$view->cards[0]->value, $view->cards[1]->value, $view->cards[2]->value]);
-        static::assertSame(['h2'], array_map(static fn($row): string => $row->key, $this->table($view)->rows));
-        static::assertSame(0, $this->table($view)->remaining);
+                static::assertSame(['500', '4.2 s', '17'], [$view->cards[0]->value, $view->cards[1]->value, $view->cards[2]->value], $sort . ' ' . $direction);
+                static::assertSame('warn', $view->cards[2]->tone);
+                static::assertCount(1, array_filter($reader->queries, static fn(ReportQuery $query): bool => $query->family === Family::Query));
+            }
+        }
+
+        $view = $this->build($rows, totals: []);
+        static::assertSame(['0', '<1 ms', '0'], [$view->cards[0]->value, $view->cards[1]->value, $view->cards[2]->value]);
     }
 
     public function testRepeatedQueriesShowWhereAndWhichQuery(): void
@@ -237,6 +239,40 @@ final class QueriesScreenTest extends TestCase
         static::assertSame('2', $view->cards[3]->value);
     }
 
+    public function testRepeatedQueriesFoldedIntoOtherComeLast(): void
+    {
+        $other = new ReportRow('no', Aggregator::OTHER, null, [
+            Metric::NPLUS1_CALLS => new MetricValue(4, 60.0, 20.0),
+            Metric::NPLUS1_DURATION => new MetricValue(4, 120.0, 50.0),
+        ]);
+        $view = $this->build([$this->query('h1', 'SELECT 1')], nPlusOne: [$this->nPlusOne('n1', 'GET app_home', self::QUERY_ID)], nPlusOneOther: $other);
+        $table = $view->tables[1];
+        $last = $table->rows[1];
+
+        static::assertCount(2, $table->rows);
+        static::assertTrue($last->muted);
+        static::assertSame('no', $last->key);
+        static::assertSame(['data-jm-nplus1' => Aggregator::OTHER, 'data-jm-repeats-max' => '20'], $last->attributes);
+        static::assertSame(
+            ['where' => 'Other repeated queries', 'calls' => '4', 'avg_repeats' => '15.0', 'max_repeats' => '20', 'total' => '120 ms'],
+            array_map(static fn(Cell $cell): string => $cell->text, $last->cells),
+        );
+        static::assertSame('text', $last->cells['where']->kind);
+        static::assertSame('2', $view->cards[3]->value);
+    }
+
+    public function testRepeatedQueriesAllFoldedIntoOtherStillShow(): void
+    {
+        $other = new ReportRow('no', Aggregator::OTHER, null, [Metric::NPLUS1_CALLS => new MetricValue(1, 12.0, 12.0)]);
+        $view = $this->build([$this->query('h1', 'SELECT 1')], nPlusOneOther: $other);
+
+        static::assertCount(2, $view->tables);
+        static::assertCount(1, $view->tables[1]->rows);
+        static::assertTrue($view->tables[1]->rows[0]->muted);
+        static::assertSame('1', $view->cards[3]->value);
+        static::assertSame('warn', $view->cards[3]->tone);
+    }
+
     public function testRepeatedQueriesBeyondTheLimitAreCounted(): void
     {
         $view = $this->build([$this->query('h1', 'SELECT 1')], nPlusOne: [$this->nPlusOne('n1', 'GET app_home', self::QUERY_ID)], nPlusOneKeyCount: 130);
@@ -257,7 +293,8 @@ final class QueriesScreenTest extends TestCase
     /**
      * @param list<ReportRow> $rows
      * @param list<int>       $series
-     * @param list<ReportRow> $nPlusOne
+     * @param list<ReportRow>                  $nPlusOne
+     * @param array<string, MetricValue>|null $totals
      */
     private function build(
         array $rows,
@@ -268,15 +305,18 @@ final class QueriesScreenTest extends TestCase
         array $nPlusOne = [],
         ?int $nPlusOneKeyCount = null,
         Period $period = Period::OneHour,
+        ?ReportRow $nPlusOneOther = null,
+        ?array $totals = null,
     ): ScreenView {
-        return $this->screen()->build($this->reader($rows, $other, $keyCount, $series, $nPlusOne, $nPlusOneKeyCount), $period, self::NOW, $sort, 'desc');
+        return $this->screen()->build($this->reader($rows, $other, $keyCount, $series, $nPlusOne, $nPlusOneKeyCount, [], $nPlusOneOther, $totals), $period, self::NOW, $sort, 'desc');
     }
 
     /**
      * @param list<ReportRow>       $rows
      * @param list<int>             $series
      * @param list<ReportRow>       $nPlusOne
-     * @param array<string, string> $labels
+     * @param array<string, string>           $labels
+     * @param array<string, MetricValue>|null $totals null for the totals of the rows
      */
     private function reader(
         array $rows,
@@ -286,11 +326,37 @@ final class QueriesScreenTest extends TestCase
         array $nPlusOne = [],
         ?int $nPlusOneKeyCount = null,
         array $labels = [],
+        ?ReportRow $nPlusOneOther = null,
+        ?array $totals = null,
     ): FixedReader {
-        $queries = new Report($rows, $other, $keyCount ?? \count($rows), $series);
-        $repeated = new Report($nPlusOne, null, $nPlusOneKeyCount ?? \count($nPlusOne));
+        $queries = new Report($rows, $other, $keyCount ?? \count($rows), $series, $totals ?? self::rowTotals([...$rows, ...($other === null ? [] : [$other])]));
+        $repeated = new Report($nPlusOne, $nPlusOneOther, $nPlusOneKeyCount ?? \count($nPlusOne));
 
         return new FixedReader(static fn(ReportQuery $query): Report => $query->family === Family::NPlusOne ? $repeated : $queries, $labels);
+    }
+
+    /** @return array<string, MetricValue> */
+    private static function totals(int $executions, float $totalMs, int $slow): array
+    {
+        return [Metric::QUERY_DURATION => new MetricValue($executions, $totalMs, 0.0), Metric::QUERY_SLOW => new MetricValue($slow, 0.0, 0.0)];
+    }
+
+    /**
+     * @param list<ReportRow> $rows
+     *
+     * @return array<string, MetricValue>
+     */
+    private static function rowTotals(array $rows): array
+    {
+        $totals = [];
+        foreach ($rows as $row) {
+            foreach ($row->metrics as $type => $value) {
+                $total = $totals[$type] ?? new MetricValue(0, 0.0, 0.0);
+                $totals[$type] = new MetricValue($total->count + $value->count, $total->sum + $value->sum, max($total->max, $value->max));
+            }
+        }
+
+        return $totals;
     }
 
     private function screen(): QueriesScreen

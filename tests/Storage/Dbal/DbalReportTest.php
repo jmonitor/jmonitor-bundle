@@ -13,6 +13,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
+use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
@@ -120,6 +121,51 @@ final class DbalReportTest extends TestCase
         }
     }
 
+    #[DataProvider('connections')]
+    public function testTheTotalsOfAnOpenFamilyCoverEveryKeyAndTheOtherRow(Connection $connection): void
+    {
+        $aggregates = [];
+        for ($i = 1; $i <= 150; ++$i) {
+            $aggregates[] = $this->aggregate(Metric::QUERY_DURATION, 'q' . $i, 2, (float) $i, (float) $i);
+            if ($i % 2 === 0) {
+                $aggregates[] = $this->aggregate(Metric::QUERY_SLOW, 'q' . $i, 1, 0.0, 0.0);
+            }
+        }
+        $aggregates[] = $this->aggregate(Metric::QUERY_DURATION, 'q1', 1, 3.0, 3.0, 600);
+        $aggregates[] = $this->aggregate(Metric::QUERY_DURATION, Aggregator::OTHER, 1000, 1_000_000.0, 5000.0);
+        $aggregates[] = $this->aggregate(Metric::REQUEST_DURATION, 'GET app_home', 7, 70.0, 10.0);
+        $this->seed($connection, $aggregates);
+
+        $reader = new DbalReader($connection);
+        foreach ([[Metric::QUERY_DURATION, 'sum', true], [Metric::QUERY_SLOW, 'count', true], [Metric::QUERY_DURATION, 'max', false]] as [$metric, $field, $descending]) {
+            $report = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, $metric, $field, $descending, 10));
+
+            static::assertCount(10, $report->rows);
+            static::assertEqualsCanonicalizing([Metric::QUERY_DURATION, Metric::QUERY_SLOW], array_keys($report->totals), $metric . ' ' . $field);
+            static::assertEquals(new MetricValue(1301, 1_011_328.0, 5000.0), $report->totals[Metric::QUERY_DURATION]);
+            static::assertSame(75, $report->totals[Metric::QUERY_SLOW]->count);
+        }
+    }
+
+    #[DataProvider('connections')]
+    public function testTheTotalsOfAClosedFamilyComeFromItsRows(Connection $connection): void
+    {
+        $this->seed($connection, [
+            $this->aggregate(Metric::REQUEST_DURATION, 'GET app_home', 3, 30.0, 20.0),
+            $this->aggregate(Metric::REQUEST_DURATION, 'GET app_home', 1, 5.0, 5.0, 600),
+            $this->aggregate(Metric::REQUEST_DURATION, 'POST app_cart', 2, 400.0, 300.0),
+            $this->aggregate(Metric::REQUEST_STATUS_PREFIX . '5xx', 'POST app_cart', 1, 0.0, 0.0),
+            $this->aggregate(Metric::REQUEST_DURATION, Aggregator::OTHER, 5, 50.0, 40.0),
+            $this->aggregate(Metric::QUERY_DURATION, 'q1', 9, 9.0, 9.0),
+        ]);
+
+        $report = (new DbalReader($connection))->read(new ReportQuery(Period::OneHour, self::NOW, Family::Request));
+
+        static::assertEqualsCanonicalizing([Metric::REQUEST_DURATION, Metric::REQUEST_STATUS_PREFIX . '5xx'], array_keys($report->totals));
+        static::assertEquals(new MetricValue(11, 485.0, 300.0), $report->totals[Metric::REQUEST_DURATION]);
+        static::assertEquals(new MetricValue(1, 0.0, 0.0), $report->totals[Metric::REQUEST_STATUS_PREFIX . '5xx']);
+    }
+
     #[DataProvider('sorts')]
     public function testAnOpenFamilySortsByCountMaxAverageAndAscending(Connection $connection, string $field, bool $descending, string $firstKey): void
     {
@@ -162,6 +208,8 @@ final class DbalReportTest extends TestCase
         static::assertSame(1, $open->keyCount);
         static::assertSame(1, array_sum($open->series));
         static::assertSame(['GET edge'], array_keys($this->indexByKey($closed->rows)));
+        static::assertEquals([Metric::QUERY_DURATION => new MetricValue(1, 1.0, 1.0)], $open->totals);
+        static::assertEquals([Metric::REQUEST_DURATION => new MetricValue(1, 1.0, 1.0)], $closed->totals);
     }
 
     #[DataProvider('connections')]
@@ -221,6 +269,7 @@ final class DbalReportTest extends TestCase
 
         static::assertEquals(new Report(), $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_DURATION, seriesMetric: Metric::QUERY_DURATION)));
         static::assertEquals(new Report(), $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Request)));
+        static::assertSame([], $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_DURATION))->totals);
         static::assertSame([], $reader->labels(['abc']));
     }
 
