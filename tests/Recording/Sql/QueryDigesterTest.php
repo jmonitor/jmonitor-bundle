@@ -40,8 +40,7 @@ final class QueryDigesterTest extends TestCase
         $digest = $this->digester()->digest($raw, 1000.5);
         $id = SqlNormalizer::id('SELECT * FROM items WHERE id = ?');
 
-        static::assertSame(12, $digest->count);
-        static::assertSame(24.0, $digest->totalMs);
+        static::assertSame([12, 24.0], self::totals($digest));
         static::assertSame([[Entry::TYPE_QUERY, $id], [Entry::TYPE_NPLUS1, $id]], self::keys($digest));
         [$query, $nPlusOne] = $digest->children;
         static::assertSame(1000.5, $query->startedAt);
@@ -89,8 +88,7 @@ final class QueryDigesterTest extends TestCase
         static::assertSame(QueryDigester::OTHER, $other->key);
         static::assertSame(['n' => 5, 'm' => 1.5], $other->attributes);
         static::assertSame(7.5, $other->durationMs);
-        static::assertSame(37.5, $digest->totalMs);
-        static::assertSame(25, $digest->count);
+        static::assertSame([25, 37.5], self::totals($digest));
     }
 
     public function testAKnownLabelIsNotRewritten(): void
@@ -140,8 +138,7 @@ final class QueryDigesterTest extends TestCase
 
         static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id($known)], [Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertSame(['n' => 12, 'm' => 1.0], $digest->children[1]->attributes);
-        static::assertSame(14, $digest->count);
-        static::assertSame(10.0, $digest->totalMs);
+        static::assertSame([14, 10.0], self::totals($digest));
         static::assertCount(1, $this->labelFiles());
     }
 
@@ -154,7 +151,7 @@ final class QueryDigesterTest extends TestCase
 
         static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id('SELECT ?')], [Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertSame(['n' => 30, 'm' => 4.0, 'sl' => 1], $digest->children[1]->attributes);
-        static::assertSame(31, $digest->count);
+        static::assertSame([31, 31.0], self::totals($digest));
     }
 
     public function testSlowExecutionsAreCarried(): void
@@ -240,6 +237,23 @@ final class QueryDigesterTest extends TestCase
     private function labelFiles(): array
     {
         return glob($this->directory->path() . '/labels/*') ?: [];
+    }
+
+    /**
+     * @return array{int, float} executions and total milliseconds over the query children
+     */
+    private static function totals(QueryDigest $digest): array
+    {
+        $count = 0;
+        $totalMs = 0.0;
+        foreach ($digest->children as $child) {
+            if ($child->type === Entry::TYPE_QUERY) {
+                $count += (int) $child->attributes['n'];
+                $totalMs += $child->durationMs;
+            }
+        }
+
+        return [$count, $totalMs];
     }
 
     /**

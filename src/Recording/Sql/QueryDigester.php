@@ -39,13 +39,8 @@ final class QueryDigester
         $selects = [];
         $other = null;
         $writes = 0;
-        $totalMs = 0.0;
-        $count = 0;
 
         foreach ($raw as $sql => $stats) {
-            $totalMs += $stats[1];
-            $count += $stats[0];
-
             $sql = (string) $sql;
             $label = $sql === self::OTHER ? null : $this->label($sql, $writes);
             if ($label === null) {
@@ -70,7 +65,7 @@ final class QueryDigester
             }
         }
 
-        return new QueryDigest($children, $totalMs, $count);
+        return new QueryDigest($children);
     }
 
     /**

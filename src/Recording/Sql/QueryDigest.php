@@ -13,7 +13,5 @@ final class QueryDigest
      */
     public function __construct(
         public readonly array $children,
-        public readonly float $totalMs,
-        public readonly int $count,
     ) {}
 }
