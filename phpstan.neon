@@ -17,3 +17,7 @@ parameters:
         -
             message: '#^Class Doctrine\\DBAL\\Platforms\\SQLitePlatform not found\.$#'
             path: src/Storage/Dbal/UpsertSql.php
+        # DBAL 3 passes the parameters of a prepared statement to execute(); DBAL 4 takes none.
+        -
+            message: '#^Method Doctrine\\DBAL\\Driver\\Middleware\\AbstractStatementMiddleware::execute\(\) invoked with 1 parameter, 0 required\.$#'
+            path: src/Recording/Sql/Dbal/Statement.php

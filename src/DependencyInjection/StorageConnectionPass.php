@@ -6,7 +6,9 @@ namespace Jmonitor\JmonitorBundle\DependencyInjection;
 
 use Jmonitor\JmonitorBundle\Command\SetupCommand;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
+use Jmonitor\JmonitorBundle\Flush\LabelSync;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
+use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\SchemaAssetFilter;
@@ -27,7 +29,7 @@ final class StorageConnectionPass implements CompilerPassInterface
             return;
         }
 
-        foreach ([RequestRecorder::class, Flusher::class, DbalStorage::class, DbalReader::class, SchemaAssetFilter::class, SetupCommand::class] as $id) {
+        foreach ([RequestRecorder::class, Flusher::class, DbalStorage::class, DbalReader::class, SchemaAssetFilter::class, SetupCommand::class, Middleware::class, LabelSync::class] as $id) {
             $container->removeDefinition($id);
         }
 

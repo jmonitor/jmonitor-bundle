@@ -42,6 +42,9 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.recording.slow_threshold', $config['recording']['slow_threshold']);
         $builder->setParameter('jmonitor.recording.ignore_routes', $config['recording']['ignore_routes']);
         $builder->setParameter('jmonitor.recording.buffer_dir', $config['recording']['buffer_dir']);
+        $builder->setParameter('jmonitor.recording.sql.enabled', $config['recording']['sql']['enabled']);
+        $builder->setParameter('jmonitor.recording.sql.slow_threshold', $config['recording']['sql']['slow_threshold']);
+        $builder->setParameter('jmonitor.recording.sql.n_plus_one_threshold', $config['recording']['sql']['n_plus_one_threshold']);
         $builder->setParameter('jmonitor.recording.app_id', substr(hash('xxh128', $projectDir . '|' . $environment), 0, 12));
         $builder->setParameter('jmonitor.storage.connection', $config['storage']['connection']);
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
@@ -296,6 +299,14 @@ final class JmonitorBundle extends AbstractBundle
                             ->info('Route names that are not recorded.')
                         ->end()
                         ->scalarNode('buffer_dir')->defaultNull()->info('Directory in which the recording buffer gets its private subdirectory. Defaults to the system temporary directory.')->end()
+                        ->arrayNode('sql')
+                            ->canBeDisabled()
+                            ->info('Record the SQL queries run through Doctrine DBAL during a request.')
+                            ->children()
+                                ->integerNode('slow_threshold')->defaultValue(100)->min(1)->info('Duration in ms from which a query counts as slow.')->end()
+                                ->integerNode('n_plus_one_threshold')->defaultValue(10)->min(1)->info('Executions of the same SELECT within one request from which it counts as an N+1.')->end()
+                            ->end()
+                        ->end()
                     ->end()
                 ->end()
                 ->arrayNode('storage')

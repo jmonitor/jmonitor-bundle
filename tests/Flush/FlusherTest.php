@@ -13,7 +13,10 @@ use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
+use Jmonitor\JmonitorBundle\Flush\LabelSync;
 use Jmonitor\JmonitorBundle\Recording\Entry;
+use Jmonitor\JmonitorBundle\Recording\Recorder;
+use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 use Jmonitor\JmonitorBundle\Tests\Storage\Dbal\ConnectionProvider;
@@ -375,6 +378,154 @@ final class FlusherTest extends TestCase
         static::assertCount(1, $files);
         $registry = json_decode((string) file_get_contents($files[0]), true);
         static::assertSame([['abc', 24.0, true]], $registry['families']['query']['keys']);
+    }
+
+    public function testTheRecorderIsPausedDuringTheWholeFlush(): void
+    {
+        $recorder = new Recorder($this->buffer);
+        $storage = new class implements StorageInterface {
+            public ?Recorder $recorder = null;
+            /** @var list<bool> */
+            public array $recording = [];
+
+            public function prepare(): void
+            {
+                $this->recording[] = (bool) $this->recorder?->isRecording();
+            }
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                $this->recording[] = (bool) $this->recorder?->isRecording();
+            }
+
+            public function purge(int $now): void
+            {
+                $this->recording[] = (bool) $this->recorder?->isRecording();
+            }
+        };
+        $storage->recorder = $recorder;
+        $directory = new BufferDirectory($this->dir, 'app');
+        $flusher = new Flusher($this->buffer, new Aggregator(500), $storage, new FlushLock($directory, 10, $this->clock), $this->clock, recorder: $recorder);
+        $this->record(1);
+        $this->clock->sleep(11);
+        $recorder->begin(Entry::TYPE_REQUEST, (float) $this->clock->now()->getTimestamp());
+
+        static::assertTrue($flusher->flush());
+
+        static::assertSame([false, false, false], $storage->recording);
+        static::assertTrue($recorder->isRecording());
+    }
+
+    public function testTheLabelsOfTheBatchAreStoredThenConfirmed(): void
+    {
+        $id = '0123456789abcdef';
+        $directory = new BufferDirectory($this->dir, 'app');
+        $labelStore = new LabelStore($directory);
+        $labelStore->write($id, 'SELECT * FROM items WHERE id = ?');
+        $storage = $this->labelCapturingStorage();
+        $registry = new HotKeys($directory, $this->clock);
+        $flusher = new Flusher($this->buffer, new Aggregator(500, $registry), $storage, new FlushLock($directory, 10, $this->clock), $this->clock, null, 300, $registry, null, new LabelSync($labelStore, $registry));
+        $this->recordQuery($id);
+        $this->clock->sleep(11);
+
+        static::assertTrue($flusher->flush());
+
+        static::assertSame([[$id => 'SELECT * FROM items WHERE id = ?']], $storage->labels);
+        static::assertFalse($labelStore->isDue($id, $this->clock->now()->getTimestamp()));
+    }
+
+    public function testAFailureAfterTheStoreNeitherFailsNorRepeatsTheFlush(): void
+    {
+        $broken = new class implements ClockInterface {
+            public function now(): \DateTimeImmutable
+            {
+                throw new \RuntimeException('clock stopped');
+            }
+        };
+        $storage = new class implements StorageInterface {
+            public int $stores = 0;
+
+            public function prepare(): void {}
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                ++$this->stores;
+            }
+
+            public function purge(int $now): void {}
+        };
+        $logger = $this->memoryLogger();
+        $directory = new BufferDirectory($this->dir, 'app');
+        $registry = new HotKeys($directory, $this->clock);
+        $failingSync = new LabelSync(new LabelStore($directory), new HotKeys(new BufferDirectory($this->dir, 'elsewhere'), $broken));
+        $flusher = new Flusher($this->buffer, new Aggregator(500, $registry), $storage, new FlushLock($directory, 10, $this->clock), $this->clock, $logger, 300, $registry, null, $failingSync);
+
+        foreach ([1, 2] as $round) {
+            $this->record(1);
+            $this->clock->sleep(11);
+
+            static::assertTrue($flusher->flush(), "round {$round}");
+            static::assertNull($flusher->lastFailure(), "round {$round}");
+            static::assertSame([], glob($this->dir . '/*/*.ndjson'), "round {$round}");
+            static::assertSame($round, $storage->stores, "round {$round}");
+        }
+
+        static::assertSame(['error JMonitor could not update its bookkeeping after a flush: clock stopped'], $logger->records);
+        static::assertCount(1, glob($this->dir . '/jmonitor-app-*/hot-keys.json') ?: []);
+    }
+
+    public function testOldLabelsArePrunedEvenWhenNothingIsStored(): void
+    {
+        $clock = new MockClock('@' . (time() + LabelStore::STORE_EVERY + 60));
+        $directory = new BufferDirectory($this->dir, 'app');
+        $labelStore = new LabelStore($directory);
+        $buffer = new FileBuffer($directory, 10, $clock);
+        $failing = new class implements StorageInterface {
+            public function prepare(): void {}
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                throw new \RuntimeException('database down');
+            }
+
+            public function purge(int $now): void {}
+        };
+        $flusher = new Flusher($buffer, new Aggregator(500), $failing, new FlushLock($directory, 10, $clock), $clock, labels: new LabelSync($labelStore));
+
+        $labelStore->write('0123456789abcdef', 'SELECT 1');
+        static::assertTrue($flusher->flush());
+        static::assertFalse($labelStore->exists('0123456789abcdef'));
+
+        $labelStore->write('fedcba9876543210', 'SELECT 2');
+        $buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET app_home', (float) $clock->now()->getTimestamp(), 20.0));
+        $clock->sleep(11);
+        static::assertFalse($flusher->flush());
+        static::assertFalse($labelStore->exists('fedcba9876543210'));
+    }
+
+    private function labelCapturingStorage(): StorageInterface
+    {
+        return new class implements StorageInterface {
+            /** @var list<array<string, ?string>> */
+            public array $labels = [];
+
+            public function prepare(): void {}
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                $this->labels[] = $labels;
+            }
+
+            public function purge(int $now): void {}
+        };
+    }
+
+    private function recordQuery(string $id): void
+    {
+        $now = (float) $this->clock->now()->getTimestamp();
+        $this->buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET app_home', $now, 20.0, [], [
+            new Entry(Entry::TYPE_QUERY, $id, $now, 12.0, ['n' => 1, 'm' => 12.0]),
+        ]));
     }
 
     private function flusherWithRegistry(StorageInterface $storage): Flusher

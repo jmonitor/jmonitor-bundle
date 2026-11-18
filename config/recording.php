@@ -10,8 +10,12 @@ use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Command\SetupCommand;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
+use Jmonitor\JmonitorBundle\Flush\LabelSync;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
+use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
+use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
+use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\SchemaAssetFilter;
@@ -104,6 +108,31 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $recorder = $services->set(Recorder::class)
         ->args([service(BufferInterface::class), $logger])
         ->tag('kernel.reset', ['method' => 'reset']);
+    $flusher->arg('$recorder', service(Recorder::class));
+
+    if ($builder->getParameter('jmonitor.recording.sql.enabled') !== false) {
+        $services->set(LabelStore::class)
+            ->args([service(BufferDirectory::class)]);
+
+        $services->set(QueryDigester::class)
+            ->args([service(LabelStore::class), param('jmonitor.recording.sql.n_plus_one_threshold')]);
+
+        $services->set(LabelSync::class)
+            ->args([service(LabelStore::class), service(HotKeys::class)]);
+
+        $services->set(Middleware::class)
+            ->args([service(Recorder::class)])
+            ->tag('doctrine.middleware');
+
+        $recorder->args([
+            service(BufferInterface::class),
+            $logger,
+            null,
+            service(QueryDigester::class),
+            param('jmonitor.recording.sql.slow_threshold'),
+        ]);
+        $flusher->arg('$labels', service(LabelSync::class));
+    }
 
     $requestRecorder = $services->set(RequestRecorder::class)
         ->args([

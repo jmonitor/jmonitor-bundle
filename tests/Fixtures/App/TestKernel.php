@@ -18,6 +18,8 @@ use Symfony\Component\HttpKernel\Log\Logger;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 use Symfony\Component\Security\Core\User\InMemoryUser;
 
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+
 final class TestKernel extends Kernel
 {
     use MicroKernelTrait;
@@ -127,6 +129,7 @@ final class TestKernel extends Kernel
         $services->set('logger', Logger::class)
             ->args([LogLevel::WARNING, $this->getLogDir() . '/' . $this->environment . '.log']);
         $services->set(DemoController::class)
+            ->args([service('doctrine.dbal.default_connection')->nullOnInvalid()])
             ->tag('controller.service_arguments');
     }
 
@@ -147,6 +150,8 @@ final class TestKernel extends Kernel
         $routes->add('app_alloc', '/alloc')->controller([DemoController::class, 'alloc']);
         $routes->add('app_boom', '/boom')->controller([DemoController::class, 'boom']);
         $routes->add('app_teapot', '/teapot')->controller([DemoController::class, 'teapot']);
+        $routes->add('app_n_plus_one', '/n-plus-one')->controller([DemoController::class, 'nPlusOne']);
+        $routes->add('app_sql_error', '/sql-error')->controller([DemoController::class, 'sqlError']);
         $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');
     }
 }
