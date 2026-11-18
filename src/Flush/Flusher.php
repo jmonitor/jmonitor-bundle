@@ -75,7 +75,7 @@ final class Flusher
     private function store(iterable $entries): void
     {
         $this->storage->prepare();
-        $this->storage->store($this->aggregator->aggregate($entries));
+        $this->storage->store($this->aggregator->aggregate($entries), $this->clock->now()->getTimestamp());
     }
 
     private function purgeIfDue(): void

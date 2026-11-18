@@ -80,7 +80,7 @@ final class FlusherTest extends TestCase
         $failing = new class implements StorageInterface {
             public function prepare(): void {}
 
-            public function store(array $aggregates): void
+            public function store(array $aggregates, int $now, array $labels = []): void
             {
                 throw new \RuntimeException('database down');
             }
@@ -176,7 +176,7 @@ final class FlusherTest extends TestCase
                 throw new \RuntimeException('no CREATE privilege');
             }
 
-            public function store(array $aggregates): void {}
+            public function store(array $aggregates, int $now, array $labels = []): void {}
 
             public function purge(int $now): void {}
         };
@@ -189,7 +189,7 @@ final class FlusherTest extends TestCase
 
             public function prepare(): void {}
 
-            public function store(array $aggregates): void
+            public function store(array $aggregates, int $now, array $labels = []): void
             {
                 if ($this->fail) {
                     throw new \RuntimeException('database down');
@@ -227,6 +227,29 @@ final class FlusherTest extends TestCase
         static::assertSame(5, $this->storedRequests());
     }
 
+    public function testStoreReceivesTheTimeOfTheFlush(): void
+    {
+        $spy = new class implements StorageInterface {
+            /** @var list<int> */
+            public array $times = [];
+
+            public function prepare(): void {}
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                $this->times[] = $now;
+            }
+
+            public function purge(int $now): void {}
+        };
+        $this->record(2);
+        $this->clock->sleep(11);
+
+        static::assertTrue($this->flusher($spy)->flush());
+
+        static::assertSame([1011], $spy->times);
+    }
+
     public function testPurgeRunsAtMostOncePerInterval(): void
     {
         $spy = new class implements StorageInterface {
@@ -234,7 +257,7 @@ final class FlusherTest extends TestCase
 
             public function prepare(): void {}
 
-            public function store(array $aggregates): void {}
+            public function store(array $aggregates, int $now, array $labels = []): void {}
 
             public function purge(int $now): void
             {

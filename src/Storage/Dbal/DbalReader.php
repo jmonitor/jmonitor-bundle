@@ -17,6 +17,7 @@ use Symfony\Contracts\Service\ResetInterface;
 final class DbalReader implements ReaderInterface, ResetInterface
 {
     private const SERIES_BUCKETS = 60;
+    private const LABELS_PER_QUERY = 500;
 
     /** @var array{int, int, array<string, array{key: string, requests: int, total: float, max: float, errors: int, slow: int, memory: float, counts: array<string, int>}>}|null */
     private ?array $collected = null;
@@ -130,7 +131,7 @@ final class DbalReader implements ReaderInterface, ResetInterface
     {
         try {
             $rows = $this->connection->fetchAllAssociative(
-                'SELECT metric_type, key_hash, MAX(metric_key) AS metric_key, SUM(entry_count) AS entry_count,'
+                'SELECT metric_type, key_hash, SUM(entry_count) AS entry_count,'
                 . ' SUM(value_sum) AS value_sum, MAX(value_max) AS value_max FROM ' . AggregatesTable::NAME
                 . ' WHERE period = ? AND bucket > ? GROUP BY metric_type, key_hash',
                 [$period->value, $period->bucketFor($now) - $period->value],
@@ -139,12 +140,13 @@ final class DbalReader implements ReaderInterface, ResetInterface
             return [];
         }
 
+        $labels = $this->labels(array_values(array_unique(array_map(static fn(array $row): string => (string) $row['key_hash'], $rows))));
         $routes = [];
 
         foreach ($rows as $row) {
             $hash = (string) $row['key_hash'];
             $routes[$hash] ??= [
-                'key' => (string) $row['metric_key'],
+                'key' => $labels[$hash] ?? $hash,
                 'requests' => 0,
                 'total' => 0.0,
                 'max' => 0.0,
@@ -173,5 +175,31 @@ final class DbalReader implements ReaderInterface, ResetInterface
         }
 
         return $routes;
+    }
+
+    /**
+     * @param list<string> $hashes
+     *
+     * @return array<string, string> hash => label
+     */
+    private function labels(array $hashes): array
+    {
+        $labels = [];
+
+        try {
+            foreach (array_chunk($hashes, self::LABELS_PER_QUERY) as $chunk) {
+                $rows = $this->connection->fetchAllAssociative(
+                    'SELECT key_hash, metric_key FROM ' . KeysTable::NAME
+                    . ' WHERE key_hash IN (' . implode(', ', array_fill(0, \count($chunk), '?')) . ')',
+                    $chunk,
+                );
+                foreach ($rows as $row) {
+                    $labels[(string) $row['key_hash']] = (string) $row['metric_key'];
+                }
+            }
+        } catch (TableNotFoundException) {
+        }
+
+        return $labels;
     }
 }

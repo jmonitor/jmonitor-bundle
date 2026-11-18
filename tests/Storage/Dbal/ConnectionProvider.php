@@ -8,6 +8,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
+use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
 
 final class ConnectionProvider
 {
@@ -26,10 +27,16 @@ final class ConnectionProvider
         }
 
         foreach ($sets as [$connection]) {
-            $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
+            self::dropTables($connection);
         }
 
         return $sets;
+    }
+
+    public static function dropTables(Connection $connection): void
+    {
+        $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
+        $connection->executeStatement('DROP TABLE IF EXISTS ' . KeysTable::NAME);
     }
 
     private static function connection(string $name, ?string $url = null): Connection

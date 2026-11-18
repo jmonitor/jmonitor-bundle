@@ -11,8 +11,11 @@ interface StorageInterface
     /** Throws when the storage cannot write now. */
     public function prepare(): void;
 
-    /** @param list<Aggregate> $aggregates */
-    public function store(array $aggregates): void;
+    /**
+     * @param list<Aggregate>        $aggregates
+     * @param array<string, ?string> $labels     key => label to write, or null to only refresh its last sight; a key absent from the map is its own label
+     */
+    public function store(array $aggregates, int $now, array $labels = []): void;
 
     public function purge(int $now): void;
 }

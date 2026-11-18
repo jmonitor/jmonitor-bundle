@@ -14,6 +14,7 @@ use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
+use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\Filesystem\Filesystem;
@@ -62,6 +63,7 @@ function flushMillis(Connection $connection): float
     $flusher = new Flusher($buffer, new Aggregator(500), new DbalStorage($connection, 31_536_000), $lock, $clock, null, 300);
 
     $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
+    $connection->executeStatement('DROP TABLE IF EXISTS ' . KeysTable::NAME);
     $lock->markPurged();
     if (!$flusher->flush()) {
         throw new RuntimeException('Warm-up flush did not run', 0, $flusher->lastFailure());

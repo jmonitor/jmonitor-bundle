@@ -8,7 +8,6 @@ use Doctrine\DBAL\Connection;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Recording\Entry;
-use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Read\RouteStats;
@@ -86,7 +85,7 @@ final class DbalReaderTest extends TestCase
     #[DataProvider('connections')]
     public function testMissingTableGivesEmptyResults(Connection $connection): void
     {
-        $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
+        ConnectionProvider::dropTables($connection);
         $reader = new DbalReader($connection);
 
         static::assertSame([], $reader->routes(Period::OneHour, self::NOW));
@@ -141,8 +140,8 @@ final class DbalReaderTest extends TestCase
     /** @param list<Entry> $entries */
     private function seed(Connection $connection, array $entries): void
     {
-        $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
-        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($entries));
+        ConnectionProvider::dropTables($connection);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($entries), self::NOW);
     }
 
     /** @return list<Entry> */

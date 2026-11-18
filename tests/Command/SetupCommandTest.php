@@ -11,6 +11,7 @@ use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use Jmonitor\JmonitorBundle\Command\SetupCommand;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
+use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
 use Jmonitor\JmonitorBundle\Tests\Storage\Dbal\ConnectionProvider;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -26,20 +27,34 @@ final class SetupCommandTest extends TestCase
     }
 
     #[DataProvider('connections')]
-    public function testCreatesTheTableThenFindsIt(Connection $connection): void
+    public function testCreatesTheTablesThenFindsThem(Connection $connection): void
     {
-        $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
+        ConnectionProvider::dropTables($connection);
 
         $first = $this->execute($connection);
 
         static::assertSame(Command::SUCCESS, $first->getStatusCode());
-        static::assertStringContainsString('Created the jmonitor_aggregates table in the "default" connection.', $this->display($first));
-        static::assertTrue($connection->createSchemaManager()->tablesExist([AggregatesTable::NAME]));
+        static::assertStringContainsString('Created the JMonitor tables in the "default" connection.', $this->display($first));
+        static::assertTrue($connection->createSchemaManager()->tablesExist([AggregatesTable::NAME, KeysTable::NAME]));
 
         $second = $this->execute($connection);
 
         static::assertSame(Command::SUCCESS, $second->getStatusCode());
-        static::assertStringContainsString('The jmonitor_aggregates table already exists in the "default" connection.', $this->display($second));
+        static::assertStringContainsString('The JMonitor tables are up to date in the "default" connection.', $this->display($second));
+    }
+
+    #[DataProvider('connections')]
+    public function testUpgradesTablesOfAnOlderSchema(Connection $connection): void
+    {
+        ConnectionProvider::dropTables($connection);
+        $this->execute($connection);
+        $connection->executeStatement("UPDATE jmonitor_keys SET metric_key = '1' WHERE key_hash = 'schema'");
+
+        $tester = $this->execute($connection);
+
+        static::assertSame(Command::SUCCESS, $tester->getStatusCode());
+        static::assertStringContainsString('Upgraded the JMonitor tables in the "default" connection.', $this->display($tester));
+        static::assertSame('2', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
     }
 
     public function testUnsupportedPlatformFailsWithAClearMessage(): void
@@ -50,7 +65,7 @@ final class SetupCommandTest extends TestCase
 
         static::assertSame(Command::FAILURE, $tester->getStatusCode());
         static::assertStringContainsString('Could not set up the storage in the "default" connection: Unsupported database platform', $this->display($tester));
-        static::assertSame(0, (int) $connection->fetchOne("SELECT COUNT(*) FROM sqlite_master WHERE name = 'jmonitor_aggregates'"));
+        static::assertSame(0, (int) $connection->fetchOne("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'jmonitor_%'"));
     }
 
     private function execute(Connection $connection): CommandTester

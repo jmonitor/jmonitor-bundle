@@ -11,8 +11,13 @@ use Doctrine\DBAL\Platforms\SQLitePlatform;
 
 final class UpsertSql
 {
+    /** A label weighs up to 16 KB: a hundred of them stay below the smallest default MySQL packet size. */
+    public const MAX_KEY_ROWS = 100;
+
     private const INSERT = 'INSERT INTO ' . AggregatesTable::NAME
-        . ' (period, metric_type, bucket, key_hash, metric_key, entry_count, value_sum, value_max) VALUES ';
+        . ' (period, metric_type, bucket, key_hash, entry_count, value_sum, value_max) VALUES ';
+
+    private const INSERT_KEYS = 'INSERT INTO ' . KeysTable::NAME . ' (key_hash, metric_key, last_seen) VALUES ';
 
     public static function supports(AbstractPlatform $platform): bool
     {
@@ -30,7 +35,7 @@ final class UpsertSql
     /** One positional parameter per column and per row, in column order. */
     public static function for(AbstractPlatform $platform, int $rows): string
     {
-        $values = implode(', ', array_fill(0, $rows, '(?, ?, ?, ?, ?, ?, ?, ?)'));
+        $values = implode(', ', array_fill(0, $rows, '(?, ?, ?, ?, ?, ?, ?)'));
         $table = AggregatesTable::NAME;
 
         if ($platform instanceof AbstractMySQLPlatform) {
@@ -55,5 +60,28 @@ final class UpsertSql
         }
 
         throw new \LogicException(sprintf('Unsupported database platform "%s".', $platform::class));
+    }
+
+    /** Parameters: key_hash, metric_key, last_seen per row. A known key keeps its label. */
+    public static function forKeys(AbstractPlatform $platform, int $rows): string
+    {
+        $values = implode(', ', array_fill(0, $rows, '(?, ?, ?)'));
+
+        if ($platform instanceof AbstractMySQLPlatform) {
+            return self::INSERT_KEYS . $values . ' ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen)';
+        }
+
+        if ($platform instanceof PostgreSQLPlatform || $platform instanceof SQLitePlatform) {
+            return self::INSERT_KEYS . $values . ' ON CONFLICT (key_hash) DO UPDATE SET last_seen = excluded.last_seen';
+        }
+
+        throw new \LogicException(sprintf('Unsupported database platform "%s".', $platform::class));
+    }
+
+    /** Parameters: last_seen, then the hash of each key. */
+    public static function touchKeys(int $keys): string
+    {
+        return 'UPDATE ' . KeysTable::NAME . ' SET last_seen = ? WHERE key_hash IN ('
+            . implode(', ', array_fill(0, $keys, '?')) . ')';
     }
 }
