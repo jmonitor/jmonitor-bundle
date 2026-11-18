@@ -125,7 +125,7 @@ final class Aggregator
         }
 
         if ($child->type === Entry::TYPE_NPLUS1) {
-            $key = 'request' . Entry::KEY_SEPARATOR . $unit->key . Entry::KEY_SEPARATOR . $child->key;
+            $key = (new NPlusOneKey($unit->type, $unit->key, $child->key))->toString();
             $counters = &self::counters($groups, $minute, Family::NPlusOne, $key);
             $count = (int) round($weight);
             self::add($counters, Metric::NPLUS1_CALLS, $occurrences * $weight, $occurrences, $count);

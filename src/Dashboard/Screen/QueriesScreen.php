@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
+use Jmonitor\JmonitorBundle\Aggregation\NPlusOneKey;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
@@ -16,7 +17,6 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Column;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
-use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
@@ -146,9 +146,9 @@ final class QueriesScreen implements ScreenInterface
 
         $entries = [];
         foreach ($report->rows as $row) {
-            $parts = explode(Entry::KEY_SEPARATOR, $row->key);
-            if (\count($parts) === 3) {
-                $entries[] = [$row, $parts[1], $parts[2]];
+            $key = NPlusOneKey::parse($row->key);
+            if ($key !== null) {
+                $entries[] = [$row, $key->unitKey, $key->queryId];
             }
         }
 

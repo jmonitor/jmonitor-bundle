@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Recording\Sql;
 
+use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 
 final class QueryDigester
 {
-    public const OTHER = '(other)';
+    public const OTHER = Aggregator::OTHER;
 
     private const CACHE_SIZE = 2000;
     private const CACHE_LIFETIME = 600;

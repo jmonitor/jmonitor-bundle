@@ -8,7 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
-use Jmonitor\JmonitorBundle\Recording\Entry;
+use Jmonitor\JmonitorBundle\Aggregation\NPlusOneKey;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 
 final class LabelSync
@@ -64,8 +64,6 @@ final class LabelSync
 
     private static function repeatedQuery(string $key): ?string
     {
-        $parts = explode(Entry::KEY_SEPARATOR, $key);
-
-        return \count($parts) === 3 ? $parts[2] : null;
+        return NPlusOneKey::parse($key)?->queryId;
     }
 }
