@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Doctrine\DBAL\Connection;
+use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
+use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
@@ -312,13 +316,44 @@ final class DashboardTest extends WebTestCase
         static::assertStringNotContainsString('<script>', $html);
     }
 
+    public function testTheQueriesScreenShowsStoredQueriesWhileRecordingIsOff(): void
+    {
+        $client = static::createClient(['jmonitor' => ['recording' => ['enabled' => false] + $this->recording()['recording']]]);
+        $connection = static::getContainer()->get('doctrine.dbal.default_connection');
+        static::assertInstanceOf(Connection::class, $connection);
+        $now = time();
+        (new DbalStorage($connection, 604800))->store(
+            [new Aggregate(Period::OneHour, Period::OneHour->bucketFor($now), Metric::QUERY_DURATION, 'a1b2c3d4e5f6a7b8', 3, 6.0, 4.0)],
+            $now,
+            ['a1b2c3d4e5f6a7b8' => 'SELECT * FROM demo_items WHERE id = ?'],
+        );
+
+        $crawler = $client->request('GET', '/jmonitor/queries');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('ready', $crawler->filter('.jm-screen')->attr('data-jm-state'));
+        static::assertSame('Queries', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertStringContainsString('demo_items', $crawler->filter('tr[data-jm-query][data-jm-executions="3"]')->text());
+    }
+
+    public function testTheQueriesScreenSaysRecordingIsOffWhenNothingIsStored(): void
+    {
+        $client = static::createClient(['jmonitor' => ['recording' => ['enabled' => false] + $this->recording()['recording']]]);
+
+        $crawler = $client->request('GET', '/jmonitor/queries');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('recording_disabled', $crawler->filter('.jm-screen')->attr('data-jm-state'));
+        static::assertStringContainsString('Queries', $crawler->filter('.jm-nav')->text());
+    }
+
     /**
      * @return iterable<string, array{array<string, mixed>, bool}>
      */
     public static function withoutSqlRecording(): iterable
     {
         yield 'SQL recording off' => [['sql' => ['enabled' => false]], true];
-        yield 'recording off' => [['enabled' => false], true];
+        yield 'SQL recording off while recording is off' => [['enabled' => false, 'sql' => ['enabled' => false]], true];
         yield 'no Doctrine connection' => [[], false];
     }
 
