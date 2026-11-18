@@ -8,6 +8,8 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\RequestsScreenFactory;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenState;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Storage\Read\Report;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\RequestSummary;
 use Jmonitor\JmonitorBundle\Storage\Read\RouteStats;
 use PHPUnit\Framework\TestCase;
@@ -131,6 +133,16 @@ final class RequestsScreenFactoryTest extends TestCase
                 $this->failIfAsked();
 
                 return array_fill(0, 60, 0);
+            }
+
+            public function read(ReportQuery $query): Report
+            {
+                return new Report();
+            }
+
+            public function labels(array $keys): array
+            {
+                return [];
             }
 
             private function failIfAsked(): void
