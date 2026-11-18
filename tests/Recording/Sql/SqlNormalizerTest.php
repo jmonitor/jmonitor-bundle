@@ -38,6 +38,7 @@ final class SqlNormalizerTest extends TestCase
         yield ['INSERT INTO t VALUES ("a"), ("b")); SELECT * FROM u WHERE id IN ("x", "y")', 'INSERT INTO t VALUES (?)); SELECT * FROM u WHERE id IN (?)'];
         yield ['SELECT 1 /* unterminated', 'SELECT ?'];
         yield ['SELECT a$b$c, price_$ FROM t WHERE price_$ = $1 AND id IN ($2, $3)', 'SELECT a$b$c, price_$ FROM t WHERE price_$ = $1 AND id IN (?)'];
+        yield ['SELECT * FROM t WHERE a = $10 AND b = $2', 'SELECT * FROM t WHERE a = $10 AND b = $2'];
     }
 
     /**
@@ -53,6 +54,9 @@ final class SqlNormalizerTest extends TestCase
         yield ['SELECT $$secret$$ FROM t'];
         yield ['INSERT INTO t (a) VALUES ($body$it\'s secret$body$)'];
         yield ['SELECT * FROM t WHERE a = $_1$secret$_1$'];
+        yield ['SELECT 1$$secret$$'];
+        yield ['SELECT * FROM t WHERE a = $1$$secret$$'];
+        yield ['SELECT * FROM t WHERE a = $1$tag$secret$tag$'];
     }
 
     #[DataProvider('valuesThatCannotBeDelimited')]

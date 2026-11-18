@@ -30,7 +30,7 @@ final class SqlNormalizer
     private const VALUES_START = '~' . self::SKIP_QUOTED . '|\bVALUES(?=\s*+\()~i';
     private const VALUE_IN_GROUP = '~' . self::BACKTICKED . '(*SKIP)(*FAIL)|' . self::DOUBLE_QUOTED . '~';
     private const BLANKS = " \t\n\r\f\v";
-    private const DOLLAR_QUOTE = '~(?<![\w$])\$(?:[^\W\d]\w*+)?\$~u';
+    private const DOLLAR_QUOTE = '~(?:(?<![\w$])|(?<=\d))\$(?:[^\W\d]\w*+)?\$~u';
 
     /**
      * Whether a backslash escapes a quote depends on the dialect and its settings, which are not known here: a text
