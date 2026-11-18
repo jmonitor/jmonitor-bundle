@@ -16,7 +16,7 @@ final class SqlNormalizerTest extends TestCase
     public static function queries(): iterable
     {
         yield ['SELECT * FROM users WHERE id = 42', 'SELECT * FROM users WHERE id = ?'];
-        yield ["SELECT * FROM users WHERE name = 'O''Brien' AND note = 'a\\'b'", 'SELECT * FROM users WHERE name = ? AND note = ?'];
+        yield ["SELECT * FROM users WHERE name = 'O''Brien' AND note = 'a\\b'", 'SELECT * FROM users WHERE name = ? AND note = ?'];
         yield ['SELECT t0.id AS id_1, t0.col2 FROM table2 t0 WHERE t0.x = 3', 'SELECT t0.id AS id_1, t0.col2 FROM table2 t0 WHERE t0.x = ?'];
         yield ['SELECT * FROM t WHERE id IN (?, ?, ?)', 'SELECT * FROM t WHERE id IN (?)'];
         yield ['SELECT * FROM t WHERE id IN (1, 2, 3) AND s IN (:a, :b)', 'SELECT * FROM t WHERE id IN (?) AND s IN (?)'];
@@ -37,6 +37,28 @@ final class SqlNormalizerTest extends TestCase
         yield ['SELECT "IN (?, ?)", "VALUES (?), (?)" FROM t', 'SELECT "IN (?, ?)", "VALUES (?), (?)" FROM t'];
         yield ['INSERT INTO t VALUES ("a"), ("b")); SELECT * FROM u WHERE id IN ("x", "y")', 'INSERT INTO t VALUES (?)); SELECT * FROM u WHERE id IN (?)'];
         yield ['SELECT 1 /* unterminated', 'SELECT ?'];
+        yield ['SELECT a$b$c, price_$ FROM t WHERE price_$ = $1 AND id IN ($2, $3)', 'SELECT a$b$c, price_$ FROM t WHERE price_$ = $1 AND id IN (?)'];
+    }
+
+    /**
+     * @return iterable<array{string}>
+     */
+    public static function valuesThatCannotBeDelimited(): iterable
+    {
+        yield ['SELECT * FROM t WHERE a = "it\\"s" AND b = "secret"'];
+        yield ['INSERT INTO t VALUES ("it\\"s (", "secret")'];
+        yield ["SELECT * FROM t WHERE path = 'C:\\dir\\' AND name = 'secret'"];
+        yield ["INSERT INTO t (p, n) VALUES ('C:\\', 'secret')"];
+        yield ["SELECT * FROM users WHERE name = 'O''Brien' AND note = 'a\\'b'"];
+        yield ['SELECT $$secret$$ FROM t'];
+        yield ['INSERT INTO t (a) VALUES ($body$it\'s secret$body$)'];
+        yield ['SELECT * FROM t WHERE a = $_1$secret$_1$'];
+    }
+
+    #[DataProvider('valuesThatCannotBeDelimited')]
+    public function testATextWhoseValuesCannotBeDelimitedGivesNothingBack(string $sql): void
+    {
+        static::assertNull(SqlNormalizer::normalize($sql));
     }
 
     #[DataProvider('queries')]
@@ -68,11 +90,12 @@ final class SqlNormalizerTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{string, string}>
+     * @return iterable<string, array{string, string|null}>
      */
     public static function hostileQueries(): iterable
     {
-        yield 'unterminated escaped quotes' => ['SELECT * FROM t WHERE a = ' . str_repeat("'\\", 200_000), 'SELECT * FROM t WHERE a = ?'];
+        yield 'unterminated escaped quotes' => ['SELECT * FROM t WHERE a = ' . str_repeat("'\\", 200_000), null];
+        yield 'unterminated backslashes' => ["SELECT * FROM t WHERE a = '" . str_repeat('\\', 200_000), 'SELECT * FROM t WHERE a = ?'];
         yield 'unterminated comments' => ['SELECT 1 ' . str_repeat('/* ', 200_000), 'SELECT ?'];
         yield 'unterminated identifiers' => ['SELECT ' . str_repeat('"a""', 100_000), 'SELECT ' . mb_substr(str_repeat('"a""', 100_000), 0, SqlNormalizer::MAX_LENGTH - 7)];
         yield 'unterminated values groups' => ['INSERT INTO t VALUES ' . str_repeat('VALUES (', 50_000), 'INSERT INTO t VALUES ' . mb_substr(str_repeat('VALUES (', 50_000), 0, SqlNormalizer::MAX_LENGTH - 21)];
@@ -94,7 +117,7 @@ final class SqlNormalizerTest extends TestCase
     }
 
     #[DataProvider('hostileQueries')]
-    public function testAHostileQueryIsNormalizedInLinearTime(string $sql, string $expected): void
+    public function testAHostileQueryIsNormalizedInLinearTime(string $sql, ?string $expected): void
     {
         $start = microtime(true);
         $normalized = SqlNormalizer::normalize($sql);

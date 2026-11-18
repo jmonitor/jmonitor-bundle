@@ -30,13 +30,22 @@ final class SqlNormalizer
     private const VALUES_START = '~' . self::SKIP_QUOTED . '|\bVALUES(?=\s*+\()~i';
     private const VALUE_IN_GROUP = '~' . self::BACKTICKED . '(*SKIP)(*FAIL)|' . self::DOUBLE_QUOTED . '~';
     private const BLANKS = " \t\n\r\f\v";
+    private const DOLLAR_QUOTE = '~(?<![\w$])\$(?:[^\W\d]\w*+)?\$~u';
 
     /**
-     * @return string|null null when a pattern fails, the text then possibly still holding values
+     * Whether a backslash escapes a quote depends on the dialect and its settings, which are not known here: a text
+     * holding one, or a PostgreSQL dollar quote, gives null rather than risk reading a value as SQL.
+     *
+     * @return string|null null as well when a pattern fails, the text then possibly still holding values
      */
     public static function normalize(string $sql): ?string
     {
-        $sql = preg_replace_callback(self::TOKENS, self::token(...), mb_scrub($sql, 'UTF-8'), flags: \PREG_UNMATCHED_AS_NULL);
+        $sql = mb_scrub($sql, 'UTF-8');
+        if (str_contains($sql, '\\\'') || str_contains($sql, '\\"') || preg_match(self::DOLLAR_QUOTE, $sql) !== 0) {
+            return null;
+        }
+
+        $sql = preg_replace_callback(self::TOKENS, self::token(...), $sql, flags: \PREG_UNMATCHED_AS_NULL);
         if ($sql === null) {
             return null;
         }

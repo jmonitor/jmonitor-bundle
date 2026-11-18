@@ -191,6 +191,21 @@ final class QueryDigesterTest extends TestCase
         static::assertSame([], $this->labelFiles());
     }
 
+    public function testAValueThatCannotBeDelimitedIsFoldedIntoOtherAndNeverWritten(): void
+    {
+        $digest = $this->digester()->digest([
+            'SELECT * FROM t WHERE a = "it\\"s" AND b = "secret"' => [1, 1.0, 1.0, 0],
+            'INSERT INTO t VALUES ("it\\"s (", "secret")' => [1, 1.0, 1.0, 0],
+            "SELECT * FROM t WHERE path = 'C:\\dir\\' AND name = 'secret'" => [1, 1.0, 1.0, 0],
+            "INSERT INTO t (p, n) VALUES ('C:\\', 'secret')" => [1, 1.0, 1.0, 0],
+            'SELECT $$secret$$ FROM t' => [1, 1.0, 1.0, 0],
+        ], 1000.0);
+
+        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
+        static::assertSame(['n' => 5, 'm' => 1.0], $digest->children[0]->attributes);
+        static::assertSame([], $this->labelFiles());
+    }
+
     public function testAnUnusableDirectoryFoldsEverythingIntoOther(): void
     {
         touch($this->dir . '/file');
