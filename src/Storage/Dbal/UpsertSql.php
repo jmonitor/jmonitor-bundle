@@ -62,26 +62,23 @@ final class UpsertSql
         throw new \LogicException(sprintf('Unsupported database platform "%s".', $platform::class));
     }
 
-    /** Parameters: key_hash, metric_key, last_seen per row. A known key keeps its label. */
+    /** Parameters: key_hash, metric_key, last_seen per row. An empty label keeps the stored one. */
     public static function forKeys(AbstractPlatform $platform, int $rows): string
     {
         $values = implode(', ', array_fill(0, $rows, '(?, ?, ?)'));
 
         if ($platform instanceof AbstractMySQLPlatform) {
-            return self::INSERT_KEYS . $values . ' ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen)';
+            return self::INSERT_KEYS . $values . ' ON DUPLICATE KEY UPDATE'
+                . " metric_key = IF(VALUES(metric_key) <> '', VALUES(metric_key), metric_key),"
+                . ' last_seen = VALUES(last_seen)';
         }
 
         if ($platform instanceof PostgreSQLPlatform || $platform instanceof SQLitePlatform) {
-            return self::INSERT_KEYS . $values . ' ON CONFLICT (key_hash) DO UPDATE SET last_seen = excluded.last_seen';
+            return self::INSERT_KEYS . $values . ' ON CONFLICT (key_hash) DO UPDATE SET'
+                . " metric_key = CASE WHEN excluded.metric_key <> '' THEN excluded.metric_key ELSE " . KeysTable::NAME . '.metric_key END,'
+                . ' last_seen = excluded.last_seen';
         }
 
         throw new \LogicException(sprintf('Unsupported database platform "%s".', $platform::class));
-    }
-
-    /** Parameters: last_seen, then the hash of each key. */
-    public static function touchKeys(int $keys): string
-    {
-        return 'UPDATE ' . KeysTable::NAME . ' SET last_seen = ? WHERE key_hash IN ('
-            . implode(', ', array_fill(0, $keys, '?')) . ')';
     }
 }

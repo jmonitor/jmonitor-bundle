@@ -284,14 +284,16 @@ final class DbalReportTest extends TestCase
     public function testAKeyWithoutALabelHasNone(Connection $connection): void
     {
         $this->seed($connection, [$this->aggregate(Metric::QUERY_DURATION, 'abc', 1, 1.0, 1.0)], ['abc' => null]);
+        $reader = new DbalReader($connection);
 
-        $report = (new DbalReader($connection))->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_DURATION));
+        $report = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_DURATION));
 
         static::assertCount(1, $report->rows);
         static::assertNull($report->rows[0]->label);
         static::assertSame(AggregatesTable::keyHash('abc'), $report->rows[0]->key);
         static::assertSame(AggregatesTable::keyHash('abc'), $report->rows[0]->hash);
         static::assertSame(1, $report->rows[0]->count(Metric::QUERY_DURATION));
+        static::assertSame([], $reader->labels(['abc']));
     }
 
     #[DataProvider('connections')]

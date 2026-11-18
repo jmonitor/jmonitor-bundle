@@ -215,7 +215,7 @@ final class DbalReader implements ReaderInterface
     /**
      * @param list<string> $hashes
      *
-     * @return array<string, string> hash => label
+     * @return array<string, string> hash => label, a key stored without its text yet being left out
      */
     private function labelsByHash(array $hashes): array
     {
@@ -229,7 +229,9 @@ final class DbalReader implements ReaderInterface
                     $chunk,
                 );
                 foreach ($rows as $row) {
-                    $labels[(string) $row['key_hash']] = (string) $row['metric_key'];
+                    if ((string) $row['metric_key'] !== '') {
+                        $labels[(string) $row['key_hash']] = (string) $row['metric_key'];
+                    }
                 }
             }
         } catch (TableNotFoundException) {

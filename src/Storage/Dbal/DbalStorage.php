@@ -49,14 +49,14 @@ final class DbalStorage implements StorageInterface
         $this->assertWritable();
         $this->ensureSchema();
         $rows = self::rows($aggregates);
-        $keyBatches = self::keyBatches($aggregates, $labels);
+        $keys = self::keys($aggregates, $labels);
 
         try {
-            $this->write($rows, $keyBatches, $now);
+            $this->write($rows, $keys, $now);
         } catch (TableNotFoundException) {
             $this->schemaReady = false;
             $this->ensureSchema(checkAggregates: true);
-            $this->write($rows, $keyBatches, $now);
+            $this->write($rows, $keys, $now);
         }
     }
 
@@ -110,14 +110,14 @@ final class DbalStorage implements StorageInterface
     }
 
     /**
-     * Batches follow the hash order across inserts and refreshes alike, for the same reason as the rows.
+     * Keys follow the hash order, for the same reason as the rows.
      *
      * @param list<Aggregate>        $aggregates
      * @param array<string, ?string> $labels
      *
-     * @return list<array<string, ?string>> hash => label to insert, or null to only refresh its last sight
+     * @return array<string, string> hash => label, empty when there is no text to store
      */
-    private static function keyBatches(array $aggregates, array $labels): array
+    private static function keys(array $aggregates, array $labels): array
     {
         $keys = [];
         foreach ($aggregates as $aggregate) {
@@ -127,7 +127,7 @@ final class DbalStorage implements StorageInterface
             }
 
             $label = \array_key_exists($aggregate->key, $labels) ? $labels[$aggregate->key] : $aggregate->key;
-            $keys[$hash] = $label === null ? null : self::fit($label);
+            $keys[$hash] = $label === null ? '' : self::fit($label);
         }
         foreach ($labels as $key => $label) {
             $hash = AggregatesTable::keyHash((string) $key);
@@ -137,20 +137,7 @@ final class DbalStorage implements StorageInterface
         }
         ksort($keys, \SORT_STRING);
 
-        $batches = [];
-        $batch = [];
-        foreach ($keys as $hash => $label) {
-            if ($batch !== [] && (\count($batch) === UpsertSql::MAX_KEY_ROWS || (end($batch) === null) !== ($label === null))) {
-                $batches[] = $batch;
-                $batch = [];
-            }
-            $batch[(string) $hash] = $label;
-        }
-        if ($batch !== []) {
-            $batches[] = $batch;
-        }
-
-        return $batches;
+        return $keys;
     }
 
     private static function fit(string $label): string
@@ -178,30 +165,24 @@ final class DbalStorage implements StorageInterface
     }
 
     /**
-     * @param list<list<int|float|string>>  $rows
-     * @param list<array<string, ?string>> $keyBatches
+     * @param list<list<int|float|string>> $rows
+     * @param array<string, string>        $keys
      */
-    private function write(array $rows, array $keyBatches, int $now): void
+    private function write(array $rows, array $keys, int $now): void
     {
         $platform = $this->connection->getDatabasePlatform();
 
-        $this->connection->transactional(function (Connection $connection) use ($rows, $keyBatches, $now, $platform): void {
+        $this->connection->transactional(function (Connection $connection) use ($rows, $keys, $now, $platform): void {
             foreach (array_chunk($rows, UpsertSql::maxRows($platform)) as $chunk) {
                 $connection->executeStatement(UpsertSql::for($platform, \count($chunk)), array_merge(...$chunk));
             }
 
-            foreach ($keyBatches as $batch) {
-                if (end($batch) === null) {
-                    $connection->executeStatement(UpsertSql::touchKeys(\count($batch)), [$now, ...array_map('strval', array_keys($batch))]);
-
-                    continue;
-                }
-
+            foreach (array_chunk($keys, UpsertSql::MAX_KEY_ROWS, true) as $chunk) {
                 $params = [];
-                foreach ($batch as $hash => $label) {
+                foreach ($chunk as $hash => $label) {
                     array_push($params, (string) $hash, $label, $now);
                 }
-                $connection->executeStatement(UpsertSql::forKeys($platform, \count($batch)), $params);
+                $connection->executeStatement(UpsertSql::forKeys($platform, \count($chunk)), $params);
             }
         });
     }

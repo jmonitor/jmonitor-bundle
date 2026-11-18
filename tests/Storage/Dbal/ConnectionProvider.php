@@ -33,6 +33,24 @@ final class ConnectionProvider
         return $sets;
     }
 
+    /**
+     * A new connection to each available database, with a recorder of its prepared statements.
+     *
+     * @return array<string, array{Connection, StatementRecorder}>
+     */
+    public static function recorded(): array
+    {
+        $sets = ['sqlite' => StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true])];
+
+        foreach (['mysql' => 'JMONITOR_TEST_MYSQL_URL', 'pgsql' => 'JMONITOR_TEST_PGSQL_URL'] as $name => $variable) {
+            if (is_string($url = getenv($variable)) && $url !== '') {
+                $sets[$name] = StatementRecorder::connect(self::parse($url));
+            }
+        }
+
+        return $sets;
+    }
+
     public static function dropTables(Connection $connection): void
     {
         $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
@@ -48,9 +66,15 @@ final class ConnectionProvider
         if ($url === null) {
             $params = ['driver' => 'pdo_sqlite', 'path' => tempnam(sys_get_temp_dir(), 'jmonitor_') ?: ':memory:'];
         } else {
-            $params = (new DsnParser(['mysql' => 'pdo_mysql', 'postgresql' => 'pdo_pgsql']))->parse($url);
+            $params = self::parse($url);
         }
 
         return self::$connections[$name] = DriverManager::getConnection($params);
+    }
+
+    /** @return array<string, mixed> */
+    private static function parse(string $url): array
+    {
+        return (new DsnParser(['mysql' => 'pdo_mysql', 'postgresql' => 'pdo_pgsql']))->parse($url);
     }
 }

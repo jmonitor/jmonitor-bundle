@@ -324,21 +324,22 @@ final class DbalStorageTest extends TestCase
         $storage->store($aggregates, 2000, $labels);
 
         $hashes = [];
+        $statements = 0;
         foreach ($recorder->statements as ['sql' => $sql, 'params' => $params]) {
+            if (!str_contains($sql, KeysTable::NAME)) {
+                continue;
+            }
+            ++$statements;
             ksort($params);
-            $params = array_values($params);
-            if (str_starts_with($sql, 'UPDATE ' . KeysTable::NAME)) {
-                array_push($hashes, ...\array_slice($params, 1));
-            } elseif (str_starts_with($sql, 'INSERT INTO ' . KeysTable::NAME)) {
-                foreach (array_chunk($params, 3) as $row) {
-                    $hashes[] = $row[0];
-                }
+            foreach (array_chunk(array_values($params), 3) as $row) {
+                $hashes[] = $row[0];
             }
         }
         $sorted = $hashes;
         sort($sorted, \SORT_STRING);
         static::assertSame($sorted, $hashes);
         static::assertCount(300, $hashes);
+        static::assertSame(3, $statements);
         static::assertSame(300, (int) $connection->fetchOne("SELECT COUNT(*) FROM jmonitor_keys WHERE last_seen = 2000"));
         static::assertSame('label 3', $connection->fetchOne('SELECT metric_key FROM jmonitor_keys WHERE key_hash = ?', [AggregatesTable::keyHash('k3')]));
         static::assertSame('k4', $connection->fetchOne('SELECT metric_key FROM jmonitor_keys WHERE key_hash = ?', [AggregatesTable::keyHash('k4')]));
@@ -469,7 +470,47 @@ final class DbalStorageTest extends TestCase
         static::assertSame(2000, (int) ($refreshed['last_seen'] ?? 0));
 
         $storage->store([$other], 2000, ['ffffffffffffffff' => null]);
-        static::assertFalse($row('ffffffffffffffff'));
+        static::assertSame(['metric_key' => '', 'last_seen' => 2000], self::keyRow($row('ffffffffffffffff')));
+
+        $storage->store([$other], 3000, ['ffffffffffffffff' => 'SELECT 2']);
+        static::assertSame(['metric_key' => 'SELECT 2', 'last_seen' => 3000], self::keyRow($row('ffffffffffffffff')));
+
+        $storage->store([$query, $other], 4000, ['a1b2c3d4e5f6a7b8' => null, 'ffffffffffffffff' => null]);
+        static::assertSame(['metric_key' => 'SELECT 1', 'last_seen' => 4000], self::keyRow($row('a1b2c3d4e5f6a7b8')));
+        static::assertSame(['metric_key' => 'SELECT 2', 'last_seen' => 4000], self::keyRow($row('ffffffffffffffff')));
+    }
+
+    /** @return array<string, array{Connection, StatementRecorder}> */
+    public static function recordedConnections(): array
+    {
+        return ConnectionProvider::recorded();
+    }
+
+    #[DataProvider('recordedConnections')]
+    public function testAFlushWritesItsKeysInAtMostTwoStatements(Connection $connection, StatementRecorder $recorder): void
+    {
+        $this->reset($connection);
+        $storage = $this->storage($connection);
+        $aggregates = [];
+        $labels = [];
+        for ($i = 0; $i < 50; ++$i) {
+            $id = substr(hash('xxh3', 'query ' . $i), 0, 16);
+            $aggregates[] = new Aggregate(Period::OneHour, 1700000040, Metric::QUERY_DURATION, $id, 1, 1.0, 1.0);
+            $labels[$id] = 'SELECT ' . $i;
+        }
+        $storage->store($aggregates, 1000, $labels);
+        for ($i = 0; $i < 30; ++$i) {
+            $aggregates[] = $this->aggregate(Period::OneHour, 1700000040, 'GET route_' . $i, 1, 1.0, 1.0);
+        }
+        $recorder->statements = [];
+
+        $storage->store($aggregates, 2000, array_map(static fn(): ?string => null, $labels));
+
+        $keyStatements = array_filter($recorder->statements, static fn(array $statement): bool => str_contains($statement['sql'], KeysTable::NAME));
+        static::assertLessThanOrEqual(2, \count($keyStatements));
+        static::assertSame(80, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_keys WHERE last_seen = 2000'));
+        static::assertSame('SELECT 7', $connection->fetchOne('SELECT metric_key FROM jmonitor_keys WHERE key_hash = ?', [AggregatesTable::keyHash(substr(hash('xxh3', 'query 7'), 0, 16))]));
+        static::assertSame('GET route_7', $connection->fetchOne('SELECT metric_key FROM jmonitor_keys WHERE key_hash = ?', [AggregatesTable::keyHash('GET route_7')]));
     }
 
     #[DataProvider('connections')]
@@ -631,6 +672,12 @@ final class DbalStorageTest extends TestCase
             'value_sum' => 1.0,
             'value_max' => 1.0,
         ]);
+    }
+
+    /** @return array{metric_key: string, last_seen: int}|false */
+    private static function keyRow(array|false $row): array|false
+    {
+        return $row === false ? false : ['metric_key' => (string) $row['metric_key'], 'last_seen' => (int) $row['last_seen']];
     }
 
     /** @return list<string> */
