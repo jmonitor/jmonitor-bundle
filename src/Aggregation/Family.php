@@ -12,7 +12,10 @@ enum Family: string
 
     public function isOpen(): bool
     {
-        return $this !== self::Request;
+        return match ($this) {
+            self::Request => false,
+            self::Query, self::NPlusOne => true,
+        };
     }
 
     public function cap(): int
