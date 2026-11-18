@@ -280,6 +280,119 @@ class AggregatorTest extends TestCase
         return new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1700000045.0, $durationMs, $attributes);
     }
 
+    public function testSqlTotalsOfARequestBecomeItsOwnMetrics(): void
+    {
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 80.0, ['sql_ms' => 30.0, 'sql_n' => 4]),
+            new Entry(Entry::TYPE_REQUEST, 'GET b', 1700000045.0, 80.0),
+        ]);
+
+        $time = $this->find($aggregates, Period::OneHour, Metric::REQUEST_SQL_TIME, 'GET a');
+        $count = $this->find($aggregates, Period::OneHour, Metric::REQUEST_SQL_COUNT, 'GET a');
+        static::assertNotNull($time);
+        static::assertNotNull($count);
+        static::assertSame([1, 30.0, 30.0], [$time->count, $time->sum, $time->max]);
+        static::assertSame([1, 4.0, 4.0], [$count->count, $count->sum, $count->max]);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_SQL_TIME, 'GET b'));
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_SQL_COUNT, 'GET b'));
+    }
+
+    public function testQueryChildrenAreSummedByKey(): void
+    {
+        $unit = static fn(float $at): Entry => new Entry(Entry::TYPE_REQUEST, 'GET a', $at, 50.0, [], [
+            new Entry(Entry::TYPE_QUERY, 'abc', $at, 12.0, ['n' => 3, 'm' => 5.0, 'sl' => 1]),
+        ]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([$unit(1700000045.0), $unit(1700000046.0)]);
+
+        $duration = $this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, 'abc');
+        $slow = $this->find($aggregates, Period::OneHour, Metric::QUERY_SLOW, 'abc');
+        static::assertNotNull($duration);
+        static::assertNotNull($slow);
+        static::assertSame([6, 24.0, 5.0], [$duration->count, $duration->sum, $duration->max]);
+        static::assertSame([2, 0.0, 0.0], [$slow->count, $slow->sum, $slow->max]);
+    }
+
+    public function testTheWeightOfSampledChildrenIsApplied(): void
+    {
+        $unit = new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0, ['cw' => 10], [
+            new Entry(Entry::TYPE_QUERY, 'abc', 1700000045.0, 12.0, ['n' => 3, 'm' => 5.0]),
+            new Entry(Entry::TYPE_NPLUS1, 'abc', 1700000045.0, 40.0, ['n' => 12]),
+        ]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([$unit]);
+
+        $query = $this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, 'abc');
+        $calls = $this->find($aggregates, Period::OneHour, Metric::NPLUS1_CALLS, "request\x1fGET a\x1fabc");
+        $duration = $this->find($aggregates, Period::OneHour, Metric::NPLUS1_DURATION, "request\x1fGET a\x1fabc");
+        $request = $this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, 'GET a');
+        static::assertNotNull($query);
+        static::assertNotNull($calls);
+        static::assertNotNull($duration);
+        static::assertNotNull($request);
+        static::assertSame([30, 120.0, 5.0], [$query->count, $query->sum, $query->max]);
+        static::assertSame([10, 120.0, 12.0], [$calls->count, $calls->sum, $calls->max]);
+        static::assertSame(400.0, $duration->sum);
+        static::assertSame(1, $request->count);
+    }
+
+    public function testAnNPlusOneIsKeyedByItsEntryPointAndQuery(): void
+    {
+        $unit = new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1700000045.0, 50.0, [], [
+            new Entry(Entry::TYPE_NPLUS1, 'abc', 1700000045.0, 40.0, ['n' => 12]),
+        ]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([$unit]);
+
+        $keys = array_values(array_unique(array_map(
+            static fn(Aggregate $a): string => $a->key,
+            array_filter($aggregates, static fn(Aggregate $a): bool => $a->type === Metric::NPLUS1_CALLS),
+        )));
+        static::assertSame(["request\x1fGET app_home\x1fabc"], $keys);
+    }
+
+    public function testKeysBeyondTheCapOfAFamilyFoldIntoOther(): void
+    {
+        $entries = [];
+        $total = 0;
+        for ($i = 1; $i <= 305; ++$i) {
+            for ($j = 0; $j < $i; ++$j) {
+                $entries[] = new Entry(Entry::TYPE_REQUEST, sprintf('GET r%03d', $i), 1700000045.0, 10.0);
+                ++$total;
+            }
+        }
+
+        $aggregates = (new Aggregator(1000))->aggregate($entries);
+
+        $durations = array_filter(
+            $aggregates,
+            static fn(Aggregate $a): bool => $a->period === Period::OneHour && $a->type === Metric::REQUEST_DURATION,
+        );
+        static::assertCount(301, $durations);
+        $other = $this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, Aggregator::OTHER);
+        static::assertNotNull($other);
+        static::assertSame(1 + 2 + 3 + 4 + 5, $other->count);
+        static::assertSame($total, array_sum(array_map(static fn(Aggregate $a): int => $a->count, $durations)));
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, 'GET r001'));
+        static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, 'GET r305'));
+    }
+
+    public function testUnknownChildrenAreIgnored(): void
+    {
+        $unit = new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0, [], [
+            new Entry('zz', 'abc', 1700000045.0, 12.0, ['n' => 3, 'm' => 5.0]),
+            new Entry(Entry::TYPE_QUERY, 'inf', 1700000045.0, \INF, ['n' => 3, 'm' => 5.0]),
+            new Entry(Entry::TYPE_QUERY, 'nan', 1700000045.0, 1.0, ['n' => 3, 'm' => \NAN]),
+        ]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([$unit]);
+
+        static::assertSame(
+            array_map(static fn(Aggregate $a): string => $a->type, (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0)])),
+            array_map(static fn(Aggregate $a): string => $a->type, $aggregates),
+        );
+    }
+
     /**
      * @param list<Aggregate> $aggregates
      */
