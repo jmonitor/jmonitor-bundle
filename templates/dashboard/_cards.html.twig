@@ -6,7 +6,7 @@
             {% if card.series is not empty %}
                 <div class="jm-card__row">
                     <p class="jm-card__value">{{ card.value }}</p>
-                    {{ jmonitor_sparkline(card.series) }}
+                    {{ jmonitor_sparkline(card.series, card.label) }}
                 </div>
             {% else %}
                 <p class="jm-card__value">{{ card.value }}</p>

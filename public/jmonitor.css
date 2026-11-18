@@ -490,8 +490,21 @@ body.jm {
     white-space: nowrap;
 }
 
-.jm-col-route {
+.jm-col-route,
+.jm-col-where {
     min-width: 280px;
+}
+
+.jm-col-query {
+    min-width: 360px;
+}
+
+.jm-table .jm-col-query.jm-zero {
+    font-style: italic;
+}
+
+.jm-table tr:has(details[open]) > * {
+    vertical-align: top;
 }
 
 .jm-sort {
@@ -727,8 +740,13 @@ body.jm {
         font-size: 24px;
     }
 
-    .jm-col-route {
+    .jm-col-route,
+    .jm-col-where {
         min-width: 220px;
+    }
+
+    .jm-col-query {
+        min-width: 280px;
     }
 
     .jm-state {

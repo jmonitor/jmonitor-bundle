@@ -268,6 +268,66 @@ final class DashboardTest extends WebTestCase
         static::assertSame('—', trim($crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(5)->text()));
     }
 
+    public function testTheQueriesScreenListsQueriesAndRepeatedOnes(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/n-plus-one');
+        static::assertResponseIsSuccessful();
+        $crawler = self::requestUntil($client, '/jmonitor/queries', 'tr[data-jm-nplus1="GET app_n_plus_one"]');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('12', $crawler->filter('tr[data-jm-nplus1="GET app_n_plus_one"]')->attr('data-jm-repeats-max'));
+        $query = $crawler->filter('tr[data-jm-query][data-jm-executions="12"]');
+        static::assertCount(1, $query);
+        static::assertStringContainsString('demo_items', $query->text());
+        static::assertStringContainsString('Queries', $crawler->filter('.jm-nav')->text());
+        static::assertSame('Queries', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+    }
+
+    public function testAHostileQueryTextIsShownEscaped(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/hostile-query');
+        static::assertResponseIsSuccessful();
+        self::requestUntil($client, '/jmonitor/queries', 'tr[data-jm-query] .jm-sql');
+        $html = (string) $client->getResponse()->getContent();
+
+        static::assertStringContainsString('&lt;img', $html);
+        static::assertStringNotContainsString('<img src=x', $html);
+        static::assertStringNotContainsString('<script>', $html);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, bool}>
+     */
+    public static function withoutSqlRecording(): iterable
+    {
+        yield 'SQL recording off' => [['sql' => ['enabled' => false]], true];
+        yield 'recording off' => [['enabled' => false], true];
+        yield 'no Doctrine connection' => [[], false];
+    }
+
+    /**
+     * @param array<string, mixed> $recording
+     */
+    #[DataProvider('withoutSqlRecording')]
+    public function testTheQueriesScreenIsAbsentWithoutSqlRecording(array $recording, bool $doctrine): void
+    {
+        $client = static::createClient(['doctrine' => $doctrine, 'jmonitor' => ['recording' => $recording + $this->recording()['recording']]]);
+
+        $crawler = $client->request('GET', '/jmonitor/');
+        static::assertResponseIsSuccessful();
+        static::assertStringNotContainsString('Queries', $crawler->filter('.jm-nav')->text());
+
+        $client->request('GET', '/jmonitor/queries');
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('GET', '/jmonitor/_fragment/queries');
+        static::assertResponseStatusCodeSame(404);
+    }
+
     /**
      * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool} $options
      */

@@ -33,11 +33,10 @@
 
 {% block body %}
 {% autoescape 'html' %}
-    {% set period_text = {'1h': 'last hour', '6h': 'last 6 hours', '24h': 'last 24 hours', '7d': 'last 7 days'} %}
     <main id="jm-main" class="jm-main" data-jm-live data-jm-fragment-url="{{ path('jmonitor_screen_fragment', {screen: page.screen.id}) }}">
         <div class="jm-heading">
             <h1 class="jm-heading__title">{{ page.screen.label }}</h1>
-            <p class="jm-heading__text">{{ page.screen.heading }}, {{ period_text[page.period.label] }}.</p>
+            <p class="jm-heading__text">{{ page.screen.heading }}, {{ page.period|jmonitor_period|lower }}.</p>
         </div>
         <div data-jm-content>
             {{ include('@Jmonitor/dashboard/_screen.html.twig') }}

@@ -4,7 +4,7 @@
 <section class="jm-panel" aria-labelledby="{{ title_id }}">
     <div class="jm-panel__header">
         <h2 class="jm-panel__title" id="{{ title_id }}">{{ table.title }}</h2>
-        <p class="jm-panel__meta">{{ shown|jmonitor_number }} {{ table.noun }}{{ shown == 1 ? '' : 's' }}</p>
+        <p class="jm-panel__meta">{{ shown|jmonitor_number }} {{ table.nounFor(shown) }}</p>
     </div>
     <div class="jm-table-wrap" role="region" aria-labelledby="{{ title_id }}" tabindex="0">
         <table class="jm-table">
@@ -55,7 +55,7 @@
         </table>
     </div>
     {% if table.remaining > 0 %}
-        <p class="jm-panel__footer">{{ table.remaining|jmonitor_number }} more {{ table.noun }}{{ table.remaining == 1 ? '' : 's' }} not shown</p>
+        <p class="jm-panel__footer">{{ table.remaining|jmonitor_number }} more {{ table.nounFor(table.remaining) }} not shown</p>
     {% endif %}
 </section>
 {% endautoescape %}

@@ -63,6 +63,13 @@ final class DemoController
         return new Response('No error', 500);
     }
 
+    public function hostileQuery(): Response
+    {
+        $this->connection()->executeQuery('SELECT \'<script>\' AS "<img src=x onerror=alert(1)>"')->fetchAllAssociative();
+
+        return new Response('Done');
+    }
+
     private function connection(): Connection
     {
         return $this->connection ?? throw new \LogicException('These routes need Doctrine.');

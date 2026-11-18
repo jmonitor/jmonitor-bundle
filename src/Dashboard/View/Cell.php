@@ -17,4 +17,11 @@ final class Cell
         public readonly string $kind = 'text',
         public readonly array $data = [],
     ) {}
+
+    public static function route(string $methodAndName): self
+    {
+        [$method, $name] = array_pad(explode(' ', $methodAndName, 2), 2, '');
+
+        return new self($name, kind: 'route', data: ['method' => $method]);
+    }
 }

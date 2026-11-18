@@ -152,6 +152,7 @@ final class TestKernel extends Kernel
         $routes->add('app_teapot', '/teapot')->controller([DemoController::class, 'teapot']);
         $routes->add('app_n_plus_one', '/n-plus-one')->controller([DemoController::class, 'nPlusOne']);
         $routes->add('app_sql_error', '/sql-error')->controller([DemoController::class, 'sqlError']);
+        $routes->add('app_hostile_query', '/hostile-query')->controller([DemoController::class, 'hostileQuery']);
         $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');
     }
 }

@@ -17,5 +17,11 @@ final class Table
         public readonly array $rows,
         public readonly int $remaining = 0,
         public readonly string $noun = 'row',
+        private readonly ?string $pluralNoun = null,
     ) {}
+
+    public function nounFor(int $count): string
+    {
+        return $count === 1 ? $this->noun : $this->pluralNoun ?? $this->noun . 's';
+    }
 }

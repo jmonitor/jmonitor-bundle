@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\DependencyInjection;
 
 use Jmonitor\JmonitorBundle\Command\SetupCommand;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
@@ -35,6 +36,10 @@ final class StorageConnectionPass implements CompilerPassInterface
 
         foreach ([StorageInterface::class, ReaderInterface::class] as $alias) {
             $container->removeAlias($alias);
+        }
+
+        if ($container->hasDefinition(QueriesScreen::class)) {
+            $container->getDefinition(QueriesScreen::class)->replaceArgument(0, false);
         }
     }
 }

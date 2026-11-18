@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
+use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use PHPUnit\Framework\TestCase;
 
@@ -25,6 +26,16 @@ final class FormatTest extends TestCase
     public function testNumber(): void
     {
         static::assertSame('48,210', Format::number(48210));
+        static::assertSame('13.3', Format::number(40 / 3, 1));
+        static::assertSame('10.0', Format::number(10, 1));
+    }
+
+    public function testPeriod(): void
+    {
+        static::assertSame('Last hour', Format::period(Period::OneHour));
+        static::assertSame('Last 6 hours', Format::period(Period::SixHours));
+        static::assertSame('Last 24 hours', Format::period(Period::OneDay));
+        static::assertSame('Last 7 days', Format::period(Period::SevenDays));
     }
 
     public function testPercent(): void

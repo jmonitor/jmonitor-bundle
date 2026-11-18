@@ -27,6 +27,8 @@ final class JmonitorExtensionTest extends TestCase
         static::assertMatchesRegularExpression('/<polyline points="[0-9., ]+"/', $sparkline);
         static::assertStringContainsString('<polyline points=""', $this->extension->sparkline([0, 0, 0]));
         static::assertStringContainsString('<polyline points=""', $this->extension->sparkline([]));
+        static::assertStringContainsString('aria-label="Requests over the period, peak 5 per interval"', $sparkline);
+        static::assertStringContainsString('aria-label="Queries &lt;b&gt; over the period', $this->extension->sparkline([1], 'Queries <b>'));
     }
 
     public function testAssetsCarryAHashOfTheirContent(): void
@@ -53,7 +55,7 @@ final class JmonitorExtensionTest extends TestCase
         $filters = array_map(static fn($filter): string => $filter->getName(), $this->extension->getFilters());
         $functions = array_map(static fn($function): string => $function->getName(), $this->extension->getFunctions());
 
-        static::assertSame(['jmonitor_duration', 'jmonitor_bytes', 'jmonitor_number', 'jmonitor_percent'], $filters);
+        static::assertSame(['jmonitor_duration', 'jmonitor_bytes', 'jmonitor_number', 'jmonitor_percent', 'jmonitor_period'], $filters);
         static::assertSame(['jmonitor_sparkline', 'jmonitor_asset'], $functions);
     }
 }

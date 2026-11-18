@@ -21,7 +21,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 
 /**
- * @phpstan-type Route array{row: ReportRow, method: string, name: string, requests: int, total: float, avg: float, p95: float, max: float, sql: float, queries: float, hasSql: bool, errors: int, slow: int, memory: int}
+ * @phpstan-type Route array{row: ReportRow, cell: Cell, requests: int, total: float, avg: float, p95: float, max: float, sql: float, queries: float, hasSql: bool, errors: int, slow: int, memory: int}
  */
 final class RequestsScreen implements ScreenInterface
 {
@@ -140,7 +140,7 @@ final class RequestsScreen implements ScreenInterface
         $errorRate = $requests === 0 ? 0.0 : $errors / $requests;
 
         return [
-            new Card('Requests', Format::number($requests), self::periodText($period), series: $series, wide: true),
+            new Card('Requests', Format::number($requests), Format::period($period), series: $series, wide: true),
             new Card('Avg duration', Format::duration($requests === 0 ? 0 : $total / $requests), 'Mean response time'),
             new Card('p95', Format::duration(Percentile::estimate($counts, 0.95, $max)), '95 % of requests are faster'),
             new Card('5xx errors', Format::percent($errorRate), 'Share of server errors', $errorRate > 0 ? 'bad' : null),
@@ -150,15 +150,13 @@ final class RequestsScreen implements ScreenInterface
     /** @return Route */
     private static function route(ReportRow $row): array
     {
-        [$method, $name] = array_pad(explode(' ', $row->key, 2), 2, '');
         $requests = $row->count(Metric::REQUEST_DURATION);
         $total = $row->sum(Metric::REQUEST_DURATION);
         $max = $row->max(Metric::REQUEST_DURATION);
 
         return [
             'row' => $row,
-            'method' => $method,
-            'name' => $name,
+            'cell' => Cell::route($row->key),
             'requests' => $requests,
             'total' => $total,
             'avg' => $total / $requests,
@@ -176,12 +174,8 @@ final class RequestsScreen implements ScreenInterface
     /** @param Route $route */
     private static function row(array $route, bool $other = false): Row
     {
-        $routeCell = $other
-            ? new Cell('Other routes')
-            : new Cell($route['name'], kind: 'route', data: ['method' => $route['method']]);
-
         return new Row($route['row']->hash, [
-            'route' => $routeCell,
+            'route' => $other ? new Cell('Other routes') : $route['cell'],
             'requests' => new Cell(Format::number($route['requests'])),
             'total' => new Cell(Format::duration($route['total'])),
             'avg' => new Cell(Format::duration($route['avg'])),
@@ -221,7 +215,7 @@ final class RequestsScreen implements ScreenInterface
     private static function compare(array $a, array $b, string $sort): int
     {
         return match ($sort) {
-            'route' => strcmp($a['name'], $b['name']),
+            'route' => strcmp($a['cell']->text, $b['cell']->text),
             'requests', 'avg', 'p95', 'max', 'sql', 'errors', 'slow', 'memory' => $a[$sort] <=> $b[$sort],
             default => $a['total'] <=> $b['total'],
         };
@@ -230,15 +224,5 @@ final class RequestsScreen implements ScreenInterface
     private static function queries(float $perRequest): string
     {
         return $perRequest < 10 ? number_format($perRequest, 1) : number_format($perRequest);
-    }
-
-    private static function periodText(Period $period): string
-    {
-        return match ($period) {
-            Period::OneHour => 'Last hour',
-            Period::SixHours => 'Last 6 hours',
-            Period::OneDay => 'Last 24 hours',
-            Period::SevenDays => 'Last 7 days',
-        };
     }
 }

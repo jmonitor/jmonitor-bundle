@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Dashboard;
 
+use Jmonitor\JmonitorBundle\Aggregation\Period;
+
 final class Format
 {
     private const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -39,9 +41,9 @@ final class Format
         return self::trimZero(number_format($bytes, $bytes < 10 ? 1 : 0)) . ' ' . self::BYTE_UNITS[$unit];
     }
 
-    public static function number(int|float $value): string
+    public static function number(int|float $value, int $decimals = 0): string
     {
-        return number_format($value);
+        return number_format($value, $decimals);
     }
 
     public static function percent(int|float $ratio): string
@@ -57,6 +59,16 @@ final class Format
         }
 
         return self::trimZero(number_format($percent, $percent < 10 ? 1 : 0)) . ' %';
+    }
+
+    public static function period(Period $period): string
+    {
+        return match ($period) {
+            Period::OneHour => 'Last hour',
+            Period::SixHours => 'Last 6 hours',
+            Period::OneDay => 'Last 24 hours',
+            Period::SevenDays => 'Last 7 days',
+        };
     }
 
     private static function trimZero(string $number): string

@@ -29,6 +29,7 @@ final class JmonitorExtension extends AbstractExtension
             new TwigFilter('jmonitor_bytes', Format::bytes(...)),
             new TwigFilter('jmonitor_number', Format::number(...)),
             new TwigFilter('jmonitor_percent', Format::percent(...)),
+            new TwigFilter('jmonitor_period', Format::period(...)),
         ];
     }
 
@@ -51,7 +52,7 @@ final class JmonitorExtension extends AbstractExtension
     /**
      * @param array<int|float> $values
      */
-    public function sparkline(array $values): string
+    public function sparkline(array $values, string $label = 'Requests'): string
     {
         $values = array_values(array_map(static fn(int|float $value): int => max(0, (int) $value), $values));
         $peak = $values === [] ? 0 : max($values);
@@ -69,10 +70,11 @@ final class JmonitorExtension extends AbstractExtension
         }
 
         return sprintf(
-            '<svg class="jm-sparkline" viewBox="0 0 %d %d" preserveAspectRatio="none" role="img" aria-label="Requests over the period, peak %d per interval">'
+            '<svg class="jm-sparkline" viewBox="0 0 %d %d" preserveAspectRatio="none" role="img" aria-label="%s over the period, peak %d per interval">'
             . '<polyline points="%s" fill="none" vector-effect="non-scaling-stroke"/></svg>',
             self::SPARKLINE_WIDTH,
             self::SPARKLINE_HEIGHT,
+            htmlspecialchars($label, \ENT_QUOTES),
             $peak,
             implode(' ', $points),
         );

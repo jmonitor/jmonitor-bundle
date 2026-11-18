@@ -86,6 +86,29 @@ final class TemplatesTest extends TestCase
         static::assertStringContainsString('7 more stubs not shown', $html);
     }
 
+    public function testCountsUseThePluralOfTheNoun(): void
+    {
+        $one = new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])], 1, 'query', 'queries');
+        $many = new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])], 2, 'query', 'queries');
+
+        $html = $this->render('_table.html.twig', ['page' => $this->page(new ScreenView([], [$one])), 'table' => $one]);
+        static::assertStringContainsString('2 queries', $html);
+        static::assertStringContainsString('1 more query not shown', $html);
+
+        $html = $this->render('_table.html.twig', ['page' => $this->page(new ScreenView([], [$many])), 'table' => $many]);
+        static::assertStringContainsString('3 queries', $html);
+        static::assertStringContainsString('2 more queries not shown', $html);
+    }
+
+    public function testTheHeadingNamesThePeriod(): void
+    {
+        $page = new Page(new StubScreen(), ScreenState::Ready, Period::SevenDays, 'name', 'asc', new ScreenView());
+
+        $html = $this->render('screen.html.twig', ['page' => $page, 'screens' => [new StubScreen()], 'periods' => Period::cases()]);
+
+        static::assertStringContainsString('Stub heading, last 7 days.', $html);
+    }
+
     /**
      * @param array<string, mixed> $context
      */

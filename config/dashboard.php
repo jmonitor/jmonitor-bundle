@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Jmonitor\JmonitorBundle\Controller\DashboardController;
 use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
@@ -62,6 +63,14 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
     $services->set(RequestsScreen::class)
         ->tag('jmonitor.screen', ['priority' => 100]);
+
+    $services->set(QueriesScreen::class)
+        ->args([
+            $builder->getParameter('jmonitor.recording.enabled') !== false && $builder->getParameter('jmonitor.recording.sql.enabled') !== false,
+            param('jmonitor.recording.sql.slow_threshold'),
+            param('jmonitor.recording.sql.n_plus_one_threshold'),
+        ])
+        ->tag('jmonitor.screen', ['priority' => 90]);
 
     $services->set(JmonitorExtension::class)
         ->args([service('request_stack')->nullOnInvalid()])
