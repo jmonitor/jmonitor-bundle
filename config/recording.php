@@ -28,6 +28,7 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
 
 return static function (ContainerConfigurator $container, ContainerBuilder $builder): void {
     $connectionName = $builder->getParameter('jmonitor.storage.connection');
@@ -35,6 +36,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services = $container->services();
     $customLogger = $builder->getParameter('jmonitor.logger');
     $logger = \is_string($customLogger) ? service($customLogger) : service('logger')->nullOnInvalid();
+    // MonologBundle gives a channel only to direct references to "logger", not to service closures.
+    $recorderLogger = match (true) {
+        \is_string($customLogger) => service_closure($customLogger),
+        isset($builder->getParameter('kernel.bundles')['MonologBundle']) => service_closure('monolog.logger.jmonitor')->nullOnInvalid(),
+        default => service_closure('logger')->nullOnInvalid(),
+    };
 
     $services->set('jmonitor.clock', NativeClock::class);
 
@@ -105,7 +112,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     }
 
     $recorder = $services->set(Recorder::class)
-        ->args([service(BufferInterface::class), $logger])
+        ->args([service(BufferInterface::class), $recorderLogger])
         ->tag('kernel.reset', ['method' => 'reset']);
     $flusher->arg('$recorder', service(Recorder::class));
 
@@ -125,7 +132,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
         $recorder->args([
             service(BufferInterface::class),
-            $logger,
+            $recorderLogger,
             null,
             service(QueryDigester::class),
             param('jmonitor.recording.sql.slow_threshold'),

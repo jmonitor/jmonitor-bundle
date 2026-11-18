@@ -36,11 +36,12 @@ final class TestKernel extends Kernel
         private readonly bool $withDoctrine = true,
         private readonly bool $withSecurity = false,
         private readonly bool $withTwig = true,
+        private readonly bool $withConnectionLogger = false,
     ) {
         parent::__construct($environment, $debug);
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger]));
     }
 
     public function registerBundles(): iterable
@@ -126,8 +127,14 @@ final class TestKernel extends Kernel
         }
 
         $services = $container->services();
-        $services->set('logger', Logger::class)
-            ->args([LogLevel::WARNING, $this->getLogDir() . '/' . $this->environment . '.log']);
+        if ($this->withConnectionLogger) {
+            $services->set('logger', ConnectionLogger::class)
+                ->args([service('doctrine.dbal.default_connection')])
+                ->public();
+        } else {
+            $services->set('logger', Logger::class)
+                ->args([LogLevel::WARNING, $this->getLogDir() . '/' . $this->environment . '.log']);
+        }
         $services->set(DemoController::class)
             ->args([service('doctrine.dbal.default_connection')->nullOnInvalid()])
             ->tag('controller.service_arguments');

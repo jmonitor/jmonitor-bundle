@@ -34,6 +34,7 @@ use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
@@ -236,6 +237,34 @@ class JmonitorBundleTest extends TestCase
             static::assertSame(ContainerInterface::NULL_ON_INVALID_REFERENCE, $logger->getInvalidBehavior(), $id);
             static::assertSame([['channel' => 'jmonitor']], $definition->getTag('monolog.logger'), $id);
         }
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, array<string, class-string>|null, string, int}>
+     */
+    public static function recorderLoggers(): iterable
+    {
+        yield 'default logger' => [[], null, 'logger', ContainerInterface::NULL_ON_INVALID_REFERENCE];
+        yield 'jmonitor channel of MonologBundle' => [[], ['MonologBundle' => 'Symfony\\Bundle\\MonologBundle\\MonologBundle'], 'monolog.logger.jmonitor', ContainerInterface::NULL_ON_INVALID_REFERENCE];
+        yield 'configured logger' => [['logger' => 'app.jmonitor_logger'], null, 'app.jmonitor_logger', ContainerInterface::EXCEPTION_ON_INVALID_REFERENCE];
+    }
+
+    /**
+     * @param array<string, mixed>              $config
+     * @param array<string, class-string>|null $bundles
+     */
+    #[DataProvider('recorderLoggers')]
+    public function testTheRecorderGetsItsLoggerOnlyWhenItLogs(array $config, ?array $bundles, string $logger, int $invalidBehavior): void
+    {
+        $container = $this->loadBundle($config, environment: 'prod', bundles: $bundles);
+
+        $closure = $container->getDefinition(Recorder::class)->getArgument(1);
+
+        static::assertInstanceOf(ServiceClosureArgument::class, $closure);
+        $reference = $closure->getValues()[0];
+        static::assertInstanceOf(Reference::class, $reference);
+        static::assertSame($logger, (string) $reference);
+        static::assertSame($invalidBehavior, $reference->getInvalidBehavior());
     }
 
     public function testMinimalConfigRegistersCoreServices(): void

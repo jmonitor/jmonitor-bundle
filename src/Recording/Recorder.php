@@ -24,11 +24,13 @@ final class Recorder implements ResetInterface
     private readonly \Closure $sampler;
 
     /**
-     * @param (\Closure(): bool)|null $sampler whether a unit under pressure keeps its children; one in ten by default
+     * @param LoggerInterface|(\Closure(): ?LoggerInterface)|null $logger a closure is only called on the first failure to log, which keeps
+     *                                                              the logger out of the graph of the Doctrine connection
+     * @param (\Closure(): bool)|null                             $sampler whether a unit under pressure keeps its children; one in ten by default
      */
     public function __construct(
         private readonly BufferInterface $buffer,
-        private readonly ?LoggerInterface $logger = null,
+        private LoggerInterface|\Closure|null $logger = null,
         ?\Closure $sampler = null,
         private readonly ?QueryDigester $queries = null,
         private readonly int $sqlSlowThresholdMs = 100,
@@ -163,6 +165,9 @@ final class Recorder implements ResetInterface
         }
 
         $this->failureLogged = true;
+        if ($this->logger instanceof \Closure) {
+            $this->logger = ($this->logger)();
+        }
         $this->logger?->error('JMonitor could not record a unit of work: ' . $e->getMessage(), ['exception' => $e]);
     }
 }

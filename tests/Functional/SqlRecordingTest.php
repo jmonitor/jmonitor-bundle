@@ -19,6 +19,7 @@ use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\ConnectionLogger;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\Filesystem\Filesystem;
@@ -160,12 +161,33 @@ final class SqlRecordingTest extends WebTestCase
         static::assertFalse($recorder->isRecording());
     }
 
+    public function testALoggerThatNeedsTheConnectionIsOnlyBuiltOnTheFirstFailure(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording(), 'debug' => false, 'connection_logger' => true]);
+
+        $client->request('GET', '/n-plus-one');
+        static::assertResponseIsSuccessful();
+        $this->flush();
+        static::assertSame(12, self::rowLabelled($this->read(Family::Query, Metric::QUERY_DURATION), self::N_PLUS_ONE_SQL)->count(Metric::QUERY_DURATION));
+
+        $recorder = static::getContainer()->get(Recorder::class);
+        \assert($recorder instanceof Recorder);
+        $token = $recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        $recorder->addSql('SELECT 1', \INF);
+        $recorder->end($token, 'GET app_hello', 1.0);
+
+        $logger = static::getContainer()->get('logger');
+        static::assertInstanceOf(ConnectionLogger::class, $logger);
+        static::assertSame($this->connection(), $logger->connection);
+        static::assertCount(1, array_filter($logger->records, static fn(string $record): bool => str_starts_with($record, 'error JMonitor could not record a unit of work')));
+    }
+
     /**
-     * @param array{jmonitor?: array<string, mixed>, debug?: bool} $options
+     * @param array{jmonitor?: array<string, mixed>, debug?: bool, connection_logger?: bool} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
-        $kernel = new TestKernel('test', $options['debug'] ?? true, $options['jmonitor'] ?? []);
+        $kernel = new TestKernel('test', $options['debug'] ?? true, $options['jmonitor'] ?? [], withConnectionLogger: $options['connection_logger'] ?? false);
         self::$varDirs[] = $kernel->getVarDir();
 
         return $kernel;
