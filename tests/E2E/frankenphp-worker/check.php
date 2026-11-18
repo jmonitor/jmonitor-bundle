@@ -66,4 +66,19 @@ if ($after > $during - 16 * 1024 * 1024) {
     $fail("peak memory was not reset: small route recorded $after bytes after /alloc recorded $during (before: $before)");
 }
 
+$nPlusOne = $by('GET app_n_plus_one');
+if (count($nPlusOne) !== 2) {
+    $fail('expected 2 GET app_n_plus_one entries, got ' . count($nPlusOne));
+}
+foreach ($nPlusOne as $e) {
+    printf("  n+1    s=%.3f sql_n=%d sql_ms=%.3f\n", $e['s'], $e['a']['sql_n'] ?? -1, $e['a']['sql_ms'] ?? -1);
+    $repeats = array_values(array_filter($e['c'] ?? [], static fn(mixed $child): bool => is_array($child) && ($child['t'] ?? null) === 'n1'));
+    if (count($repeats) !== 1 || ($repeats[0]['a']['n'] ?? null) !== 12) {
+        $fail('a GET app_n_plus_one entry does not carry one N+1 of 12 executions');
+    }
+}
+if (($nPlusOne[0]['a']['sql_n'] ?? null) !== ($nPlusOne[1]['a']['sql_n'] ?? null)) {
+    $fail(sprintf('the SQL count of a request carried over to the next one: %d then %d', $nPlusOne[0]['a']['sql_n'] ?? -1, $nPlusOne[1]['a']['sql_n'] ?? -1));
+}
+
 echo "  checks passed\n";

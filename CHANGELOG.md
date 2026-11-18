@@ -9,13 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `/jmonitor` page: requests, response times and errors per route, stored in the application database.
-- `jmonitor:setup` command: creates the `jmonitor_aggregates` table.
+- `jmonitor:setup` command: creates or upgrades the `jmonitor_aggregates` and `jmonitor_keys` tables.
+- `/jmonitor` Queries screen: SQL queries run through Doctrine DBAL with their executions, time and slow count, and the queries repeated within one request (N+1).
+- Requests screen: SQL time and number of queries per request.
+- `recording.sql` option: turns SQL recording off or changes its slow query and N+1 thresholds.
+- The `/jmonitor` page says when its buffer directory is unusable.
 
 ### Changed
 - Requires PHP 8.2.
 - Requires `symfony/twig-bundle`.
 - HTTP requests are recorded by default, except in the `test` environment; `recording.enabled: false` turns this off.
-- Recording creates a `jmonitor_aggregates` table in the default Doctrine connection on its first flush, even when the routes are not imported.
+- Recording creates the `jmonitor_aggregates` and `jmonitor_keys` tables in the default Doctrine connection on its first flush, even when the routes are not imported.
 
 ## [2.3.0] - 2026-10-31
 
