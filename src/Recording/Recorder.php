@@ -14,6 +14,7 @@ final class Recorder implements ResetInterface
     public const SAMPLE_WEIGHT = 10;
     public const MAX_DEPTH = 8;
     public const MAX_SQL_PER_UNIT = 200;
+    public const MAX_SQL_BYTES = 65_536;
 
     /** @var array<int, array{string, float, array<string, array{int, float, float, int}>}> token => [type, started at, SQL], in opening order */
     private array $units = [];
@@ -58,18 +59,30 @@ final class Recorder implements ResetInterface
 
         $children = [];
         if ($unit[2] !== [] && $this->queries !== null) {
+            $totalMs = 0.0;
+            $count = 0;
+            foreach ($unit[2] as [$executions, $ms]) {
+                $count += $executions;
+                $totalMs += $ms;
+            }
+            $attributes['sql_ms'] = round($totalMs, 3);
+            $attributes['sql_n'] = $count;
+
             try {
-                $digest = $this->queries->digest($unit[2], $unit[1]);
-                $attributes['sql_ms'] = round($digest->totalMs, 3);
-                $attributes['sql_n'] = $digest->count;
-                $children = $digest->children;
+                $pressure = $this->buffer->isUnderPressure();
+                if ($pressure === false || ($pressure === true && ($this->sampler)())) {
+                    $children = $this->queries->digest($unit[2], $unit[1])->children;
+                    if ($pressure && $children !== []) {
+                        $attributes['cw'] = self::SAMPLE_WEIGHT;
+                    }
+                }
             } catch (\Throwable $e) {
                 $this->logFailure($e);
             }
         }
 
         try {
-            $this->buffer->append($this->entry($unit, $key, $durationMs, $attributes, $children));
+            $this->buffer->append(new Entry($unit[0], $key, $unit[1], $durationMs, $attributes, $children));
         } catch (\Throwable $e) {
             $this->logFailure($e);
         }
@@ -82,6 +95,9 @@ final class Recorder implements ResetInterface
         }
 
         $token = array_key_last($this->units);
+        if (\strlen($sql) > self::MAX_SQL_BYTES) {
+            $sql = QueryDigester::OTHER;
+        }
         if (!isset($this->units[$token][2][$sql])) {
             if (\count($this->units[$token][2]) >= self::MAX_SQL_PER_UNIT) {
                 $sql = QueryDigester::OTHER;
@@ -138,24 +154,6 @@ final class Recorder implements ResetInterface
         } while ($last !== $token);
 
         return $unit;
-    }
-
-    /**
-     * @param array{string, float, array<string, array{int, float, float, int}>} $unit
-     * @param array<string, int|float|string> $attributes
-     * @param list<Entry> $children
-     */
-    private function entry(array $unit, string $key, float $durationMs, array $attributes, array $children): Entry
-    {
-        if ($children !== [] && $this->buffer->isUnderPressure()) {
-            if (($this->sampler)()) {
-                $attributes['cw'] = self::SAMPLE_WEIGHT;
-            } else {
-                $children = [];
-            }
-        }
-
-        return new Entry($unit[0], $key, $unit[1], $durationMs, $attributes, $children);
     }
 
     private function logFailure(\Throwable $e): void

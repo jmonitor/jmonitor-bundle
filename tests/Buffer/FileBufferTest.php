@@ -356,11 +356,13 @@ final class FileBufferTest extends TestCase
         try {
             $buffer->append($this->entry('a'));
             $buffer->drain(static function (): void {});
+            $pressure = $buffer->isUnderPressure();
         } finally {
             restore_error_handler();
         }
 
         static::assertSame([], $errors);
+        static::assertNull($pressure);
     }
 
     public function testFailedWriteIsSilent(): void

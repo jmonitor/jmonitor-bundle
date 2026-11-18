@@ -32,11 +32,11 @@ final class FileBuffer implements BufferInterface
         BufferDirectory::quietly(fn() => $this->write($path, $line));
     }
 
-    public function isUnderPressure(): bool
+    public function isUnderPressure(): ?bool
     {
         $directory = $this->directory->path();
         if ($directory === null) {
-            return false;
+            return null;
         }
 
         $path = $this->currentSlot($directory);

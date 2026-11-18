@@ -29,7 +29,7 @@ final class RecorderTest extends TestCase
             /** @var list<Entry> */
             public array $entries = [];
             public ?\Throwable $failure = null;
-            public bool $pressure = false;
+            public ?bool $pressure = false;
 
             public function append(Entry $entry): void
             {
@@ -45,7 +45,7 @@ final class RecorderTest extends TestCase
                 return 0;
             }
 
-            public function isUnderPressure(): bool
+            public function isUnderPressure(): ?bool
             {
                 return $this->pressure;
             }
@@ -308,6 +308,56 @@ final class RecorderTest extends TestCase
         static::assertCount(1, $sampled->children);
     }
 
+    public function testAUnitWhoseChildrenAreDroppedIsNotDigested(): void
+    {
+        $this->buffer->pressure = true;
+        $recorder = new Recorder($this->buffer, $this->logger, static fn(): bool => false, $this->digester());
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->addSql('SELECT * FROM t WHERE id = 1', 2.0);
+        $recorder->addSql('SELECT * FROM u WHERE id = 1', 0.5);
+        $recorder->addSql('SELECT * FROM t WHERE id = 2', 1.0);
+        $recorder->end($token, 'GET app_home', 5.0);
+
+        static::assertSame(['sql_ms' => 3.5, 'sql_n' => 3], $this->buffer->entries[0]->attributes);
+        static::assertSame([], $this->buffer->entries[0]->children);
+        static::assertSame([], $this->labelFiles());
+    }
+
+    public function testAUnitIsNotDigestedWhenTheBufferCannotBeWritten(): void
+    {
+        $this->buffer->pressure = null;
+        $recorder = new Recorder($this->buffer, $this->logger, static fn(): bool => true, $this->digester());
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->addSql('SELECT 1', 2.0);
+        $recorder->end($token, 'GET app_home', 3.0);
+
+        static::assertSame(['sql_ms' => 2.0, 'sql_n' => 1], $this->buffer->entries[0]->attributes);
+        static::assertSame([], $this->buffer->entries[0]->children);
+        static::assertSame([], $this->labelFiles());
+    }
+
+    public function testATextLongerThanTheLimitIsAccumulatedUnderOther(): void
+    {
+        $recorder = $this->sqlRecorder();
+        $longest = 'SELECT ' . str_repeat('a', Recorder::MAX_SQL_BYTES - 14) . ' FROM t';
+        $tooLong = 'SELECT ' . str_repeat('a', Recorder::MAX_SQL_BYTES - 13) . ' FROM t';
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->addSql($longest, 1.0);
+        $recorder->addSql($tooLong, 2.0);
+        $recorder->addSql($tooLong, 3.0);
+        $recorder->end($token, 'GET app_home', 10.0);
+
+        static::assertSame(65_536, \strlen($longest));
+        static::assertSame(65_537, \strlen($tooLong));
+        $entry = $this->buffer->entries[0];
+        static::assertSame(['sql_ms' => 6.0, 'sql_n' => 3], $entry->attributes);
+        static::assertSame([SqlNormalizer::id((string) SqlNormalizer::normalize($longest)), QueryDigester::OTHER], array_map(static fn(Entry $child): string => $child->key, $entry->children));
+        static::assertSame(['n' => 2, 'm' => 3.0], $entry->children[1]->attributes);
+    }
+
     public function testAnExecutionIsSlowFromTheThreshold(): void
     {
         $recorder = new Recorder($this->buffer, $this->logger, null, $this->digester(), 100);
@@ -340,6 +390,14 @@ final class RecorderTest extends TestCase
     private function sqlRecorder(?QueryDigester $digester = null): Recorder
     {
         return new Recorder($this->buffer, $this->logger, null, $digester ?? $this->digester());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function labelFiles(): array
+    {
+        return glob((new BufferDirectory($this->dir, 'app'))->path() . '/labels/*') ?: [];
     }
 
     private function digester(): QueryDigester

@@ -19,6 +19,8 @@ interface BufferInterface
 
     /**
      * Whether the slot being written is filling up fast enough that recorders should shed detail.
+     *
+     * @return bool|null null when nothing can be appended
      */
-    public function isUnderPressure(): bool;
+    public function isUnderPressure(): ?bool;
 }
