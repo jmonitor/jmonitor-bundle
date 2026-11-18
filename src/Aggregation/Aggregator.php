@@ -85,7 +85,7 @@ final class Aggregator
                         continue;
                     }
 
-                    $merged[$id]->count += $count;
+                    $merged[$id]->count = self::saturatingSum($merged[$id]->count, $count);
                     $merged[$id]->sum += $sum;
                     $merged[$id]->max = max($merged[$id]->max, $max);
                 }
@@ -191,13 +191,18 @@ final class Aggregator
                     continue;
                 }
 
-                $result[$id]['counters'][$type][0] += $count;
+                $result[$id]['counters'][$type][0] = self::saturatingSum($result[$id]['counters'][$type][0], $count);
                 $result[$id]['counters'][$type][1] += $sum;
                 $result[$id]['counters'][$type][2] = max($result[$id]['counters'][$type][2], $max);
             }
         }
 
         return $result;
+    }
+
+    private static function saturatingSum(int $a, int $b): int
+    {
+        return $a > \PHP_INT_MAX - $b ? \PHP_INT_MAX : $a + $b;
     }
 
     private static function number(mixed $value): ?float
@@ -218,7 +223,7 @@ final class Aggregator
             return;
         }
 
-        $counters[$type][0] += $count;
+        $counters[$type][0] = self::saturatingSum($counters[$type][0], $count);
         $counters[$type][1] += $sum;
         if ($max > $counters[$type][2]) {
             $counters[$type][2] = $max;

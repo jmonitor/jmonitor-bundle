@@ -411,6 +411,38 @@ class AggregatorTest extends TestCase
         static::assertSame(2, $request->count);
     }
 
+    public function testSummingManyMaximalChildrenSaturatesInsteadOfOverflowing(): void
+    {
+        $heavy = static fn(string $key, int $children): array => array_fill(
+            0,
+            $children,
+            new Entry(Entry::TYPE_QUERY, $key, 1700000045.0, 0.0, ['n' => 1_000_000_000, 'm' => 1.0, 'sl' => 1_000_000_000]),
+        );
+        $unit = static fn(float $at, array $children): Entry => new Entry(Entry::TYPE_REQUEST, 'GET a', $at, 5.0, ['cw' => 1_000_000], $children);
+
+        $sameMinute = (new Aggregator(1000))->aggregate([$unit(1700000045.0, $heavy('abc', 10_000))]);
+        $twoMinutes = (new Aggregator(1000))->aggregate([
+            $unit(1700000045.0, $heavy('abc', 9_000)),
+            $unit(1700000105.0, $heavy('abc', 9_000)),
+        ]);
+
+        $folded = [$unit(1700000045.0, $heavy('x1', 9_000)), $unit(1700000105.0, $heavy('x2', 9_000))];
+        for ($i = 0; $i < 200; ++$i) {
+            $folded[] = new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 5.0, [], [
+                new Entry(Entry::TYPE_QUERY, sprintf('k%03d', $i), 1700000045.0, 1000.0, ['n' => 1, 'm' => 1.0]),
+            ]);
+        }
+        $capped = (new Aggregator(1000))->aggregate($folded);
+
+        foreach ([[$sameMinute, 'abc'], [$twoMinutes, 'abc'], [$capped, Aggregator::OTHER]] as [$aggregates, $key]) {
+            foreach ([Metric::QUERY_DURATION, Metric::QUERY_SLOW] as $type) {
+                $aggregate = $this->find($aggregates, Period::OneDay, $type, $key);
+                static::assertNotNull($aggregate, $type . ' ' . $key);
+                static::assertGreaterThan(9_000_000_000_000_000_000, $aggregate->count);
+            }
+        }
+    }
+
     /**
      * @param list<Aggregate> $aggregates
      */
