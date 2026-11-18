@@ -337,6 +337,41 @@ final class FlusherTest extends TestCase
         static::assertCount(1, glob($this->dir . '/*/hot-keys.json') ?: []);
     }
 
+    public function testARetryAfterAFailedStoreCountsTheBatchOnce(): void
+    {
+        $flaky = new class implements StorageInterface {
+            public bool $fail = true;
+
+            public function prepare(): void {}
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                if ($this->fail) {
+                    $this->fail = false;
+
+                    throw new \RuntimeException('database down');
+                }
+            }
+
+            public function purge(int $now): void {}
+        };
+        $flusher = $this->flusherWithRegistry($flaky);
+        for ($i = 0; $i < 2; ++$i) {
+            $this->buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET app_home', (float) $this->clock->now()->getTimestamp(), 20.0, [], [
+                new Entry(Entry::TYPE_QUERY, 'abc', (float) $this->clock->now()->getTimestamp(), 12.0, ['n' => 1, 'm' => 12.0]),
+            ]));
+        }
+        $this->clock->sleep(11);
+
+        static::assertFalse($flusher->flush());
+        static::assertTrue($flusher->flush());
+
+        $files = glob($this->dir . '/*/hot-keys.json') ?: [];
+        static::assertCount(1, $files);
+        $registry = json_decode((string) file_get_contents($files[0]), true);
+        static::assertSame([['abc', 24.0, true]], $registry['families']['query']['keys']);
+    }
+
     private function flusherWithRegistry(StorageInterface $storage): Flusher
     {
         $directory = new BufferDirectory($this->dir, 'app');

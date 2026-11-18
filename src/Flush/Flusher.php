@@ -59,6 +59,7 @@ final class Flusher
                 $this->buffer->drain(fn(iterable $entries) => $this->store($entries));
                 $this->purgeIfDue();
             } finally {
+                $this->hotKeys?->reset();
                 $this->lock->release();
             }
 

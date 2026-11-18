@@ -107,6 +107,19 @@ final class HotKeysTest extends TestCase
         static::assertSame(['123'], $this->registry()->keys(Family::Query));
     }
 
+    public function testResetDiscardsWhatWasNotCommitted(): void
+    {
+        $registry = $this->registry();
+        $registry->select(Family::Query, ['committed' => 10.0], 200);
+        $registry->commit();
+        $registry->select(Family::Query, ['committed' => 10.0, 'pending' => 10.0], 200);
+
+        $registry->reset();
+
+        static::assertSame(['committed'], $registry->keys(Family::Query));
+        static::assertSame(['committed' => true], $registry->select(Family::Query, ['committed' => 0.0], 200));
+    }
+
     public function testACorruptFileStartsAnEmptyRegistry(): void
     {
         foreach (['{oops', '[]', '{"version":99,"families":[]}', '{"version":1,"families":{"query":{"at":"x","keys":7}}}'] as $content) {

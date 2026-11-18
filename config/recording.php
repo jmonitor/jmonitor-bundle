@@ -48,7 +48,8 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->alias(BufferInterface::class, FileBuffer::class);
 
     $services->set(HotKeys::class)
-        ->args([service(BufferDirectory::class), service('jmonitor.clock')]);
+        ->args([service(BufferDirectory::class), service('jmonitor.clock')])
+        ->tag('kernel.reset', ['method' => 'reset']);
 
     $services->set(Aggregator::class)
         ->args([param('jmonitor.recording.slow_threshold'), service(HotKeys::class)]);

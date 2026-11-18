@@ -117,10 +117,10 @@ final class HotKeys
         $target = $directory . '/' . self::FILE;
         $temporary = $target . '.' . bin2hex(random_bytes(6));
 
-        $written = BufferDirectory::quietly(static function () use ($temporary, $target, $json): bool {
+        BufferDirectory::quietly(static function () use ($temporary, $target, $json): void {
             $handle = fopen($temporary, 'x');
             if ($handle === false) {
-                return false;
+                return;
             }
 
             chmod($temporary, 0o600);
@@ -129,16 +129,13 @@ final class HotKeys
 
             if (!$complete || !rename($temporary, $target)) {
                 unlink($temporary);
-
-                return false;
             }
-
-            return true;
         });
+    }
 
-        if ($written) {
-            $this->families = null;
-        }
+    public function reset(): void
+    {
+        $this->families = null;
     }
 
     /**
