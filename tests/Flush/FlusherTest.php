@@ -119,6 +119,11 @@ final class FlusherTest extends TestCase
 
                 return $this->consumed;
             }
+
+            public function isUnderPressure(): bool
+            {
+                return false;
+            }
         };
         $flusher = new Flusher($buffer, new Aggregator(500), $this->refusingStorage(), new FlushLock(new BufferDirectory($this->dir, 'app'), 10, $this->clock), $this->clock, $logger, 300);
 

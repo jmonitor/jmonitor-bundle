@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Recording\Entry;
+use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
@@ -102,7 +103,7 @@ $lock->markPurged();
 touch($directory->path() . '/last-flush');
 $buffer = new FileBuffer($directory, 10, $clock);
 $flusher = new Flusher($buffer, new Aggregator(500), new DbalStorage($connection, 31_536_000), $lock, $clock, null, 300);
-$recorder = new RequestRecorder($buffer, $flusher);
+$recorder = new RequestRecorder(new Recorder($buffer), $flusher);
 
 $kernel = new class implements HttpKernelInterface {
     public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = true): Response
@@ -115,11 +116,14 @@ $request->attributes->set('_route', 'app_hello');
 $requestEvent = new RequestEvent($kernel, $request, HttpKernelInterface::MAIN_REQUEST);
 $terminateEvent = new TerminateEvent($kernel, $request, new Response());
 
-printf("request path: %.2f µs/call\n", microsPerCall(static fn() => $recorder->onRequest($requestEvent)));
-printf("after response: %.2f µs/call\n", microsPerCall(static function () use ($recorder, $terminateEvent): void {
+$requestPath = microsPerCall(static fn() => $recorder->onRequest($requestEvent));
+$wholeRequest = microsPerCall(static function () use ($recorder, $requestEvent, $terminateEvent): void {
+    $recorder->onRequest($requestEvent);
     $recorder->onTerminate($terminateEvent);
     $recorder->onTerminateFlush($terminateEvent);
-}));
+});
+printf("request path: %.2f µs/call\n", $requestPath);
+printf("after response: %.2f µs/call\n", $wholeRequest - $requestPath);
 $connection->close();
 removeDir($dir);
 

@@ -298,6 +298,31 @@ final class FileBufferTest extends TestCase
         static::assertLessThan(20 * $line, $size);
     }
 
+    public function testPressureStartsAtAQuarterOfTheSlotSize(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock, 'app', 4000);
+        $overhead = \strlen($this->entry('')->toLine()) + 1;
+
+        static::assertFalse($buffer->isUnderPressure());
+
+        $buffer->append($this->entry(str_repeat('a', 900 - $overhead)));
+        clearstatcache();
+
+        static::assertSame(900, filesize($this->private . '/1000.ndjson'));
+        static::assertFalse($buffer->isUnderPressure());
+
+        $buffer->append($this->entry(str_repeat('b', 200 - $overhead)));
+        clearstatcache();
+
+        static::assertSame(1100, filesize($this->private . '/1000.ndjson'));
+        static::assertTrue($buffer->isUnderPressure());
+
+        $clock->sleep(10);
+
+        static::assertFalse($buffer->isUnderPressure());
+    }
+
     public function testOtherApplicationsAreIgnored(): void
     {
         $clock = new MockClock('@1000');

@@ -27,9 +27,25 @@ final class FileBuffer implements BufferInterface
             return;
         }
 
-        $path = sprintf('%s/%d.ndjson', $directory, intdiv($this->clock->now()->getTimestamp(), $this->slotSeconds) * $this->slotSeconds);
+        $path = $this->currentSlot($directory);
 
         BufferDirectory::quietly(fn() => $this->write($path, $line));
+    }
+
+    public function isUnderPressure(): bool
+    {
+        $directory = $this->directory->path();
+        if ($directory === null) {
+            return false;
+        }
+
+        $path = $this->currentSlot($directory);
+
+        return BufferDirectory::quietly(static function () use ($path): int {
+            clearstatcache(true, $path);
+
+            return filesize($path) ?: 0;
+        }) >= intdiv($this->maxSlotBytes, 4);
     }
 
     public function drain(callable $consumer): int
@@ -75,6 +91,11 @@ final class FileBuffer implements BufferInterface
         }
 
         return $count;
+    }
+
+    private function currentSlot(string $directory): string
+    {
+        return sprintf('%s/%d.ndjson', $directory, intdiv($this->clock->now()->getTimestamp(), $this->slotSeconds) * $this->slotSeconds);
     }
 
     private static function discard(string $file): void

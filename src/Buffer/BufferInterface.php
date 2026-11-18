@@ -16,4 +16,9 @@ interface BufferInterface
      * @return int number of entries handed to the consumer
      */
     public function drain(callable $consumer): int;
+
+    /**
+     * Whether the slot being written is filling up fast enough that recorders should shed detail.
+     */
+    public function isUnderPressure(): bool;
 }

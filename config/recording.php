@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Command\SetupCommand;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
+use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
@@ -100,9 +101,13 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         return;
     }
 
-    $recorder = $services->set(RequestRecorder::class)
+    $recorder = $services->set(Recorder::class)
+        ->args([service(BufferInterface::class), $logger])
+        ->tag('kernel.reset', ['method' => 'reset']);
+
+    $requestRecorder = $services->set(RequestRecorder::class)
         ->args([
-            service(BufferInterface::class),
+            service(Recorder::class),
             service(Flusher::class),
             param('jmonitor.recording.ignore_routes'),
             $logger,
@@ -112,5 +117,6 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
     if ($customLogger === null) {
         $recorder->tag('monolog.logger', ['channel' => 'jmonitor']);
+        $requestRecorder->tag('monolog.logger', ['channel' => 'jmonitor']);
     }
 };
