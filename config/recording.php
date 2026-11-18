@@ -65,8 +65,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->alias(StorageInterface::class, DbalStorage::class);
 
     $services->set(DbalReader::class)
-        ->args([$connection])
-        ->tag('kernel.reset', ['method' => 'reset']);
+        ->args([$connection]);
     $services->alias(ReaderInterface::class, DbalReader::class);
 
     $services->set(SchemaAssetFilter::class)

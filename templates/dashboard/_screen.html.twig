@@ -1,0 +1,41 @@
+{% autoescape 'html' %}
+{% set state = page.state.value %}
+<div class="jm-screen" data-jm-state="{{ state }}">
+{% if state == 'ready' %}
+    {{ include('@Jmonitor/dashboard/_cards.html.twig', {cards: page.view.cards}) }}
+    {% for table in page.view.tables %}
+        {{ include('@Jmonitor/dashboard/_table.html.twig', {table: table}) }}
+    {% endfor %}
+{% else %}
+    {% set tone = state in ['no_connection', 'storage_error', 'buffer_unavailable'] ? 'bad' : 'info' %}
+    <div class="jm-state jm-state--{{ tone }}">
+        <svg class="jm-state__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.75"/>
+            {% if tone == 'bad' %}
+                <line x1="12" y1="7.5" x2="12" y2="13" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+                <circle cx="12" cy="16.25" r="1.1" fill="currentColor"/>
+            {% else %}
+                <polyline points="12,7.5 12,12 15,14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+            {% endif %}
+        </svg>
+        {% if state == 'empty' %}
+            {% set empty = page.screen.emptyState %}
+            <h2 class="jm-state__title">{{ empty.title }}</h2>
+            <p class="jm-state__text">{{ empty.text }}</p>
+        {% elseif state == 'recording_disabled' %}
+            <h2 class="jm-state__title">Recording is off</h2>
+            <p class="jm-state__text">Recording is disabled in this environment (<code>jmonitor.recording.enabled</code>).</p>
+        {% elseif state == 'buffer_unavailable' %}
+            <h2 class="jm-state__title">Buffer directory unusable</h2>
+            <p class="jm-state__text">JMonitor cannot write to its buffer directory (<code>jmonitor.recording.buffer_dir</code>, or the system temporary directory). Nothing is recorded until it can.</p>
+        {% elseif state == 'no_connection' %}
+            <h2 class="jm-state__title">No storage configured</h2>
+            <p class="jm-state__text">JMonitor needs a Doctrine DBAL connection to store its data. Install doctrine/doctrine-bundle or set <code>jmonitor.storage.connection</code>.</p>
+        {% else %}
+            <h2 class="jm-state__title">Storage unavailable</h2>
+            <p class="jm-state__text">JMonitor could not read or write its data. Check the application logs.</p>
+        {% endif %}
+    </div>
+{% endif %}
+</div>
+{% endautoescape %}

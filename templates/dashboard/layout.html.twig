@@ -1,3 +1,4 @@
+{% autoescape 'html' %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,8 +8,8 @@
     <meta name="color-scheme" content="dark">
     <title>{% block title %}JMonitor{% endblock %}</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="{{ app.request.basePath }}/bundles/jmonitor/jmonitor.css">
-    <script src="{{ app.request.basePath }}/bundles/jmonitor/jmonitor.js" defer></script>
+    <link rel="stylesheet" href="{{ jmonitor_asset('jmonitor.css') }}">
+    <script src="{{ jmonitor_asset('jmonitor.js') }}" defer></script>
 </head>
 <body class="jm">
     <a class="jm-skip" href="#jm-main">Skip to content</a>
@@ -38,3 +39,4 @@
     {% block body %}{% endblock %}
 </body>
 </html>
+{% endautoescape %}

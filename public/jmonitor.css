@@ -363,6 +363,15 @@ body.jm {
     color: var(--jm-bad);
 }
 
+.jm-card--warn {
+    border-color: rgba(255, 198, 142, .32);
+    background: var(--jm-warn-bg);
+}
+
+.jm-card--warn .jm-card__value {
+    color: var(--jm-warn);
+}
+
 .jm-sparkline {
     display: block;
     flex: 1 1 auto;
@@ -406,6 +415,18 @@ body.jm {
     color: var(--jm-muted);
     font-size: 13px;
     font-variant-numeric: tabular-nums;
+}
+
+.jm-panel__footer {
+    padding: 10px 18px;
+    border-top: 1px solid var(--jm-border);
+    color: var(--jm-muted);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.jm-panel + .jm-panel {
+    margin-top: 20px;
 }
 
 .jm-table-wrap {
@@ -575,6 +596,50 @@ body.jm {
 .jm-table .jm-bad {
     color: var(--jm-bad-strong);
     font-weight: 650;
+}
+
+.jm-table .jm-row--muted > * {
+    color: var(--jm-muted);
+    font-style: italic;
+}
+
+.jm-sql {
+    display: block;
+    max-width: 72ch;
+    color: var(--jm-text-strong);
+    font-family: var(--jm-font-mono);
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.jm-sql summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.jm-sql summary::-webkit-details-marker {
+    display: none;
+}
+
+.jm-sql summary code::after {
+    content: "…";
+    color: var(--jm-muted);
+}
+
+.jm-sql[open] summary code {
+    display: none;
+}
+
+.jm-sql[open] summary::before {
+    content: "Collapse";
+    color: var(--jm-muted);
+    font-family: var(--jm-font);
+    font-size: 12px;
+}
+
+.jm-sql pre {
+    margin: 0;
+    white-space: pre-wrap;
 }
 
 .jm-state {

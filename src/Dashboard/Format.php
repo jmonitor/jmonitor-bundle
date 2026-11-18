@@ -1,0 +1,66 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Jmonitor\JmonitorBundle\Dashboard;
+
+final class Format
+{
+    private const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+
+    public static function duration(int|float $ms): string
+    {
+        if ($ms < 1) {
+            return '<1 ms';
+        }
+
+        if (round($ms) < 1000) {
+            return round($ms) . ' ms';
+        }
+
+        $seconds = $ms / 1000;
+
+        return $seconds < 10 ? number_format($seconds, 1) . ' s' : number_format($seconds) . ' s';
+    }
+
+    public static function bytes(int|float $bytes): string
+    {
+        $unit = 0;
+
+        while ($bytes >= 1024 && $unit < \count(self::BYTE_UNITS) - 1) {
+            $bytes /= 1024;
+            ++$unit;
+        }
+
+        if ($unit === 0) {
+            return number_format($bytes) . ' B';
+        }
+
+        return self::trimZero(number_format($bytes, $bytes < 10 ? 1 : 0)) . ' ' . self::BYTE_UNITS[$unit];
+    }
+
+    public static function number(int|float $value): string
+    {
+        return number_format($value);
+    }
+
+    public static function percent(int|float $ratio): string
+    {
+        $percent = $ratio * 100;
+
+        if ($percent <= 0) {
+            return '0 %';
+        }
+
+        if ($percent < 0.1) {
+            return '<0.1 %';
+        }
+
+        return self::trimZero(number_format($percent, $percent < 10 ? 1 : 0)) . ' %';
+    }
+
+    private static function trimZero(string $number): string
+    {
+        return str_ends_with($number, '.0') ? substr($number, 0, -2) : $number;
+    }
+}

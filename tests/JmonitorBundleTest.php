@@ -25,7 +25,7 @@ use Jmonitor\JmonitorBundle\JmonitorBundle;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
-use Jmonitor\JmonitorBundle\Dashboard\RequestsScreenFactory;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
@@ -206,7 +206,7 @@ class JmonitorBundleTest extends TestCase
      */
     private static function loggingServices(): array
     {
-        return [Flusher::class => 5, RequestRecorder::class => 3, RequestsScreenFactory::class => 3];
+        return [Flusher::class => 5, RequestRecorder::class => 3, ScreenBuilder::class => 4];
     }
 
     public function testApplicationMonitoringUsesTheConfiguredLogger(): void

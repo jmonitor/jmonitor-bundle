@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 use Jmonitor\JmonitorBundle\Controller\DashboardController;
 use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
-use Jmonitor\JmonitorBundle\Dashboard\RequestsScreenFactory;
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
@@ -13,6 +16,7 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
 
 return static function (ContainerConfigurator $container, ContainerBuilder $builder): void {
     $services = $container->services();
@@ -29,7 +33,8 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->public()
         ->args([
             service(DashboardAccess::class),
-            service(RequestsScreenFactory::class)->nullOnInvalid(),
+            service(ScreenRegistry::class)->nullOnInvalid(),
+            service(ScreenBuilder::class)->nullOnInvalid(),
             service(Flusher::class)->nullOnInvalid(),
             service('twig')->nullOnInvalid(),
         ]);
@@ -39,18 +44,26 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     }
 
     $customLogger = $builder->getParameter('jmonitor.logger');
-    $screens = $services->set(RequestsScreenFactory::class)
+    $screenBuilder = $services->set(ScreenBuilder::class)
         ->args([
             service(ReaderInterface::class)->nullOnInvalid(),
             param('jmonitor.recording.enabled'),
             service('jmonitor.clock'),
+            service(BufferDirectory::class)->nullOnInvalid(),
             \is_string($customLogger) ? service($customLogger) : service('logger')->nullOnInvalid(),
         ]);
 
     if ($customLogger === null) {
-        $screens->tag('monolog.logger', ['channel' => 'jmonitor']);
+        $screenBuilder->tag('monolog.logger', ['channel' => 'jmonitor']);
     }
 
+    $services->set(ScreenRegistry::class)
+        ->args([tagged_iterator('jmonitor.screen')]);
+
+    $services->set(RequestsScreen::class)
+        ->tag('jmonitor.screen', ['priority' => 100]);
+
     $services->set(JmonitorExtension::class)
+        ->args([service('request_stack')->nullOnInvalid()])
         ->tag('twig.extension');
 };

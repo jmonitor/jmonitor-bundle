@@ -213,15 +213,59 @@ final class DashboardTest extends WebTestCase
         $client->request('GET', '/jmonitor/');
         $html = (string) $client->getResponse()->getContent();
 
-        static::assertStringContainsString('"/bundles/jmonitor/jmonitor.css"', $html);
-        static::assertStringContainsString('"/bundles/jmonitor/jmonitor.js"', $html);
+        static::assertStringContainsString('"/bundles/jmonitor/jmonitor.css?v=', $html);
+        static::assertStringContainsString('"/bundles/jmonitor/jmonitor.js?v=', $html);
 
         $client->request('GET', '/sub/index.php/jmonitor/', server: ['SCRIPT_NAME' => '/sub/index.php', 'SCRIPT_FILENAME' => '/srv/sub/index.php']);
         $html = (string) $client->getResponse()->getContent();
 
         static::assertResponseIsSuccessful();
-        static::assertStringContainsString('"/sub/bundles/jmonitor/jmonitor.css"', $html);
-        static::assertStringContainsString('"/sub/bundles/jmonitor/jmonitor.js"', $html);
+        static::assertStringContainsString('"/sub/bundles/jmonitor/jmonitor.css?v=', $html);
+        static::assertStringContainsString('"/sub/bundles/jmonitor/jmonitor.js?v=', $html);
+    }
+
+    public function testTheRequestsScreenIsTheDefaultScreen(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/jmonitor/');
+        $default = (string) $client->getResponse()->getContent();
+        $crawler = $client->request('GET', '/jmonitor/requests');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame($default, (string) $client->getResponse()->getContent());
+        static::assertSame('Requests', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertStringContainsString('jmonitor.css?v=', $default);
+        static::assertSame('/jmonitor/_fragment/requests', $crawler->filter('[data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+
+        $client->request('GET', '/jmonitor/_fragment/requests');
+        static::assertResponseIsSuccessful();
+        static::assertStringNotContainsString('<html', (string) $client->getResponse()->getContent());
+    }
+
+    public function testAnUnknownScreenIsNotFound(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/jmonitor/nope');
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('GET', '/jmonitor/_fragment/nope');
+        static::assertResponseStatusCodeSame(404);
+    }
+
+    public function testSortAndPeriodLinksStayOnTheScreen(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/hello/world');
+        $crawler = self::requestUntil($client, '/jmonitor/requests?period=6h&sort=sql&dir=asc', 'tr[data-jm-route="GET app_hello"]');
+
+        static::assertSame('/jmonitor/requests?period=6h&sort=sql&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
+        static::assertSame('ascending', $crawler->filter('th.is-sorted')->attr('aria-sort'));
+        static::assertSame('/jmonitor/requests?period=24h&sort=sql&dir=asc', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
+        static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-nav__item')->attr('href'));
+        static::assertSame('—', trim($crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(5)->text()));
     }
 
     /**

@@ -1,0 +1,47 @@
+{% extends '@Jmonitor/dashboard/layout.html.twig' %}
+
+{% block title %}{% autoescape 'html' %}JMonitor — {{ page.screen.label }}{% endautoescape %}{% endblock %}
+
+{% block nav %}
+{% autoescape 'html' %}
+    {% for screen in screens %}
+        <a class="jm-nav__item" href="{{ path('jmonitor_screen', {screen: screen.id, period: page.period.label}) }}"{% if screen.id == page.screen.id %} aria-current="page"{% endif %}>{{ screen.label }}</a>
+    {% endfor %}
+{% endautoescape %}
+{% endblock %}
+
+{% block toolbar %}
+{% autoescape 'html' %}
+    <nav class="jm-period" aria-label="Period">
+        <span class="jm-period__label" aria-hidden="true">Period</span>
+        <ul class="jm-segmented">
+            {% for period in periods %}
+                <li>
+                    <a class="jm-segmented__item{{ period == page.period ? ' is-active' }}"
+                       href="{{ path('jmonitor_screen', {screen: page.screen.id, period: period.label, sort: page.sort, dir: page.direction}) }}"
+                       {% if period == page.period %}aria-current="true"{% endif %}>{{ period.label }}</a>
+                </li>
+            {% endfor %}
+        </ul>
+    </nav>
+    <label class="jm-live" data-jm-live-toggle hidden>
+        <input class="jm-live__switch" type="checkbox" role="switch" checked>
+        <span class="jm-live__label">Live</span>
+    </label>
+{% endautoescape %}
+{% endblock %}
+
+{% block body %}
+{% autoescape 'html' %}
+    {% set period_text = {'1h': 'last hour', '6h': 'last 6 hours', '24h': 'last 24 hours', '7d': 'last 7 days'} %}
+    <main id="jm-main" class="jm-main" data-jm-live data-jm-fragment-url="{{ path('jmonitor_screen_fragment', {screen: page.screen.id}) }}">
+        <div class="jm-heading">
+            <h1 class="jm-heading__title">{{ page.screen.label }}</h1>
+            <p class="jm-heading__text">{{ page.screen.heading }}, {{ period_text[page.period.label] }}.</p>
+        </div>
+        <div data-jm-content>
+            {{ include('@Jmonitor/dashboard/_screen.html.twig') }}
+        </div>
+    </main>
+{% endautoescape %}
+{% endblock %}
