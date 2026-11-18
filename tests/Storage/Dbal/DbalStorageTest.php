@@ -27,6 +27,15 @@ use Symfony\Component\Filesystem\Filesystem;
 
 final class DbalStorageTest extends TestCase
 {
+    /** @var list<string> */
+    private array $files = [];
+
+    protected function tearDown(): void
+    {
+        (new Filesystem())->remove($this->files);
+        $this->files = [];
+    }
+
     /** @return array<string, array{Connection}> */
     public static function connections(): array
     {
@@ -494,6 +503,81 @@ final class DbalStorageTest extends TestCase
         } finally {
             (new Filesystem())->remove($dir);
         }
+    }
+
+    #[DataProvider('connections')]
+    public function testAggregatesTableDroppedUnderACurrentVersionIsCreatedAgain(Connection $connection): void
+    {
+        $this->reset($connection);
+        $storage = $this->storage($connection);
+        $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)], 1700000100);
+
+        $connection->executeStatement('DROP TABLE ' . AggregatesTable::NAME);
+        $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 2, 1.0, 1.0)], 1700000100);
+
+        static::assertSame(2, (int) $connection->fetchOne('SELECT SUM(entry_count) FROM jmonitor_aggregates'));
+        static::assertSame('2', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+    }
+
+    public function testAnOlderVersionIsNotMistakenForAConcurrentInstall(): void
+    {
+        $params = $this->sqliteFile();
+        $this->storage(DriverManager::getConnection($params))->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)], 1700000100);
+        $connection = DdlDenier::connect($params);
+        $connection->executeStatement("UPDATE jmonitor_keys SET metric_key = '1' WHERE key_hash = 'schema'");
+        $storage = $this->storage($connection);
+
+        foreach ([static fn() => $storage->prepare(), static fn() => $storage->setUp()] as $operation) {
+            try {
+                $operation();
+                static::fail('An upgrade without the right to drop tables must fail.');
+            } catch (\RuntimeException $e) {
+                static::assertStringContainsString('Permission denied', $e->getMessage());
+            }
+        }
+
+        static::assertSame('1', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+        static::assertSame(1, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
+    }
+
+    public function testAnInstallFinishedMeanwhileByAnotherServerIsAccepted(): void
+    {
+        $params = $this->sqliteFile();
+        $other = DriverManager::getConnection($params);
+        $connection = DdlDenier::connect($params, fn() => $this->storage($other)->prepare());
+        $storage = $this->storage($connection);
+
+        $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)], 1700000100);
+
+        static::assertSame(1, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
+        static::assertSame('2', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+    }
+
+    public function testTablesCreatedByAnotherServerBeforeItsVersionRowAreAccepted(): void
+    {
+        $params = $this->sqliteFile();
+        $other = DriverManager::getConnection($params);
+        $connection = DdlDenier::connect($params, static function () use ($other): void {
+            foreach ([AggregatesTable::definition(), KeysTable::definition()] as $table) {
+                foreach ($other->getDatabasePlatform()->getCreateTableSQL($table) as $sql) {
+                    $other->executeStatement($sql);
+                }
+            }
+        });
+        $storage = $this->storage($connection);
+
+        $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)], 1700000100);
+
+        static::assertSame(1, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
+    }
+
+    /** @return array{driver: 'pdo_sqlite', path: string} */
+    private function sqliteFile(): array
+    {
+        $path = sys_get_temp_dir() . '/jmonitor-storage-' . bin2hex(random_bytes(6)) . '.sqlite';
+        $this->files[] = $path;
+
+        return ['driver' => 'pdo_sqlite', 'path' => $path];
     }
 
     private function createFirstSchema(Connection $connection): void

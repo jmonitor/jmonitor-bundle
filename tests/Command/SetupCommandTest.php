@@ -57,6 +57,20 @@ final class SetupCommandTest extends TestCase
         static::assertSame('2', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
     }
 
+    #[DataProvider('connections')]
+    public function testRecreatesAMissingAggregatesTable(Connection $connection): void
+    {
+        ConnectionProvider::dropTables($connection);
+        $this->execute($connection);
+        $connection->executeStatement('DROP TABLE ' . AggregatesTable::NAME);
+
+        $tester = $this->execute($connection);
+
+        static::assertSame(Command::SUCCESS, $tester->getStatusCode());
+        static::assertStringContainsString('Upgraded the JMonitor tables in the "default" connection.', $this->display($tester));
+        static::assertTrue($connection->createSchemaManager()->tablesExist([AggregatesTable::NAME, KeysTable::NAME]));
+    }
+
     public function testUnsupportedPlatformFailsWithAClearMessage(): void
     {
         $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true, 'wrapperClass' => SqlServerConnection::class]);

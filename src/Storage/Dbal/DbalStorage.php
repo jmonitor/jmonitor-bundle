@@ -32,7 +32,7 @@ final class DbalStorage implements StorageInterface
         $this->assertWritable();
         $this->schemaReady = false;
 
-        return $this->ensureSchema();
+        return $this->ensureSchema(checkAggregates: true);
     }
 
     public function store(array $aggregates, int $now, array $labels = []): void
@@ -49,7 +49,7 @@ final class DbalStorage implements StorageInterface
             $this->write($rows, $keyBatches, $now);
         } catch (TableNotFoundException) {
             $this->schemaReady = false;
-            $this->ensureSchema();
+            $this->ensureSchema(checkAggregates: true);
             $this->write($rows, $keyBatches, $now);
         }
     }
@@ -199,7 +199,8 @@ final class DbalStorage implements StorageInterface
         $this->assertNoOpenTransaction();
     }
 
-    private function ensureSchema(): SetupResult
+    /** @param bool $checkAggregates also verify the aggregates table behind a current version row, at the cost of one query */
+    private function ensureSchema(bool $checkAggregates = false): SetupResult
     {
         if ($this->schemaReady) {
             return SetupResult::Unchanged;
@@ -207,8 +208,9 @@ final class DbalStorage implements StorageInterface
 
         $version = $this->version();
         self::assertNotNewer($version);
+        $current = $version === KeysTable::VERSION;
 
-        if ($version === KeysTable::VERSION) {
+        if ($current && !$checkAggregates) {
             $this->schemaReady = true;
 
             return SetupResult::Unchanged;
@@ -216,6 +218,12 @@ final class DbalStorage implements StorageInterface
 
         $keysExist = $version !== null;
         $aggregatesExist = $this->tableExists(AggregatesTable::NAME);
+
+        if ($current && $aggregatesExist) {
+            $this->schemaReady = true;
+
+            return SetupResult::Unchanged;
+        }
 
         try {
             $this->install($aggregatesExist, $keysExist);
@@ -256,7 +264,7 @@ final class DbalStorage implements StorageInterface
         ]);
     }
 
-    /** Both tables present without a newer version: another server is installing them or just did. */
+    /** Another server installed both tables, or created them and has yet to insert the version row. */
     private function installedByAnotherServer(): bool
     {
         try {
@@ -268,7 +276,7 @@ final class DbalStorage implements StorageInterface
 
         self::assertNotNewer($version);
 
-        return $version !== null && $aggregatesExist;
+        return $aggregatesExist && ($version === KeysTable::VERSION || $version === 0);
     }
 
     /**

@@ -18,54 +18,76 @@ use Doctrine\DBAL\DriverManager;
 final class DdlDenier implements Middleware
 {
     /**
-     * @param array<string, mixed> $params
+     * @param array<string, mixed>  $params
+     * @param (\Closure(): void)|null $beforeFirstDenial runs once, just before the first refusal
      */
-    public static function connect(array $params): Connection
+    public static function connect(array $params, ?\Closure $beforeFirstDenial = null): Connection
     {
         $configuration = new Configuration();
-        $configuration->setMiddlewares([new self()]);
+        $configuration->setMiddlewares([new self($beforeFirstDenial)]);
 
         return DriverManager::getConnection($params, $configuration);
     }
 
+    /** @param (\Closure(): void)|null $beforeFirstDenial */
+    private function __construct(private ?\Closure $beforeFirstDenial) {}
+
     public function wrap(Driver $driver): Driver
     {
-        return new class ($driver) extends AbstractDriverMiddleware {
+        $denier = $this;
+
+        return new class ($driver, $denier) extends AbstractDriverMiddleware {
+            public function __construct(Driver $driver, private readonly DdlDenier $denier)
+            {
+                parent::__construct($driver);
+            }
+
             public function connect(array $params): DriverConnection
             {
-                return new DdlDenyingConnection(parent::connect($params));
+                return new DdlDenyingConnection(parent::connect($params), $this->denier);
             }
         };
+    }
+
+    public function deny(string $sql): void
+    {
+        if (preg_match('/^\s*(DROP|CREATE)\b/i', $sql) !== 1) {
+            return;
+        }
+
+        $before = $this->beforeFirstDenial;
+        $this->beforeFirstDenial = null;
+        $before?->__invoke();
+
+        throw new \RuntimeException('Permission denied: ' . $sql);
     }
 }
 
 final class DdlDenyingConnection extends AbstractConnectionMiddleware
 {
+    public function __construct(DriverConnection $connection, private readonly DdlDenier $denier)
+    {
+        parent::__construct($connection);
+    }
+
     public function prepare(string $sql): Statement
     {
-        self::deny($sql);
+        $this->denier->deny($sql);
 
         return parent::prepare($sql);
     }
 
     public function query(string $sql): Result
     {
-        self::deny($sql);
+        $this->denier->deny($sql);
 
         return parent::query($sql);
     }
 
     public function exec(string $sql): int
     {
-        self::deny($sql);
+        $this->denier->deny($sql);
 
         return (int) parent::exec($sql);
-    }
-
-    private static function deny(string $sql): void
-    {
-        if (preg_match('/^\s*(DROP|CREATE)\b/i', $sql) === 1) {
-            throw new \RuntimeException('Permission denied: ' . $sql);
-        }
     }
 }
