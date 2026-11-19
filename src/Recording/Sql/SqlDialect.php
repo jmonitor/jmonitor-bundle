@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Recording\Sql;
 
-/**
- * Each value is a single byte.
- */
 enum SqlDialect: string
 {
     case MySql = 'm';

@@ -124,12 +124,26 @@ final class SqlNormalizerTest extends TestCase
         yield ["SELECT 1 /*! -- */ '\n*/ , 'secret' /*! -- */ '\n*/", null];
         yield ["SELECT \\n, 'a'", null];
         yield ["SELECT 'a\\' /*! , 'secret/* ' */", null];
+        yield ["CREATE PROCEDURE jm_probe3() LANGUAGE JAVASCRIPT AS \$\$ // don't\n let token = 'secret'; // won't\n \$\$", null];
+        yield ['SELECT $$secret$$', null];
+        yield ['SELECT $tag$secret$tag$', null];
+        yield ["SELECT 'a\\' , \$\$secret\$\$ /* ' */", null];
+        yield ['SELECT 1e5$$secret$$, 1.5$$secret$$', null];
+        yield ['SELECT 1 AS 12$$, abc$$x$$, $a FROM $t', 'SELECT ? AS 12$$, abc$$x$$, $a FROM $t'];
+        yield ['SELECT 1e5abc', 'SELECT ?abc'];
+        yield ['SELECT .5abc', 'SELECT ?abc'];
+        yield ['SELECT 1.5abc', 'SELECT ?abc'];
+        yield ['SELECT 1 FROM DUAL WHERE 1=1e0AND 2=2', 'SELECT ? FROM DUAL WHERE ?=?AND ?=?'];
+        yield ['SELECT * FROM 2fa_tokens WHERE 123abc = 0x1Fz', 'SELECT * FROM 2fa_tokens WHERE 123abc = 0x1Fz'];
+        yield ["SELECT 1 --\xA0'\n, 'secret' --\xA0'\n", null];
+        yield ["SELECT [a'b], 'secret', [c'd]", null];
+        yield ["SELECT 'a\\' , [secret] /* ' */", null];
     }
 
     #[DataProvider('mysqlQueries')]
     public function testAMySqlQueryIsReadWithTheRulesOfMySql(string $sql, ?string $expected): void
     {
-        static::assertSame($expected, SqlNormalizer::normalize($sql, SqlDialect::MySql));
+        self::assertReadAs($expected, SqlNormalizer::normalize($sql, SqlDialect::MySql));
     }
 
     /**
@@ -179,12 +193,20 @@ final class SqlNormalizerTest extends TestCase
         yield ["SELECT '\\', \$\$secret\$\$ FROM t", 'SELECT ?, ? FROM t'];
         yield ["SELECT 1 \\ 'a'", null];
         yield ["SELECT 'a\\' , 1E'secret' /* ' */", null];
+        yield ["SELECT E'a'\n'b\\'' , 'secret' /* ' */ , '\\'", null];
+        yield ["SELECT E'a' -- c\n  'b\\'' , 'secret' /* ' */ , '\\'", null];
+        yield ["SELECT E'a'\r'b\\'' , 'secret' /* ' */ , '\\'", null];
+        yield ["SELECT 'a\\' , E'secret'\n'x' /* ' */", null];
+        yield ["SELECT E'a'\n, 'b'\n'c', E'd' 'e'", 'SELECT E? , ? ?, E? ?'];
+        yield ['SELECT 123abc, 1e5abc, .5abc', 'SELECT ?abc, ?abc, ?abc'];
+        yield ['SELECT 1.e5$$secret$$', null];
+        yield ["SELECT 'a\\' , 0x1F\$\$secret\$\$ /* ' */", null];
     }
 
     #[DataProvider('postgresqlQueries')]
     public function testAPostgreSqlQueryIsReadWithTheRulesOfPostgreSql(string $sql, ?string $expected): void
     {
-        static::assertSame($expected, SqlNormalizer::normalize($sql, SqlDialect::PostgreSql));
+        self::assertReadAs($expected, SqlNormalizer::normalize($sql, SqlDialect::PostgreSql));
     }
 
     /**
@@ -218,12 +240,24 @@ final class SqlNormalizerTest extends TestCase
         yield ["SELECT @a::b('), 'secret', #c(')", null];
         yield ["SELECT \$a::('), 'secret', \$a::(')", null];
         yield ['SELECT a$b(1), "x"(2)', 'SELECT a$b(?), "x"(?)'];
+        yield ['SELECT 123abc, 1e5abc, .5abc', 'SELECT ?abc, ?abc, ?abc'];
     }
 
     #[DataProvider('sqliteQueries')]
     public function testASqliteQueryIsReadWithTheRulesOfSqlite(string $sql, ?string $expected): void
     {
-        static::assertSame($expected, SqlNormalizer::normalize($sql, SqlDialect::Sqlite));
+        self::assertReadAs($expected, SqlNormalizer::normalize($sql, SqlDialect::Sqlite));
+    }
+
+    /**
+     * An expected text holds the word only where it is an identifier.
+     */
+    private static function assertReadAs(?string $expected, ?string $normalized): void
+    {
+        static::assertSame($expected, $normalized);
+        if (!str_contains((string) $expected, 'secret')) {
+            static::assertStringNotContainsString('secret', (string) $normalized);
+        }
     }
 
     /**
@@ -290,7 +324,7 @@ final class SqlNormalizerTest extends TestCase
             }
         }
 
-        $repeated = ['$', '$a', '\\', '\\\'', 'E\'', '[', '"', '/*!'];
+        $repeated = ['$', '$a', '\\', '\\\'', 'E\'', '[', '"', '/*!', '$a$', 'a$', "E'a'\n", "E'a' -- c\n", '1e', '1.', '--é'];
         foreach ($repeated as $bytes) {
             $megabyte = str_repeat($bytes, intdiv(self::MEGABYTE, \strlen($bytes)));
             foreach (self::DIALECTS as $dialect) {

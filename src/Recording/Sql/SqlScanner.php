@@ -10,8 +10,13 @@ namespace Jmonitor\JmonitorBundle\Recording\Sql;
  */
 final class SqlScanner
 {
+    /** What stands for a kept token in the text, as a pattern capturing its index. */
+    public const KEPT = '\x00"?(\d++)\x00';
+    /** The same for a double-quoted token of SQLite, which may be a value. */
+    public const MAYBE_VALUE = '\x00"\d++\x00';
+
     private const STOPS = [
-        SqlDialect::MySql->value => "'\"`#-/\\",
+        SqlDialect::MySql->value => "'\"`#-/\\$[",
         SqlDialect::PostgreSql->value => "'\"$-/\\",
         SqlDialect::Sqlite->value => "'\"`[(-/\\",
     ];
@@ -23,7 +28,7 @@ final class SqlScanner
     private readonly int $length;
     private int $offset = 0;
     private int $tokenEnd = 0;
-    private bool $followed = true;
+    private bool $undecidable = false;
     private string $text = '';
     /** @var list<string> */
     private array $kept = [];
@@ -40,10 +45,9 @@ final class SqlScanner
      * @param string $sql      a text without NUL byte
      * @param string $escaping the quotes whose strings read a backslash as an escape; a PostgreSQL E string always does
      *
-     * @return array{string, list<string>}|false|null the text and its kept tokens, a token SQLite may read as a value
-     *                                                being marked by a `"` before its index; null when the server
-     *                                                rejects the text under this reading, which is then not the one
-     *                                                it applies; false when what the server reads cannot be told
+     * @return array{string, list<string>}|false|null the text and its kept tokens; null when the server rejects the
+     *                                                text under this reading, which is then not the one it applies;
+     *                                                false when what the server reads cannot be told
      */
     public static function scan(string $sql, SqlDialect $dialect, string $escaping): array|false|null
     {
@@ -56,7 +60,7 @@ final class SqlScanner
             return [$scanner->text, $scanner->kept];
         }
 
-        return $scanner->followed ? null : false;
+        return $scanner->undecidable ? false : null;
     }
 
     private function read(): bool
@@ -82,14 +86,15 @@ final class SqlScanner
             '"' => match ($this->dialect) {
                 SqlDialect::MySql => $this->string(),
                 SqlDialect::PostgreSql => $this->keep($this->quoteEnd(false)),
-                default => $this->keep($this->quoteEnd(false), '"'),
+                default => $this->keep($this->quoteEnd(false), true),
             },
             '`' => $this->keep($this->quoteEnd(false)),
-            '[' => $this->keep($this->after(']', 1)),
-            '$' => $this->dollar(),
-            '(' => $this->followsVariable() ? $this->lost() : $this->bare(1),
+            // MariaDB quotes identifiers with brackets under sql_mode=MSSQL.
+            '[' => $this->dialect === SqlDialect::MySql ? $this->undecidable() : $this->keep($this->after(']', 1)),
+            '$' => $this->dialect === SqlDialect::MySql ? $this->mysqlDollar() : $this->dollar(),
+            '(' => $this->followsVariable() ? $this->undecidable() : $this->bare(1),
             '#' => $this->lineComment(),
-            '-' => $next === '-' && $this->dashesOpenComment() ? $this->lineComment() : $this->bare(1),
+            '-' => $next === '-' ? $this->dashes() : $this->bare(1),
             '/' => $next === '*' ? $this->blockComment() : $this->bare(1),
             // A backslash outside a string: only `\N`, the NULL of MySQL, is SQL.
             default => $this->dialect === SqlDialect::MySql && $next === 'N' && $this->bare(2),
@@ -104,9 +109,9 @@ final class SqlScanner
         return true;
     }
 
-    private function lost(): bool
+    private function undecidable(): bool
     {
-        $this->followed = false;
+        $this->undecidable = true;
 
         return false;
     }
@@ -123,7 +128,7 @@ final class SqlScanner
         return true;
     }
 
-    private function keep(?int $end, string $mark = ''): bool
+    private function keep(?int $end, bool $maybeValue = false): bool
     {
         if ($end === null) {
             return false;
@@ -131,26 +136,51 @@ final class SqlScanner
 
         $this->kept[] = substr($this->sql, $this->offset, $end - $this->offset);
 
-        return $this->replace($end, "\0" . $mark . array_key_last($this->kept) . "\0");
+        return $this->replace($end, "\0" . ($maybeValue ? '"' : '') . array_key_last($this->kept) . "\0");
     }
 
     private function string(): bool
     {
         $escapes = str_contains($this->escaping, $this->sql[$this->offset]);
+        $e = $this->offset - 1;
 
-        if ($this->dialect === SqlDialect::PostgreSql) {
-            $e = $this->offset - 1;
-            if ($e >= 0 && ($this->sql[$e] === 'E' || $this->sql[$e] === 'e')) {
-                $before = $e > 0 ? $this->sql[$e - 1] : ' ';
-                // PostgreSQL 15 rejects an E glued to a number, earlier versions read it as the prefix of an E string.
-                if (ctype_digit($before)) {
-                    return $this->lost();
-                }
-                $escapes = $escapes || $e === $this->tokenEnd || !self::isWord($before);
-            }
+        if ($this->dialect !== SqlDialect::PostgreSql || $e < 0 || ($this->sql[$e] !== 'E' && $this->sql[$e] !== 'e')) {
+            return $this->replace($this->quoteEnd($escapes), '?');
         }
 
-        return $this->replace($this->quoteEnd($escapes), '?');
+        $before = $e > 0 ? $this->sql[$e - 1] : ' ';
+        // PostgreSQL 15 rejects an E glued to a number, earlier versions read it as the prefix of an E string.
+        if (ctype_digit($before)) {
+            return $this->undecidable();
+        }
+        if ($e !== $this->tokenEnd && self::isWord($before)) {
+            return $this->replace($this->quoteEnd($escapes), '?');
+        }
+
+        $end = $this->quoteEnd(true);
+        if ($end !== null && $this->isContinued($end)) {
+            return $this->undecidable();
+        }
+
+        return $this->replace($end, '?');
+    }
+
+    /**
+     * PostgreSQL reads a quote on a later line as the rest of the string that just ended, escapes included.
+     */
+    private function isContinued(int $end): bool
+    {
+        $newLine = false;
+
+        while (true) {
+            $blanks = strspn($this->sql, " \t\n\r\f\v", $end);
+            $newLine = $newLine || strcspn($this->sql, "\n\r", $end, $blanks) < $blanks;
+            $end += $blanks;
+            if (($this->sql[$end] ?? '') !== '-' || ($this->sql[$end + 1] ?? '') !== '-') {
+                return $newLine && ($this->sql[$end] ?? '') === "'";
+            }
+            $end += strcspn($this->sql, "\n\r", $end);
+        }
     }
 
     /**
@@ -183,15 +213,18 @@ final class SqlScanner
         return $found === false ? null : $found + \strlen($needle);
     }
 
-    private function dashesOpenComment(): bool
+    /**
+     * MySQL opens a comment only before a blank or a control byte, and a byte from 0x80 is one or not depending on the
+     * character set of the client.
+     */
+    private function dashes(): bool
     {
-        if ($this->dialect !== SqlDialect::MySql) {
-            return true;
+        $after = $this->dialect === SqlDialect::MySql ? \ord($this->sql[$this->offset + 2] ?? ' ') : 0x20;
+        if ($after >= 0x80) {
+            return $this->undecidable();
         }
 
-        $after = \ord($this->sql[$this->offset + 2] ?? ' ');
-
-        return $after <= 0x20 || $after === 0x7F;
+        return $after <= 0x20 || $after === 0x7F ? $this->lineComment() : $this->bare(1);
     }
 
     private function lineComment(): bool
@@ -210,15 +243,15 @@ final class SqlScanner
 
         $end = $this->after('*/', 2);
         if ($end !== null && $this->dialect === SqlDialect::MySql && $this->hidesItsEnd(substr($this->sql, $this->offset + 2, $end - $this->offset - 3))) {
-            return $this->lost();
+            return $this->undecidable();
         }
 
         return $this->replace($end, ' ');
     }
 
     /**
-     * MySQL runs the body of a `/*!` or `/*M!` comment as SQL and reads the one of a `/*+` comment as hints: a quote,
-     * a nested comment or a line comment in there can hold the end found here, the comment then ending further.
+     * MySQL runs a `/*!` or `/*M!` body as SQL and reads a `/*+` one as hints: a quote or a comment opening in there
+     * can hold the end found here.
      *
      * @param string $body up to the `*` of the end, which a slash right before it turns into a nested opening
      */
@@ -262,12 +295,13 @@ final class SqlScanner
     {
         $start = $this->wordStart();
         if ($start < $this->offset) {
-            if (!ctype_digit($this->sql[$start])) {
-                return $this->bare(strspn($this->sql, self::TAG . '$' . self::highBytes(), $this->offset));
+            $digits = strspn($this->sql, self::DIGITS, $start);
+            // Whether `0x1F`, `1_000`, `1e` or `1.e5` is one number depends on the version of PostgreSQL.
+            if ($digits === 0 ? $this->followsDecimalPoint($start) : $digits < $this->offset - $start) {
+                return $this->undecidable();
             }
-            // Whether `0x1F`, `1_000` or `1e` is one number depends on the version of PostgreSQL.
-            if (strspn($this->sql, self::DIGITS, $start) < $this->offset - $start) {
-                return $this->lost();
+            if ($digits === 0) {
+                return $this->skipWord();
             }
         }
 
@@ -283,6 +317,38 @@ final class SqlScanner
         }
 
         return $this->replace($this->after($delimiter, $length), '?');
+    }
+
+    private function followsDecimalPoint(int $start): bool
+    {
+        return $start > $this->tokenEnd + 1 && $this->sql[$start - 1] === '.' && ctype_digit($this->sql[$start - 2]);
+    }
+
+    private function skipWord(): bool
+    {
+        return $this->bare(strspn($this->sql, self::TAG . '$' . self::highBytes(), $this->offset));
+    }
+
+    /**
+     * MySQL 8 reads `$$` or `$tag$` at the start of a token as the opening of a dollar-quoted string, earlier versions
+     * and MariaDB as an identifier. A word of digits is an identifier, but `1e5` or the `5` of `1.5` and `1e-5` ends a
+     * number, the dollar then starting a token.
+     */
+    private function mysqlDollar(): bool
+    {
+        $start = $this->wordStart();
+        if ($start < $this->offset) {
+            $digits = strspn($this->sql, self::DIGITS, $start);
+            if ($digits > 0 && ($digits < $this->offset - $start || ($start > 0 && str_contains('.+-', $this->sql[$start - 1])))) {
+                return $this->undecidable();
+            }
+
+            return $this->skipWord();
+        }
+
+        $tag = strspn($this->sql, self::TAG . self::highBytes(), $this->offset + 1);
+
+        return ($this->sql[$this->offset + 1 + $tag] ?? '') === '$' ? $this->undecidable() : $this->bare(1 + $tag);
     }
 
     /**

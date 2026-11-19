@@ -8,17 +8,21 @@ final class SqlNormalizer
 {
     public const MAX_LENGTH = 2000;
 
-    private const KEPT = '\x00"?(\d++)\x00';
-    private const MAYBE_VALUE = '\x00"\d++\x00';
-    private const MARKER = '(?:\?|:\w++|\$\d++|' . self::MAYBE_VALUE . ')';
-
+    private const MARKER = '(?:\?|:\w++|\$\d++|' . SqlScanner::MAYBE_VALUE . ')';
     private const DIGITS = '\d[\d_]*+';
+    private const RADIX = '0[xbo][0-9a-f_]++';
+    private const DECIMAL = '(?:' . self::DIGITS . '\.(?:' . self::DIGITS . ')?+|\.' . self::DIGITS . ')';
+    private const EXPONENT = 'e[-+]?' . self::DIGITS;
+    private const UNGLUED = '(?![\w$])';
+    private const NUMBER_START = '~' . SqlScanner::KEPT . '(*SKIP)(*FAIL)|(?<![\w$.])[-+]?(?:';
+    private const NUMBER = self::NUMBER_START . self::RADIX . '|' . self::DECIMAL . '(?:' . self::EXPONENT . ')?|' . self::DIGITS . '(?:' . self::EXPONENT . ')?)~iu';
+    /** MySQL reads a run of digits or a radix form glued to a letter as an identifier. */
+    private const MYSQL_NUMBER = self::NUMBER_START . self::RADIX . self::UNGLUED . '|' . self::DECIMAL . '(?:' . self::EXPONENT . ')?|' . self::DIGITS . '(?:' . self::EXPONENT . '|' . self::UNGLUED . '))~iu';
 
-    /** Numbers, then blanks, then a SQLite double-quoted token right after a comparison, then IN lists. */
+    /** After the numbers: blanks, then a SQLite double-quoted token right after a comparison, then IN lists. */
     private const PASSES = [
-        '~' . self::KEPT . '(*SKIP)(*FAIL)|(?<![\w$.])[-+]?(?:0[xbo][0-9a-f_]++|(?:' . self::DIGITS . '(?:\.(?:' . self::DIGITS . ')?+)?|\.' . self::DIGITS . ')(?:e[-+]?' . self::DIGITS . ')?)(?![\w$])~iu' => '?',
         '~\s++~u' => ' ',
-        '~(?:[=<>]|\bLIKE)\s*+\K' . self::MAYBE_VALUE . '~iu' => '?',
+        '~(?:[=<>]|\bLIKE)\s*+\K' . SqlScanner::MAYBE_VALUE . '~iu' => '?',
         '~\b(IN)\s*+\(\s*+' . self::MARKER . '(?:\s*+,\s*+' . self::MARKER . ')*+\s*+\)~i' => '$1 (?)',
     ];
     private const VALUES_START = '~\bVALUES(?=\s*+\()~i';
@@ -49,7 +53,8 @@ final class SqlNormalizer
         }
 
         [$text, $kept] = $read;
-        $text = preg_replace(array_keys(self::PASSES), array_values(self::PASSES), mb_scrub($text, 'UTF-8'));
+        $number = $dialect === SqlDialect::MySql ? self::MYSQL_NUMBER : self::NUMBER;
+        $text = preg_replace([$number, ...array_keys(self::PASSES)], ['?', ...array_values(self::PASSES)], mb_scrub($text, 'UTF-8'));
         if ($text === null) {
             return null;
         }
@@ -59,7 +64,7 @@ final class SqlNormalizer
             return null;
         }
 
-        $text = preg_replace_callback('~' . self::KEPT . '~', static fn(array $marker): string => $kept[(int) $marker[1]], $text);
+        $text = preg_replace_callback('~' . SqlScanner::KEPT . '~', static fn(array $marker): string => $kept[(int) $marker[1]], $text);
         if ($text === null) {
             return null;
         }
@@ -120,7 +125,7 @@ final class SqlNormalizer
                 break;
             }
 
-            $first = preg_replace('~' . self::MAYBE_VALUE . '~', '?', substr($sql, $open, $end - $open));
+            $first = preg_replace('~' . SqlScanner::MAYBE_VALUE . '~', '?', substr($sql, $open, $end - $open));
             if ($first === null) {
                 return null;
             }
