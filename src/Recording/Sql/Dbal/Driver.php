@@ -16,9 +16,12 @@ use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 
 final class Driver extends AbstractDriverMiddleware
 {
-    /** Client character sets in which a backslash or a backtick can be the second byte of a character. */
+    /**
+     * Client character sets in which a backslash or a backtick can be the second byte of a character, written
+     * without the signs PostgreSQL ignores in such a name.
+     */
     private const UNREADABLE_CHARSETS = [
-        'big5', 'gbk', 'gb18030', 'sjis', 'cp932', 'uhc', 'johab', 'shift_jis_2004', 'shiftjis', 'mskanji',
+        'big5', 'gbk', 'gb18030', 'sjis', 'cp932', 'shiftjis', 'shiftjis2004', 'mskanji', 'uhc', 'johab',
         'win932', 'windows932', 'win936', 'windows936', 'win949', 'windows949', 'win950', 'windows950',
     ];
 
@@ -45,7 +48,8 @@ final class Driver extends AbstractDriverMiddleware
 
     private function dialect(ConnectionInterface $connection, mixed $charset): SqlDialect
     {
-        if (\is_string($charset) && \in_array(strtolower($charset), self::UNREADABLE_CHARSETS, true)) {
+        $name = \is_string($charset) ? preg_replace('/[^a-z0-9]/', '', strtolower($charset)) : '';
+        if ($name === null || \in_array($name, self::UNREADABLE_CHARSETS, true)) {
             return SqlDialect::Unknown;
         }
 

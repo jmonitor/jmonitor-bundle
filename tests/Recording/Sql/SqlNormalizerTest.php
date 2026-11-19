@@ -129,6 +129,16 @@ final class SqlNormalizerTest extends TestCase
         yield ['SELECT $tag$secret$tag$', null];
         yield ["SELECT 'a\\' , \$\$secret\$\$ /* ' */", null];
         yield ['SELECT 1e5$$secret$$, 1.5$$secret$$', null];
+        yield ['SELECT 1.e5$$secret$$', null];
+        yield ['SELECT 1.E5$tag$secret$tag$', null];
+        yield ['SELECT t0.price$ FROM t t0', 'SELECT t0.price$ FROM t t0'];
+        yield ['SELECT t0.a$b$c FROM t t0', 'SELECT t0.a$b$c FROM t t0'];
+        yield ["SELECT 1 /*! [*/ , `] */ , 'secret' /*! [`] */", null];
+        yield ['SELECT /*+ INDEX(t idx_a, idx_b) NO_ICP(t@qb1) */ a FROM t', 'SELECT a FROM t'];
+        yield ["SELECT 1 /*! \$\$ */ , 'secret' /*! \$\$ */", null];
+        yield ['SELECT /*+ SET_VAR(sort_buffer_size = 16M) */ 1', 'SELECT ?'];
+        yield ["SELECT 1 /*! [*/ , ] */ , 'secret'", null];
+        yield ['SELECT 1 /*!80000 , 2 * 3 */', null];
         yield ['SELECT 1 AS 12$$, abc$$x$$, $a FROM $t', 'SELECT ? AS 12$$, abc$$x$$, $a FROM $t'];
         yield ['SELECT 1e5abc', 'SELECT ?abc'];
         yield ['SELECT .5abc', 'SELECT ?abc'];
@@ -201,6 +211,8 @@ final class SqlNormalizerTest extends TestCase
         yield ['SELECT 123abc, 1e5abc, .5abc', 'SELECT ?abc, ?abc, ?abc'];
         yield ['SELECT 1.e5$$secret$$', null];
         yield ["SELECT 'a\\' , 0x1F\$\$secret\$\$ /* ' */", null];
+        yield ['SELECT t0.price$ FROM t t0', 'SELECT t0.price$ FROM t t0'];
+        yield ['SELECT t0.a$b$c FROM t t0', 'SELECT t0.a$b$c FROM t t0'];
     }
 
     #[DataProvider('postgresqlQueries')]

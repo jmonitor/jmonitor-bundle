@@ -22,6 +22,7 @@ final class SqlScanner
     ];
     private const DIGITS = '0123456789';
     private const TAG = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_' . self::DIGITS;
+    private const PLAIN_IN_SPECIAL_COMMENT = self::TAG . " \t\n\r\f\v(),.=@";
 
     private static ?string $highBytes = null;
 
@@ -242,7 +243,7 @@ final class SqlScanner
         }
 
         $end = $this->after('*/', 2);
-        if ($end !== null && $this->dialect === SqlDialect::MySql && $this->hidesItsEnd(substr($this->sql, $this->offset + 2, $end - $this->offset - 3))) {
+        if ($end !== null && $this->dialect === SqlDialect::MySql && self::mayEndElsewhere(substr($this->sql, $this->offset + 2, $end - $this->offset - 4))) {
             return $this->undecidable();
         }
 
@@ -250,18 +251,14 @@ final class SqlScanner
     }
 
     /**
-     * MySQL runs a `/*!` or `/*M!` body as SQL and reads a `/*+` one as hints: a quote or a comment opening in there
-     * can hold the end found here.
-     *
-     * @param string $body up to the `*` of the end, which a slash right before it turns into a nested opening
+     * MySQL runs a `/*!` or `/*M!` body as SQL and reads a `/*+` one as hints: only a body of words, blanks and a few
+     * signs is sure to end where a plain comment would.
      */
-    private function hidesItsEnd(string $body): bool
+    private static function mayEndElsewhere(string $body): bool
     {
-        if ($body[0] !== '!' && $body[0] !== '+' && !str_starts_with($body, 'M!')) {
-            return false;
-        }
+        $marker = str_starts_with($body, 'M!') ? 2 : (int) ($body !== '' && ($body[0] === '!' || $body[0] === '+'));
 
-        return strpbrk($body, '\'"`#') !== false || str_contains($body, '/*') || str_contains($body, '--');
+        return $marker > 0 && strspn($body, self::PLAIN_IN_SPECIAL_COMMENT, $marker) < \strlen($body) - $marker;
     }
 
     private function nestedCommentEnd(): ?int
@@ -293,7 +290,7 @@ final class SqlScanner
      */
     private function dollar(): bool
     {
-        $start = $this->wordStart();
+        $start = $this->wordStart($this->offset);
         if ($start < $this->offset) {
             $digits = strspn($this->sql, self::DIGITS, $start);
             // Whether `0x1F`, `1_000`, `1e` or `1.e5` is one number depends on the version of PostgreSQL.
@@ -319,9 +316,18 @@ final class SqlScanner
         return $this->replace($this->after($delimiter, $length), '?');
     }
 
+    /**
+     * @return bool whether the word at $start comes right after the decimal point of a number, as `e5` in `1.e5`
+     */
     private function followsDecimalPoint(int $start): bool
     {
-        return $start > $this->tokenEnd + 1 && $this->sql[$start - 1] === '.' && ctype_digit($this->sql[$start - 2]);
+        if ($start <= $this->tokenEnd || $this->sql[$start - 1] !== '.') {
+            return false;
+        }
+
+        $number = $this->wordStart($start - 1);
+
+        return $number < $start - 1 && ctype_digit($this->sql[$number]);
     }
 
     private function skipWord(): bool
@@ -336,14 +342,14 @@ final class SqlScanner
      */
     private function mysqlDollar(): bool
     {
-        $start = $this->wordStart();
+        $start = $this->wordStart($this->offset);
         if ($start < $this->offset) {
             $digits = strspn($this->sql, self::DIGITS, $start);
-            if ($digits > 0 && ($digits < $this->offset - $start || ($start > 0 && str_contains('.+-', $this->sql[$start - 1])))) {
-                return $this->undecidable();
-            }
+            $endsNumber = $digits === 0
+                ? $this->followsDecimalPoint($start)
+                : $digits < $this->offset - $start || ($start > 0 && str_contains('.+-', $this->sql[$start - 1]));
 
-            return $this->skipWord();
+            return $endsNumber ? $this->undecidable() : $this->skipWord();
         }
 
         $tag = strspn($this->sql, self::TAG . self::highBytes(), $this->offset + 1);
@@ -357,7 +363,7 @@ final class SqlScanner
      */
     private function followsVariable(): bool
     {
-        $start = $this->wordStart(':');
+        $start = $this->wordStart($this->offset, ':');
         $name = substr($this->sql, $start, $this->offset - $start);
 
         if ($name === '') {
@@ -368,11 +374,11 @@ final class SqlScanner
     }
 
     /**
-     * @return int where the run of identifier bytes before the current offset starts, the last token being its limit
+     * @return int where the run of identifier bytes ending at $end starts, the last token being its limit
      */
-    private function wordStart(string $also = ''): int
+    private function wordStart(int $end, string $also = ''): int
     {
-        $start = $this->offset;
+        $start = $end;
         while ($start > $this->tokenEnd && (self::isWord($this->sql[$start - 1]) || $this->sql[$start - 1] === $also)) {
             --$start;
         }

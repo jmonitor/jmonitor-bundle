@@ -230,7 +230,10 @@ final class MiddlewareTest extends TestCase
         yield 'GBK' => ['GBK', false];
         yield 'sjis' => ['sjis', false];
         yield 'WIN949' => ['WIN949', false];
+        yield 'Big-5' => ['Big-5', false];
+        yield 'SHIFT_JIS' => ['SHIFT_JIS', false];
         yield 'utf8mb4' => ['utf8mb4', true];
+        yield 'utf-8' => ['utf-8', true];
         yield 'latin1' => ['latin1', true];
     }
 
