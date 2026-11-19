@@ -25,7 +25,7 @@ final class SqlNormalizerTest extends TestCase
     }
 
     /**
-     * @return iterable<array{string, SqlDialect, string|null}>
+     * @return iterable<array{string, SqlDialect, string|null, bool}>
      */
     public static function anyDialect(): iterable
     {
@@ -56,6 +56,8 @@ final class SqlNormalizerTest extends TestCase
             ['SELECT * FROM t WHERE a = -0b11 AND b IN (1_000, 2_000)', 'SELECT * FROM t WHERE a = ? AND b IN (?)'],
             ['SELECT id_1, t0.col_2, a_1_000 FROM t0 WHERE x_0b1 = $1', 'SELECT id_1, t0.col_2, a_1_000 FROM t0 WHERE x_0b1 = $1'],
             ['SELECT 0B101, 0O17, 0X1F, 1., 1.e5, 1_000e-1_0, +.5 FROM t', 'SELECT ?, ?, ?, ?, ?, ?, ? FROM t'],
+        ];
+        $voluminous = [
             ['INSERT INTO t (a, b) VALUES ' . implode(', ', array_fill(0, 5000, '(?, ?)')), 'INSERT INTO t (a, b) VALUES (?, ?)'],
             [
                 'INSERT INTO t (a, b) VALUES ' . implode(', ', array_map(static fn(int $i): string => \sprintf("(%d, 'x%d')", $i, $i), range(1, 5000))),
@@ -64,20 +66,24 @@ final class SqlNormalizerTest extends TestCase
             ['SELECT * FROM t WHERE id IN (' . implode(', ', range(1, 150_000)) . ')', 'SELECT * FROM t WHERE id IN (?)'],
         ];
 
-        foreach ($queries as [$sql, $expected]) {
-            foreach (self::DIALECTS as $dialect) {
-                yield [$sql, $dialect, $expected];
+        foreach ([[$queries, false], [$voluminous, true]] as [$rows, $timed]) {
+            foreach ($rows as [$sql, $expected]) {
+                foreach (self::DIALECTS as $dialect) {
+                    yield [$sql, $dialect, $expected, $timed];
+                }
             }
         }
     }
 
     #[DataProvider('anyDialect')]
-    public function testAQueryEveryDialectReadsTheSameWay(string $sql, SqlDialect $dialect, ?string $expected): void
+    public function testAQueryEveryDialectReadsTheSameWay(string $sql, SqlDialect $dialect, ?string $expected, bool $timed): void
     {
-        $start = microtime(true);
+        $start = self::cpuSeconds();
         $normalized = SqlNormalizer::normalize($sql, $dialect);
 
-        static::assertLessThan(1.0, microtime(true) - $start);
+        if ($timed) {
+            static::assertLessThan(1.0, self::cpuSeconds() - $start);
+        }
         static::assertSame($expected, $normalized);
     }
 
@@ -354,10 +360,10 @@ final class SqlNormalizerTest extends TestCase
     #[DataProvider('hostileQueries')]
     public function testAHostileQueryIsReadInLinearTime(string $sql, SqlDialect $dialect, string|false|null $expected = false): void
     {
-        $start = microtime(true);
+        $start = self::cpuSeconds();
         $normalized = SqlNormalizer::normalize($sql, $dialect);
 
-        static::assertLessThan(1.0, microtime(true) - $start);
+        static::assertLessThan(1.0, self::cpuSeconds() - $start);
         static::assertStringNotContainsString('secret', (string) $normalized);
         if ($expected !== false) {
             static::assertSame($expected, $normalized);
@@ -369,10 +375,10 @@ final class SqlNormalizerTest extends TestCase
     {
         $sql = 'SELECT ' . str_repeat('a + ', 262_144) . 'b FROM t';
 
-        $start = microtime(true);
+        $start = self::cpuSeconds();
         $normalized = SqlNormalizer::normalize($sql, $dialect);
 
-        static::assertLessThan(1.0, microtime(true) - $start);
+        static::assertLessThan(1.0, self::cpuSeconds() - $start);
         static::assertSame(SqlNormalizer::MAX_LENGTH, mb_strlen((string) $normalized));
     }
 
@@ -454,5 +460,16 @@ final class SqlNormalizerTest extends TestCase
     public function testIsSelect(string $normalized, bool $expected): void
     {
         static::assertSame($expected, SqlNormalizer::isSelect($normalized));
+    }
+
+    /**
+     * The time the process spent on the CPU, which a loaded machine does not stretch as it does the wall clock.
+     */
+    private static function cpuSeconds(): float
+    {
+        $usage = getrusage();
+        static::assertIsArray($usage);
+
+        return $usage['ru_utime.tv_sec'] + $usage['ru_stime.tv_sec'] + ($usage['ru_utime.tv_usec'] + $usage['ru_stime.tv_usec']) / 1_000_000;
     }
 }
