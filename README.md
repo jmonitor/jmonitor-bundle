@@ -250,11 +250,16 @@ php bin/console jmonitor:collect -vv --memory-limit=32M --time-limit=3600
 
 ## Application monitoring (preview)
 
-The bundle can also record the HTTP requests your application serves and show them on a `/jmonitor` page: requests, response times (average, p95, max), slow requests, 5xx errors and peak memory, per route, over the last hour, 6 hours, 24 hours or 7 days. Only HTTP requests are covered for now.
+The bundle can also record the HTTP requests your application serves and the SQL queries they run, and show them on a `/jmonitor` page, over the last hour, 6 hours, 24 hours or 7 days:
 
-It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` table is created automatically in the configured connection, and Doctrine migrations will not try to drop it. Your database receives batched writes, at most once per `flush_interval` per server, never one write per request.
+- **Requests** (`/jmonitor/`): requests, response times (average, p95, max), SQL time and number of queries, slow requests, 5xx errors and peak memory, per route.
+- **Queries** (`/jmonitor/queries`): executions, total, average and maximum time and slow executions per SQL query, and the queries repeated within one request (N+1).
 
-If the database user of your application is not allowed to create tables, run `php bin/console jmonitor:setup` at deployment with a user that is. It creates the table, or tells you it already exists.
+Only HTTP requests are covered for now: queries run by console commands or message consumers are not recorded.
+
+It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` and `jmonitor_keys` tables are created automatically in the configured connection, upgraded automatically when a new version of the bundle changes them, and Doctrine migrations will not try to drop them. Tables created by an earlier development build of 3.x are dropped and recreated, losing the metrics they held. Your database receives batched writes, at most once per `flush_interval` per server, never one write per request or per query.
+
+If the database user of your application is not allowed to create tables, run `php bin/console jmonitor:setup` at deployment with a user that is. It creates or upgrades the two tables, or tells you they are up to date.
 
 Import the routes (the bundle assets are published by `assets:install`, which Symfony Flex runs automatically):
 
@@ -278,6 +283,10 @@ jmonitor:
         slow_threshold: 1000  # ms above which a request counts as slow
         ignore_routes: []     # route names not recorded, fnmatch patterns allowed (e.g. 'app_health*')
         buffer_dir: ~         # where the buffer gets its private subdirectory; default: the system temporary directory
+        sql:
+            enabled: true             # record the SQL queries run through Doctrine DBAL
+            slow_threshold: 100       # ms from which a query counts as slow
+            n_plus_one_threshold: 10  # executions of the same SELECT within one request that make an N+1
     storage:
         connection: 'default' # name of the Doctrine DBAL connection
         retention: 604800     # seconds the data is kept (7 days, 3600 minimum)
@@ -304,7 +313,11 @@ jmonitor:
 
 Main requests only. Not recorded: any route whose name starts with `jmonitor_`, the web debug toolbar and profiler, sub-requests, and the routes matching `ignore_routes`. A request that matches no route is recorded as `(unmatched)`. Methods other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are grouped under `OTHER`.
 
-Requests are buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access. When the web server and the console run as different users, each keeps and flushes its own buffer.
+SQL queries: every query run through Doctrine DBAL during a recorded request, on every connection. The values bound to a query as parameters are never read, so they are never stored. The query text is stored with its `IN (…)` and multi-row `VALUES (…)` lists folded, and the values written directly in it replaced by `?` on a best-effort basis: numbers, single-quoted strings, and double-quoted tokens where a value is expected (right after `=`, `<`, `>` or `LIKE`, or inside an `IN (…)` or `VALUES (…)` list). A double-quoted token anywhere else is kept as an identifier, and an inline value can survive in an unusual query text: pass sensitive values as bound parameters rather than concatenating them into the SQL. A query whose quoting cannot be delimited safely (a quote escaped by a backslash, a PostgreSQL dollar-quoted string, a `#` anywhere outside quotes, a nested comment), or whose text is longer than 64 KiB, is counted on the `Other queries` row and its text is not kept. The same `SELECT` run at least `n_plus_one_threshold` times (10 by default) within one request is reported as an N+1.
+
+Each flush keeps the 300 most requested routes (method and route) of its batch; the requests of the others are added up on an `Other routes` row. Only the heaviest queries, by total time, are tracked individually, about 200 per server; the others are added up on an `Other queries` row. Under heavy load the per-query detail of a request is sampled, while the requests themselves, with their SQL time and number of queries, are always counted.
+
+Requests are buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access; the text of the recorded queries is kept there too. When the web server and the console run as different users, each keeps and flushes its own buffer. When that subdirectory cannot be used, nothing is recorded and the page shows "Buffer directory unusable".
 
 Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
 

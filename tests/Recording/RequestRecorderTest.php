@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Recording\Entry;
+use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 use PHPUnit\Framework\TestCase;
@@ -48,6 +49,11 @@ final class RequestRecorderTest extends TestCase
             {
                 return 0;
             }
+
+            public function isUnderPressure(): bool
+            {
+                return false;
+            }
         };
 
         $this->logger = new class extends AbstractLogger {
@@ -81,7 +87,7 @@ final class RequestRecorderTest extends TestCase
 
     public function testDisabledRecorderNeitherRecordsNorFlushes(): void
     {
-        $recorder = new RequestRecorder($this->buffer, $this->flusher($this->buffer), [], $this->logger, false);
+        $recorder = new RequestRecorder(new Recorder($this->buffer, $this->logger), $this->flusher($this->buffer), [], $this->logger, false);
 
         $this->handle($recorder, Request::create('/'), 'app_home', 200);
 
@@ -141,13 +147,15 @@ final class RequestRecorderTest extends TestCase
 
     public function testInternalAndConfiguredRoutesAreIgnored(): void
     {
-        $recorder = $this->recorder(['admin_*']);
+        $units = new Recorder($this->buffer, $this->logger);
+        $recorder = $this->recorder(['admin_*'], $units);
 
         foreach (['_wdt', '_profiler_home', 'jmonitor_dashboard', 'admin_users'] as $route) {
             $this->handle($recorder, Request::create('/'), $route, 200);
         }
 
         static::assertSame([], $this->buffer->entries);
+        static::assertFalse($units->isRecording());
 
         $this->handle($recorder, Request::create('/'), 'app_admin', 200);
 
@@ -177,8 +185,13 @@ final class RequestRecorderTest extends TestCase
             {
                 return 0;
             }
+
+            public function isUnderPressure(): bool
+            {
+                return false;
+            }
         };
-        $recorder = new RequestRecorder($failing, $this->flusher($failing), [], $this->logger);
+        $recorder = new RequestRecorder(new Recorder($failing, $this->logger), $this->flusher($failing), [], $this->logger);
 
         for ($i = 0; $i < 3; ++$i) {
             $this->handle($recorder, Request::create('/'), 'app_home', 200);
@@ -205,7 +218,7 @@ final class RequestRecorderTest extends TestCase
             new FlushLock($directory, 1, $broken),
             $broken,
         );
-        $recorder = new RequestRecorder($this->buffer, $flusher, [], $this->logger);
+        $recorder = new RequestRecorder(new Recorder($this->buffer, $this->logger), $flusher, [], $this->logger);
 
         for ($i = 0; $i < 3; ++$i) {
             $this->handle($recorder, Request::create('/'), 'app_home', 200);
@@ -219,9 +232,9 @@ final class RequestRecorderTest extends TestCase
     /**
      * @param list<string> $ignoreRoutes
      */
-    private function recorder(array $ignoreRoutes = []): RequestRecorder
+    private function recorder(array $ignoreRoutes = [], ?Recorder $recorder = null): RequestRecorder
     {
-        return new RequestRecorder($this->buffer, $this->flusher($this->buffer), $ignoreRoutes, $this->logger);
+        return new RequestRecorder($recorder ?? new Recorder($this->buffer, $this->logger), $this->flusher($this->buffer), $ignoreRoutes, $this->logger);
     }
 
     private function flusher(BufferInterface $buffer): Flusher
@@ -234,9 +247,12 @@ final class RequestRecorderTest extends TestCase
     private function storage(): StorageInterface
     {
         return new class implements StorageInterface {
-            public function prepare(): void {}
+            public function prepare(): bool
+            {
+                return false;
+            }
 
-            public function store(array $aggregates): void {}
+            public function store(array $aggregates, int $now, array $labels = []): void {}
 
             public function purge(int $now): void {}
         };

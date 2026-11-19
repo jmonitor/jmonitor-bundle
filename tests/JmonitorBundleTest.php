@@ -25,9 +25,16 @@ use Jmonitor\JmonitorBundle\JmonitorBundle;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
-use Jmonitor\JmonitorBundle\Dashboard\RequestsScreenFactory;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
+use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
+use Jmonitor\JmonitorBundle\Flush\LabelSync;
+use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
+use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
+use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
+use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
@@ -116,12 +123,91 @@ class JmonitorBundleTest extends TestCase
         $this->loadBundle(['recording' => ['flush_interval' => 3601]]);
     }
 
+    private const SQL_SERVICES = [Middleware::class, QueryDigester::class, LabelStore::class, LabelSync::class];
+
+    public function testSqlRecordingHasDefaults(): void
+    {
+        $container = $this->loadBundle([], environment: 'prod');
+
+        static::assertTrue($container->getParameter('jmonitor.recording.sql.enabled'));
+        static::assertSame(100, $container->getParameter('jmonitor.recording.sql.slow_threshold'));
+        static::assertSame(10, $container->getParameter('jmonitor.recording.sql.n_plus_one_threshold'));
+        foreach (self::SQL_SERVICES as $id) {
+            static::assertTrue($container->hasDefinition($id), $id);
+        }
+        static::assertSame([[]], $container->getDefinition(Middleware::class)->getTag('doctrine.middleware'));
+        static::assertSame(Recorder::class, (string) $container->getDefinition(Middleware::class)->getArgument(0));
+        static::assertSame(QueryDigester::class, (string) $container->getDefinition(Recorder::class)->getArgument(3));
+        static::assertSame(LabelSync::class, (string) $container->getDefinition(Flusher::class)->getArgument('$labels'));
+        static::assertSame(Recorder::class, (string) $container->getDefinition(Flusher::class)->getArgument('$recorder'));
+    }
+
+    public function testSqlRecordingTakesTheProvidedValues(): void
+    {
+        $container = $this->loadBundle(['recording' => ['sql' => ['slow_threshold' => 250, 'n_plus_one_threshold' => 3]]], environment: 'prod');
+
+        static::assertSame(250, $container->getParameter('jmonitor.recording.sql.slow_threshold'));
+        static::assertSame(3, $container->getParameter('jmonitor.recording.sql.n_plus_one_threshold'));
+        static::assertSame('%jmonitor.recording.sql.slow_threshold%', (string) $container->getDefinition(Recorder::class)->getArgument(4));
+        static::assertSame('%jmonitor.recording.sql.n_plus_one_threshold%', (string) $container->getDefinition(QueryDigester::class)->getArgument(1));
+    }
+
+    public function testSqlRecordingCanBeSwitchedOff(): void
+    {
+        $container = $this->loadBundle(['recording' => ['sql' => ['enabled' => false]]], environment: 'prod');
+
+        static::assertFalse($container->getParameter('jmonitor.recording.sql.enabled'));
+        static::assertTrue($container->hasDefinition(Recorder::class));
+        foreach (self::SQL_SERVICES as $id) {
+            static::assertFalse($container->hasDefinition($id), $id);
+        }
+        static::assertFalse($container->getDefinition(Flusher::class)->getArguments()['$labels'] ?? false);
+    }
+
+    public function testNoSqlServiceWhenRecordingIsOff(): void
+    {
+        $container = $this->loadBundle(['recording' => ['enabled' => false]], environment: 'prod');
+
+        foreach (self::SQL_SERVICES as $id) {
+            static::assertFalse($container->hasDefinition($id), $id);
+        }
+    }
+
+    public function testNoSqlMiddlewareWithoutDoctrineBundle(): void
+    {
+        $container = $this->loadBundle([], environment: 'prod', bundles: []);
+
+        (new StorageConnectionPass())->process($container);
+
+        static::assertFalse($container->hasDefinition(Middleware::class));
+        static::assertFalse($container->hasDefinition(LabelSync::class));
+    }
+
+    /**
+     * @return iterable<string, array{array<string, int>}>
+     */
+    public static function invalidSqlThresholds(): iterable
+    {
+        yield 'slow threshold' => [['slow_threshold' => 0]];
+        yield 'N+1 threshold' => [['n_plus_one_threshold' => 0]];
+    }
+
+    /**
+     * @param array<string, int> $sql
+     */
+    #[DataProvider('invalidSqlThresholds')]
+    public function testSqlThresholdsArePositive(array $sql): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->loadBundle(['recording' => ['sql' => $sql]]);
+    }
+
     /**
      * @return array<class-string, int>
      */
     private static function loggingServices(): array
     {
-        return [Flusher::class => 5, RequestRecorder::class => 3, RequestsScreenFactory::class => 3];
+        return [Flusher::class => 5, RequestRecorder::class => 3, ScreenBuilder::class => 4];
     }
 
     public function testApplicationMonitoringUsesTheConfiguredLogger(): void
@@ -151,6 +237,34 @@ class JmonitorBundleTest extends TestCase
             static::assertSame(ContainerInterface::NULL_ON_INVALID_REFERENCE, $logger->getInvalidBehavior(), $id);
             static::assertSame([['channel' => 'jmonitor']], $definition->getTag('monolog.logger'), $id);
         }
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, array<string, class-string>|null, string, int}>
+     */
+    public static function recorderLoggers(): iterable
+    {
+        yield 'default logger' => [[], null, 'logger', ContainerInterface::NULL_ON_INVALID_REFERENCE];
+        yield 'jmonitor channel of MonologBundle' => [[], ['MonologBundle' => 'Symfony\\Bundle\\MonologBundle\\MonologBundle'], 'monolog.logger.jmonitor', ContainerInterface::NULL_ON_INVALID_REFERENCE];
+        yield 'configured logger' => [['logger' => 'app.jmonitor_logger'], null, 'app.jmonitor_logger', ContainerInterface::EXCEPTION_ON_INVALID_REFERENCE];
+    }
+
+    /**
+     * @param array<string, mixed>              $config
+     * @param array<string, class-string>|null $bundles
+     */
+    #[DataProvider('recorderLoggers')]
+    public function testTheRecorderGetsItsLoggerOnlyWhenItLogs(array $config, ?array $bundles, string $logger, int $invalidBehavior): void
+    {
+        $container = $this->loadBundle($config, environment: 'prod', bundles: $bundles);
+
+        $closure = $container->getDefinition(Recorder::class)->getArgument(1);
+
+        static::assertInstanceOf(ServiceClosureArgument::class, $closure);
+        $reference = $closure->getValues()[0];
+        static::assertInstanceOf(Reference::class, $reference);
+        static::assertSame($logger, (string) $reference);
+        static::assertSame($invalidBehavior, $reference->getInvalidBehavior());
     }
 
     public function testMinimalConfigRegistersCoreServices(): void

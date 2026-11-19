@@ -11,8 +11,13 @@ use Doctrine\DBAL\Platforms\SQLitePlatform;
 
 final class UpsertSql
 {
+    /** A key row carries its label, so a statement holds fewer of them than aggregate rows to stay within one MySQL packet. */
+    public const MAX_KEY_ROWS = 100;
+
     private const INSERT = 'INSERT INTO ' . AggregatesTable::NAME
-        . ' (period, metric_type, bucket, key_hash, metric_key, entry_count, value_sum, value_max) VALUES ';
+        . ' (period, metric_type, bucket, key_hash, entry_count, value_sum, value_max) VALUES ';
+
+    private const INSERT_KEYS = 'INSERT INTO ' . KeysTable::NAME . ' (key_hash, metric_key, last_seen) VALUES ';
 
     public static function supports(AbstractPlatform $platform): bool
     {
@@ -30,7 +35,7 @@ final class UpsertSql
     /** One positional parameter per column and per row, in column order. */
     public static function for(AbstractPlatform $platform, int $rows): string
     {
-        $values = implode(', ', array_fill(0, $rows, '(?, ?, ?, ?, ?, ?, ?, ?)'));
+        $values = implode(', ', array_fill(0, $rows, '(?, ?, ?, ?, ?, ?, ?)'));
         $table = AggregatesTable::NAME;
 
         if ($platform instanceof AbstractMySQLPlatform) {
@@ -52,6 +57,26 @@ final class UpsertSql
         if ($platform instanceof SQLitePlatform) {
             return self::INSERT . $values . $conflict
                 . ' value_max = MAX(' . $table . '.value_max, excluded.value_max)';
+        }
+
+        throw new \LogicException(sprintf('Unsupported database platform "%s".', $platform::class));
+    }
+
+    /** Parameters: key_hash, metric_key, last_seen per row. An empty label keeps the stored one. */
+    public static function forKeys(AbstractPlatform $platform, int $rows): string
+    {
+        $values = implode(', ', array_fill(0, $rows, '(?, ?, ?)'));
+
+        if ($platform instanceof AbstractMySQLPlatform) {
+            return self::INSERT_KEYS . $values . ' ON DUPLICATE KEY UPDATE'
+                . " metric_key = IF(VALUES(metric_key) <> '', VALUES(metric_key), metric_key),"
+                . ' last_seen = VALUES(last_seen)';
+        }
+
+        if ($platform instanceof PostgreSQLPlatform || $platform instanceof SQLitePlatform) {
+            return self::INSERT_KEYS . $values . ' ON CONFLICT (key_hash) DO UPDATE SET'
+                . " metric_key = CASE WHEN excluded.metric_key <> '' THEN excluded.metric_key ELSE " . KeysTable::NAME . '.metric_key END,'
+                . ' last_seen = excluded.last_seen';
         }
 
         throw new \LogicException(sprintf('Unsupported database platform "%s".', $platform::class));

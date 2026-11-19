@@ -6,12 +6,18 @@ namespace Jmonitor\JmonitorBundle\Tests\Storage\Dbal;
 
 use Doctrine\DBAL\Connection;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\Family;
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\View\Card;
+use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Recording\Entry;
-use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
-use Jmonitor\JmonitorBundle\Storage\Read\RouteStats;
+use Jmonitor\JmonitorBundle\Storage\Read\Report;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -30,45 +36,43 @@ final class DbalReaderTest extends TestCase
     {
         $this->seed($connection, $this->currentEntries());
 
-        $routes = $this->indexByKey((new DbalReader($connection))->routes(Period::OneHour, self::NOW));
+        $routes = $this->indexByKey($this->read($connection)->rows);
 
-        static::assertCount(2, $routes);
+        static::assertSame(['GET app_home', 'POST app_cart_add'], array_keys($routes));
         $home = $routes['GET app_home'];
-        static::assertSame('GET', $home->method);
-        static::assertSame('app_home', $home->route);
-        static::assertSame(3, $home->requests);
-        static::assertSame(40.0, $home->avgMs);
-        static::assertSame(60.0, $home->maxMs);
-        static::assertSame(120.0, $home->totalMs);
-        static::assertSame(1, $home->errors);
-        static::assertSame(0, $home->slow);
-        static::assertSame(3000, $home->peakMemoryBytes);
-        static::assertSame(1, $routes['POST app_cart_add']->slow);
-        static::assertLessThanOrEqual(60.0, $home->p95Ms);
+        static::assertSame(3, $home->count(Metric::REQUEST_DURATION));
+        static::assertSame(120.0, $home->sum(Metric::REQUEST_DURATION));
+        static::assertSame(60.0, $home->max(Metric::REQUEST_DURATION));
+        static::assertSame(1, $home->count(Metric::REQUEST_STATUS_PREFIX . '5xx'));
+        static::assertSame(0, $home->count(Metric::REQUEST_SLOW));
+        static::assertSame(3000.0, $home->max(Metric::REQUEST_MEMORY));
+        static::assertSame(3, array_sum($home->countsByPrefix(Metric::REQUEST_DURATION_LE_PREFIX)));
+        static::assertSame(1, $routes['POST app_cart_add']->count(Metric::REQUEST_SLOW));
+    }
+
+    #[DataProvider('connections')]
+    public function testTheRequestsScreenDerivesItsValuesFromTheReport(Connection $connection): void
+    {
+        $this->seed($connection, $this->currentEntries());
+
+        $view = (new RequestsScreen())->build(new DbalReader($connection), Period::OneHour, self::NOW, 'total', 'desc');
+
+        static::assertSame(['4', '405 ms', '1.5 s', '25 %'], array_map(static fn(Card $card): string => $card->value, $view->cards));
+        $home = $view->tables[0]->rows[1];
+        static::assertSame('GET app_home', $home->attributes['data-jm-route']);
+        static::assertSame(
+            ['route' => 'app_home', 'requests' => '3', 'total' => '120 ms', 'avg' => '40 ms', 'p95' => '60 ms', 'max' => '60 ms', 'sql' => '—', 'errors' => '1', 'slow' => '0', 'memory' => '2.9 KB'],
+            array_map(static fn(Cell $cell): string => $cell->text, $home->cells),
+        );
     }
 
     #[DataProvider('connections')]
     public function testEntriesOutsideTheWindowAreExcluded(Connection $connection): void
     {
         $this->seed($connection, [$this->request('GET app_old', self::NOW - 7200, 30.0, 200, 1000)]);
-        $reader = new DbalReader($connection);
 
-        static::assertSame([], $reader->routes(Period::OneHour, self::NOW));
-        static::assertCount(1, $reader->routes(Period::SixHours, self::NOW));
-    }
-
-    #[DataProvider('connections')]
-    public function testSummary(Connection $connection): void
-    {
-        $this->seed($connection, $this->currentEntries());
-
-        $summary = (new DbalReader($connection))->summary(Period::OneHour, self::NOW);
-
-        static::assertSame(4, $summary->requests);
-        static::assertSame(405.0, $summary->avgMs);
-        static::assertSame(0.25, $summary->errorRate);
-        static::assertGreaterThan(0.0, $summary->p95Ms);
-        static::assertLessThanOrEqual(1500.0, $summary->p95Ms);
+        static::assertSame([], $this->read($connection)->rows);
+        static::assertCount(1, $this->read($connection, Period::SixHours)->rows);
     }
 
     #[DataProvider('connections')]
@@ -76,35 +80,11 @@ final class DbalReaderTest extends TestCase
     {
         $this->seed($connection, $this->currentEntries());
 
-        $series = (new DbalReader($connection))->requestSeries(Period::OneHour, self::NOW);
+        $series = $this->read($connection)->series;
 
         static::assertCount(60, $series);
         static::assertSame(4, array_sum($series));
         static::assertSame(4, $series[59]);
-    }
-
-    #[DataProvider('connections')]
-    public function testMissingTableGivesEmptyResults(Connection $connection): void
-    {
-        $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
-        $reader = new DbalReader($connection);
-
-        static::assertSame([], $reader->routes(Period::OneHour, self::NOW));
-        static::assertSame(0, $reader->summary(Period::OneHour, self::NOW)->requests);
-        static::assertSame(0.0, $reader->summary(Period::OneHour, self::NOW)->p95Ms);
-        static::assertSame(array_fill(0, 60, 0), $reader->requestSeries(Period::OneHour, self::NOW));
-    }
-
-    #[DataProvider('connections')]
-    public function testRouteNameContainingSpaces(Connection $connection): void
-    {
-        $this->seed($connection, [$this->request('GET (unmatched)', self::NOW - 10, 5.0, 404, 100)]);
-
-        $routes = (new DbalReader($connection))->routes(Period::OneHour, self::NOW);
-
-        static::assertCount(1, $routes);
-        static::assertSame('GET', $routes[0]->method);
-        static::assertSame('(unmatched)', $routes[0]->route);
     }
 
     #[DataProvider('connections')]
@@ -116,33 +96,32 @@ final class DbalReaderTest extends TestCase
             $this->request($long . 'y', self::NOW - 10, 5.0, 200, 100),
         ]);
 
-        static::assertCount(2, (new DbalReader($connection))->routes(Period::OneHour, self::NOW));
+        static::assertSame([$long . 'x', $long . 'y'], array_keys($this->indexByKey($this->read($connection)->rows)));
     }
 
-    public function testSummaryAndRoutesShareOneGroupedQueryUntilReset(): void
+    public function testTheRequestFamilyIsReadInOneGroupedQuery(): void
     {
         [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
         $this->seed($connection, $this->currentEntries());
-        $reader = new DbalReader($connection);
-        $grouped = static fn(): int => \count($recorder->paramsOf('SELECT metric_type'));
+        $grouped = static fn(): int => \count($recorder->paramsOf('SELECT key_hash, metric_type'));
 
-        static::assertSame(4, $reader->summary(Period::OneHour, self::NOW)->requests);
-        static::assertCount(2, $reader->routes(Period::OneHour, self::NOW));
+        static::assertCount(2, $this->read($connection)->rows);
         static::assertSame(1, $grouped());
 
-        $reader->routes(Period::OneHour, self::NOW + 60);
+        static::assertCount(2, $this->read($connection)->rows);
         static::assertSame(2, $grouped());
+    }
 
-        $reader->reset();
-        $reader->routes(Period::OneHour, self::NOW + 60);
-        static::assertSame(3, $grouped());
+    private function read(Connection $connection, Period $period = Period::OneHour): Report
+    {
+        return (new DbalReader($connection))->read(new ReportQuery($period, self::NOW, Family::Request, seriesMetric: Metric::REQUEST_DURATION));
     }
 
     /** @param list<Entry> $entries */
     private function seed(Connection $connection, array $entries): void
     {
-        $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
-        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($entries));
+        ConnectionProvider::dropTables($connection);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($entries), self::NOW);
     }
 
     /** @return list<Entry> */
@@ -162,16 +141,17 @@ final class DbalReaderTest extends TestCase
     }
 
     /**
-     * @param list<RouteStats> $routes
+     * @param list<ReportRow> $rows
      *
-     * @return array<string, RouteStats>
+     * @return array<string, ReportRow>
      */
-    private function indexByKey(array $routes): array
+    private function indexByKey(array $rows): array
     {
         $indexed = [];
-        foreach ($routes as $route) {
-            $indexed[$route->key] = $route;
+        foreach ($rows as $row) {
+            $indexed[$row->key] = $row;
         }
+        ksort($indexed, \SORT_STRING);
 
         return $indexed;
     }

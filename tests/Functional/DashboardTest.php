@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Doctrine\DBAL\Connection;
+use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
+use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
@@ -213,15 +217,163 @@ final class DashboardTest extends WebTestCase
         $client->request('GET', '/jmonitor/');
         $html = (string) $client->getResponse()->getContent();
 
-        static::assertStringContainsString('"/bundles/jmonitor/jmonitor.css"', $html);
-        static::assertStringContainsString('"/bundles/jmonitor/jmonitor.js"', $html);
+        static::assertStringContainsString('"/bundles/jmonitor/jmonitor.css?v=', $html);
+        static::assertStringContainsString('"/bundles/jmonitor/jmonitor.js?v=', $html);
 
         $client->request('GET', '/sub/index.php/jmonitor/', server: ['SCRIPT_NAME' => '/sub/index.php', 'SCRIPT_FILENAME' => '/srv/sub/index.php']);
         $html = (string) $client->getResponse()->getContent();
 
         static::assertResponseIsSuccessful();
-        static::assertStringContainsString('"/sub/bundles/jmonitor/jmonitor.css"', $html);
-        static::assertStringContainsString('"/sub/bundles/jmonitor/jmonitor.js"', $html);
+        static::assertStringContainsString('"/sub/bundles/jmonitor/jmonitor.css?v=', $html);
+        static::assertStringContainsString('"/sub/bundles/jmonitor/jmonitor.js?v=', $html);
+    }
+
+    public function testTheRequestsScreenIsTheDefaultScreen(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/jmonitor/');
+        $default = (string) $client->getResponse()->getContent();
+        $crawler = $client->request('GET', '/jmonitor/requests');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame($default, (string) $client->getResponse()->getContent());
+        static::assertSame('Requests', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertStringContainsString('jmonitor.css?v=', $default);
+        static::assertSame('/jmonitor/_fragment/requests', $crawler->filter('[data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+
+        $client->request('GET', '/jmonitor/_fragment/requests');
+        static::assertResponseIsSuccessful();
+        static::assertStringNotContainsString('<html', (string) $client->getResponse()->getContent());
+    }
+
+    public function testAnUnknownScreenIsNotFound(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/jmonitor/nope');
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('GET', '/jmonitor/_fragment/nope');
+        static::assertResponseStatusCodeSame(404);
+    }
+
+    public function testSortAndPeriodLinksStayOnTheScreen(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/hello/world');
+        $crawler = self::requestUntil($client, '/jmonitor/requests?period=6h&sort=sql&dir=asc', 'tr[data-jm-route="GET app_hello"]');
+
+        static::assertSame('/jmonitor/requests?period=6h&sort=sql&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
+        static::assertSame('ascending', $crawler->filter('th.is-sorted')->attr('aria-sort'));
+        static::assertSame('/jmonitor/requests?period=24h&sort=sql&dir=asc', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
+        static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-nav__item')->attr('href'));
+        static::assertSame('—', trim($crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(5)->text()));
+    }
+
+    public function testTheQueriesScreenListsQueriesAndRepeatedOnes(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/n-plus-one');
+        static::assertResponseIsSuccessful();
+        $crawler = self::requestUntil($client, '/jmonitor/queries', 'tr[data-jm-nplus1="GET app_n_plus_one"]');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('12', $crawler->filter('tr[data-jm-nplus1="GET app_n_plus_one"]')->attr('data-jm-repeats-max'));
+        $query = $crawler->filter('tr[data-jm-query][data-jm-executions="12"]');
+        static::assertCount(1, $query);
+        static::assertStringContainsString('demo_items', $query->text());
+        static::assertStringContainsString('Queries', $crawler->filter('.jm-nav')->text());
+        static::assertSame('Queries', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+    }
+
+    public function testSortingOnSlowQueriesWhenNoneIsSlowStillListsTheQueries(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/n-plus-one');
+        static::assertResponseIsSuccessful();
+        $crawler = self::requestUntil($client, '/jmonitor/queries?sort=slow', 'tr[data-jm-query][data-jm-executions="12"]');
+
+        static::assertSame('ready', $crawler->filter('.jm-screen')->attr('data-jm-state'));
+        static::assertStringContainsString('demo_items', $crawler->filter('tr[data-jm-query][data-jm-executions="12"]')->text());
+        static::assertStringStartsWith('Slow', trim($crawler->filter('th.is-sorted')->text()));
+    }
+
+    public function testAHostileQueryTextIsShownEscaped(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/hostile-query');
+        static::assertResponseIsSuccessful();
+        self::requestUntil($client, '/jmonitor/queries', 'tr[data-jm-query] .jm-sql');
+        $html = (string) $client->getResponse()->getContent();
+
+        static::assertStringContainsString('&lt;img', $html);
+        static::assertStringNotContainsString('<img src=x', $html);
+        static::assertStringNotContainsString('<script>', $html);
+    }
+
+    public function testTheQueriesScreenShowsStoredQueriesWhileRecordingIsOff(): void
+    {
+        $client = static::createClient(['jmonitor' => ['recording' => ['enabled' => false] + $this->recording()['recording']]]);
+        $connection = static::getContainer()->get('doctrine.dbal.default_connection');
+        static::assertInstanceOf(Connection::class, $connection);
+        $now = time();
+        (new DbalStorage($connection, 604800))->store(
+            [new Aggregate(Period::OneHour, Period::OneHour->bucketFor($now), Metric::QUERY_DURATION, 'a1b2c3d4e5f6a7b8', 3, 6.0, 4.0)],
+            $now,
+            ['a1b2c3d4e5f6a7b8' => 'SELECT * FROM demo_items WHERE id = ?'],
+        );
+
+        $crawler = $client->request('GET', '/jmonitor/queries');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('ready', $crawler->filter('.jm-screen')->attr('data-jm-state'));
+        static::assertSame('Queries', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertStringContainsString('demo_items', $crawler->filter('tr[data-jm-query][data-jm-executions="3"]')->text());
+    }
+
+    public function testTheQueriesScreenSaysRecordingIsOffWhenNothingIsStored(): void
+    {
+        $client = static::createClient(['jmonitor' => ['recording' => ['enabled' => false] + $this->recording()['recording']]]);
+
+        $crawler = $client->request('GET', '/jmonitor/queries');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('recording_disabled', $crawler->filter('.jm-screen')->attr('data-jm-state'));
+        static::assertStringContainsString('Queries', $crawler->filter('.jm-nav')->text());
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, bool}>
+     */
+    public static function withoutSqlRecording(): iterable
+    {
+        yield 'SQL recording off' => [['sql' => ['enabled' => false]], true];
+        yield 'SQL recording off while recording is off' => [['enabled' => false, 'sql' => ['enabled' => false]], true];
+        yield 'no Doctrine connection' => [[], false];
+    }
+
+    /**
+     * @param array<string, mixed> $recording
+     */
+    #[DataProvider('withoutSqlRecording')]
+    public function testTheQueriesScreenIsAbsentWithoutSqlRecording(array $recording, bool $doctrine): void
+    {
+        $client = static::createClient(['doctrine' => $doctrine, 'jmonitor' => ['recording' => $recording + $this->recording()['recording']]]);
+
+        $crawler = $client->request('GET', '/jmonitor/');
+        static::assertResponseIsSuccessful();
+        static::assertStringNotContainsString('Queries', $crawler->filter('.jm-nav')->text());
+
+        $client->request('GET', '/jmonitor/queries');
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('GET', '/jmonitor/_fragment/queries');
+        static::assertResponseStatusCodeSame(404);
     }
 
     /**

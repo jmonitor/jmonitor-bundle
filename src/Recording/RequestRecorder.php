@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Recording;
 
-use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -17,6 +16,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
 final class RequestRecorder implements EventSubscriberInterface
 {
     private const STARTED_AT = '_jmonitor_started_at';
+    private const UNIT = '_jmonitor_unit';
     private const MAX_REQUEST_AGE = 300;
     private const INTERNAL_ROUTE_PREFIXES = ['_wdt', '_profiler', 'jmonitor_'];
     private const STANDARD_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
@@ -28,7 +28,7 @@ final class RequestRecorder implements EventSubscriberInterface
      * @param list<string> $ignoreRoutes fnmatch patterns on the route name
      */
     public function __construct(
-        private readonly BufferInterface $buffer,
+        private readonly Recorder $recorder,
         private readonly Flusher $flusher,
         private readonly array $ignoreRoutes = [],
         private readonly ?LoggerInterface $logger = null,
@@ -67,6 +67,7 @@ final class RequestRecorder implements EventSubscriberInterface
             }
 
             $request->attributes->set(self::STARTED_AT, $startedAt);
+            $request->attributes->set(self::UNIT, $this->recorder->begin(Entry::TYPE_REQUEST, $startedAt));
         } catch (\Throwable $e) {
             $this->logFailure($e);
         }
@@ -81,24 +82,26 @@ final class RequestRecorder implements EventSubscriberInterface
         try {
             $now = microtime(true);
             $request = $event->getRequest();
+            $token = $request->attributes->get(self::UNIT);
             $startedAt = $request->attributes->get(self::STARTED_AT);
 
-            if (!\is_float($startedAt)) {
+            if (!\is_int($token) || !\is_float($startedAt)) {
                 return;
             }
 
             $route = $request->attributes->get('_route');
             if (\is_string($route) && $this->isIgnored($route)) {
+                $this->recorder->discard($token);
+
                 return;
             }
 
-            $this->buffer->append(new Entry(
-                Entry::TYPE_REQUEST,
+            $this->recorder->end(
+                $token,
                 self::method($request) . ' ' . (\is_string($route) ? $route : '(unmatched)'),
-                $startedAt,
                 ($now - $startedAt) * 1000,
                 ['status' => $event->getResponse()->getStatusCode(), 'memory' => memory_get_peak_usage(true)],
-            ));
+            );
         } catch (\Throwable $e) {
             $this->logFailure($e);
         }

@@ -12,45 +12,51 @@ use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 
 final class DbalStorage implements StorageInterface
 {
-    private bool $tableReady = false;
+    private const KEY_GRACE_SECONDS = 86400;
+
+    private bool $schemaReady = false;
+    private bool $installed = false;
 
     public function __construct(
         private readonly Connection $connection,
         private readonly int $retention,
     ) {}
 
-    public function prepare(): void
+    public function prepare(): bool
     {
         $this->assertWritable();
-        $this->ensureTable();
+        $this->ensureSchema();
+        $installed = $this->installed;
+        $this->installed = false;
+
+        return $installed;
     }
 
-    /**
-     * @return bool whether the table was created
-     */
-    public function setUp(): bool
+    public function setUp(): SetupResult
     {
         $this->assertWritable();
-        $this->tableReady = false;
+        $this->schemaReady = false;
 
-        return $this->ensureTable();
+        return $this->ensureSchema(checkAggregates: true);
     }
 
-    public function store(array $aggregates): void
+    public function store(array $aggregates, int $now, array $labels = []): void
     {
         if ($aggregates === []) {
             return;
         }
 
-        $this->prepare();
+        $this->assertWritable();
+        $this->ensureSchema();
         $rows = self::rows($aggregates);
+        $keys = self::keys($aggregates, $labels);
 
         try {
-            $this->write($rows);
+            $this->write($rows, $keys, $now);
         } catch (TableNotFoundException) {
-            $this->tableReady = false;
-            $this->ensureTable();
-            $this->write($rows);
+            $this->schemaReady = false;
+            $this->ensureSchema(checkAggregates: true);
+            $this->write($rows, $keys, $now);
         }
     }
 
@@ -58,17 +64,19 @@ final class DbalStorage implements StorageInterface
     {
         $this->assertNoOpenTransaction();
 
-        foreach (Period::cases() as $period) {
-            $threshold = $now - min($period->value, $this->retention) - $period->bucketSeconds();
-
-            try {
+        try {
+            foreach (Period::cases() as $period) {
                 $this->connection->executeStatement(
                     'DELETE FROM ' . AggregatesTable::NAME . ' WHERE period = ? AND bucket < ?',
-                    [$period->value, $threshold],
+                    [$period->value, $now - min($period->value, $this->retention) - $period->bucketSeconds()],
                 );
-            } catch (TableNotFoundException) {
-                return;
             }
+
+            $this->connection->executeStatement(
+                'DELETE FROM ' . KeysTable::NAME . ' WHERE last_seen < ? AND key_hash <> ?',
+                [$now - $this->retention - self::KEY_GRACE_SECONDS, KeysTable::VERSION_ROW],
+            );
+        } catch (TableNotFoundException) {
         }
     }
 
@@ -89,7 +97,6 @@ final class DbalStorage implements StorageInterface
                 $aggregate->type,
                 $aggregate->bucket,
                 AggregatesTable::keyHash($aggregate->key),
-                mb_substr(mb_scrub($aggregate->key, 'UTF-8'), 0, AggregatesTable::KEY_MAX_LENGTH, 'UTF-8'),
                 $aggregate->count,
                 $aggregate->sum,
                 $aggregate->max,
@@ -100,6 +107,42 @@ final class DbalStorage implements StorageInterface
             => $a[0] <=> $b[0] ?: $a[2] <=> $b[2] ?: strcmp($a[1], $b[1]) ?: strcmp($a[3], $b[3]));
 
         return $rows;
+    }
+
+    /**
+     * Keys follow the hash order, for the same reason as the rows.
+     *
+     * @param list<Aggregate>        $aggregates
+     * @param array<string, ?string> $labels
+     *
+     * @return array<string, string> hash => label, empty when there is no text to store
+     */
+    private static function keys(array $aggregates, array $labels): array
+    {
+        $keys = [];
+        foreach ($aggregates as $aggregate) {
+            $hash = AggregatesTable::keyHash($aggregate->key);
+            if (\array_key_exists($hash, $keys)) {
+                continue;
+            }
+
+            $label = \array_key_exists($aggregate->key, $labels) ? $labels[$aggregate->key] : $aggregate->key;
+            $keys[$hash] = $label === null ? '' : self::fit($label);
+        }
+        foreach ($labels as $key => $label) {
+            $hash = AggregatesTable::keyHash((string) $key);
+            if ($label !== null && !\array_key_exists($hash, $keys)) {
+                $keys[$hash] = self::fit($label);
+            }
+        }
+        ksort($keys, \SORT_STRING);
+
+        return $keys;
+    }
+
+    private static function fit(string $label): string
+    {
+        return mb_substr(mb_scrub($label, 'UTF-8'), 0, KeysTable::LABEL_MAX_LENGTH, 'UTF-8');
     }
 
     /** Writes made inside a transaction of the application would be committed or rolled back with it. */
@@ -123,14 +166,23 @@ final class DbalStorage implements StorageInterface
 
     /**
      * @param list<list<int|float|string>> $rows
+     * @param array<string, string>        $keys
      */
-    private function write(array $rows): void
+    private function write(array $rows, array $keys, int $now): void
     {
         $platform = $this->connection->getDatabasePlatform();
 
-        $this->connection->transactional(function (Connection $connection) use ($rows, $platform): void {
+        $this->connection->transactional(function (Connection $connection) use ($rows, $keys, $now, $platform): void {
             foreach (array_chunk($rows, UpsertSql::maxRows($platform)) as $chunk) {
-                $connection->executeStatement(UpsertSql::for($platform, count($chunk)), array_merge(...$chunk));
+                $connection->executeStatement(UpsertSql::for($platform, \count($chunk)), array_merge(...$chunk));
+            }
+
+            foreach (array_chunk($keys, UpsertSql::MAX_KEY_ROWS, true) as $chunk) {
+                $params = [];
+                foreach ($chunk as $hash => $label) {
+                    array_push($params, (string) $hash, $label, $now);
+                }
+                $connection->executeStatement(UpsertSql::forKeys($platform, \count($chunk)), $params);
             }
         });
     }
@@ -145,37 +197,118 @@ final class DbalStorage implements StorageInterface
         $this->assertNoOpenTransaction();
     }
 
-    private function ensureTable(): bool
+    /** @param bool $checkAggregates also verify the aggregates table behind a current version row, at the cost of one query */
+    private function ensureSchema(bool $checkAggregates = false): SetupResult
     {
-        if ($this->tableReady) {
-            return false;
+        if ($this->schemaReady) {
+            return SetupResult::Unchanged;
         }
 
-        $created = false;
+        $version = $this->version();
+        self::assertNotNewer($version);
+        $current = $version === KeysTable::VERSION;
 
-        if (!$this->tableExists()) {
-            try {
-                foreach ($this->connection->getDatabasePlatform()->getCreateTableSQL(AggregatesTable::definition()) as $sql) {
-                    $this->connection->executeStatement($sql);
-                }
-                $created = true;
-            } catch (\Throwable $e) {
-                if (!$this->tableExists()) {
-                    throw $e;
-                }
+        if ($current && !$checkAggregates) {
+            $this->schemaReady = true;
+
+            return SetupResult::Unchanged;
+        }
+
+        $keysExist = $version !== null;
+        $aggregatesExist = $this->tableExists(AggregatesTable::NAME);
+
+        if ($current && $aggregatesExist) {
+            $this->schemaReady = true;
+
+            return SetupResult::Unchanged;
+        }
+
+        try {
+            $this->install($aggregatesExist, $keysExist);
+        } catch (\Throwable $e) {
+            if (!$this->installedByAnotherServer()) {
+                throw $e;
+            }
+
+            $this->schemaReady = true;
+            $this->installed = true;
+
+            return SetupResult::Unchanged;
+        }
+
+        $this->schemaReady = true;
+        $this->installed = true;
+
+        return $aggregatesExist || $keysExist ? SetupResult::Upgraded : SetupResult::Created;
+    }
+
+    private function install(bool $aggregatesExist, bool $keysExist): void
+    {
+        foreach ([AggregatesTable::NAME => $aggregatesExist, KeysTable::NAME => $keysExist] as $name => $exists) {
+            if ($exists) {
+                $this->connection->executeStatement('DROP TABLE ' . $name);
             }
         }
 
-        $this->tableReady = true;
+        $platform = $this->connection->getDatabasePlatform();
+        foreach ([AggregatesTable::definition(), KeysTable::definition()] as $table) {
+            foreach ($platform->getCreateTableSQL($table) as $sql) {
+                $this->connection->executeStatement($sql);
+            }
+        }
 
-        return $created;
+        $this->connection->insert(KeysTable::NAME, [
+            'key_hash' => KeysTable::VERSION_ROW,
+            'metric_key' => (string) KeysTable::VERSION,
+            'last_seen' => 0,
+        ]);
+    }
+
+    /** Another server installed both tables, or created them and has yet to insert the version row. */
+    private function installedByAnotherServer(): bool
+    {
+        try {
+            $version = $this->version();
+            $aggregatesExist = $this->tableExists(AggregatesTable::NAME);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        self::assertNotNewer($version);
+
+        return $aggregatesExist && ($version === KeysTable::VERSION || $version === 0);
+    }
+
+    /**
+     * @return int|null null without the keys table, 0 without its version row
+     *
+     * @phpstan-impure
+     */
+    private function version(): ?int
+    {
+        try {
+            $version = $this->connection->fetchOne(
+                'SELECT metric_key FROM ' . KeysTable::NAME . " WHERE key_hash = '" . KeysTable::VERSION_ROW . "'",
+            );
+        } catch (TableNotFoundException) {
+            return null;
+        }
+
+        return \is_scalar($version) && ctype_digit((string) $version) ? (int) $version : 0;
+    }
+
+    private static function assertNotNewer(?int $version): void
+    {
+        if ($version > KeysTable::VERSION) {
+            throw new \RuntimeException('The JMonitor tables were created by a newer version of the bundle.');
+        }
     }
 
     /** @phpstan-impure */
-    private function tableExists(): bool
+    private function tableExists(string $name): bool
     {
         try {
-            $this->connection->executeQuery('SELECT 1 FROM ' . AggregatesTable::NAME . ' WHERE 1 = 0');
+            $this->connection->executeQuery('SELECT 1 FROM ' . $name . ' WHERE 1 = 0');
         } catch (TableNotFoundException) {
             return false;
         }

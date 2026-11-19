@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Twig;
 
+use Jmonitor\JmonitorBundle\Dashboard\Format;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFilter;
 use Twig\TwigFunction;
@@ -13,14 +15,21 @@ final class JmonitorExtension extends AbstractExtension
     private const SPARKLINE_WIDTH = 120;
     private const SPARKLINE_HEIGHT = 32;
     private const SPARKLINE_PADDING = 2;
+    private const PUBLIC_DIR = __DIR__ . '/../../public/';
+
+    /** @var array<string, string> file => version */
+    private array $versions = [];
+
+    public function __construct(private readonly ?RequestStack $requestStack = null) {}
 
     public function getFilters(): array
     {
         return [
-            new TwigFilter('jmonitor_duration', $this->duration(...)),
-            new TwigFilter('jmonitor_bytes', $this->bytes(...)),
-            new TwigFilter('jmonitor_number', $this->number(...)),
-            new TwigFilter('jmonitor_percent', $this->percent(...)),
+            new TwigFilter('jmonitor_duration', Format::duration(...)),
+            new TwigFilter('jmonitor_bytes', Format::bytes(...)),
+            new TwigFilter('jmonitor_number', Format::number(...)),
+            new TwigFilter('jmonitor_percent', Format::percent(...)),
+            new TwigFilter('jmonitor_period', Format::period(...)),
         ];
     }
 
@@ -28,65 +37,22 @@ final class JmonitorExtension extends AbstractExtension
     {
         return [
             new TwigFunction('jmonitor_sparkline', $this->sparkline(...), ['is_safe' => ['html']]),
+            new TwigFunction('jmonitor_asset', $this->asset(...)),
         ];
     }
 
-    public function duration(int|float $milliseconds): string
+    public function asset(string $file): string
     {
-        if ($milliseconds < 1) {
-            return '<1 ms';
-        }
+        $basePath = $this->requestStack?->getCurrentRequest()?->getBasePath() ?? '';
+        $this->versions[$file] ??= substr((string) hash_file('xxh3', self::PUBLIC_DIR . basename($file)), 0, 8);
 
-        if (round($milliseconds) < 1000) {
-            return round($milliseconds) . ' ms';
-        }
-
-        $seconds = $milliseconds / 1000;
-
-        return $seconds < 10 ? number_format($seconds, 1) . ' s' : number_format($seconds) . ' s';
-    }
-
-    public function bytes(int|float $bytes): string
-    {
-        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        $unit = 0;
-
-        while ($bytes >= 1024 && $unit < \count($units) - 1) {
-            $bytes /= 1024;
-            ++$unit;
-        }
-
-        if ($unit === 0) {
-            return number_format($bytes) . ' B';
-        }
-
-        return self::trimZero(number_format($bytes, $bytes < 10 ? 1 : 0)) . ' ' . $units[$unit];
-    }
-
-    public function number(int|float $value): string
-    {
-        return number_format($value);
-    }
-
-    public function percent(int|float $ratio): string
-    {
-        $percent = $ratio * 100;
-
-        if ($percent <= 0) {
-            return '0 %';
-        }
-
-        if ($percent < 0.1) {
-            return '<0.1 %';
-        }
-
-        return self::trimZero(number_format($percent, $percent < 10 ? 1 : 0)) . ' %';
+        return $basePath . '/bundles/jmonitor/' . basename($file) . '?v=' . $this->versions[$file];
     }
 
     /**
      * @param array<int|float> $values
      */
-    public function sparkline(array $values): string
+    public function sparkline(array $values, string $label = 'Requests'): string
     {
         $values = array_values(array_map(static fn(int|float $value): int => max(0, (int) $value), $values));
         $peak = $values === [] ? 0 : max($values);
@@ -104,17 +70,13 @@ final class JmonitorExtension extends AbstractExtension
         }
 
         return sprintf(
-            '<svg class="jm-sparkline" viewBox="0 0 %d %d" preserveAspectRatio="none" role="img" aria-label="Requests over the period, peak %d per interval">'
+            '<svg class="jm-sparkline" viewBox="0 0 %d %d" preserveAspectRatio="none" role="img" aria-label="%s over the period, peak %d per interval">'
             . '<polyline points="%s" fill="none" vector-effect="non-scaling-stroke"/></svg>',
             self::SPARKLINE_WIDTH,
             self::SPARKLINE_HEIGHT,
+            htmlspecialchars($label, \ENT_QUOTES),
             $peak,
             implode(' ', $points),
         );
-    }
-
-    private static function trimZero(string $number): string
-    {
-        return str_ends_with($number, '.0') ? substr($number, 0, -2) : $number;
     }
 }

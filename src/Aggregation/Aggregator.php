@@ -8,7 +8,15 @@ use Jmonitor\JmonitorBundle\Recording\Entry;
 
 final class Aggregator
 {
-    public function __construct(private readonly int $slowThresholdMs) {}
+    public const OTHER = '(other)';
+
+    private const MAX_OCCURRENCES = 1e9;
+    private const MAX_WEIGHT = 1e6;
+
+    public function __construct(
+        private readonly int $slowThresholdMs,
+        private readonly ?HotKeys $hotKeys = null,
+    ) {}
 
     /**
      * @param iterable<Entry> $entries
@@ -17,7 +25,7 @@ final class Aggregator
      */
     public function aggregate(iterable $entries): array
     {
-        /** @var array<string, array{minute: int, key: string, counters: array<string, array{int, float, float}>}> $groups */
+        /** @var array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups */
         $groups = [];
 
         foreach ($entries as $entry) {
@@ -26,9 +34,7 @@ final class Aggregator
             }
 
             $minute = Period::OneHour->bucketFor($entry->startedAt);
-            $group = $minute . '|' . $entry->key;
-            $groups[$group] ??= ['minute' => $minute, 'key' => $entry->key, 'counters' => []];
-            $counters = &$groups[$group]['counters'];
+            $counters = &self::counters($groups, $minute, Family::Request, $entry->key);
 
             self::add($counters, Metric::REQUEST_DURATION, $entry->durationMs);
             self::add($counters, Metric::REQUEST_DURATION_LE_PREFIX . Metric::durationBound($entry->durationMs), 1.0);
@@ -47,8 +53,24 @@ final class Aggregator
                 self::add($counters, Metric::REQUEST_SLOW, 1.0);
             }
 
+            $sqlCount = self::number($entry->attributes['sql_n'] ?? null);
+            $sqlTime = self::number($entry->attributes['sql_ms'] ?? null);
+            if ($sqlCount !== null && $sqlTime !== null && $sqlCount > 0) {
+                self::add($counters, Metric::REQUEST_SQL_TIME, $sqlTime);
+                self::add($counters, Metric::REQUEST_SQL_COUNT, $sqlCount);
+            }
+
             unset($counters);
+
+            $weight = self::number($entry->attributes['cw'] ?? null);
+            $weight = $weight !== null && $weight >= 1 && $weight <= self::MAX_WEIGHT ? $weight : 1.0;
+
+            foreach ($entry->children as $child) {
+                $this->addChild($groups, $minute, $entry, $child, $weight);
+            }
         }
+
+        $groups = $this->capKeys($groups);
 
         /** @var array<string, Aggregate> $merged */
         $merged = [];
@@ -66,7 +88,7 @@ final class Aggregator
                         continue;
                     }
 
-                    $merged[$id]->count += $count;
+                    $merged[$id]->count = self::saturatingSum($merged[$id]->count, $count);
                     $merged[$id]->sum += $sum;
                     $merged[$id]->max = max($merged[$id]->max, $max);
                 }
@@ -77,20 +99,146 @@ final class Aggregator
     }
 
     /**
-     * @param array<string, array{int, float, float}> $counters
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
      */
-    private static function add(array &$counters, string $type, float $value): void
+    private function addChild(array &$groups, int $minute, Entry $unit, Entry $child, float $weight): void
     {
-        if (!isset($counters[$type])) {
-            $counters[$type] = [1, $value, $value];
+        $occurrences = self::number($child->attributes['n'] ?? null);
+        if ($occurrences === null || $occurrences < 0 || $occurrences > self::MAX_OCCURRENCES || !is_finite($child->durationMs)) {
+            return;
+        }
+
+        if ($child->type === Entry::TYPE_QUERY) {
+            $max = self::number($child->attributes['m'] ?? null);
+            $slow = self::number($child->attributes['sl'] ?? null) ?? 0.0;
+            if ($max === null || $slow < 0 || $slow > self::MAX_OCCURRENCES) {
+                return;
+            }
+
+            $counters = &self::counters($groups, $minute, Family::Query, $child->key);
+            self::add($counters, Metric::QUERY_DURATION, $child->durationMs * $weight, $max, (int) round($occurrences * $weight));
+            if ($slow > 0) {
+                self::add($counters, Metric::QUERY_SLOW, 0.0, 0.0, (int) round($slow * $weight));
+            }
 
             return;
         }
 
-        ++$counters[$type][0];
-        $counters[$type][1] += $value;
-        if ($value > $counters[$type][2]) {
-            $counters[$type][2] = $value;
+        if ($child->type === Entry::TYPE_NPLUS1) {
+            $key = (new NPlusOneKey($unit->type, $unit->key, $child->key))->toString();
+            $counters = &self::counters($groups, $minute, Family::NPlusOne, $key);
+            $count = (int) round($weight);
+            self::add($counters, Metric::NPLUS1_CALLS, $occurrences * $weight, $occurrences, $count);
+            self::add($counters, Metric::NPLUS1_DURATION, $child->durationMs * $weight, $child->durationMs, $count);
+        }
+    }
+
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     *
+     * @return array<string, array{int, float, float}>
+     */
+    private static function &counters(array &$groups, int $minute, Family $family, string $key): array
+    {
+        $id = $minute . '|' . $family->value . '|' . $key;
+        $groups[$id] ??= ['minute' => $minute, 'family' => $family, 'key' => $key, 'counters' => []];
+
+        return $groups[$id]['counters'];
+    }
+
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     *
+     * @return array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}>
+     */
+    private function capKeys(array $groups): array
+    {
+        $weights = [];
+        foreach ($groups as ['family' => $family, 'key' => $key, 'counters' => $counters]) {
+            $measure = $counters[$family->weightMetric()] ?? null;
+            $weights[$family->value][$key] = ($weights[$family->value][$key] ?? 0.0) + ($measure === null ? 0.0 : ($family->isOpen() ? $measure[1] : $measure[0]));
+        }
+
+        $folded = [];
+        foreach (Family::cases() as $family) {
+            $keys = $weights[$family->value] ?? [];
+            if ($this->hotKeys !== null && $family->isOpen()) {
+                $dropped = array_diff_key($keys, $this->hotKeys->select($family, $keys, $family->cap()));
+                if ($dropped !== []) {
+                    $folded[$family->value] = $dropped;
+                }
+
+                continue;
+            }
+
+            if (\count($keys) <= $family->cap()) {
+                continue;
+            }
+
+            uksort($keys, static fn(int|string $a, int|string $b): int => $keys[$b] <=> $keys[$a] ?: strcmp((string) $a, (string) $b));
+            $folded[$family->value] = array_flip(\array_slice(array_map('strval', array_keys($keys)), $family->cap()));
+        }
+
+        if ($folded === []) {
+            return $groups;
+        }
+
+        $result = [];
+        foreach ($groups as ['minute' => $minute, 'family' => $family, 'key' => $key, 'counters' => $counters]) {
+            if (isset($folded[$family->value][$key])) {
+                $key = self::OTHER;
+            }
+
+            $id = $minute . '|' . $family->value . '|' . $key;
+            if (!isset($result[$id])) {
+                $result[$id] = ['minute' => $minute, 'family' => $family, 'key' => $key, 'counters' => $counters];
+
+                continue;
+            }
+
+            foreach ($counters as $type => [$count, $sum, $max]) {
+                if (!isset($result[$id]['counters'][$type])) {
+                    $result[$id]['counters'][$type] = [$count, $sum, $max];
+
+                    continue;
+                }
+
+                $result[$id]['counters'][$type][0] = self::saturatingSum($result[$id]['counters'][$type][0], $count);
+                $result[$id]['counters'][$type][1] += $sum;
+                $result[$id]['counters'][$type][2] = max($result[$id]['counters'][$type][2], $max);
+            }
+        }
+
+        return $result;
+    }
+
+    private static function saturatingSum(int $a, int $b): int
+    {
+        return $a > \PHP_INT_MAX - $b ? \PHP_INT_MAX : $a + $b;
+    }
+
+    private static function number(mixed $value): ?float
+    {
+        return \is_int($value) || \is_float($value) ? (is_finite((float) $value) ? (float) $value : null) : null;
+    }
+
+    /**
+     * @param array<string, array{int, float, float}> $counters
+     */
+    private static function add(array &$counters, string $type, float $sum, ?float $max = null, int $count = 1): void
+    {
+        $max ??= $sum;
+
+        if (!isset($counters[$type])) {
+            $counters[$type] = [$count, $sum, $max];
+
+            return;
+        }
+
+        $counters[$type][0] = self::saturatingSum($counters[$type][0], $count);
+        $counters[$type][1] += $sum;
+        if ($max > $counters[$type][2]) {
+            $counters[$type][2] = $max;
         }
     }
 }

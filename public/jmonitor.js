@@ -52,17 +52,49 @@
         return selection !== null && !selection.isCollapsed && selection.containsNode(element, true);
     }
 
+    function openKeys() {
+        var keys = [];
+        var details = content.querySelectorAll('details[data-jm-key]');
+
+        for (var i = 0; i < details.length; i++) {
+            if (details[i].open) {
+                keys.push(details[i].getAttribute('data-jm-key'));
+            }
+        }
+
+        return keys;
+    }
+
+    function reopen(keys) {
+        if (keys.length === 0) {
+            return;
+        }
+
+        var details = content.querySelectorAll('details[data-jm-key]');
+
+        for (var i = 0; i < details.length; i++) {
+            if (keys.indexOf(details[i].getAttribute('data-jm-key')) !== -1) {
+                details[i].open = true;
+            }
+        }
+    }
+
     function replaceContent(html) {
-        var wrap = content.querySelector('.jm-table-wrap');
-        var scrollLeft = wrap ? wrap.scrollLeft : 0;
+        var wraps = content.querySelectorAll('.jm-table-wrap');
+        var scrollLefts = [];
+        for (var w = 0; w < wraps.length; w++) {
+            scrollLefts.push(wraps[w].scrollLeft);
+        }
         var active = document.activeElement;
         var focusedHref = active && content.contains(active) ? active.getAttribute('href') : null;
+        var opened = openKeys();
 
         content.innerHTML = html;
+        reopen(opened);
 
-        wrap = content.querySelector('.jm-table-wrap');
-        if (wrap) {
-            wrap.scrollLeft = scrollLeft;
+        wraps = content.querySelectorAll('.jm-table-wrap');
+        for (w = 0; w < wraps.length && w < scrollLefts.length; w++) {
+            wraps[w].scrollLeft = scrollLefts[w];
         }
 
         if (focusedHref) {

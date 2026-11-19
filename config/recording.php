@@ -3,13 +3,19 @@
 declare(strict_types=1);
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Command\SetupCommand;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
+use Jmonitor\JmonitorBundle\Flush\LabelSync;
+use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
+use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
+use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
+use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\SchemaAssetFilter;
@@ -22,6 +28,7 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
 
 return static function (ContainerConfigurator $container, ContainerBuilder $builder): void {
     $connectionName = $builder->getParameter('jmonitor.storage.connection');
@@ -29,6 +36,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services = $container->services();
     $customLogger = $builder->getParameter('jmonitor.logger');
     $logger = \is_string($customLogger) ? service($customLogger) : service('logger')->nullOnInvalid();
+    // The channel tag does not reach a service closure, so the channel logger is referenced by its id.
+    $recorderLogger = match (true) {
+        \is_string($customLogger) => service_closure($customLogger),
+        isset($builder->getParameter('kernel.bundles')['MonologBundle']) => service_closure('monolog.logger.jmonitor')->nullOnInvalid(),
+        default => service_closure('logger')->nullOnInvalid(),
+    };
 
     $services->set('jmonitor.clock', NativeClock::class);
 
@@ -46,8 +59,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ]);
     $services->alias(BufferInterface::class, FileBuffer::class);
 
+    $services->set(HotKeys::class)
+        ->args([service(BufferDirectory::class), service('jmonitor.clock')])
+        ->tag('kernel.reset', ['method' => 'reset']);
+
     $services->set(Aggregator::class)
-        ->args([param('jmonitor.recording.slow_threshold')]);
+        ->args([param('jmonitor.recording.slow_threshold'), service(HotKeys::class)]);
 
     $services->set(DbalStorage::class)
         ->args([$connection, param('jmonitor.storage.retention')])
@@ -55,8 +72,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->alias(StorageInterface::class, DbalStorage::class);
 
     $services->set(DbalReader::class)
-        ->args([$connection])
-        ->tag('kernel.reset', ['method' => 'reset']);
+        ->args([$connection]);
     $services->alias(ReaderInterface::class, DbalReader::class);
 
     $services->set(SchemaAssetFilter::class)
@@ -84,7 +100,8 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service(FlushLock::class),
             service('jmonitor.clock'),
             $logger,
-        ]);
+        ])
+        ->arg('$hotKeys', service(HotKeys::class));
 
     if ($customLogger === null) {
         $flusher->tag('monolog.logger', ['channel' => 'jmonitor']);
@@ -94,9 +111,38 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         return;
     }
 
-    $recorder = $services->set(RequestRecorder::class)
-        ->args([
+    $recorder = $services->set(Recorder::class)
+        ->args([service(BufferInterface::class), $recorderLogger])
+        ->tag('kernel.reset', ['method' => 'reset']);
+    $flusher->arg('$recorder', service(Recorder::class));
+
+    if ($builder->getParameter('jmonitor.recording.sql.enabled') !== false) {
+        $services->set(LabelStore::class)
+            ->args([service(BufferDirectory::class)]);
+
+        $services->set(QueryDigester::class)
+            ->args([service(LabelStore::class), param('jmonitor.recording.sql.n_plus_one_threshold')]);
+
+        $services->set(LabelSync::class)
+            ->args([service(LabelStore::class), service(HotKeys::class)]);
+
+        $services->set(Middleware::class)
+            ->args([service(Recorder::class)])
+            ->tag('doctrine.middleware');
+
+        $recorder->args([
             service(BufferInterface::class),
+            $recorderLogger,
+            null,
+            service(QueryDigester::class),
+            param('jmonitor.recording.sql.slow_threshold'),
+        ]);
+        $flusher->arg('$labels', service(LabelSync::class));
+    }
+
+    $requestRecorder = $services->set(RequestRecorder::class)
+        ->args([
+            service(Recorder::class),
             service(Flusher::class),
             param('jmonitor.recording.ignore_routes'),
             $logger,
@@ -106,5 +152,6 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
     if ($customLogger === null) {
         $recorder->tag('monolog.logger', ['channel' => 'jmonitor']);
+        $requestRecorder->tag('monolog.logger', ['channel' => 'jmonitor']);
     }
 };

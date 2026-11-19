@@ -10,7 +10,6 @@ use Doctrine\DBAL\Types\Types;
 final class AggregatesTable
 {
     public const NAME = 'jmonitor_aggregates';
-    public const KEY_MAX_LENGTH = 255;
 
     public static function definition(): Table
     {
@@ -19,7 +18,6 @@ final class AggregatesTable
         $table->addColumn('metric_type', Types::STRING, ['length' => 64]);
         $table->addColumn('bucket', Types::BIGINT);
         $table->addColumn('key_hash', Types::STRING, ['length' => 32, 'fixed' => true]);
-        $table->addColumn('metric_key', Types::STRING, ['length' => self::KEY_MAX_LENGTH]);
         $table->addColumn('entry_count', Types::BIGINT);
         $table->addColumn('value_sum', Types::FLOAT);
         $table->addColumn('value_max', Types::FLOAT);

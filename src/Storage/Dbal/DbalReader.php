@@ -6,172 +6,237 @@ namespace Jmonitor\JmonitorBundle\Storage\Dbal;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\TableNotFoundException;
-use Jmonitor\JmonitorBundle\Aggregation\Metric;
-use Jmonitor\JmonitorBundle\Aggregation\Percentile;
+use Doctrine\DBAL\ParameterType;
+use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
-use Jmonitor\JmonitorBundle\Storage\Read\RequestSummary;
-use Jmonitor\JmonitorBundle\Storage\Read\RouteStats;
-use Symfony\Contracts\Service\ResetInterface;
+use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
+use Jmonitor\JmonitorBundle\Storage\Read\Report;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 
-final class DbalReader implements ReaderInterface, ResetInterface
+final class DbalReader implements ReaderInterface
 {
     private const SERIES_BUCKETS = 60;
-
-    /** @var array{int, int, array<string, array{key: string, requests: int, total: float, max: float, errors: int, slow: int, memory: float, counts: array<string, int>}>}|null */
-    private ?array $collected = null;
+    private const LABELS_PER_QUERY = 500;
+    private const SORT_EXPRESSIONS = [
+        'count' => 'SUM(CASE WHEN metric_type = ? THEN entry_count ELSE 0 END)',
+        'sum' => 'SUM(CASE WHEN metric_type = ? THEN value_sum ELSE 0 END)',
+        'max' => 'MAX(CASE WHEN metric_type = ? THEN value_max ELSE 0 END)',
+        'avg' => 'COALESCE(SUM(CASE WHEN metric_type = ? THEN value_sum ELSE 0 END)'
+            . ' / NULLIF(SUM(CASE WHEN metric_type = ? THEN entry_count ELSE 0 END), 0), 0)',
+    ];
 
     public function __construct(private readonly Connection $connection) {}
 
-    public function reset(): void
+    public function read(ReportQuery $query): Report
     {
-        $this->collected = null;
-    }
+        $otherHash = AggregatesTable::keyHash(Aggregator::OTHER);
 
-    public function summary(Period $period, int $now): RequestSummary
-    {
-        $requests = 0;
-        $total = 0.0;
-        $max = 0.0;
-        $errors = 0;
-        $counts = [];
-
-        foreach ($this->collect($period, $now) as $route) {
-            $requests += $route['requests'];
-            $total += $route['total'];
-            $max = max($max, $route['max']);
-            $errors += $route['errors'];
-            foreach ($route['counts'] as $bound => $count) {
-                $counts[$bound] = ($counts[$bound] ?? 0) + $count;
-            }
-        }
-
-        if ($requests === 0) {
-            return new RequestSummary(0, 0.0, 0.0, 0.0);
-        }
-
-        return new RequestSummary($requests, $total / $requests, Percentile::estimate($counts, 0.95, $max), $errors / $requests);
-    }
-
-    public function routes(Period $period, int $now): array
-    {
-        $routes = [];
-
-        foreach ($this->collect($period, $now) as $route) {
-            if ($route['requests'] === 0) {
-                continue;
+        try {
+            if ($query->family->isOpen()) {
+                $hashes = $this->topKeys($query);
+                $metrics = $this->metrics($query, [...$hashes, $otherHash]);
+                $keyCount = $this->keyCount($query);
+                $totals = $this->totals($query);
+            } else {
+                $metrics = $this->metrics($query);
+                $hashes = array_values(array_diff(array_map('strval', array_keys($metrics)), [$otherHash]));
+                $keyCount = \count($hashes);
+                $totals = self::sumKeys($metrics);
             }
 
-            [$method, $name] = array_pad(explode(' ', $route['key'], 2), 2, '');
+            $series = $query->seriesMetric === null ? [] : $this->series($query->period, $query->now, $query->seriesMetric);
+        } catch (TableNotFoundException) {
+            return new Report();
+        }
 
-            $routes[] = new RouteStats(
-                $route['key'],
-                $method,
-                $name,
-                $route['requests'],
-                $route['total'] / $route['requests'],
-                Percentile::estimate($route['counts'], 0.95, $route['max']),
-                $route['max'],
-                $route['total'],
-                $route['errors'],
-                $route['slow'],
-                (int) $route['memory'],
+        $labels = $this->labelsByHash(array_map('strval', array_keys($metrics)));
+        $rows = [];
+        foreach ($hashes as $hash) {
+            $rows[] = new ReportRow($hash, $labels[$hash] ?? $hash, $labels[$hash] ?? null, $metrics[$hash] ?? []);
+        }
+        $other = isset($metrics[$otherHash]) ? new ReportRow($otherHash, Aggregator::OTHER, $labels[$otherHash] ?? null, $metrics[$otherHash]) : null;
+
+        return new Report($rows, $other, $keyCount, $series, $totals);
+    }
+
+    public function labels(array $keys): array
+    {
+        $hashes = [];
+        foreach ($keys as $key) {
+            $hashes[AggregatesTable::keyHash($key)] = $key;
+        }
+
+        $labels = [];
+        foreach ($this->labelsByHash(array_map('strval', array_keys($hashes))) as $hash => $label) {
+            $labels[$hashes[$hash]] = $label;
+        }
+
+        return $labels;
+    }
+
+    /**
+     * @return list<string> the hashes of the first keys of the weight metric, in the requested order on the sort
+     *                      metric, a key without it sorting as zero
+     */
+    private function topKeys(ReportQuery $query): array
+    {
+        [$period, $since] = self::window($query);
+        $sortExpression = self::SORT_EXPRESSIONS[$query->sortField];
+        $weightMetric = $query->family->weightMetric();
+        $params = [
+            $period,
+            $since,
+            $weightMetric,
+            $query->sortMetric,
+            AggregatesTable::keyHash(Aggregator::OTHER),
+            $weightMetric,
+            ...array_fill(0, substr_count($sortExpression, '?'), $query->sortMetric),
+            $query->limit,
+        ];
+
+        return array_map('strval', $this->connection->fetchFirstColumn(
+            'SELECT key_hash FROM ' . AggregatesTable::NAME
+            . ' WHERE period = ? AND bucket > ? AND metric_type IN (?, ?) AND key_hash <> ? GROUP BY key_hash'
+            . ' HAVING SUM(CASE WHEN metric_type = ? THEN 1 ELSE 0 END) > 0'
+            . ' ORDER BY ' . $sortExpression . ($query->descending ? ' DESC' : ' ASC') . ', key_hash LIMIT ?',
+            $params,
+            [\count($params) - 1 => ParameterType::INTEGER],
+        ));
+    }
+
+    private function keyCount(ReportQuery $query): int
+    {
+        [$period, $since] = self::window($query);
+
+        return (int) $this->connection->fetchOne(
+            'SELECT COUNT(DISTINCT key_hash) FROM ' . AggregatesTable::NAME
+            . ' WHERE period = ? AND bucket > ? AND metric_type = ? AND key_hash <> ?',
+            [$period, $since, $query->family->weightMetric(), AggregatesTable::keyHash(Aggregator::OTHER)],
+        );
+    }
+
+    /**
+     * @param list<string>|null $hashes null for every key of the family
+     *
+     * @return array<string, array<string, MetricValue>> hash => metric type => value
+     */
+    private function metrics(ReportQuery $query, ?array $hashes = null): array
+    {
+        [$period, $since] = self::window($query);
+        $sql = 'SELECT key_hash, metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum,'
+            . ' MAX(value_max) AS value_max FROM ' . AggregatesTable::NAME
+            . ' WHERE period = ? AND bucket > ? AND metric_type LIKE ?';
+        $params = [$period, $since, $query->family->value . '.%'];
+
+        if ($hashes !== null) {
+            $sql .= ' AND key_hash IN (' . implode(', ', array_fill(0, \count($hashes), '?')) . ')';
+            array_push($params, ...$hashes);
+        }
+
+        $metrics = [];
+        foreach ($this->connection->fetchAllAssociative($sql . ' GROUP BY key_hash, metric_type', $params) as $row) {
+            $metrics[(string) $row['key_hash']][(string) $row['metric_type']] = new MetricValue(
+                (int) $row['entry_count'],
+                (float) $row['value_sum'],
+                (float) $row['value_max'],
             );
         }
 
-        return $routes;
+        return $metrics;
     }
 
-    public function requestSeries(Period $period, int $now): array
+    /** @return array<string, MetricValue> metric type => total over every key */
+    private function totals(ReportQuery $query): array
+    {
+        [$period, $since] = self::window($query);
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max FROM '
+            . AggregatesTable::NAME . ' WHERE period = ? AND bucket > ? AND metric_type LIKE ? GROUP BY metric_type',
+            [$period, $since, $query->family->value . '.%'],
+        );
+
+        $totals = [];
+        foreach ($rows as $row) {
+            $totals[(string) $row['metric_type']] = new MetricValue((int) $row['entry_count'], (float) $row['value_sum'], (float) $row['value_max']);
+        }
+
+        return $totals;
+    }
+
+    /**
+     * @param array<string, array<string, MetricValue>> $metrics hash => metric type => value
+     *
+     * @return array<string, MetricValue> metric type => total over every key
+     */
+    private static function sumKeys(array $metrics): array
+    {
+        $totals = [];
+        foreach ($metrics as $values) {
+            foreach ($values as $type => $value) {
+                $total = $totals[(string) $type] ?? null;
+                $totals[(string) $type] = $total === null ? $value : new MetricValue($total->count + $value->count, $total->sum + $value->sum, max($total->max, $value->max));
+            }
+        }
+
+        return $totals;
+    }
+
+    /** @return list<int> 60 values, oldest first */
+    private function series(Period $period, int $now, string $metricType): array
     {
         $size = $period->bucketSeconds();
         $current = $period->bucketFor($now);
         $series = array_fill(0, self::SERIES_BUCKETS, 0);
 
-        try {
-            $rows = $this->connection->fetchAllAssociative(
-                'SELECT bucket, SUM(entry_count) AS requests FROM ' . AggregatesTable::NAME
-                . ' WHERE period = ? AND metric_type = ? AND bucket > ? GROUP BY bucket',
-                [$period->value, Metric::REQUEST_DURATION, $current - $period->value],
-            );
-        } catch (TableNotFoundException) {
-            return $series;
-        }
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT bucket, SUM(entry_count) AS entry_count FROM ' . AggregatesTable::NAME
+            . ' WHERE period = ? AND metric_type = ? AND bucket > ? GROUP BY bucket',
+            [$period->value, $metricType, $current - $period->value],
+        );
 
         foreach ($rows as $row) {
             $index = self::SERIES_BUCKETS - 1 - intdiv($current - (int) $row['bucket'], $size);
             if (isset($series[$index])) {
-                $series[$index] += (int) $row['requests'];
+                $series[$index] += (int) $row['entry_count'];
             }
         }
 
         return $series;
     }
 
-    /**
-     * @return array<string, array{key: string, requests: int, total: float, max: float, errors: int, slow: int, memory: float, counts: array<string, int>}>
-     */
-    private function collect(Period $period, int $now): array
+    /** @return array{int, int} the period and the last bucket before its window */
+    private static function window(ReportQuery $query): array
     {
-        if ($this->collected !== null && $this->collected[0] === $period->value && $this->collected[1] === $now) {
-            return $this->collected[2];
-        }
-
-        $routes = $this->query($period, $now);
-        $this->collected = [$period->value, $now, $routes];
-
-        return $routes;
+        return [$query->period->value, $query->period->bucketFor($query->now) - $query->period->value];
     }
 
     /**
-     * @return array<string, array{key: string, requests: int, total: float, max: float, errors: int, slow: int, memory: float, counts: array<string, int>}>
+     * @param list<string> $hashes
+     *
+     * @return array<string, string> hash => label, a key stored without its text yet being left out
      */
-    private function query(Period $period, int $now): array
+    private function labelsByHash(array $hashes): array
     {
+        $labels = [];
+
         try {
-            $rows = $this->connection->fetchAllAssociative(
-                'SELECT metric_type, key_hash, MAX(metric_key) AS metric_key, SUM(entry_count) AS entry_count,'
-                . ' SUM(value_sum) AS value_sum, MAX(value_max) AS value_max FROM ' . AggregatesTable::NAME
-                . ' WHERE period = ? AND bucket > ? GROUP BY metric_type, key_hash',
-                [$period->value, $period->bucketFor($now) - $period->value],
-            );
-        } catch (TableNotFoundException) {
-            return [];
-        }
-
-        $routes = [];
-
-        foreach ($rows as $row) {
-            $hash = (string) $row['key_hash'];
-            $routes[$hash] ??= [
-                'key' => (string) $row['metric_key'],
-                'requests' => 0,
-                'total' => 0.0,
-                'max' => 0.0,
-                'errors' => 0,
-                'slow' => 0,
-                'memory' => 0.0,
-                'counts' => [],
-            ];
-
-            $type = (string) $row['metric_type'];
-            $count = (int) $row['entry_count'];
-
-            if ($type === Metric::REQUEST_DURATION) {
-                $routes[$hash]['requests'] = $count;
-                $routes[$hash]['total'] = (float) $row['value_sum'];
-                $routes[$hash]['max'] = (float) $row['value_max'];
-            } elseif ($type === Metric::REQUEST_MEMORY) {
-                $routes[$hash]['memory'] = (float) $row['value_max'];
-            } elseif ($type === Metric::REQUEST_SLOW) {
-                $routes[$hash]['slow'] = $count;
-            } elseif ($type === Metric::REQUEST_STATUS_PREFIX . '5xx') {
-                $routes[$hash]['errors'] = $count;
-            } elseif (str_starts_with($type, Metric::REQUEST_DURATION_LE_PREFIX)) {
-                $routes[$hash]['counts'][substr($type, strlen(Metric::REQUEST_DURATION_LE_PREFIX))] = $count;
+            foreach (array_chunk($hashes, self::LABELS_PER_QUERY) as $chunk) {
+                $rows = $this->connection->fetchAllAssociative(
+                    'SELECT key_hash, metric_key FROM ' . KeysTable::NAME
+                    . ' WHERE key_hash IN (' . implode(', ', array_fill(0, \count($chunk), '?')) . ')',
+                    $chunk,
+                );
+                foreach ($rows as $row) {
+                    if ((string) $row['metric_key'] !== '') {
+                        $labels[(string) $row['key_hash']] = (string) $row['metric_key'];
+                    }
+                }
             }
+        } catch (TableNotFoundException) {
         }
 
-        return $routes;
+        return $labels;
     }
 }

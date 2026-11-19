@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Doctrine\DBAL\Connection;
+use Jmonitor\JmonitorBundle\Aggregation\Family;
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
-use Jmonitor\JmonitorBundle\Storage\Read\RouteStats;
+use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
@@ -56,33 +60,32 @@ final class RecordingTest extends WebTestCase
         static::assertResponseIsSuccessful();
 
         $this->flush();
-        $reader = new DbalReader($this->connection());
-        $routes = $this->indexByKey($reader->routes(Period::OneHour, time()));
+        $routes = $this->routes(new DbalReader($this->connection()));
 
-        static::assertSame(3, $routes['GET app_hello']->requests);
-        static::assertSame(1, $routes['GET app_boom']->errors);
-        static::assertSame(1, $routes['GET app_teapot']->requests);
-        static::assertSame(1, $routes['GET (unmatched)']->requests);
-        static::assertSame(1, $routes['OTHER app_hello']->requests);
+        static::assertSame(3, $routes['GET app_hello']->count(Metric::REQUEST_DURATION));
+        static::assertSame(1, $routes['GET app_boom']->count(Metric::REQUEST_STATUS_PREFIX . '5xx'));
+        static::assertSame(1, $routes['GET app_teapot']->count(Metric::REQUEST_DURATION));
+        static::assertSame(1, $routes['GET (unmatched)']->count(Metric::REQUEST_DURATION));
+        static::assertSame(1, $routes['OTHER app_hello']->count(Metric::REQUEST_DURATION));
         static::assertArrayNotHasKey('ZZZ app_hello', $routes);
     }
 
-    public function testReaderIsResetBetweenRequestsOfTheSameKernel(): void
+    public function testTheReaderOfTheKernelSeesEveryFlush(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
         $client->disableReboot();
         $client->request('GET', '/hello/world');
-        $reader = static::getContainer()->get(DbalReader::class);
-        \assert($reader instanceof DbalReader);
-        $now = time();
+        $reader = static::getContainer()->get(ReaderInterface::class);
+        \assert($reader instanceof ReaderInterface);
 
-        static::assertSame(0, $reader->summary(Period::OneHour, $now)->requests);
+        static::assertArrayNotHasKey('GET app_hello', $this->routes($reader));
         $this->flush();
-        static::assertSame(0, $reader->summary(Period::OneHour, $now)->requests);
+        static::assertSame(1, $this->routes($reader)['GET app_hello']->count(Metric::REQUEST_DURATION));
 
         $client->request('GET', '/hello/world');
+        $this->flush();
 
-        static::assertSame(1, $reader->summary(Period::OneHour, $now)->requests);
+        static::assertSame(2, $this->routes($reader)['GET app_hello']->count(Metric::REQUEST_DURATION));
     }
 
     public function testNothingIsRecordedWhenDisabled(): void
@@ -234,15 +237,13 @@ final class RecordingTest extends WebTestCase
     }
 
     /**
-     * @param list<RouteStats> $routes
-     *
-     * @return array<string, RouteStats>
+     * @return array<string, ReportRow>
      */
-    private function indexByKey(array $routes): array
+    private function routes(ReaderInterface $reader): array
     {
         $indexed = [];
-        foreach ($routes as $route) {
-            $indexed[$route->key] = $route;
+        foreach ($reader->read(new ReportQuery(Period::OneHour, time(), Family::Request))->rows as $row) {
+            $indexed[$row->key] = $row;
         }
 
         return $indexed;
