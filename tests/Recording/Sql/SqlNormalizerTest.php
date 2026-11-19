@@ -148,6 +148,10 @@ final class SqlNormalizerTest extends TestCase
         yield ["SELECT 1 --\xA0'\n, 'secret' --\xA0'\n", null];
         yield ["SELECT [a'b], 'secret', [c'd]", null];
         yield ["SELECT 'a\\' , [secret] /* ' */", null];
+        yield ["CREATE PROCEDURE jm_fr3() LANGUAGE JAVASCRIPT AS\xA0\$\$ let a = `ZQSECRETQZ`; return a\$\$", null];
+        yield ["CREATE PROCEDURE jm_fr3() LANGUAGE JAVASCRIPT AS\xA0\$\$ let a = ZQSECRETQZ_token_abc; return a\$\$", null];
+        yield ["SELECT caf\xC3\xA9\$a FROM t", 'SELECT café$a FROM t'];
+        yield ["SELECT caf\xC3\xA9\$\$ FROM t", null];
     }
 
     #[DataProvider('mysqlQueries')]
@@ -213,6 +217,7 @@ final class SqlNormalizerTest extends TestCase
         yield ["SELECT 'a\\' , 0x1F\$\$secret\$\$ /* ' */", null];
         yield ['SELECT t0.price$ FROM t t0', 'SELECT t0.price$ FROM t t0'];
         yield ['SELECT t0.a$b$c FROM t t0', 'SELECT t0.a$b$c FROM t t0'];
+        yield ["SELECT caf\xC3\xA9\$\$ FROM t", 'SELECT café$$ FROM t'];
     }
 
     #[DataProvider('postgresqlQueries')]

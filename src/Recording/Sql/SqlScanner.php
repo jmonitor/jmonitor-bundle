@@ -338,12 +338,13 @@ final class SqlScanner
     /**
      * MySQL 8 reads `$$` or `$tag$` at the start of a token as the opening of a dollar-quoted string, earlier versions
      * and MariaDB as an identifier. A word of digits is an identifier, but `1e5` or the `5` of `1.5` and `1e-5` ends a
-     * number, the dollar then starting a token.
+     * number, the dollar then starting a token. So does a byte from 0x80 right before it: some character sets of the
+     * client read it as a blank.
      */
     private function mysqlDollar(): bool
     {
         $start = $this->wordStart($this->offset);
-        if ($start < $this->offset) {
+        if ($start < $this->offset && $this->sql[$this->offset - 1] < "\x80") {
             $digits = strspn($this->sql, self::DIGITS, $start);
             $endsNumber = $digits === 0
                 ? $this->followsDecimalPoint($start)
