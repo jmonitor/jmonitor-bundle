@@ -41,6 +41,7 @@ final class SqlNormalizerTest extends TestCase
         yield ['SELECT * FROM t WHERE a = $10 AND b = $2', 'SELECT * FROM t WHERE a = $10 AND b = $2'];
         yield ["SELECT 1 FROM t WHERE a = 'a--b' AND c = \"x--y\" AND `d--e` = 2 --", 'SELECT ? FROM t WHERE a = ? AND c = ? AND `d--e` = ?'];
         yield ["SELECT 1 -- note\tand 'quotes'\nFROM t --\n WHERE a = 'x'", 'SELECT ? FROM t WHERE a = ?'];
+        yield ["SELECT 1 -- note\r\nFROM t WHERE a = 'x' -- end\r\n", 'SELECT ? FROM t WHERE a = ?'];
         yield ["SELECT * FROM t WHERE color = '#fff' AND `col#1` = \"#x\" AND \"a#b\" = 2", 'SELECT * FROM t WHERE color = ? AND `col#1` = ? AND "a#b" = ?'];
     }
 
@@ -72,7 +73,8 @@ final class SqlNormalizerTest extends TestCase
         yield ["SELECT a FROM t WHERE b = 1--'\n' AND c = 'secret' AND d = 'x'"];
         yield ["SELECT 1 -- c\r'\n' AND a = 'secret' AND b = 'x'"];
         yield ["SELECT 1 ---------- banner\nFROM t WHERE a = 'x'"];
-        yield ["SELECT 1 -- note\r\nFROM t WHERE a = 'x'"];
+        yield ["SELECT 1 FROM t WHERE a = 'x' -- c\r"];
+        yield ["SELECT 1 -- c\r\r\nFROM t WHERE a = 'x'"];
         yield ["SELECT 1 /*/*/ it's */ FROM t WHERE a = 'secret'"];
     }
 

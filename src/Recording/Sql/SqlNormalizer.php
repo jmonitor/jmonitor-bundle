@@ -83,8 +83,9 @@ final class SqlNormalizer
 
     /**
      * Any `#` outside a quoted token counts, comments included, since MySQL reads it as a comment opening. A `--` opens
-     * a comment in MySQL only before a blank, and PostgreSQL also ends one at a carriage return. A comment body is
-     * searched up to the `*` of its end, since PostgreSQL reads a slash right before that `*` as a nested opening.
+     * a comment in MySQL only before a blank, and PostgreSQL also ends one at a carriage return, which only matters
+     * when no line feed follows it. A comment body is searched up to the `*` of its end, since PostgreSQL reads a slash
+     * right before that `*` as a nested opening.
      */
     private static function holdsDialectComment(string $sql): bool
     {
@@ -104,7 +105,7 @@ final class SqlNormalizer
                         return true;
                     }
                     $end = strpos($sql, "\n", $i);
-                    $line = $end === false ? substr($sql, $i) : substr($sql, $i, $end - $i);
+                    $line = $end === false ? substr($sql, $i) : substr($sql, $i, $end - $i - (int) ($sql[$end - 1] === "\r"));
                     if (str_contains($line, '#') || str_contains($line, "\r")) {
                         return true;
                     }
