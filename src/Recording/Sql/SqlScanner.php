@@ -14,6 +14,10 @@ final class SqlScanner
     public const KEPT = '\x00"?(\d++)\x00';
     /** The same for a double-quoted token of SQLite, which may be a value. */
     public const MAYBE_VALUE = '\x00"\d++\x00';
+    /** The server rejects the text under this reading, which is then not the one it applies. */
+    public const INVALID = 'invalid';
+    /** What the server reads cannot be told. */
+    public const UNDECIDABLE = 'undecidable';
 
     private const STOPS = [
         SqlDialect::MySql->value => "'\"`#-/\\$[",
@@ -46,14 +50,12 @@ final class SqlScanner
      * @param string $sql      a text without NUL byte
      * @param string $escaping the quotes whose strings read a backslash as an escape; a PostgreSQL E string always does
      *
-     * @return array{string, list<string>}|false|null the text and its kept tokens; null when the server rejects the
-     *                                                text under this reading, which is then not the one it applies;
-     *                                                false when what the server reads cannot be told
+     * @return array{string, list<string>}|self::INVALID|self::UNDECIDABLE the text and its kept tokens
      */
-    public static function scan(string $sql, SqlDialect $dialect, string $escaping): array|false|null
+    public static function scan(string $sql, SqlDialect $dialect, string $escaping): array|string
     {
         if (!isset(self::STOPS[$dialect->value])) {
-            return false;
+            return self::UNDECIDABLE;
         }
 
         $scanner = new self($sql, $dialect, $escaping);
@@ -61,7 +63,7 @@ final class SqlScanner
             return [$scanner->text, $scanner->kept];
         }
 
-        return $scanner->undecidable ? false : null;
+        return $scanner->undecidable ? self::UNDECIDABLE : self::INVALID;
     }
 
     private function read(): bool
@@ -92,9 +94,9 @@ final class SqlScanner
             '`' => $this->keep($this->quoteEnd(false)),
             // MariaDB quotes identifiers with brackets under sql_mode=MSSQL.
             '[' => $this->dialect === SqlDialect::MySql ? $this->undecidable() : $this->keep($this->after(']', 1)),
-            '$' => $this->dialect === SqlDialect::MySql ? $this->mysqlDollar() : $this->dollar(),
-            '(' => $this->followsVariable() ? $this->undecidable() : $this->bare(1),
-            '#' => $this->lineComment(),
+            '$' => $this->dialect === SqlDialect::MySql ? $this->mysqlDollar() : $this->postgresqlDollar(),
+            '(' => $this->followsSqliteVariable() ? $this->undecidable() : $this->bare(1),
+            '#' => $this->dialect === SqlDialect::MySql ? $this->lineComment() : $this->bare(1),
             '-' => $next === '-' ? $this->dashes() : $this->bare(1),
             '/' => $next === '*' ? $this->blockComment() : $this->bare(1),
             // A backslash outside a string: only `\N`, the NULL of MySQL, is SQL.
@@ -288,7 +290,7 @@ final class SqlScanner
      * A dollar inside an identifier is skipped with the rest of it; one that starts a token opens a parameter or a
      * dollar-quoted string, and is valid in nothing else.
      */
-    private function dollar(): bool
+    private function postgresqlDollar(): bool
     {
         $start = $this->wordStart($this->offset);
         if ($start < $this->offset) {
@@ -362,7 +364,7 @@ final class SqlScanner
      * A parenthesis glued to a variable makes SQLite read everything up to the next `)` as part of its name, quotes
      * included.
      */
-    private function followsVariable(): bool
+    private function followsSqliteVariable(): bool
     {
         $start = $this->wordStart($this->offset, ':');
         $name = substr($this->sql, $start, $this->offset - $start);

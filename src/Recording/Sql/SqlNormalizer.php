@@ -43,10 +43,13 @@ final class SqlNormalizer
         $read = null;
         foreach (self::readings($sql, $dialect) as $escaping) {
             $reading = SqlScanner::scan($sql, $dialect, $escaping);
-            if ($reading === false || ($reading !== null && $read !== null && $reading !== $read)) {
+            if ($reading === SqlScanner::INVALID) {
+                continue;
+            }
+            if ($reading === SqlScanner::UNDECIDABLE || ($read !== null && $reading !== $read)) {
                 return null;
             }
-            $read ??= $reading;
+            $read = $reading;
         }
         if ($read === null) {
             return null;
