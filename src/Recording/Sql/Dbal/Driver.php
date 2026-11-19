@@ -27,7 +27,7 @@ final class Driver extends AbstractDriverMiddleware
 
     private static ?bool $dbal3 = null;
 
-    private ?SqlDialect $dialect = null;
+    private ?SqlDialect $platformDialect = null;
 
     public function __construct(DriverInterface $driver, private readonly Recorder $recorder)
     {
@@ -39,20 +39,42 @@ final class Driver extends AbstractDriverMiddleware
         self::$dbal3 ??= !(new \ReflectionMethod(AbstractConnectionMiddleware::class, 'commit'))->hasReturnType();
 
         $connection = parent::connect($params);
-        $this->dialect ??= $this->dialect($connection, $params['charset'] ?? null);
+        $dialect = self::isReadable($params) ? ($this->platformDialect ??= $this->platformDialect($connection)) : SqlDialect::Unknown;
 
         return self::$dbal3
-            ? new Dbal3Connection($connection, $this->recorder, $this->dialect)
-            : new Connection($connection, $this->recorder, $this->dialect);
+            ? new Dbal3Connection($connection, $this->recorder, $dialect)
+            : new Connection($connection, $this->recorder, $dialect);
     }
 
-    private function dialect(ConnectionInterface $connection, mixed $charset): SqlDialect
+    /**
+     * @param array<string, mixed> $params
+     *
+     * @return bool false when the charset option, or a word of a driver option such as an init command, names an
+     *              unreadable character set
+     */
+    private static function isReadable(#[\SensitiveParameter] array $params): bool
     {
-        $name = \is_string($charset) ? preg_replace('/[^a-z0-9]/', '', strtolower($charset)) : '';
-        if ($name === null || \in_array($name, self::UNREADABLE_CHARSETS, true)) {
-            return SqlDialect::Unknown;
+        $names = [$params['charset'] ?? null];
+        foreach (\is_array($params['driverOptions'] ?? null) ? $params['driverOptions'] : [] as $option) {
+            $words = \is_string($option) ? preg_split('/[^a-z0-9_-]++/', strtolower($option), -1, \PREG_SPLIT_NO_EMPTY) : [];
+            if ($words === false) {
+                return false;
+            }
+            array_push($names, ...$words);
         }
 
+        foreach ($names as $name) {
+            $name = \is_string($name) ? preg_replace('/[^a-z0-9]/', '', strtolower($name)) : '';
+            if ($name === null || \in_array($name, self::UNREADABLE_CHARSETS, true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function platformDialect(ConnectionInterface $connection): SqlDialect
+    {
         try {
             $platform = $this->getDatabasePlatform($connection);
         } catch (\Throwable) {

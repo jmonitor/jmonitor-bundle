@@ -6,6 +6,10 @@ namespace Jmonitor\JmonitorBundle\Tests\Recording\Sql\Dbal;
 
 use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Driver as DriverInterface;
+use Doctrine\DBAL\Driver\Connection as DriverConnection;
+use Doctrine\DBAL\Driver\Middleware\AbstractDriverMiddleware;
+use Doctrine\DBAL\Driver\PDO\SQLite\Driver as SqliteDriver;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception as DbalException;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
@@ -251,6 +255,58 @@ final class MiddlewareTest extends TestCase
         static::assertSame([$kept ? SqlNormalizer::id('SELECT ?') : QueryDigester::OTHER], self::childKeys($entry));
     }
 
+    /**
+     * @return iterable<string, array{list<string>}>
+     */
+    public static function charsetsOfTwoConnections(): iterable
+    {
+        yield 'gbk first' => [['gbk', 'utf8mb4']];
+        yield 'utf8mb4 first' => [['utf8mb4', 'gbk']];
+    }
+
+    /**
+     * @param list<string> $charsets
+     */
+    #[DataProvider('charsetsOfTwoConnections')]
+    public function testTheCharsetIsReadOnEveryConnectionOfADriver(array $charsets): void
+    {
+        $driver = $this->driverIgnoringItsOptions();
+
+        $token = $this->recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        foreach ($charsets as $charset) {
+            $driver->connect(['memory' => true, 'charset' => $charset])->query('SELECT 1 AS ' . $charset);
+        }
+        $entry = $this->end($token);
+
+        static::assertSame([SqlNormalizer::id('SELECT ? AS utf8mb4'), QueryDigester::OTHER], self::childKeys($entry));
+    }
+
+    /**
+     * @return iterable<string, array{mixed, bool}>
+     */
+    public static function driverOptions(): iterable
+    {
+        yield 'an init command setting sjis' => [[1002 => 'SET NAMES sjis'], false];
+        yield 'an init command setting a quoted Shift_JIS' => [[1002 => "SET NAMES 'Shift_JIS'"], false];
+        yield 'an init command setting windows-932' => [[1002 => 'SET client_encoding TO "windows-932"'], false];
+        yield 'an init command setting utf8mb4' => [[1002 => 'SET NAMES utf8mb4'], true];
+        yield 'an init command setting a mode' => [[1002 => "SET SESSION sql_mode = 'ANSI'"], true];
+        yield 'options that are not strings' => [[1002 => 1, 1003 => ['sjis']], true];
+        yield 'options that are not an array' => ['SET NAMES sjis', true];
+    }
+
+    #[DataProvider('driverOptions')]
+    public function testADriverOptionNamingACharsetWhoseCharactersMayEndWithABackslashDropsTheText(mixed $options, bool $kept): void
+    {
+        $driver = $this->driverIgnoringItsOptions();
+
+        $token = $this->recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        $driver->connect(['memory' => true, 'driverOptions' => $options])->query('SELECT 1');
+        $entry = $this->end($token);
+
+        static::assertSame([$kept ? SqlNormalizer::id('SELECT ?') : QueryDigester::OTHER], self::childKeys($entry));
+    }
+
     public function testAConnectionToAnUnsupportedPlatformIsCountedWithoutItsText(): void
     {
         $connection = $this->connectionBehind(static fn(): AbstractPlatform => new OraclePlatform());
@@ -317,6 +373,21 @@ final class MiddlewareTest extends TestCase
         $configuration->setMiddlewares([new FirstPlatformMiddleware($firstPlatform), new Middleware($this->recorder)]);
 
         return DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true], $configuration);
+    }
+
+    /**
+     * @return DriverInterface the driver of the middleware around a SQLite one that drops the driver options PDO SQLite rejects
+     */
+    private function driverIgnoringItsOptions(): DriverInterface
+    {
+        return (new Middleware($this->recorder))->wrap(new class (new SqliteDriver()) extends AbstractDriverMiddleware {
+            public function connect(#[\SensitiveParameter] array $params): DriverConnection
+            {
+                unset($params['driverOptions']);
+
+                return parent::connect($params);
+            }
+        });
     }
 
     /**
