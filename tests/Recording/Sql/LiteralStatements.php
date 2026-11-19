@@ -19,7 +19,8 @@ final class LiteralStatements
 
     private const FRAGMENTS = ["'", '"', '\\', '#', '--', '-- ', '/*', '*/', '$$', '$t$', '`', '[', ']', ';', '(', ')', "E'", ' ', "\n", 'é'];
     private const NUMBERS = [['73571', 73571.0], ['-73571', -73571.0], ['73571.5', 73571.5], ['.73571', 0.73571], ['73571e2', 7357100.0], ['73571.', 73571.0]];
-    private const HEXADECIMAL = ['0x73571', 472433.0];
+    /** MySQL reads a hexadecimal literal as a binary string, its odd digit count padded with a leading zero. */
+    private const HEXADECIMAL = ['mysql' => ['0x73571', "\x07\x35\x71"], 'sqlite' => ['0x73571', 472433.0], 'pgsql' => ['0x73571', 472433.0]];
     private const COMMENTS = ['sqlite' => ['-- ', '/*'], 'mysql' => ['#', '-- ', '/*'], 'pgsql' => ['-- ', '/*']];
 
     private function __construct(
@@ -75,8 +76,6 @@ final class LiteralStatements
     }
 
     /**
-     * The encoding of a string literal in each mode.
-     *
      * @return array{string, string, bool}
      */
     private function literal(string $value): array
@@ -100,7 +99,7 @@ final class LiteralStatements
     }
 
     /**
-     * @return list<string> the value, or now and then the two parts of it a server joins back
+     * @return list<string> the value, or now and then the two parts of it a server joins back, cut outside the marker
      */
     private function segments(string $value): array
     {
@@ -109,7 +108,9 @@ final class LiteralStatements
         }
 
         $characters = mb_str_split($value);
-        $cut = $this->random->getInt(0, \count($characters));
+        $marker = (int) mb_strpos($value, self::MARKER);
+        $cuts = array_values(array_diff(range(0, \count($characters)), range($marker + 1, $marker + \strlen(self::MARKER) - 1)));
+        $cut = $this->pick($cuts);
 
         return [implode('', \array_slice($characters, 0, $cut)), implode('', \array_slice($characters, $cut))];
     }
@@ -167,21 +168,38 @@ final class LiteralStatements
     }
 
     /**
-     * @return array{string, float, false}
+     * @return array{string, string|float, false}
      */
     private function number(): array
     {
-        $numbers = $this->server() === 'mysql' ? self::NUMBERS : [...self::NUMBERS, self::HEXADECIMAL];
-        [$number, $value] = $this->pick($numbers);
+        [$number, $value] = $this->pick([...self::NUMBERS, self::HEXADECIMAL[$this->server()]]);
 
-        $alias = match ($this->mode) {
-            'sqlite' => $this->pick(['"n"', '`n`', '[n]']),
-            'mysql', 'mysql-no-backslash' => '`n`',
-            'mysql-ansi' => $this->pick(['"n"', '`n`']),
-            default => '"n"',
+        $quotes = match ($this->mode) {
+            'sqlite' => $this->pick(['""', '``', '[]']),
+            'mysql', 'mysql-no-backslash' => '``',
+            'mysql-ansi' => $this->pick(['""', '``']),
+            default => '""',
         };
 
-        return [$number . ' AS ' . $alias, $value, false];
+        return [$number . ' AS ' . $this->identifier($quotes[0], $quotes[1]), $value, false];
+    }
+
+    /**
+     * A name of hostile fragments, never empty nor ending with a blank, which MySQL refuses.
+     */
+    private function identifier(string $open, string $close): string
+    {
+        $fragments = array_values(array_diff(self::FRAGMENTS, [$close === ']' ? ']' : '']));
+
+        $name = '';
+        for ($n = $this->random->getInt(1, 4); $n > 0; --$n) {
+            $name .= $this->pick($fragments);
+        }
+        if (ctype_space($name[-1])) {
+            $name .= 'n';
+        }
+
+        return $open . ($close === ']' ? $name : str_replace($close, $close . $close, $name)) . $close;
     }
 
     private function server(): string

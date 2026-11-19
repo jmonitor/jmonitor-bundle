@@ -75,6 +75,7 @@ final class LiteralLeakTest extends TestCase
 
             static::assertStringNotContainsString(LiteralStatements::MARKER, $normalized, $sql);
             static::assertStringNotContainsString(LiteralStatements::NUMBER, $normalized, $sql);
+            static::assertDoesNotMatchRegularExpression('/\d/', $normalized, \sprintf("%s: %s\nread as: %s", $mode, $sql, $normalized));
         }
     }
 
@@ -104,8 +105,6 @@ final class LiteralLeakTest extends TestCase
      */
     private static function statements(string $mode): iterable
     {
-        self::url($mode);
-
         return LiteralStatements::generate($mode, self::COUNT, self::SEEDS[$mode]);
     }
 
