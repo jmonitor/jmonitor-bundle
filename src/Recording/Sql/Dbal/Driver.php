@@ -16,6 +16,12 @@ use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 
 final class Driver extends AbstractDriverMiddleware
 {
+    /** Client character sets in which a backslash or a backtick can be the second byte of a character. */
+    private const UNREADABLE_CHARSETS = [
+        'big5', 'gbk', 'gb18030', 'sjis', 'cp932', 'uhc', 'johab', 'shift_jis_2004', 'shiftjis', 'mskanji',
+        'win932', 'windows932', 'win936', 'windows936', 'win949', 'windows949', 'win950', 'windows950',
+    ];
+
     private static ?bool $dbal3 = null;
 
     private ?SqlDialect $dialect = null;
@@ -30,15 +36,19 @@ final class Driver extends AbstractDriverMiddleware
         self::$dbal3 ??= !(new \ReflectionMethod(AbstractConnectionMiddleware::class, 'commit'))->hasReturnType();
 
         $connection = parent::connect($params);
-        $this->dialect ??= $this->dialect($connection);
+        $this->dialect ??= $this->dialect($connection, $params['charset'] ?? null);
 
         return self::$dbal3
             ? new Dbal3Connection($connection, $this->recorder, $this->dialect)
             : new Connection($connection, $this->recorder, $this->dialect);
     }
 
-    private function dialect(ConnectionInterface $connection): SqlDialect
+    private function dialect(ConnectionInterface $connection, mixed $charset): SqlDialect
     {
+        if (\is_string($charset) && \in_array(strtolower($charset), self::UNREADABLE_CHARSETS, true)) {
+            return SqlDialect::Unknown;
+        }
+
         try {
             $platform = $this->getDatabasePlatform($connection);
         } catch (\Throwable) {

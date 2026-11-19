@@ -222,6 +222,32 @@ final class MiddlewareTest extends TestCase
         static::assertSame([$expected], array_map($this->labels->read(...), self::childKeys($entry)));
     }
 
+    /**
+     * @return iterable<string, array{string, bool}>
+     */
+    public static function charsets(): iterable
+    {
+        yield 'GBK' => ['GBK', false];
+        yield 'sjis' => ['sjis', false];
+        yield 'WIN949' => ['WIN949', false];
+        yield 'utf8mb4' => ['utf8mb4', true];
+        yield 'latin1' => ['latin1', true];
+    }
+
+    #[DataProvider('charsets')]
+    public function testACharsetWhoseCharactersMayEndWithABackslashIsCountedWithoutItsText(string $charset, bool $kept): void
+    {
+        $configuration = new Configuration();
+        $configuration->setMiddlewares([new Middleware($this->recorder)]);
+        $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true, 'charset' => $charset], $configuration);
+
+        $token = $this->recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        $connection->fetchOne('SELECT 1');
+        $entry = $this->end($token);
+
+        static::assertSame([$kept ? SqlNormalizer::id('SELECT ?') : QueryDigester::OTHER], self::childKeys($entry));
+    }
+
     public function testAConnectionToAnUnsupportedPlatformIsCountedWithoutItsText(): void
     {
         $connection = $this->connectionBehind(static fn(): AbstractPlatform => new OraclePlatform());
