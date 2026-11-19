@@ -39,6 +39,8 @@ final class SqlNormalizerTest extends TestCase
         yield ['SELECT 1 /* unterminated', 'SELECT ?'];
         yield ['SELECT a$b$c, price_$ FROM t WHERE price_$ = $1 AND id IN ($2, $3)', 'SELECT a$b$c, price_$ FROM t WHERE price_$ = $1 AND id IN (?)'];
         yield ['SELECT * FROM t WHERE a = $10 AND b = $2', 'SELECT * FROM t WHERE a = $10 AND b = $2'];
+        yield ["SELECT 1 FROM t WHERE a = 'a--b' AND c = \"x--y\" AND `d--e` = 2 --", 'SELECT ? FROM t WHERE a = ? AND c = ? AND `d--e` = ?'];
+        yield ["SELECT 1 -- note\tand 'quotes'\nFROM t --\n WHERE a = 'x'", 'SELECT ? FROM t WHERE a = ?'];
         yield ["SELECT * FROM t WHERE color = '#fff' AND `col#1` = \"#x\" AND \"a#b\" = 2", 'SELECT * FROM t WHERE color = ? AND `col#1` = ? AND "a#b" = ?'];
     }
 
@@ -67,6 +69,10 @@ final class SqlNormalizerTest extends TestCase
         yield ["SELECT data #> '{a}', a #- '{b}' FROM t"];
         yield ["SELECT 1 /* see #12 */ FROM t WHERE a = 'x'"];
         yield ["SELECT 1 FROM t -- or #13\n WHERE a = 'x'"];
+        yield ["SELECT a FROM t WHERE b = 1--'\n' AND c = 'secret' AND d = 'x'"];
+        yield ["SELECT 1 -- c\r'\n' AND a = 'secret' AND b = 'x'"];
+        yield ["SELECT 1 ---------- banner\nFROM t WHERE a = 'x'"];
+        yield ["SELECT 1 -- note\r\nFROM t WHERE a = 'x'"];
         yield ["SELECT 1 /*/*/ it's */ FROM t WHERE a = 'secret'"];
     }
 
@@ -114,6 +120,8 @@ final class SqlNormalizerTest extends TestCase
         yield 'unterminated comments' => ['SELECT 1 ' . str_repeat('/* ', 200_000), 'SELECT ?'];
         yield 'a megabyte of hashes' => ['SELECT 1 ' . str_repeat('#', 1_048_576), null];
         yield 'a megabyte of hash operators' => ['SELECT 1 ' . str_repeat('#>', 524_288), null];
+        yield 'a megabyte of dashes before a letter' => ['SELECT 1 ' . str_repeat('--x', 349_525), null];
+        yield 'a megabyte of line comments' => ['SELECT 1 ' . str_repeat("-- c\n", 209_715) . 'FROM t', 'SELECT ? FROM t'];
         yield 'a megabyte of comments ending with a hash' => ['SELECT 1 ' . str_repeat('/**/ x', 174_762) . '/* # */', null];
         yield 'a megabyte of nested comment openings' => ['SELECT 1 ' . str_repeat('/*', 524_288) . '*/', null];
         yield 'a megabyte of comments' => ['SELECT 1 ' . str_repeat('/**/ x', 174_763), mb_substr('SELECT ?' . str_repeat(' x', 174_763), 0, SqlNormalizer::MAX_LENGTH)];
