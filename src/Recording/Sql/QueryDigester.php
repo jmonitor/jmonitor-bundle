@@ -14,7 +14,10 @@ final class QueryDigester
     private const CACHE_SIZE = 2000;
     private const CACHE_LIFETIME = 600;
 
-    /** @var array<string, array{string, bool}> hash of a raw key => [id, is a select], for labels known to exist */
+    /**
+     * @var array<string, array{string, bool}|null> hash of a raw key => [id, is a select] for a label known to exist,
+     *                                              null for a text that cannot be normalized
+     */
     private array $known = [];
     private float $knownSince = 0.0;
 
@@ -74,13 +77,13 @@ final class QueryDigester
     private function label(string $key, int &$writes): ?array
     {
         $hash = hash('xxh128', $key);
-        if (isset($this->known[$hash])) {
+        if (\array_key_exists($hash, $this->known)) {
             return $this->known[$hash];
         }
 
         $normalized = SqlNormalizer::normalize(substr($key, 1), SqlDialect::from($key[0]));
         if ($normalized === null) {
-            return null;
+            return $this->known[$hash] = null;
         }
 
         $id = SqlNormalizer::id($normalized);

@@ -204,6 +204,37 @@ final class QueryDigesterTest extends TestCase
         static::assertSame([], $this->labelFiles());
     }
 
+    public function testAValueThatCannotBeDelimitedStaysInOtherOnTheNextDigest(): void
+    {
+        $digester = $this->digester();
+        $raw = [self::key('SELECT $$secret', SqlDialect::PostgreSql) => [1, 1.0, 1.0, 0]];
+
+        $first = $digester->digest($raw, 1000.0);
+        $second = $digester->digest($raw, 1001.0);
+
+        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($first));
+        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($second));
+        static::assertSame([], $this->labelFiles());
+    }
+
+    public function testATextThatCouldNotBeNormalizedIsNotReadAgain(): void
+    {
+        $digester = $this->digester();
+        $raw = [self::key("SELECT * FROM t WHERE a = 'secret' AND b = 2") => [1, 1.0, 1.0, 0]];
+        $limit = \ini_get('pcre.backtrack_limit');
+        ini_set('pcre.backtrack_limit', '1');
+
+        try {
+            $digester->digest($raw, 1000.0);
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $limit);
+        }
+        $digest = $digester->digest($raw, 1001.0);
+
+        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
+        static::assertSame([], $this->labelFiles());
+    }
+
     public function testTheCacheNeverServesOneDialectForAnother(): void
     {
         $digester = $this->digester();
