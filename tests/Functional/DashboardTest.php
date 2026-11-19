@@ -45,7 +45,7 @@ final class DashboardTest extends WebTestCase
         for ($i = 0; $i < 3; ++$i) {
             $client->request('GET', '/hello/world');
         }
-        $crawler = self::requestUntil($client, '/jmonitor/', 'tr[data-jm-route="GET app_hello"]');
+        $crawler = self::requestUntil($client, '/jmonitor/', 'tr[data-jm-route="GET app_hello"][data-jm-requests="3"]');
         $response = $client->getResponse();
 
         static::assertResponseIsSuccessful();
