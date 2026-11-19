@@ -52,6 +52,10 @@ final class SqlNormalizerTest extends TestCase
             ["SELECT 1 /* see #12 */ FROM t WHERE a = 'x'", 'SELECT ? FROM t WHERE a = ?'],
             ["SELECT 1 FROM t -- or #13\n WHERE a = 'x'", 'SELECT ? FROM t WHERE a = ?'],
             ['SELECT abs(:a), :b FROM t WHERE c IN (:d) AND e = lower(@f)', 'SELECT abs(:a), :b FROM t WHERE c IN (?) AND e = lower(@f)'],
+            ['SELECT 1_000, 0b101, 0o17, 0x1_F, 1_000.5, 1_0e1_0, .5_0 FROM t', 'SELECT ?, ?, ?, ?, ?, ?, ? FROM t'],
+            ['SELECT * FROM t WHERE a = -0b11 AND b IN (1_000, 2_000)', 'SELECT * FROM t WHERE a = ? AND b IN (?)'],
+            ['SELECT id_1, t0.col_2, a_1_000 FROM t0 WHERE x_0b1 = $1', 'SELECT id_1, t0.col_2, a_1_000 FROM t0 WHERE x_0b1 = $1'],
+            ['SELECT 0B101, 0O17, 0X1F, 1., 1.e5, 1_000e-1_0, +.5 FROM t', 'SELECT ?, ?, ?, ?, ?, ?, ? FROM t'],
             ['INSERT INTO t (a, b) VALUES ' . implode(', ', array_fill(0, 5000, '(?, ?)')), 'INSERT INTO t (a, b) VALUES (?, ?)'],
             [
                 'INSERT INTO t (a, b) VALUES ' . implode(', ', array_map(static fn(int $i): string => \sprintf("(%d, 'x%d')", $i, $i), range(1, 5000))),
@@ -170,6 +174,8 @@ final class SqlNormalizerTest extends TestCase
         yield ['SELECT 1 $ 2', null];
         yield ['SELECT $tag secret', null];
         yield ['SELECT 0x1F$$secret$$', null];
+        yield ['SELECT 1_000$$secret$$', null];
+        yield ['SELECT 0b1$$secret$$', null];
         yield ["SELECT '\\', \$\$secret\$\$ FROM t", 'SELECT ?, ? FROM t'];
         yield ["SELECT 1 \\ 'a'", null];
         yield ["SELECT 'a\\' , 1E'secret' /* ' */", null];

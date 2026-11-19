@@ -12,9 +12,11 @@ final class SqlNormalizer
     private const MAYBE_VALUE = '\x00"\d++\x00';
     private const MARKER = '(?:\?|:\w++|\$\d++|' . self::MAYBE_VALUE . ')';
 
+    private const DIGITS = '\d[\d_]*+';
+
     /** Numbers, then blanks, then a SQLite double-quoted token right after a comparison, then IN lists. */
     private const PASSES = [
-        '~' . self::KEPT . '(*SKIP)(*FAIL)|(?<![\w$.])[-+]?(?:0x[0-9a-f]++|(?:\d++(?:\.\d*+)?|\.\d++)(?:e[-+]?\d++)?)(?![\w$])~iu' => '?',
+        '~' . self::KEPT . '(*SKIP)(*FAIL)|(?<![\w$.])[-+]?(?:0[xbo][0-9a-f_]++|(?:' . self::DIGITS . '(?:\.(?:' . self::DIGITS . ')?+)?|\.' . self::DIGITS . ')(?:e[-+]?' . self::DIGITS . ')?)(?![\w$])~iu' => '?',
         '~\s++~u' => ' ',
         '~(?:[=<>]|\bLIKE)\s*+\K' . self::MAYBE_VALUE . '~iu' => '?',
         '~\b(IN)\s*+\(\s*+' . self::MARKER . '(?:\s*+,\s*+' . self::MARKER . ')*+\s*+\)~i' => '$1 (?)',
