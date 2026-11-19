@@ -7,7 +7,6 @@ namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App;
 use Doctrine\DBAL\Connection;
 use Psr\Log\AbstractLogger;
 
-/** A logger whose handler writes through the Doctrine connection, as a database log handler would. */
 final class ConnectionLogger extends AbstractLogger
 {
     /** @var list<string> */

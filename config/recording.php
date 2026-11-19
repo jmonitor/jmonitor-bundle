@@ -36,7 +36,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services = $container->services();
     $customLogger = $builder->getParameter('jmonitor.logger');
     $logger = \is_string($customLogger) ? service($customLogger) : service('logger')->nullOnInvalid();
-    // MonologBundle gives a channel only to direct references to "logger", not to service closures.
+    // The channel tag does not reach a service closure, so the channel logger is referenced by its id.
     $recorderLogger = match (true) {
         \is_string($customLogger) => service_closure($customLogger),
         isset($builder->getParameter('kernel.bundles')['MonologBundle']) => service_closure('monolog.logger.jmonitor')->nullOnInvalid(),
