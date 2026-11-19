@@ -34,16 +34,6 @@ final class LiteralLeakTest extends TestCase
         }
     }
 
-    /**
-     * @return iterable<string, array{string}>
-     */
-    public static function defaultModes(): iterable
-    {
-        foreach (array_keys(self::DIALECTS) as $mode) {
-            yield $mode => [$mode];
-        }
-    }
-
     #[DataProvider('modes')]
     public function testTheServerReadsTheGeneratedLiteralsAsValues(string $mode): void
     {
@@ -89,15 +79,15 @@ final class LiteralLeakTest extends TestCase
         }
     }
 
-    #[DataProvider('defaultModes')]
-    public function testMostStatementsOfTheDefaultModeAreKept(string $mode): void
+    #[DataProvider('modes')]
+    public function testMostStatementsOfEveryModeAreKept(string $mode): void
     {
         $kept = 0;
         foreach (self::statements($mode) as [$sql]) {
             $kept += (int) (SqlNormalizer::normalize($sql, self::dialect($mode)) !== null);
         }
 
-        static::assertGreaterThanOrEqual(self::COUNT / 2, $kept);
+        static::assertGreaterThanOrEqual(self::COUNT * 0.8, $kept);
     }
 
     /**
