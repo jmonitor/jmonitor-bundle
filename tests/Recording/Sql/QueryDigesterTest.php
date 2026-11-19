@@ -180,7 +180,7 @@ final class QueryDigesterTest extends TestCase
         ini_set('pcre.backtrack_limit', '1');
 
         try {
-            $digest = $this->digester()->digest([self::key("SELECT * FROM t WHERE a = 'secret'") => [1, 1.0, 1.0, 0]], 1000.0);
+            $digest = $this->digester()->digest([self::key("SELECT * FROM t WHERE a = 'secret' AND b = 2") => [1, 1.0, 1.0, 0]], 1000.0);
         } finally {
             ini_set('pcre.backtrack_limit', (string) $limit);
         }
@@ -194,14 +194,25 @@ final class QueryDigesterTest extends TestCase
         $digest = $this->digester()->digest([
             self::key('SELECT * FROM t WHERE a = "it\\"s" AND b = "secret"') => [1, 1.0, 1.0, 0],
             self::key('INSERT INTO t VALUES ("it\\"s (", "secret")') => [1, 1.0, 1.0, 0],
-            self::key("SELECT * FROM t WHERE path = 'C:\\dir\\' AND name = 'secret'") => [1, 1.0, 1.0, 0],
-            self::key("INSERT INTO t (p, n) VALUES ('C:\\', 'secret')") => [1, 1.0, 1.0, 0],
-            self::key('SELECT $$secret$$ FROM t') => [1, 1.0, 1.0, 0],
+            self::key("SELECT 'it\\'s secret'") => [1, 1.0, 1.0, 0],
+            self::key("SELECT 'a\\' /* ' */ , 'secret'", SqlDialect::MySql) => [1, 1.0, 1.0, 0],
+            self::key('SELECT $$secret', SqlDialect::PostgreSql) => [1, 1.0, 1.0, 0],
         ], 1000.0);
 
         static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertSame(['n' => 5, 'm' => 1.0], $digest->children[0]->attributes);
         static::assertSame([], $this->labelFiles());
+    }
+
+    public function testTheCacheNeverServesOneDialectForAnother(): void
+    {
+        $digester = $this->digester();
+
+        $mysql = $digester->digest(['mSELECT "a"' => [1, 1.0, 1.0, 0]], 1000.0);
+        $postgresql = $digester->digest(['pSELECT "a"' => [1, 1.0, 1.0, 0]], 1000.0);
+
+        static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id('SELECT ?')]], self::keys($mysql));
+        static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id('SELECT "a"')]], self::keys($postgresql));
     }
 
     public function testACommentThatCannotBeDelimitedIsFoldedIntoOtherAndNeverWritten(): void
@@ -227,9 +238,9 @@ final class QueryDigesterTest extends TestCase
         static::assertInstanceOf(QueryDigest::class, $digest);
     }
 
-    private static function key(string $sql): string
+    private static function key(string $sql, SqlDialect $dialect = SqlDialect::Sqlite): string
     {
-        return SqlDialect::Sqlite->value . $sql;
+        return $dialect->value . $sql;
     }
 
     private function digester(): QueryDigester

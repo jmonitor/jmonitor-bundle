@@ -29,6 +29,7 @@ final class MiddlewareTest extends TestCase
     private string $dir;
     /** @var BufferInterface&object{entries: list<Entry>} */
     private BufferInterface $buffer;
+    private LabelStore $labels;
     private Recorder $recorder;
     private Connection $connection;
 
@@ -55,7 +56,8 @@ final class MiddlewareTest extends TestCase
                 return false;
             }
         };
-        $this->recorder = new Recorder($this->buffer, null, null, new QueryDigester(new LabelStore(new BufferDirectory($this->dir, 'app'))));
+        $this->labels = new LabelStore(new BufferDirectory($this->dir, 'app'));
+        $this->recorder = new Recorder($this->buffer, null, null, new QueryDigester($this->labels));
         $this->connection = self::connection($this->recorder);
         $this->connection->executeStatement('CREATE TABLE items (id INTEGER NOT NULL PRIMARY KEY, name VARCHAR(20))');
     }
@@ -181,6 +183,43 @@ final class MiddlewareTest extends TestCase
         $connection->close();
 
         static::assertSame([SqlNormalizer::id('SELECT ?')], self::childKeys($entry));
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, string, string}>
+     */
+    public static function queriesByDatabase(): iterable
+    {
+        $queries = [
+            'sqlite' => ['SELECT [id] FROM items', 'SELECT [id] FROM items'],
+            'mysql' => ['SELECT "secret"', 'SELECT ?'],
+            'pgsql' => ['SELECT \'{"a":{"b":1}}\'::jsonb #> \'{a}\'', 'SELECT ?::jsonb #> ?'],
+        ];
+
+        foreach (self::databases() as $name => [$params]) {
+            yield $name => [$params, ...$queries[$name]];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     */
+    #[DataProvider('queriesByDatabase')]
+    public function testAQueryIsReadWithTheRulesOfItsDatabase(array $params, string $sql, string $expected): void
+    {
+        $configuration = new Configuration();
+        $configuration->setMiddlewares([new Middleware($this->recorder)]);
+        $connection = DriverManager::getConnection($params, $configuration);
+        if ($params['driver'] === 'pdo_sqlite') {
+            $connection->executeStatement('CREATE TABLE items (id INTEGER NOT NULL PRIMARY KEY)');
+        }
+
+        $token = $this->recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        $connection->fetchOne($sql);
+        $entry = $this->end($token);
+        $connection->close();
+
+        static::assertSame([$expected], array_map($this->labels->read(...), self::childKeys($entry)));
     }
 
     public function testAConnectionToAnUnsupportedPlatformIsCountedWithoutItsText(): void

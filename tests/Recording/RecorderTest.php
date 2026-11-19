@@ -392,6 +392,20 @@ final class RecorderTest extends TestCase
         static::assertSame(2.0, $child->attributes['m']);
     }
 
+    public function testTheSameTextOnTwoDialectsIsReadWithEachDialect(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->addSql('SELECT "a"', 1.0, SqlDialect::MySql);
+        $recorder->addSql('SELECT "a"', 1.0, SqlDialect::PostgreSql);
+        $recorder->end($token, 'GET app_home', 4.0);
+
+        $children = $this->buffer->entries[0]->children;
+        static::assertSame([Entry::TYPE_QUERY, Entry::TYPE_QUERY], array_map(static fn(Entry $child): string => $child->type, $children));
+        static::assertSame([SqlNormalizer::id('SELECT ?'), SqlNormalizer::id('SELECT "a"')], array_map(static fn(Entry $child): string => $child->key, $children));
+    }
+
     public function testAnExecutionIsSlowFromTheThreshold(): void
     {
         $recorder = new Recorder($this->buffer, $this->logger, null, $this->digester(), 100);
