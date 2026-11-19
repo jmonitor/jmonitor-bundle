@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Recording\Sql;
 
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -81,13 +82,13 @@ final class SqlNormalizerTest extends TestCase
     #[DataProvider('valuesThatCannotBeDelimited')]
     public function testATextWhoseValuesCannotBeDelimitedGivesNothingBack(string $sql): void
     {
-        static::assertNull(SqlNormalizer::normalize($sql));
+        static::assertNull(SqlNormalizer::normalize($sql, SqlDialect::Sqlite));
     }
 
     #[DataProvider('queries')]
     public function testNormalize(string $sql, string $expected): void
     {
-        static::assertSame($expected, SqlNormalizer::normalize($sql));
+        static::assertSame($expected, SqlNormalizer::normalize($sql, SqlDialect::Sqlite));
     }
 
     public function testALongQueryIsCutAtTwoThousandCharacters(): void
@@ -95,7 +96,7 @@ final class SqlNormalizerTest extends TestCase
         $sql = 'SELECT ' . str_repeat('a + ', 262_144) . 'b FROM t';
 
         $start = microtime(true);
-        $normalized = SqlNormalizer::normalize($sql);
+        $normalized = SqlNormalizer::normalize($sql, SqlDialect::Sqlite);
 
         static::assertLessThan(1.0, microtime(true) - $start);
         static::assertSame(SqlNormalizer::MAX_LENGTH, mb_strlen($normalized));
@@ -106,7 +107,7 @@ final class SqlNormalizerTest extends TestCase
         $sql = 'SELECT * FROM t WHERE id IN (' . implode(', ', range(1, 150_000)) . ')';
 
         $start = microtime(true);
-        $normalized = SqlNormalizer::normalize($sql);
+        $normalized = SqlNormalizer::normalize($sql, SqlDialect::Sqlite);
 
         static::assertLessThan(1.0, microtime(true) - $start);
         static::assertSame('SELECT * FROM t WHERE id IN (?)', $normalized);
@@ -151,7 +152,7 @@ final class SqlNormalizerTest extends TestCase
     public function testAHostileQueryIsNormalizedInLinearTime(string $sql, ?string $expected): void
     {
         $start = microtime(true);
-        $normalized = SqlNormalizer::normalize($sql);
+        $normalized = SqlNormalizer::normalize($sql, SqlDialect::Sqlite);
 
         static::assertLessThan(1.0, microtime(true) - $start);
         static::assertSame($expected, $normalized);
@@ -163,27 +164,32 @@ final class SqlNormalizerTest extends TestCase
         ini_set('pcre.backtrack_limit', '1');
 
         try {
-            static::assertNull(SqlNormalizer::normalize("SELECT * FROM t WHERE a = 'secret' AND b IN (1, 2) AND c = \"x\""));
+            static::assertNull(SqlNormalizer::normalize("SELECT * FROM t WHERE a = 'secret' AND b IN (1, 2) AND c = \"x\"", SqlDialect::Sqlite));
         } finally {
             ini_set('pcre.backtrack_limit', (string) $limit);
         }
 
-        static::assertSame('SELECT ?', SqlNormalizer::normalize('SELECT 1'));
+        static::assertSame('SELECT ?', SqlNormalizer::normalize('SELECT 1', SqlDialect::Sqlite));
     }
 
     public function testInvalidUtf8IsScrubbed(): void
     {
-        static::assertTrue(mb_check_encoding((string) SqlNormalizer::normalize("SELECT '\xC3\x28'"), 'UTF-8'));
+        static::assertTrue(mb_check_encoding((string) SqlNormalizer::normalize("SELECT '\xC3\x28'", SqlDialect::Sqlite), 'UTF-8'));
     }
 
     public function testMarkupIsKeptAsText(): void
     {
-        static::assertSame('SELECT ? AS "<b>"', SqlNormalizer::normalize('SELECT \'<script>\' AS "<b>"'));
+        static::assertSame('SELECT ? AS "<b>"', SqlNormalizer::normalize('SELECT \'<script>\' AS "<b>"', SqlDialect::Sqlite));
     }
 
     public function testCommentMarkersInsideStringsAreValues(): void
     {
-        static::assertSame('SELECT ?, ? FROM t', SqlNormalizer::normalize("SELECT '-- x', '/* y */' FROM t"));
+        static::assertSame('SELECT ?, ? FROM t', SqlNormalizer::normalize("SELECT '-- x', '/* y */' FROM t", SqlDialect::Sqlite));
+    }
+
+    public function testAnUnknownDialectGivesNothingBack(): void
+    {
+        static::assertNull(SqlNormalizer::normalize('SELECT 1', SqlDialect::Unknown));
     }
 
     public function testIdIsSixteenHexadecimalCharacters(): void

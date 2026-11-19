@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Recording;
 
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
@@ -90,24 +91,24 @@ final class Recorder implements ResetInterface
         }
     }
 
-    public function addSql(string $sql, float $durationMs): void
+    public function addSql(string $sql, float $durationMs, SqlDialect $dialect): void
     {
         if ($this->paused || $this->units === [] || $this->queries === null) {
             return;
         }
 
         $token = array_key_last($this->units);
-        if (\strlen($sql) > self::MAX_SQL_BYTES) {
-            $sql = QueryDigester::OTHER;
-        }
-        if (!isset($this->units[$token][2][$sql])) {
+        $key = $dialect === SqlDialect::Unknown || \strlen($sql) > self::MAX_SQL_BYTES
+            ? QueryDigester::OTHER
+            : $dialect->value . $sql;
+        if (!isset($this->units[$token][2][$key])) {
             if (\count($this->units[$token][2]) >= self::MAX_SQL_PER_UNIT) {
-                $sql = QueryDigester::OTHER;
+                $key = QueryDigester::OTHER;
             }
-            $this->units[$token][2][$sql] ??= [0, 0.0, 0.0, 0];
+            $this->units[$token][2][$key] ??= [0, 0.0, 0.0, 0];
         }
 
-        $stats = &$this->units[$token][2][$sql];
+        $stats = &$this->units[$token][2][$key];
         ++$stats[0];
         $stats[1] += $durationMs;
         $stats[2] = max($stats[2], $durationMs);

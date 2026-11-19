@@ -21,11 +21,17 @@ parameters:
         # instanceof checks match on both versions.
         -
             message: '#^Class Doctrine\\DBAL\\Platforms\\SQLitePlatform not found\.$#'
-            path: src/Storage/Dbal/UpsertSql.php
+            paths:
+                - src/Storage/Dbal/UpsertSql.php
+                - src/Recording/Sql/Dbal/Driver.php
         # DBAL 3 passes the parameters of a prepared statement to execute(); DBAL 4 takes none.
         -
             message: '#^Method Doctrine\\DBAL\\Driver\\Middleware\\AbstractStatementMiddleware::execute\(\) invoked with 1 parameter, 0 required\.$#'
             path: src/Recording/Sql/Dbal/Statement.php
+        # DBAL 4 reads the server version through the connection; DBAL 3 takes no argument and ignores it.
+        -
+            message: '#^Method Doctrine\\DBAL\\Driver\\Middleware\\AbstractDriverMiddleware::getDatabasePlatform\(\) invoked with 1 parameter, 0 required\.$#'
+            path: src/Recording/Sql/Dbal/Driver.php
         # Under DBAL 3 the parent's commit() and rollBack() are documented as returning bool; this class
         # is only loaded under DBAL 4, where they are void.
         -

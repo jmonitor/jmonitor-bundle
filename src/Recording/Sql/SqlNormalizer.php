@@ -39,8 +39,12 @@ final class SqlNormalizer
      *
      * @return string|null null as well when a pattern fails, the text then possibly still holding values
      */
-    public static function normalize(string $sql): ?string
+    public static function normalize(string $sql, SqlDialect $dialect): ?string
     {
+        if ($dialect === SqlDialect::Unknown) {
+            return null;
+        }
+
         $sql = mb_scrub($sql, 'UTF-8');
         if (str_contains($sql, '\\\'') || str_contains($sql, '\\"') || preg_match(self::DOLLAR_QUOTE, $sql) !== 0) {
             return null;

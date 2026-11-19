@@ -13,6 +13,7 @@ use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
@@ -173,7 +174,7 @@ final class SqlRecordingTest extends WebTestCase
         $recorder = static::getContainer()->get(Recorder::class);
         \assert($recorder instanceof Recorder);
         $token = $recorder->begin(Entry::TYPE_REQUEST, microtime(true));
-        $recorder->addSql('SELECT 1', \INF);
+        $recorder->addSql('SELECT 1', \INF, SqlDialect::Sqlite);
         $recorder->end($token, 'GET app_hello', 1.0);
 
         $logger = static::getContainer()->get('logger');

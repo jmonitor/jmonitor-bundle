@@ -8,6 +8,7 @@ use Doctrine\DBAL\Driver\Middleware\AbstractStatementMiddleware;
 use Doctrine\DBAL\Driver\Result;
 use Doctrine\DBAL\Driver\Statement as StatementInterface;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 
 final class Statement extends AbstractStatementMiddleware
 {
@@ -15,6 +16,7 @@ final class Statement extends AbstractStatementMiddleware
         StatementInterface $statement,
         private readonly Recorder $recorder,
         private readonly string $sql,
+        private readonly SqlDialect $dialect,
     ) {
         parent::__construct($statement);
     }
@@ -32,7 +34,7 @@ final class Statement extends AbstractStatementMiddleware
         try {
             return $this->executeWrapped($params);
         } finally {
-            $this->recorder->addSql($this->sql, (hrtime(true) - $start) / 1e6);
+            $this->recorder->addSql($this->sql, (hrtime(true) - $start) / 1e6, $this->dialect);
         }
     }
 

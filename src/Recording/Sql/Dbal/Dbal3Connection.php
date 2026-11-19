@@ -26,7 +26,7 @@ final class Dbal3Connection extends AbstractConnectionMiddleware
         try {
             return parent::commit();
         } finally {
-            $this->recorder->addSql('COMMIT', (hrtime(true) - $start) / 1e6);
+            $this->recorder->addSql('COMMIT', (hrtime(true) - $start) / 1e6, $this->dialect);
         }
     }
 
@@ -43,7 +43,7 @@ final class Dbal3Connection extends AbstractConnectionMiddleware
         try {
             return parent::rollBack();
         } finally {
-            $this->recorder->addSql('ROLLBACK', (hrtime(true) - $start) / 1e6);
+            $this->recorder->addSql('ROLLBACK', (hrtime(true) - $start) / 1e6, $this->dialect);
         }
     }
 }

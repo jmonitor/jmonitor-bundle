@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\AbstractLogger;
@@ -213,10 +214,10 @@ final class RecorderTest extends TestCase
     {
         $recorder = $this->sqlRecorder();
 
-        $recorder->addSql('SELECT 1', 1.0);
+        $recorder->addSql('SELECT 1', 1.0, SqlDialect::Sqlite);
         $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
         $recorder->pause();
-        $recorder->addSql('SELECT 2', 1.0);
+        $recorder->addSql('SELECT 2', 1.0, SqlDialect::Sqlite);
         $recorder->resume();
         $recorder->end($token, 'GET app_home', 5.0, ['status' => 200]);
 
@@ -229,9 +230,9 @@ final class RecorderTest extends TestCase
         $recorder = $this->sqlRecorder();
 
         $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.5);
-        $recorder->addSql('SELECT * FROM t WHERE id = 1', 1.25);
-        $recorder->addSql('SELECT * FROM t WHERE id = 2', 2.5);
-        $recorder->addSql('SELECT * FROM t WHERE id = 1', 0.1234);
+        $recorder->addSql('SELECT * FROM t WHERE id = 1', 1.25, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT * FROM t WHERE id = 2', 2.5, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT * FROM t WHERE id = 1', 0.1234, SqlDialect::Sqlite);
         $recorder->end($token, 'GET app_home', 12.0, ['status' => 200]);
 
         $entry = $this->buffer->entries[0];
@@ -251,7 +252,7 @@ final class RecorderTest extends TestCase
 
         $outer = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
         $inner = $recorder->begin('command', 1001.0);
-        $recorder->addSql('SELECT 1', 1.0);
+        $recorder->addSql('SELECT 1', 1.0, SqlDialect::Sqlite);
         $recorder->end($inner, 'app:import', 2.0);
         $recorder->end($outer, 'GET app_home', 3.0);
 
@@ -264,7 +265,7 @@ final class RecorderTest extends TestCase
         $recorder = $this->sqlRecorder();
 
         $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
-        $recorder->addSql('SELECT 1', 1.0);
+        $recorder->addSql('SELECT 1', 1.0, SqlDialect::Sqlite);
         $recorder->reset();
         $recorder->end($recorder->begin(Entry::TYPE_REQUEST, 1000.0), 'GET app_home', 3.0);
 
@@ -277,7 +278,7 @@ final class RecorderTest extends TestCase
 
         $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
         for ($i = 1; $i <= 250; ++$i) {
-            $recorder->addSql('SELECT * FROM table_' . $i, 1.0);
+            $recorder->addSql('SELECT * FROM table_' . $i, 1.0, SqlDialect::Sqlite);
         }
         $recorder->end($token, 'GET app_home', 300.0);
 
@@ -296,7 +297,7 @@ final class RecorderTest extends TestCase
         foreach ([false, true] as $kept) {
             $recorder = new Recorder($this->buffer, $this->logger, static fn(): bool => $kept, $this->digester());
             $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
-            $recorder->addSql('SELECT 1', 2.0);
+            $recorder->addSql('SELECT 1', 2.0, SqlDialect::Sqlite);
             $recorder->end($token, 'GET app_home', 3.0);
         }
 
@@ -314,9 +315,9 @@ final class RecorderTest extends TestCase
         $recorder = new Recorder($this->buffer, $this->logger, static fn(): bool => false, $this->digester());
 
         $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
-        $recorder->addSql('SELECT * FROM t WHERE id = 1', 2.0);
-        $recorder->addSql('SELECT * FROM u WHERE id = 1', 0.5);
-        $recorder->addSql('SELECT * FROM t WHERE id = 2', 1.0);
+        $recorder->addSql('SELECT * FROM t WHERE id = 1', 2.0, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT * FROM u WHERE id = 1', 0.5, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT * FROM t WHERE id = 2', 1.0, SqlDialect::Sqlite);
         $recorder->end($token, 'GET app_home', 5.0);
 
         static::assertSame(['sql_ms' => 3.5, 'sql_n' => 3], $this->buffer->entries[0]->attributes);
@@ -330,7 +331,7 @@ final class RecorderTest extends TestCase
         $recorder = new Recorder($this->buffer, $this->logger, static fn(): bool => true, $this->digester());
 
         $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
-        $recorder->addSql('SELECT 1', 2.0);
+        $recorder->addSql('SELECT 1', 2.0, SqlDialect::Sqlite);
         $recorder->end($token, 'GET app_home', 3.0);
 
         static::assertSame(['sql_ms' => 2.0, 'sql_n' => 1], $this->buffer->entries[0]->attributes);
@@ -345,17 +346,50 @@ final class RecorderTest extends TestCase
         $tooLong = 'SELECT ' . str_repeat('a', Recorder::MAX_SQL_BYTES - 13) . ' FROM t';
 
         $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
-        $recorder->addSql($longest, 1.0);
-        $recorder->addSql($tooLong, 2.0);
-        $recorder->addSql($tooLong, 3.0);
+        $recorder->addSql($longest, 1.0, SqlDialect::Sqlite);
+        $recorder->addSql($tooLong, 2.0, SqlDialect::Sqlite);
+        $recorder->addSql($tooLong, 3.0, SqlDialect::Sqlite);
         $recorder->end($token, 'GET app_home', 10.0);
 
         static::assertSame(65_536, \strlen($longest));
         static::assertSame(65_537, \strlen($tooLong));
         $entry = $this->buffer->entries[0];
         static::assertSame(['sql_ms' => 6.0, 'sql_n' => 3], $entry->attributes);
-        static::assertSame([SqlNormalizer::id((string) SqlNormalizer::normalize($longest)), QueryDigester::OTHER], array_map(static fn(Entry $child): string => $child->key, $entry->children));
+        static::assertSame([SqlNormalizer::id((string) SqlNormalizer::normalize($longest, SqlDialect::Sqlite)), QueryDigester::OTHER], array_map(static fn(Entry $child): string => $child->key, $entry->children));
         static::assertSame(['n' => 2, 'm' => 3.0], $entry->children[1]->attributes);
+    }
+
+    public function testAQueryOfAnUnknownDialectIsCountedOnOther(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->addSql("SELECT 'secret'", 1.0, SqlDialect::Unknown);
+        $recorder->end($token, 'GET app_home', 2.0);
+
+        $entry = $this->buffer->entries[0];
+        static::assertSame(1, $entry->attributes['sql_n']);
+        static::assertSame([QueryDigester::OTHER], array_map(static fn(Entry $child): string => $child->key, $entry->children));
+        static::assertSame([], $this->labelFiles());
+    }
+
+    public function testTheSameTextOnTwoDialectsIsCountedTwice(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->addSql('SELECT 1', 1.0, SqlDialect::MySql);
+        $recorder->addSql('SELECT 1', 2.0, SqlDialect::PostgreSql);
+        $recorder->end($token, 'GET app_home', 4.0);
+
+        $entry = $this->buffer->entries[0];
+        static::assertSame(2, $entry->attributes['sql_n']);
+        static::assertCount(1, $entry->children);
+        $child = $entry->children[0];
+        static::assertSame(Entry::TYPE_QUERY, $child->type);
+        static::assertSame(SqlNormalizer::id('SELECT ?'), $child->key);
+        static::assertSame(2, $child->attributes['n']);
+        static::assertSame(2.0, $child->attributes['m']);
     }
 
     public function testAnExecutionIsSlowFromTheThreshold(): void
@@ -363,8 +397,8 @@ final class RecorderTest extends TestCase
         $recorder = new Recorder($this->buffer, $this->logger, null, $this->digester(), 100);
 
         $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
-        $recorder->addSql('SELECT 1', 99.9);
-        $recorder->addSql('SELECT 1', 100.0);
+        $recorder->addSql('SELECT 1', 99.9, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT 1', 100.0, SqlDialect::Sqlite);
         $recorder->end($token, 'GET app_home', 300.0);
 
         static::assertSame(1, $this->buffer->entries[0]->children[0]->attributes['sl']);
@@ -375,7 +409,7 @@ final class RecorderTest extends TestCase
         $recorder = $this->recorder();
 
         $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
-        $recorder->addSql('SELECT 1', 2.0);
+        $recorder->addSql('SELECT 1', 2.0, SqlDialect::Sqlite);
         $recorder->end($token, 'GET app_home', 3.0);
 
         static::assertSame([], $this->buffer->entries[0]->attributes);

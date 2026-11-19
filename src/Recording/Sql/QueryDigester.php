@@ -14,7 +14,7 @@ final class QueryDigester
     private const CACHE_SIZE = 2000;
     private const CACHE_LIFETIME = 600;
 
-    /** @var array<string, array{string, bool}> hash of a raw text => [id, is a select], for labels known to exist */
+    /** @var array<string, array{string, bool}> hash of a raw key => [id, is a select], for labels known to exist */
     private array $known = [];
     private float $knownSince = 0.0;
 
@@ -25,7 +25,7 @@ final class QueryDigester
     ) {}
 
     /**
-     * @param array<string, array{int, float, float, int}> $raw raw SQL => [executions, total ms, max ms, slow executions]
+     * @param array<string, array{int, float, float, int}> $raw dialect value + raw SQL, or OTHER => [executions, total ms, max ms, slow executions]
      */
     public function digest(array $raw, float $startedAt): QueryDigest
     {
@@ -40,9 +40,9 @@ final class QueryDigester
         $other = null;
         $writes = 0;
 
-        foreach ($raw as $sql => $stats) {
-            $sql = (string) $sql;
-            $label = $sql === self::OTHER ? null : $this->label($sql, $writes);
+        foreach ($raw as $key => $stats) {
+            $key = (string) $key;
+            $label = $key === self::OTHER ? null : $this->label($key, $writes);
             if ($label === null) {
                 $other = self::merge($other, $stats);
                 continue;
@@ -71,14 +71,14 @@ final class QueryDigester
     /**
      * @return array{string, bool}|null null when the text cannot be normalized, or its label does not exist and cannot be written
      */
-    private function label(string $sql, int &$writes): ?array
+    private function label(string $key, int &$writes): ?array
     {
-        $hash = hash('xxh128', $sql);
+        $hash = hash('xxh128', $key);
         if (isset($this->known[$hash])) {
             return $this->known[$hash];
         }
 
-        $normalized = SqlNormalizer::normalize($sql);
+        $normalized = SqlNormalizer::normalize(substr($key, 1), SqlDialect::from($key[0]));
         if ($normalized === null) {
             return null;
         }
