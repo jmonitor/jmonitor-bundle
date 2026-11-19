@@ -18,6 +18,7 @@ use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
@@ -356,6 +357,10 @@ removeDir($dir);
 report(sprintf('end(), %d distinct queries, new digester and directory (FPM)', SQL_PER_REQUEST), endMicros(true), 'µs', 300);
 report(sprintf('end(), %d distinct queries, reused digester (worker)', SQL_PER_REQUEST), endMicros(false), 'µs', 100);
 report(sprintf('buffer line, %d distinct queries', SQL_PER_REQUEST), lineBytes(), 'bytes', 1200);
+$call = 0;
+report('normalize(), per distinct text', microsPerCall(static function () use ($texts, &$call): void {
+    SqlNormalizer::normalize($texts[$call++ % SQL_PER_REQUEST], SqlDialect::MySql);
+}), 'µs', null);
 
 [$aggregateMs, $sampled] = aggregateMillis();
 report(sprintf('read and aggregate %d units, no database', LOADED[2]), $aggregateMs, 'ms', 300, sprintf('(%d kept their queries under sampling)', $sampled));

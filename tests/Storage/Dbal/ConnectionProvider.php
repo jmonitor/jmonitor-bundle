@@ -73,7 +73,7 @@ final class ConnectionProvider
     }
 
     /** @return array<string, mixed> */
-    private static function parse(string $url): array
+    public static function parse(string $url): array
     {
         return (new DsnParser(['mysql' => 'pdo_mysql', 'postgresql' => 'pdo_pgsql']))->parse($url);
     }
