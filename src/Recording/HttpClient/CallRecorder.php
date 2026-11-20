@@ -35,7 +35,9 @@ final class CallRecorder
     public function record(int $unit, ResponseInterface $response, string $url, int $startedAt): void
     {
         try {
-            $seconds = $response->getInfo('total_time');
+            $previousAttempts = $response->getInfo('previous_info');
+            // A retried call is timed from its request, earlier attempts and pauses included.
+            $seconds = \is_array($previousAttempts) && $previousAttempts !== [] ? null : $response->getInfo('total_time');
             $durationMs = \is_int($seconds) || \is_float($seconds) ? $seconds * 1000 : 0.0;
             if (!is_finite($durationMs) || $durationMs <= 0.0) {
                 $durationMs = (hrtime(true) - $startedAt) / 1e6;

@@ -18,6 +18,8 @@ use Symfony\Component\HttpClient\Exception\ClientException;
 use Symfony\Component\HttpClient\Exception\ServerException;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
+use Symfony\Component\HttpClient\Retry\GenericRetryStrategy;
+use Symfony\Component\HttpClient\RetryableHttpClient;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
@@ -357,6 +359,25 @@ final class RecordingHttpClientTest extends TestCase
             static::assertTrue(is_finite($call['d']) && $call['d'] >= 0.0 && $call['d'] < 1000.0, $host);
         }
         static::assertJson($this->entry()->toLine());
+    }
+
+    public function testARetriedCallLastsFromItsRequestToItsLastAttempt(): void
+    {
+        $unit = $this->recorder->begin(Entry::TYPE_REQUEST, 1700000000.0);
+        $inner = new RetryableHttpClient(
+            new MockHttpClient([new MockResponse('busy', ['http_code' => 503, 'total_time' => 0.5]), new MockResponse('ok', ['total_time' => 0.01])]),
+            new GenericRetryStrategy(delayMs: 50, jitter: 0.0),
+            1,
+        );
+        $client = new RecordingHttpClient($inner, new CallRecorder($this->recorder, $this->logger));
+
+        static::assertSame('ok', $client->request('GET', 'https://flaky.example.com/')->getContent());
+
+        $calls = $this->calls($unit);
+        static::assertSame(['flaky.example.com'], array_keys($calls));
+        static::assertSame(['n', 'm', 'd'], array_keys($calls['flaky.example.com']));
+        static::assertSame(1, $calls['flaky.example.com']['n']);
+        static::assertGreaterThanOrEqual(50.0, $calls['flaky.example.com']['d']);
     }
 
     public function testOnlyTheHostIsKept(): void
