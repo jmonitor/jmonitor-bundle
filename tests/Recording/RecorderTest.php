@@ -44,7 +44,7 @@ final class RecorderTest extends TestCase
                 $this->entries[] = $entry;
             }
 
-            public function drain(callable $consumer): int
+            public function drain(callable $consumer, bool $includeCurrent = false): int
             {
                 return 0;
             }

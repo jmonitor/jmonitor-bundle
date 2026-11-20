@@ -122,7 +122,7 @@ final class FlusherTest extends TestCase
 
             public function append(Entry $entry): void {}
 
-            public function drain(callable $consumer): int
+            public function drain(callable $consumer, bool $includeCurrent = false): int
             {
                 $consumer((function (): \Generator {
                     ++$this->consumed;
