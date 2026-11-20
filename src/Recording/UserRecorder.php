@@ -47,7 +47,7 @@ final class UserRecorder implements EventSubscriberInterface
                 return;
             }
 
-            // Reading the token of a lazy firewall would run its authentication, which the application did not need.
+            // Only a request whose security the application already resolved is attributed to a user.
             if ($this->isPending === null || ($this->isPending)()) {
                 return;
             }

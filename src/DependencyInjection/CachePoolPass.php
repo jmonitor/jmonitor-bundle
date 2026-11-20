@@ -47,8 +47,11 @@ final class CachePoolPass implements CompilerPassInterface
             }
 
             $pool = self::untraced($container, $id);
-            // A wrapped computation cannot be sent to the message bus: a pool that computes early would compute online.
-            if ($name !== self::APPLICATION_POOL && $pool->getFactory() === self::SYSTEM_FACTORY || $pool->hasMethodCall('setCallbackWrapper')) {
+            if ($name !== self::APPLICATION_POOL && $pool->getFactory() === self::SYSTEM_FACTORY) {
+                continue;
+            }
+            // Wrapped, a pool that computes early would compute its values online.
+            if ($pool->hasMethodCall('setCallbackWrapper')) {
                 continue;
             }
 

@@ -36,7 +36,7 @@ final class RecordingResponse implements ResponseInterface, StreamableInterface
         }
 
         try {
-            // The wait and status check an unread response runs when destroyed, done first so that the call is measured complete.
+            // Waits for an unread response before recording it, so that the call is measured whole.
             if (!$this->handled && $this->response->getInfo('error') === null) {
                 $this->response->getHeaders(true);
             }

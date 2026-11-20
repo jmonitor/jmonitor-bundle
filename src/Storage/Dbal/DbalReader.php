@@ -142,7 +142,6 @@ final class DbalReader implements ReaderInterface
     private function totals(ReportQuery $query): array
     {
         [$period, $since] = self::window($query);
-        // A COUNT(DISTINCT) beside the grouped sums makes MySQL sort the whole window; the subquery is evaluated once.
         $rows = $this->connection->fetchAllAssociative(
             'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max,'
             . ' (SELECT COUNT(DISTINCT key_hash) FROM ' . AggregatesTable::NAME
