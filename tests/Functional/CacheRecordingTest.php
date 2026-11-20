@@ -46,7 +46,7 @@ final class CacheRecordingTest extends WebTestCase
             static::assertResponseIsSuccessful();
             static::assertSame('Computed once', $client->getResponse()->getContent());
         }
-        $crawler = self::requestUntil($client, '/jmonitor/cache', 'tr[data-jm-pool]');
+        $crawler = self::requestUntil($client, '/jmonitor/cache', 'tr[data-jm-pool="cache.app"][data-jm-reads="3"]');
 
         static::assertResponseIsSuccessful();
         static::assertSame('Cache', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
