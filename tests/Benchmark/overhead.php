@@ -10,8 +10,12 @@ use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\CacheScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\HttpClientScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
@@ -52,13 +56,14 @@ const FLUSH_ENTRIES = 10_000;
 const FLUSH_ROUTES = 50;
 const SQL_PER_REQUEST = 30;
 
-/** routes, distinct queries, requests in the ten-second slot, queries per request */
-const TYPICAL = [30, 50, 1_000, 10];
-const LOADED = [150, 200, 10_000, 20];
-/** routes, distinct queries, couples of a route and a repeated query, in each bucket of the one-hour period */
-const DISPLAYED = [150, 200, 100];
+/** routes, distinct queries, requests in the ten-second slot, queries per request, users, called hosts, cache pools */
+const TYPICAL = [30, 50, 1_000, 10, 20, 5, 3];
+const LOADED = [150, 200, 10_000, 20, 200, 50, 20];
+/** routes, distinct queries, couples of a route and a repeated query, users, called hosts, cache pools, exception classes, in each bucket of the one-hour period */
+const DISPLAYED = [150, 200, 100, 200, 50, 20, 20];
 const DISPLAY_RUNS = 5;
 const QUERIES_PER_ROUTE = 5;
+const EXCEPTION_CLASSES = 5;
 
 function workDir(): string
 {
@@ -106,6 +111,16 @@ function sqlTexts(int $count): array
     }
 
     return $texts;
+}
+
+function poolName(int $index): string
+{
+    return $index === 0 ? 'cache.app' : 'app.pool_' . $index;
+}
+
+function exceptionClass(int $index): string
+{
+    return 'App\Exception\Failure' . $index;
 }
 
 function sqlRecorder(BufferDirectory $directory, ClockInterface $clock): Recorder
@@ -195,13 +210,13 @@ function lineBytes(): int
 /**
  * Records one ten-second slot of requests the way the application does, sampling under pressure included.
  *
- * @param array{int, int, int, int} $dataSet
+ * @param array{int, int, int, int, int, int, int} $dataSet
  *
  * @return int units recorded under pressure that kept their queries, at weight 10
  */
 function fillSlot(BufferDirectory $directory, ClockInterface $clock, array $dataSet): int
 {
-    [$routes, $queries, $requests, $perRequest] = $dataSet;
+    [$routes, $queries, $requests, $perRequest, $users, $hosts, $pools] = $dataSet;
     $texts = sqlTexts($queries);
     $start = (float) $clock->now()->getTimestamp();
     $recorder = sqlRecorder($directory, $clock);
@@ -217,7 +232,15 @@ function fillSlot(BufferDirectory $directory, ClockInterface $clock, array $data
                 $recorder->addSql($texts[$route % $queries], 0.15, SqlDialect::Sqlite);
             }
         }
-        $recorder->end($token, 'GET route_' . $route, 5.0 + ($i * 37) % 1500, ['status' => $i % 50 === 0 ? 500 : 200, 'memory' => 2_097_152 + ($i % 64) * 65_536]);
+        $recorder->add($token, Entry::TYPE_USER, 'user' . ($i % $users) . '@example.com');
+        $recorder->add($token, Entry::TYPE_HTTP, 'api' . ($i % $hosts) . '.example.com', 20.0 + ($i % 30), $i % 40 === 0 ? ['c5' => 1] : []);
+        $recorder->add($token, Entry::TYPE_CACHE, poolName($i % $pools), 0.0, ['h' => 1]);
+        $recorder->add($token, Entry::TYPE_CACHE, poolName(($i + 1) % $pools), 0.0, ['mi' => 1, 'w' => 1]);
+        $failed = $i % 50 === 0;
+        if ($failed) {
+            $recorder->add($token, Entry::TYPE_EXCEPTION, exceptionClass(intdiv($i, 50) % EXCEPTION_CLASSES));
+        }
+        $recorder->end($token, 'GET route_' . $route, 5.0 + ($i * 37) % 1500, ['status' => $failed ? 500 : 200, 'memory' => 2_097_152 + ($i % 64) * 65_536]);
     }
 
     $sampled = 0;
@@ -317,13 +340,13 @@ function aggregateMillis(): array
 /**
  * Stores the data set in each of the sixty buckets of the one-hour period, as sixty flushes would.
  *
- * @param array{int, int, int} $dataSet
+ * @param array{int, int, int, int, int, int, int} $dataSet
  *
  * @return int rows stored, every period included
  */
 function fillHour(Connection $connection, int $now, array $dataSet): int
 {
-    [$routes, $queries, $repeated] = $dataSet;
+    [$routes, $queries, $repeated, $users, $hosts, $pools, $classes] = $dataSet;
     $ids = [];
     $labels = [];
     foreach (sqlTexts($queries) as $text) {
@@ -342,11 +365,20 @@ function fillHour(Connection $connection, int $now, array $dataSet): int
             if ($route < $repeated) {
                 $children[] = new Entry(Entry::TYPE_NPLUS1, $ids[$route * QUERIES_PER_ROUTE % $queries], $startedAt, 1.8, ['n' => 12]);
             }
+            $children[] = new Entry(Entry::TYPE_USER, 'user' . (($minute * $routes + $route) % $users) . '@example.com', $startedAt, 0.0, ['n' => 1]);
+            $children[] = new Entry(Entry::TYPE_HTTP, 'api' . (($minute + $route) % $hosts) . '.example.com', $startedAt, 24.0, ['n' => 2, 'm' => 15.0] + ($route % 40 === 0 ? ['c5' => 1] : []));
+            $children[] = new Entry(Entry::TYPE_CACHE, poolName($route % $pools), $startedAt, 0.0, ['n' => 3, 'h' => 2, 'mi' => 1, 'w' => 1]);
+            $failed = $route % 10 === 0;
+            if ($failed) {
+                $children[] = new Entry(Entry::TYPE_EXCEPTION, exceptionClass(($minute + $route) % $classes), $startedAt, 0.0, ['n' => 1]);
+            }
             $units[] = new Entry(Entry::TYPE_REQUEST, 'GET route_' . $route, $startedAt, 5.0 + ($minute * 37 + $route) % 1500, [
-                'status' => $route % 50 === 0 ? 500 : 200,
+                'status' => $failed ? 500 : 200,
                 'memory' => 2_097_152 + ($route % 64) * 65_536,
                 'sql_n' => 15,
                 'sql_ms' => 4.5,
+                'http_n' => 2,
+                'http_ms' => 24.0,
             ], $children);
         }
     }
@@ -500,7 +532,7 @@ foreach (['typical' => [TYPICAL, 100], 'loaded' => [LOADED, 500]] as $name => [$
         $sampled = fillSlot($directory, $clock, $dataSet);
     });
     report(
-        sprintf('flush %s, %d routes, %d queries (mysql)', $name, $dataSet[0], $dataSet[1]),
+        sprintf('flush %s, %d routes, %d queries, %d users, %d hosts, %d pools (mysql)', $name, $dataSet[0], $dataSet[1], $dataSet[4], $dataSet[5], $dataSet[6]),
         $milliseconds,
         'ms',
         $target,
@@ -510,7 +542,7 @@ foreach (['typical' => [TYPICAL, 100], 'loaded' => [LOADED, 500]] as $name => [$
 
 $now = 1_700_003_600;
 $stored = fillHour($mysql, $now, DISPLAYED);
-foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10)] as $screen) {
+foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpClientScreen(true), new CacheScreen(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
     [$milliseconds, $rows] = displayMillis($mysql, $now, $screen);
     report(sprintf('display, %s, loaded database (mysql)', $screen->id()), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
 }
