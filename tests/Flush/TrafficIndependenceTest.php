@@ -99,7 +99,7 @@ final class TrafficIndependenceTest extends TestCase
         static::assertSame(60000 * self::QUERIES_PER_REQUEST * 2, $this->storedCount($connection, Metric::QUERY_DURATION));
         static::assertSame(60000, $this->storedCount($connection, Metric::USER_DURATION));
         static::assertSame(60000, $this->storedCount($connection, Metric::HTTP_DURATION));
-        static::assertSame(60000, $this->storedCount($connection, Metric::CACHE_HIT));
+        static::assertSame(60000 * 2, $this->storedCount($connection, Metric::CACHE_HIT));
         static::assertSame(60000, $this->storedCount($connection, Metric::CACHE_WRITE));
         static::assertSame(600, $this->storedCount($connection, Metric::EXCEPTION_COUNT));
         static::assertSame(600, $this->storedCount($connection, Metric::EXCEPTION_WHERE_COUNT));
@@ -204,7 +204,7 @@ final class TrafficIndependenceTest extends TestCase
     }
 
     /**
-     * A failure is the first request of its second, so its class and route depend on the second only.
+     * Every hundredth request fails, with a class that depends on its second only and always the same route.
      *
      * @param array<int, string> $ids
      */
@@ -230,7 +230,7 @@ final class TrafficIndependenceTest extends TestCase
         $heavyPool = $request % self::HEAVY_POOLS;
 
         $children[] = new Entry(Entry::TYPE_USER, 'user' . $user . '@example.com', $now, 0.0, ['n' => 1]);
-        $children[] = new Entry(Entry::TYPE_CACHE, $heavyPool === 0 ? 'cache.app' : 'app.pool_' . $heavyPool, $now, 0.0, ['n' => 1, 'h' => 1]);
+        $children[] = new Entry(Entry::TYPE_CACHE, $heavyPool === 0 ? 'cache.app' : 'app.pool_' . $heavyPool, $now, 0.0, ['n' => 2, 'h' => 2]);
         $children[] = new Entry(Entry::TYPE_CACHE, 'app.pool_' . (self::HEAVY_POOLS + $request % self::LIGHT_POOLS), $now, 0.0, ['n' => 1, 'mi' => 1, 'w' => 1]);
         $children[] = new Entry(Entry::TYPE_HTTP, 'api' . $host . '.example.com', $now, self::HTTP_MS, ['n' => 1, 'm' => self::HTTP_MS]);
 
