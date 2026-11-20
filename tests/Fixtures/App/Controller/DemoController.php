@@ -6,10 +6,12 @@ namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception as DbalException;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
@@ -21,6 +23,7 @@ final class DemoController
         private readonly ?HttpClientInterface $httpClient = null,
         private readonly ?HttpClientInterface $flakyClient = null,
         private readonly ?CacheInterface $cache = null,
+        private readonly ?MessageBusInterface $bus = null,
     ) {}
 
     public function hello(string $name): Response
@@ -112,6 +115,17 @@ final class DemoController
         $cache = $this->cache ?? throw new \LogicException('This route needs the application cache.');
 
         return new Response($cache->get('demo', static fn(): string => 'Computed once'));
+    }
+
+    public function dispatch(Request $request): Response
+    {
+        $bus = $this->bus ?? throw new \LogicException('This route needs Messenger.');
+        $count = $request->query->getInt('count', 3);
+        for ($i = 0; $i < $count; ++$i) {
+            $bus->dispatch(new Ping($request->query->getString('mode', 'ok')));
+        }
+
+        return new Response((string) $count);
     }
 
     private function connection(): Connection

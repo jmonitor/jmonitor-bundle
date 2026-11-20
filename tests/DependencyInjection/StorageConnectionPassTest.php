@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
 use Jmonitor\JmonitorBundle\Recording\CommandRecorder;
+use Jmonitor\JmonitorBundle\Recording\MessengerRecorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
@@ -24,7 +25,7 @@ use Symfony\Component\DependencyInjection\Definition;
 
 final class StorageConnectionPassTest extends TestCase
 {
-    private const STORAGE_SERVICES = [RequestRecorder::class, CommandRecorder::class, Flusher::class, DbalStorage::class, DbalReader::class, SchemaAssetFilter::class, SetupCommand::class, Middleware::class, LabelSync::class];
+    private const STORAGE_SERVICES = [RequestRecorder::class, CommandRecorder::class, MessengerRecorder::class, Flusher::class, DbalStorage::class, DbalReader::class, SchemaAssetFilter::class, SetupCommand::class, Middleware::class, LabelSync::class];
 
     public function testKeepsTheStorageWhenTheConnectionExists(): void
     {

@@ -30,6 +30,7 @@ use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
 use Jmonitor\JmonitorBundle\Recording\CommandRecorder;
+use Jmonitor\JmonitorBundle\Recording\MessengerRecorder;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
@@ -220,6 +221,43 @@ class JmonitorBundleTest extends TestCase
     public function testNoCommandRecorderWhenRecordingIsOff(): void
     {
         static::assertFalse($this->loadBundle(['recording' => ['enabled' => false]], environment: 'prod')->hasDefinition(CommandRecorder::class));
+    }
+
+    public function testMessengerRecordingHasDefaults(): void
+    {
+        $container = $this->loadBundle([], environment: 'prod');
+
+        static::assertTrue($container->getParameter('jmonitor.recording.messenger'));
+        static::assertTrue($container->getParameter('jmonitor.recording.scheduler'));
+
+        $definition = $container->getDefinition(MessengerRecorder::class);
+        static::assertSame(Recorder::class, (string) $definition->getArgument(0));
+        static::assertSame(Flusher::class, (string) $definition->getArgument(1));
+        static::assertSame('%jmonitor.recording.messenger%', $definition->getArgument(2));
+        static::assertSame('%jmonitor.recording.scheduler%', $definition->getArgument(3));
+        static::assertSame('%jmonitor.recording.exceptions%', $definition->getArgument(4));
+        static::assertTrue($definition->hasTag('kernel.event_subscriber'));
+        static::assertSame([['method' => 'reset']], $definition->getTag('kernel.reset'));
+    }
+
+    public function testMessengerRecorderStaysWhileMessagesOrTasksAreRecorded(): void
+    {
+        static::assertTrue($this->loadBundle(['recording' => ['messenger' => false]], environment: 'prod')->hasDefinition(MessengerRecorder::class));
+        static::assertTrue($this->loadBundle(['recording' => ['scheduler' => false]], environment: 'prod')->hasDefinition(MessengerRecorder::class));
+    }
+
+    public function testNoMessengerRecorderWhenMessagesAndTasksAreOff(): void
+    {
+        $container = $this->loadBundle(['recording' => ['messenger' => false, 'scheduler' => false]], environment: 'prod');
+
+        static::assertFalse($container->getParameter('jmonitor.recording.messenger'));
+        static::assertFalse($container->getParameter('jmonitor.recording.scheduler'));
+        static::assertFalse($container->hasDefinition(MessengerRecorder::class));
+    }
+
+    public function testNoMessengerRecorderWhenRecordingIsOff(): void
+    {
+        static::assertFalse($this->loadBundle(['recording' => ['enabled' => false]], environment: 'prod')->hasDefinition(MessengerRecorder::class));
     }
 
     /**

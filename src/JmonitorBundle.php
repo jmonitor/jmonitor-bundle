@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle;
 
 use Jmonitor\JmonitorBundle\DependencyInjection\CachePoolPass;
+use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\HttpClientPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -21,6 +22,7 @@ final class JmonitorBundle extends AbstractBundle
     public function build(ContainerBuilder $container): void
     {
         $container->addCompilerPass(new StorageConnectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+        $container->addCompilerPass(new ComponentAvailabilityPass());
         $container->addCompilerPass(new HttpClientPass());
         // After the CacheCollectorPass of debug mode: the profiler keeps tracing the pools from inside the wrappers.
         $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
@@ -68,6 +70,8 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.recording.cache', $config['recording']['cache']);
         $builder->setParameter('jmonitor.recording.commands.enabled', $config['recording']['commands']['enabled']);
         $builder->setParameter('jmonitor.recording.commands.ignore', $config['recording']['commands']['ignore']);
+        $builder->setParameter('jmonitor.recording.messenger', $config['recording']['messenger']);
+        $builder->setParameter('jmonitor.recording.scheduler', $config['recording']['scheduler']);
         $builder->setParameter('jmonitor.recording.app_id', substr(hash('xxh128', $projectDir . '|' . $environment), 0, 12));
         $builder->setParameter('jmonitor.storage.connection', $config['storage']['connection']);
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
@@ -345,6 +349,8 @@ final class JmonitorBundle extends AbstractBundle
                                 ->end()
                             ->end()
                         ->end()
+                        ->booleanNode('messenger')->defaultTrue()->info('Record the messages handled by the Messenger workers, and the messages sent. Requires Messenger.')->end()
+                        ->booleanNode('scheduler')->defaultTrue()->info('Record the tasks of the Scheduler run by the Messenger workers. Requires the Scheduler.')->end()
                     ->end()
                 ->end()
                 ->arrayNode('storage')

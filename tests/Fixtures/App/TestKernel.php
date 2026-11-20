@@ -8,11 +8,15 @@ use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Command\WorkCommand;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller\DemoController;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\PingHandler;
 use Psr\Log\LogLevel;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
 use Symfony\Bundle\TwigBundle\TwigBundle;
+use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\HttpKernel\Log\Logger;
@@ -40,11 +44,13 @@ final class TestKernel extends Kernel
         private readonly bool $withConnectionLogger = false,
         private readonly bool $withHttpClient = true,
         private readonly bool $withProfiler = false,
+        private readonly bool $withMessenger = false,
+        private readonly bool $withScheduler = false,
     ) {
         parent::__construct($environment, $debug);
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler]));
     }
 
     public function registerBundles(): iterable
@@ -95,6 +101,19 @@ final class TestKernel extends Kernel
         parent::initializeContainer();
     }
 
+    protected function build(ContainerBuilder $container): void
+    {
+        // Messages a request sends stay queued until a worker consumes them, as with a real broker.
+        $container->addCompilerPass(new class implements CompilerPassInterface {
+            public function process(ContainerBuilder $container): void
+            {
+                if ($container->hasDefinition('messenger.transport.in_memory.factory')) {
+                    $container->getDefinition('messenger.transport.in_memory.factory')->clearTag('kernel.reset');
+                }
+            }
+        });
+    }
+
     protected function configureContainer(ContainerConfigurator $container): void
     {
         $container->extension('framework', [
@@ -120,6 +139,20 @@ final class TestKernel extends Kernel
 
         if ($this->withProfiler) {
             $container->extension('framework', ['profiler' => ['enabled' => true, 'collect' => false]]);
+        }
+
+        if ($this->withMessenger || $this->withScheduler) {
+            $container->extension('framework', ['messenger' => [
+                'enabled' => true,
+                'transports' => [
+                    'async' => ['dsn' => 'in-memory://', 'retry_strategy' => ['max_retries' => 1, 'delay' => 0]],
+                ],
+                'routing' => [Ping::class => 'async'],
+            ]]);
+        }
+
+        if ($this->withScheduler) {
+            $container->extension('framework', ['scheduler' => ['enabled' => true]]);
         }
 
         $container->extension('jmonitor', $this->jmonitorConfig ?: $this->environmentConfig());
@@ -169,11 +202,21 @@ final class TestKernel extends Kernel
                 service('http_client')->nullOnInvalid(),
                 service('flaky.client')->nullOnInvalid(),
                 service('cache.app'),
+                service('messenger.default_bus')->nullOnInvalid(),
             ])
             ->tag('controller.service_arguments');
         $services->set(WorkCommand::class)
             ->args([service('doctrine.dbal.default_connection')->nullOnInvalid()])
             ->tag('console.command');
+        if ($this->withMessenger || $this->withScheduler) {
+            $services->set(PingHandler::class)
+                ->args([service('doctrine.dbal.default_connection')->nullOnInvalid(), service('messenger.default_bus')])
+                ->tag('messenger.message_handler');
+        }
+        if ($this->withScheduler) {
+            $services->set(DemoSchedule::class)
+                ->tag('scheduler.schedule_provider', ['name' => 'default']);
+        }
         $services->set(CacheConsumer::class)
             ->autowire()
             ->public();
@@ -206,6 +249,7 @@ final class TestKernel extends Kernel
         $routes->add('app_call', '/call')->controller([DemoController::class, 'call']);
         $routes->add('app_call_flaky', '/call-flaky')->controller([DemoController::class, 'callFlaky']);
         $routes->add('app_cached', '/cached')->controller([DemoController::class, 'cached']);
+        $routes->add('app_dispatch', '/dispatch')->controller([DemoController::class, 'dispatch']);
         $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');
     }
 }
