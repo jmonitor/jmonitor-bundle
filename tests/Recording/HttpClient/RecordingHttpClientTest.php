@@ -18,6 +18,7 @@ use Symfony\Component\HttpClient\Exception\ClientException;
 use Symfony\Component\HttpClient\Exception\ServerException;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
+use Symfony\Component\HttpClient\Response\StreamableInterface;
 use Symfony\Component\HttpClient\Retry\GenericRetryStrategy;
 use Symfony\Component\HttpClient\RetryableHttpClient;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
@@ -472,6 +473,76 @@ final class RecordingHttpClientTest extends TestCase
 
         static::assertSame([], $this->calls($unit));
         static::assertSame(['error JMonitor could not record an outgoing HTTP call: Broken info'], $this->logger->records);
+    }
+
+    public function testAStreamThatTakesNoContextIsReturnedAsIsAndTheFailureLoggedOnce(): void
+    {
+        $closed = fopen('php://memory', 'r');
+        \assert(\is_resource($closed));
+        fclose($closed);
+        $response = new class ($closed) implements ResponseInterface, StreamableInterface {
+            /** @param resource $stream */
+            public function __construct(private readonly mixed $stream) {}
+
+            public function getStatusCode(): int
+            {
+                return 200;
+            }
+
+            public function getHeaders(bool $throw = true): array
+            {
+                return [];
+            }
+
+            public function getContent(bool $throw = true): string
+            {
+                return '';
+            }
+
+            public function toArray(bool $throw = true): array
+            {
+                return [];
+            }
+
+            public function cancel(): void {}
+
+            public function getInfo(?string $type = null): mixed
+            {
+                return match ($type) {
+                    'http_code' => 200,
+                    'url' => 'https://a.example/',
+                    'total_time' => 0.01,
+                    default => null,
+                };
+            }
+
+            public function toStream(bool $throw = true)
+            {
+                return $this->stream;
+            }
+        };
+        $inner = new class ($response) implements HttpClientInterface {
+            use DecoratorTrait;
+
+            public function __construct(private readonly ResponseInterface $response)
+            {
+                $this->client = new MockHttpClient();
+            }
+
+            public function request(string $method, string $url, array $options = []): ResponseInterface
+            {
+                return $this->response;
+            }
+        };
+        $client = new RecordingHttpClient($inner, new CallRecorder($this->recorder, $this->logger));
+        $unit = $this->recorder->begin(Entry::TYPE_REQUEST, 1700000000.0);
+
+        static::assertSame($closed, $client->request('GET', 'https://a.example/')->toStream());
+        static::assertSame($closed, $client->request('GET', 'https://a.example/')->toStream());
+
+        static::assertSame(['a.example' => ['n' => 2, 'm' => 10.0, 'd' => 20.0]], $this->calls($unit));
+        static::assertCount(1, $this->logger->records);
+        static::assertStringStartsWith('error JMonitor could not record an outgoing HTTP call: ', $this->logger->records[0]);
     }
 
     /**

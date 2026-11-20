@@ -129,7 +129,11 @@ final class RecordingResponse implements ResponseInterface, StreamableInterface
         }
 
         // The context lives as long as the stream, and so does this response: the call is measured once the stream is released.
-        stream_context_set_option($stream, 'jmonitor', 'response', $this);
+        try {
+            stream_context_set_option($stream, 'jmonitor', 'response', $this);
+        } catch (\Throwable $e) {
+            $this->calls->logFailure($e);
+        }
 
         return $stream;
     }

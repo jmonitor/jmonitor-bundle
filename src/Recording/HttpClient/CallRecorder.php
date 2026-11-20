@@ -85,7 +85,7 @@ final class CallRecorder
         };
     }
 
-    private function logFailure(\Throwable $e): void
+    public function logFailure(\Throwable $e): void
     {
         if ($this->failureLogged) {
             return;
