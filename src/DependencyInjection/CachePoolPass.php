@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Recording\Cache\RecordingAdapter;
 use Jmonitor\JmonitorBundle\Recording\Cache\RecordingTagAwareAdapter;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Symfony\Component\Cache\Adapter\AbstractAdapter;
+use Symfony\Component\Cache\Adapter\AdapterInterface;
 use Symfony\Component\Cache\Adapter\TagAwareAdapterInterface;
 use Symfony\Component\Cache\Adapter\TraceableAdapter;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
@@ -43,6 +44,11 @@ final class CachePoolPass implements CompilerPassInterface
         foreach ($container->findTaggedServiceIds('cache.pool') as $id => $tags) {
             $name = $tags[0]['name'] ?? $id;
             if (!\is_string($name) || !isset($declared[$name]) || $container->getDefinition($id)->isAbstract()) {
+                continue;
+            }
+
+            $class = $container->getParameterBag()->resolveValue($container->getDefinition($id)->getClass());
+            if (!\is_string($class) || !is_a($class, AdapterInterface::class, true)) {
                 continue;
             }
 

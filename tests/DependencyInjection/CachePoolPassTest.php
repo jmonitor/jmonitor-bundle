@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\DependencyInjection;
 
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
+use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\DependencyInjection\CachePoolPass;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
@@ -14,6 +15,8 @@ use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\CacheConsumer;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use Psr\Cache\CacheItemInterface;
+use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Cache\Adapter\AdapterInterface;
@@ -25,6 +28,7 @@ use Symfony\Component\Cache\Messenger\EarlyExpirationDispatcher;
 use Symfony\Component\Cache\PruneableInterface;
 use Symfony\Component\Cache\ResettableInterface;
 use Symfony\Component\Console\Tester\CommandTester;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
@@ -173,6 +177,30 @@ final class CachePoolPassTest extends KernelTestCase
         static::assertSame([], $container->getDefinition('app.plain.jmonitor_inner')->getTags());
     }
 
+    public function testAPoolThatIsNotASymfonyAdapterIsLeftAlone(): void
+    {
+        $container = new ContainerBuilder();
+        $container->setParameter('jmonitor.recording.cache', true);
+        $container->setParameter(CachePoolPass::DECLARED_POOLS, ['app.psr6', 'app.decorated', 'app.plain']);
+        $container->register(Recorder::class, Recorder::class)->setSynthetic(true)->setPublic(true);
+        $container->register('app.psr6', Psr6Pool::class)
+            ->setArguments([new Definition(ArrayAdapter::class)])
+            ->addTag('cache.pool')
+            ->setPublic(true);
+        $container->register('app.decorated', ArrayAdapter::class)->addTag('cache.pool')->setPublic(true);
+        $container->register('app.decorated.psr6', Psr6Pool::class)
+            ->setDecoratedService('app.decorated')
+            ->setArguments([new Reference('.inner')]);
+        $container->register('app.plain', ArrayAdapter::class)->addTag('cache.pool')->setPublic(true);
+        $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
+        $container->compile();
+        $container->set(Recorder::class, new Recorder($this->createStub(BufferInterface::class)));
+
+        static::assertInstanceOf(Psr6Pool::class, $container->get('app.psr6'));
+        static::assertInstanceOf(Psr6Pool::class, $container->get('app.decorated'));
+        static::assertInstanceOf(RecordingAdapter::class, $container->get('app.plain'));
+    }
+
     public function testTurningTheCaptureOffWrapsNothing(): void
     {
         self::bootKernel(['jmonitor' => ['recording' => ['cache' => false] + $this->recording()['recording']]]);
@@ -272,5 +300,55 @@ final class CachePoolPassTest extends KernelTestCase
     private function recording(): array
     {
         return ['recording' => ['enabled' => true, 'buffer_dir' => $this->bufferDir]];
+    }
+}
+
+final class Psr6Pool implements CacheItemPoolInterface
+{
+    public function __construct(private readonly CacheItemPoolInterface $pool) {}
+
+    public function getItem(string $key): CacheItemInterface
+    {
+        return $this->pool->getItem($key);
+    }
+
+    public function getItems(array $keys = []): iterable
+    {
+        return $this->pool->getItems($keys);
+    }
+
+    public function hasItem(string $key): bool
+    {
+        return $this->pool->hasItem($key);
+    }
+
+    public function clear(): bool
+    {
+        return $this->pool->clear();
+    }
+
+    public function deleteItem(string $key): bool
+    {
+        return $this->pool->deleteItem($key);
+    }
+
+    public function deleteItems(array $keys): bool
+    {
+        return $this->pool->deleteItems($keys);
+    }
+
+    public function save(CacheItemInterface $item): bool
+    {
+        return $this->pool->save($item);
+    }
+
+    public function saveDeferred(CacheItemInterface $item): bool
+    {
+        return $this->pool->saveDeferred($item);
+    }
+
+    public function commit(): bool
+    {
+        return $this->pool->commit();
     }
 }
