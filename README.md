@@ -296,7 +296,7 @@ jmonitor:
         exceptions: true      # count the exceptions behind 5xx responses
         users: true           # record the requests of each signed-in user (needs the SecurityBundle)
         http_client: true     # record the outgoing calls of the http_client service and the scoped clients
-        cache: true           # count the reads and writes of cache.app and of the pools you declare
+        cache: true           # count the reads, writes and deletes of cache.app and of the pools you declare
     storage:
         connection: 'default' # name of the Doctrine DBAL connection
         retention: 604800     # seconds the data is kept (7 days, 3600 minimum)
@@ -329,9 +329,9 @@ Exceptions: only the class of the exception is kept, and only when the final res
 
 Users: the identifier of the signed-in user (`getUserIdentifier()`, often a username or an email address) is stored in clear in your application database, in the `jmonitor_keys` table. Set `recording.users: false` to go without it. It needs the SecurityBundle. Anonymous requests are not counted, and under `switch_user` the request counts for the impersonated user. A request is attributed to a user only when your application resolved the user during that request: JMonitor never triggers a lazy authentication itself, so the public pages a signed-in user visits may not be counted.
 
-Outgoing HTTP calls: only the calls made through the `http_client` service and the scoped clients declared under `framework.http_client.scoped_clients` are seen, that is the clients your application receives by injection. A client created by hand with `HttpClient::create()`, Guzzle or curl is not seen. Only the host and port of a call are kept, never its scheme, credentials, path or query string. A retried call counts once, and its duration covers every attempt and the pauses between them.
+Outgoing HTTP calls: only the calls made through the `http_client` service and the scoped clients declared under `framework.http_client.scoped_clients` are seen, that is the clients your application receives by injection. A client created by hand with `HttpClient::create()`, Guzzle or curl is not seen. Only the host and port of a call are kept, never its scheme, credentials, path or query string. A retried call counts once, and its duration covers every attempt and the pauses between them. `HTTP out` adds up the durations of the calls of a request, so concurrent calls can make it longer than the request itself.
 
-Cache: `cache.app` and the pools declared under `framework.cache.pools` in YAML or PHP are counted. Not counted: the pools built on the system adapter (`cache.adapter.system`), those with `early_expiration_message_bus`, and the pools Symfony or other bundles create for their own use. Only counters are kept: hits, misses, writes and deletes per pool, never a key nor a value.
+Cache: `cache.app`, whatever its adapter, and the pools declared under `framework.cache.pools` in YAML or PHP are counted. Not counted: the declared pools built on the system adapter (`cache.adapter.system`), those with `early_expiration_message_bus`, and the pools Symfony or other bundles create for their own use. Only counters are kept: hits, misses, writes and deletes per pool, never a key nor a value.
 
 Each flush keeps the 300 most requested routes (method and route) of its batch; the requests of the others are added up on an `Other routes` row. Only the heaviest queries, by total time, are tracked individually, about 200 per server; the others are added up on an `Other queries` row. Likewise, about 200 users, the most active, and 50 hosts, by total time, are tracked individually per server, and each flush keeps 20 cache pools, 50 exception classes and 100 couples of a class and a route; the rest is added up on an `Other …` row. Under heavy load the detail of a request (its queries, user, outgoing calls, cache operations and exception) is sampled, while the requests themselves, with their SQL time, number of queries and time spent in outgoing calls, are always counted.
 
