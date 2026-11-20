@@ -349,6 +349,7 @@ final class RecorderTest extends TestCase
         $recorder->addSql($longest, 1.0, SqlDialect::Sqlite);
         $recorder->addSql($tooLong, 2.0, SqlDialect::Sqlite);
         $recorder->addSql($tooLong, 3.0, SqlDialect::Sqlite);
+        static::assertSame([[SqlDialect::Sqlite->value, $longest], [SqlDialect::Unknown->value, QueryDigester::OTHER]], self::retainedTexts($recorder, $token));
         $recorder->end($token, 'GET app_home', 10.0);
 
         static::assertSame(65_536, \strlen($longest));
@@ -365,6 +366,7 @@ final class RecorderTest extends TestCase
 
         $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
         $recorder->addSql("SELECT 'secret'", 1.0, SqlDialect::Unknown);
+        static::assertSame([[SqlDialect::Unknown->value, QueryDigester::OTHER]], self::retainedTexts($recorder, $token));
         $recorder->end($token, 'GET app_home', 2.0);
 
         $entry = $this->buffer->entries[0];
@@ -428,6 +430,23 @@ final class RecorderTest extends TestCase
 
         static::assertSame([], $this->buffer->entries[0]->attributes);
         static::assertSame([], $this->buffer->entries[0]->children);
+    }
+
+    /**
+     * @return list<array{string, string}> [dialect value, text] of each SQL entry the open unit holds
+     */
+    private static function retainedTexts(Recorder $recorder, int $token): array
+    {
+        /** @var array<int, array{string, float, array<string, array<string, mixed>>}> $units */
+        $units = (new \ReflectionProperty(Recorder::class, 'units'))->getValue($recorder);
+        $texts = [];
+        foreach ($units[$token][2] as $bucket => $entries) {
+            foreach (array_keys($entries) as $text) {
+                $texts[] = [(string) $bucket, (string) $text];
+            }
+        }
+
+        return $texts;
     }
 
     private function recorder(): Recorder

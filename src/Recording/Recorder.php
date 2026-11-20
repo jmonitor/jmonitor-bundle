@@ -101,8 +101,12 @@ final class Recorder implements ResetInterface
 
         $token = array_key_last($this->units);
         $bucket = $dialect->value;
+        if ($dialect === SqlDialect::Unknown || \strlen($sql) > self::MAX_SQL_BYTES) {
+            $bucket = SqlDialect::Unknown->value;
+            $sql = QueryDigester::OTHER;
+        }
         if (!isset($this->units[$token][2][$bucket][$sql])) {
-            if ($dialect === SqlDialect::Unknown || \strlen($sql) > self::MAX_SQL_BYTES || $this->sqlEntries($token) >= self::MAX_SQL_PER_UNIT) {
+            if ($this->sqlEntries($token) >= self::MAX_SQL_PER_UNIT) {
                 $bucket = SqlDialect::Unknown->value;
                 $sql = QueryDigester::OTHER;
             }

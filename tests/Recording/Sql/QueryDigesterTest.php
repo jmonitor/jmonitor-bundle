@@ -145,7 +145,8 @@ final class QueryDigesterTest extends TestCase
 
     public function testTheOtherKeyOfTheRecorderIsNotNormalized(): void
     {
-        $digest = $this->digester()->digest(
+        $digester = $this->digester();
+        $digest = $digester->digest(
             self::raw(['SELECT 1' => [1, 1.0, 1.0, 0]]) + self::raw([QueryDigester::OTHER => [30, 30.0, 4.0, 1]], SqlDialect::Unknown),
             1000.0,
         );
@@ -153,15 +154,25 @@ final class QueryDigesterTest extends TestCase
         static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id('SELECT ?')], [Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertSame(['n' => 30, 'm' => 4.0, 'sl' => 1], $digest->children[1]->attributes);
         static::assertSame([31, 31.0], self::totals($digest));
+        static::assertCount(1, self::cached($digester));
     }
 
     public function testNothingOfTheUnknownDialectIsRead(): void
     {
-        $digest = $this->digester()->digest(self::raw(['SELECT 1' => [2, 3.0, 2.0, 0]], SqlDialect::Unknown), 1000.0);
+        foreach ([SqlDialect::MySql, SqlDialect::PostgreSql, SqlDialect::Sqlite] as $dialect) {
+            static::assertSame('SELECT ?', SqlNormalizer::normalize('SELECT 1', $dialect));
+        }
+        $digester = $this->digester();
+        $raw = self::raw(['SELECT 1' => [2, 3.0, 2.0, 0]], SqlDialect::Unknown);
 
-        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
-        static::assertSame(['n' => 2, 'm' => 2.0], $digest->children[0]->attributes);
-        static::assertSame([], $this->labelFiles());
+        foreach ([1000.0, 1001.0] as $startedAt) {
+            $digest = $digester->digest($raw, $startedAt);
+
+            static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
+            static::assertSame(['n' => 2, 'm' => 2.0], $digest->children[0]->attributes);
+            static::assertSame([], self::cached($digester));
+            static::assertSame([], $this->labelFiles());
+        }
     }
 
     public function testATextThatLooksLikeANumberIsRead(): void
@@ -301,6 +312,15 @@ final class QueryDigesterTest extends TestCase
     private static function raw(array $texts, SqlDialect $dialect = SqlDialect::Sqlite): array
     {
         return [$dialect->value => $texts];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function cached(QueryDigester $digester): array
+    {
+        /** @var array<string, mixed> */
+        return (new \ReflectionProperty(QueryDigester::class, 'known'))->getValue($digester);
     }
 
     private function digester(): QueryDigester
