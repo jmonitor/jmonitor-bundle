@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle;
 
+use Jmonitor\JmonitorBundle\DependencyInjection\HttpClientPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
@@ -19,6 +20,7 @@ final class JmonitorBundle extends AbstractBundle
     public function build(ContainerBuilder $container): void
     {
         $container->addCompilerPass(new StorageConnectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+        $container->addCompilerPass(new HttpClientPass());
     }
 
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
@@ -47,6 +49,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.recording.sql.n_plus_one_threshold', $config['recording']['sql']['n_plus_one_threshold']);
         $builder->setParameter('jmonitor.recording.exceptions', $config['recording']['exceptions']);
         $builder->setParameter('jmonitor.recording.users', $config['recording']['users']);
+        $builder->setParameter('jmonitor.recording.http_client', $config['recording']['http_client']);
         $builder->setParameter('jmonitor.recording.app_id', substr(hash('xxh128', $projectDir . '|' . $environment), 0, 12));
         $builder->setParameter('jmonitor.storage.connection', $config['storage']['connection']);
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
@@ -311,6 +314,7 @@ final class JmonitorBundle extends AbstractBundle
                         ->end()
                         ->booleanNode('exceptions')->defaultTrue()->info('Count the exceptions behind the 5xx responses.')->end()
                         ->booleanNode('users')->defaultTrue()->info('Record the requests of each signed-in user. Requires the SecurityBundle.')->end()
+                        ->booleanNode('http_client')->defaultTrue()->info('Record the outgoing calls made with the Symfony HttpClient, per host.')->end()
                     ->end()
                 ->end()
                 ->arrayNode('storage')

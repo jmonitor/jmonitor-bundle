@@ -12,12 +12,13 @@ enum Family: string
     case Exception = 'exception';
     case ExceptionWhere = 'exception_where';
     case User = 'user';
+    case Http = 'http';
 
     public function isOpen(): bool
     {
         return match ($this) {
             self::Request, self::Exception, self::ExceptionWhere => false,
-            self::Query, self::NPlusOne, self::User => true,
+            self::Query, self::NPlusOne, self::User, self::Http => true,
         };
     }
 
@@ -27,7 +28,7 @@ enum Family: string
             self::Request => 300,
             self::Query, self::User => 200,
             self::NPlusOne, self::ExceptionWhere => 100,
-            self::Exception => 50,
+            self::Exception, self::Http => 50,
         };
     }
 
@@ -40,6 +41,7 @@ enum Family: string
             self::Exception => Metric::EXCEPTION_COUNT,
             self::ExceptionWhere => Metric::EXCEPTION_WHERE_COUNT,
             self::User => Metric::USER_DURATION,
+            self::Http => Metric::HTTP_DURATION,
         };
     }
 

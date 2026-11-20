@@ -13,6 +13,7 @@ final class Metric
     public const REQUEST_DURATION_LE_PREFIX = 'request.duration_le.';
     public const REQUEST_SQL_TIME = 'request.sql_time';
     public const REQUEST_SQL_COUNT = 'request.sql_count';
+    public const REQUEST_HTTP_TIME = 'request.http_time';
     public const QUERY_DURATION = 'query.duration';
     public const QUERY_SLOW = 'query.slow';
     public const NPLUS1_CALLS = 'nplus1.calls';
@@ -22,6 +23,9 @@ final class Metric
     public const USER_DURATION = 'user.duration';
     public const USER_SLOW = 'user.slow';
     public const USER_ERROR = 'user.error';
+    public const HTTP_DURATION = 'http.duration';
+    public const HTTP_STATUS_PREFIX = 'http.status.';
+    public const HTTP_FAILED = 'http.failed';
 
     /** @var list<int> */
     public const DURATION_BOUNDS_MS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];

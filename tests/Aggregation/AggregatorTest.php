@@ -440,6 +440,41 @@ class AggregatorTest extends TestCase
         }
     }
 
+    public function testOutgoingCallsAreCountedPerHostAndOnTheirRequest(): void
+    {
+        $call = static fn(string $host, float $total, int $calls, float $max, array $counters = []): Entry
+            => new Entry(Entry::TYPE_HTTP, $host, 1700000045.0, $total, ['n' => $calls] + ($max > 0.0 ? ['m' => $max] : []) + $counters);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 300.0, ['status' => 200, 'http_ms' => 180.0, 'http_n' => 3], [
+                $call('api.example.com', 150.0, 2, 100.0, ['c4' => 1]),
+                $call('pay.example.com:8443', 30.0, 1, 30.0, ['c5' => 1]),
+            ]),
+            new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000046.0, 90.0, ['status' => 200, 'http_ms' => 40.0, 'http_n' => 2, 'cw' => 10], [
+                $call('api.example.com', 40.0, 2, 0.0, ['cf' => 1]),
+            ]),
+            new Entry(Entry::TYPE_REQUEST, 'GET b', 1700000047.0, 10.0, ['status' => 200]),
+        ]);
+
+        $api = $this->find($aggregates, Period::OneHour, Metric::HTTP_DURATION, 'api.example.com');
+        $pay = $this->find($aggregates, Period::OneHour, Metric::HTTP_DURATION, 'pay.example.com:8443');
+        static::assertNotNull($api);
+        static::assertNotNull($pay);
+        static::assertSame([22, 550.0, 100.0], [$api->count, $api->sum, $api->max]);
+        static::assertSame([1, 30.0, 30.0], [$pay->count, $pay->sum, $pay->max]);
+        static::assertSame(Family::Http, Family::ofMetric($api->type));
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::HTTP_STATUS_PREFIX . '4xx', 'api.example.com')?->count);
+        static::assertSame(10, $this->find($aggregates, Period::OneHour, Metric::HTTP_FAILED, 'api.example.com')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::HTTP_STATUS_PREFIX . '5xx', 'api.example.com'));
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::HTTP_STATUS_PREFIX . '5xx', 'pay.example.com:8443')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::HTTP_FAILED, 'pay.example.com:8443'));
+
+        $time = $this->find($aggregates, Period::OneHour, Metric::REQUEST_HTTP_TIME, 'GET a');
+        static::assertNotNull($time);
+        static::assertSame([2, 220.0, 180.0], [$time->count, $time->sum, $time->max]);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_HTTP_TIME, 'GET b'));
+    }
+
     public function testKeysBeyondTheCapOfAFamilyFoldIntoOther(): void
     {
         $entries = [];

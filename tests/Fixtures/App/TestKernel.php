@@ -37,11 +37,12 @@ final class TestKernel extends Kernel
         private readonly bool $withSecurity = false,
         private readonly bool $withTwig = true,
         private readonly bool $withConnectionLogger = false,
+        private readonly bool $withHttpClient = true,
     ) {
         parent::__construct($environment, $debug);
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient]));
     }
 
     public function registerBundles(): iterable
@@ -101,6 +102,12 @@ final class TestKernel extends Kernel
             'handle_all_throwables' => true,
             'php_errors' => ['log' => true],
             'router' => ['utf8' => true],
+            'http_client' => $this->withHttpClient ? [
+                'mock_response_factory' => HttpResponses::class,
+                'scoped_clients' => [
+                    'flaky.client' => ['base_uri' => HttpResponses::FLAKY_BASE_URI, 'retry_failed' => ['max_retries' => 1, 'delay' => 0]],
+                ],
+            ] : ['enabled' => false],
         ]);
 
         $container->extension('jmonitor', $this->jmonitorConfig ?: $this->environmentConfig());
@@ -140,8 +147,16 @@ final class TestKernel extends Kernel
             $services->set('logger', Logger::class)
                 ->args([LogLevel::WARNING, $this->getLogDir() . '/' . $this->environment . '.log']);
         }
+        if ($this->withHttpClient) {
+            $services->set(HttpResponses::class);
+        }
         $services->set(DemoController::class)
-            ->args([service('doctrine.dbal.default_connection')->nullOnInvalid(), service('http_kernel')])
+            ->args([
+                service('doctrine.dbal.default_connection')->nullOnInvalid(),
+                service('http_kernel'),
+                service('http_client')->nullOnInvalid(),
+                service('flaky.client')->nullOnInvalid(),
+            ])
             ->tag('controller.service_arguments');
     }
 
@@ -169,6 +184,8 @@ final class TestKernel extends Kernel
         $routes->add('app_n_plus_one', '/n-plus-one')->controller([DemoController::class, 'nPlusOne']);
         $routes->add('app_sql_error', '/sql-error')->controller([DemoController::class, 'sqlError']);
         $routes->add('app_hostile_query', '/hostile-query')->controller([DemoController::class, 'hostileQuery']);
+        $routes->add('app_call', '/call')->controller([DemoController::class, 'call']);
+        $routes->add('app_call_flaky', '/call-flaky')->controller([DemoController::class, 'callFlaky']);
         $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');
     }
 }

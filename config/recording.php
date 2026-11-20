@@ -12,6 +12,7 @@ use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
 use Jmonitor\JmonitorBundle\Recording\ExceptionRecorder;
+use Jmonitor\JmonitorBundle\Recording\HttpClient\CallRecorder;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
@@ -157,6 +158,11 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             ->args([service(Recorder::class)])
             ->tag('kernel.event_subscriber')
             ->tag('kernel.reset', ['method' => 'reset']);
+    }
+
+    if ($builder->getParameter('jmonitor.recording.http_client') !== false) {
+        $services->set(CallRecorder::class)
+            ->args([service(Recorder::class), $recorderLogger]);
     }
 
     $userRecorder = null;

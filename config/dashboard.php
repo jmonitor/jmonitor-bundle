@@ -6,6 +6,7 @@ use Jmonitor\JmonitorBundle\Controller\DashboardController;
 use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\HttpClientScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
@@ -73,6 +74,10 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             param('jmonitor.recording.sql.n_plus_one_threshold'),
         ])
         ->tag('jmonitor.screen', ['priority' => 90]);
+
+    $services->set(HttpClientScreen::class)
+        ->args([param('jmonitor.recording.http_client')])
+        ->tag('jmonitor.screen', ['priority' => 50]);
 
     $services->set(ExceptionsScreen::class)
         ->args([param('jmonitor.recording.exceptions')])

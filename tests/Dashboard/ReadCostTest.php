@@ -27,6 +27,7 @@ final class ReadCostTest extends KernelTestCase
         'queries' => 10,
         'exceptions' => 5,
         'users' => 5,
+        'http-client' => 5,
     ];
 
     private const QUERY_ID = 'a1b2c3d4e5f6a7b8';
@@ -83,12 +84,13 @@ final class ReadCostTest extends KernelTestCase
         $startedAt = (float) (self::NOW - 30);
 
         return [
-            new Entry(Entry::TYPE_REQUEST, 'GET app_list', $startedAt, 40.0, ['status' => 200, 'memory' => 2048, 'sql_n' => 13, 'sql_ms' => 3.0], [
+            new Entry(Entry::TYPE_REQUEST, 'GET app_list', $startedAt, 40.0, ['status' => 200, 'memory' => 2048, 'sql_n' => 13, 'sql_ms' => 3.0, 'http_n' => 2, 'http_ms' => 30.0], [
                 new Entry(Entry::TYPE_QUERY, self::QUERY_ID, $startedAt, 1.0, ['n' => 1, 'm' => 1.0]),
                 new Entry(Entry::TYPE_QUERY, self::REPEATED_QUERY_ID, $startedAt, 2.0, ['n' => 12, 'm' => 0.5]),
                 new Entry(Entry::TYPE_NPLUS1, self::REPEATED_QUERY_ID, $startedAt, 2.0, ['n' => 12]),
                 new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $startedAt, 0.0, ['n' => 1]),
                 new Entry(Entry::TYPE_USER, 'admin', $startedAt, 0.0, ['n' => 1]),
+                new Entry(Entry::TYPE_HTTP, 'api.example.com', $startedAt, 30.0, ['n' => 2, 'm' => 20.0, 'c4' => 1, 'c5' => 1, 'cf' => 1]),
             ]),
         ];
     }

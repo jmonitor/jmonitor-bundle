@@ -98,6 +98,12 @@ final class Aggregator
             self::add($counters, Metric::REQUEST_SQL_COUNT, $sqlCount);
         }
 
+        $httpCount = self::number($entry->attributes['http_n'] ?? null);
+        $httpTime = self::number($entry->attributes['http_ms'] ?? null);
+        if ($httpCount !== null && $httpTime !== null && $httpCount > 0) {
+            self::add($counters, Metric::REQUEST_HTTP_TIME, $httpTime);
+        }
+
         unset($counters);
 
         $this->addChildren($groups, $minute, $entry);
@@ -122,6 +128,7 @@ final class Aggregator
                 Entry::TYPE_QUERY => $this->addQuery($groups, $minute, $child, $occurrences, $weight),
                 Entry::TYPE_NPLUS1 => $this->addNPlusOne($groups, $minute, $unit, $child, $occurrences, $weight),
                 Entry::TYPE_EXCEPTION => $this->addException($groups, $minute, $unit, $child, $occurrences, $weight),
+                Entry::TYPE_HTTP => $this->addHttp($groups, $minute, $child, $occurrences, $weight),
                 Entry::TYPE_USER => $user ??= $child,
                 default => null,
             };
@@ -179,6 +186,22 @@ final class Aggregator
 
         $byEntryPoint = &self::counters($groups, $minute, Family::ExceptionWhere, (new EntryPointKey($unit->type, $unit->key, $child->key))->toString());
         self::add($byEntryPoint, Metric::EXCEPTION_WHERE_COUNT, 0.0, $unit->startedAt, $count);
+    }
+
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addHttp(array &$groups, int $minute, Entry $child, float $occurrences, float $weight): void
+    {
+        $counters = &self::counters($groups, $minute, Family::Http, $child->key);
+        self::add($counters, Metric::HTTP_DURATION, $child->durationMs * $weight, self::number($child->attributes['m'] ?? null) ?? 0.0, (int) round($occurrences * $weight));
+
+        foreach (['c4' => Metric::HTTP_STATUS_PREFIX . '4xx', 'c5' => Metric::HTTP_STATUS_PREFIX . '5xx', 'cf' => Metric::HTTP_FAILED] as $attribute => $metric) {
+            $count = self::number($child->attributes[$attribute] ?? null) ?? 0.0;
+            if ($count > 0 && $count <= self::MAX_OCCURRENCES) {
+                self::add($counters, $metric, 0.0, 0.0, (int) round($count * $weight));
+            }
+        }
     }
 
     /**
