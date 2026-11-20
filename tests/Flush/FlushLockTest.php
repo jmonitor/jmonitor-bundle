@@ -42,6 +42,24 @@ final class FlushLockTest extends TestCase
         static::assertTrue($lock->isDue());
     }
 
+    public function testDueAgainstAnExplicitInterval(): void
+    {
+        $clock = new MockClock('@1000');
+        $lock = $this->lock($clock);
+
+        static::assertTrue($lock->isDue(1));
+
+        static::assertTrue($lock->acquire());
+        $lock->release();
+
+        static::assertFalse($lock->isDue(1));
+        $clock->sleep(1);
+        static::assertTrue($lock->isDue(1));
+        static::assertFalse($lock->isDue());
+        $clock->sleep(9);
+        static::assertTrue($lock->isDue());
+    }
+
     public function testOnlyOneHolder(): void
     {
         $clock = new MockClock('@1000');
