@@ -38,6 +38,10 @@ final class HotKeys
         $kept = $state['kept'];
 
         foreach ($weights as $key => $weight) {
+            if (preg_match('//u', (string) $key) !== 1) {
+                continue;
+            }
+
             $scores[$key] = ($scores[$key] ?? 0.0) + (is_finite($weight) ? max(0.0, $weight) : 0.0);
         }
 
@@ -89,6 +93,11 @@ final class HotKeys
         return array_map('strval', array_keys($this->state($family)['scores']));
     }
 
+    /**
+     * Must be called under the flush lock: the temporary file has a fixed name.
+     *
+     * @throws \RuntimeException when the register cannot be encoded or written
+     */
     public function commit(): void
     {
         if ($this->families === null) {
@@ -111,26 +120,34 @@ final class HotKeys
 
         $json = json_encode(['version' => self::VERSION, 'families' => $families], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | \JSON_PRESERVE_ZERO_FRACTION);
         if ($json === false) {
-            return;
+            throw new \RuntimeException('The hot keys register could not be encoded: ' . json_last_error_msg());
         }
 
         $target = $directory . '/' . self::FILE;
-        $temporary = $target . '.' . bin2hex(random_bytes(6));
+        $temporary = $target . '.tmp';
 
-        BufferDirectory::quietly(static function () use ($temporary, $target, $json): void {
-            $handle = fopen($temporary, 'x');
+        $written = BufferDirectory::quietly(static function () use ($temporary, $target, $json): bool {
+            $handle = fopen($temporary, 'w');
             if ($handle === false) {
-                return;
+                return false;
             }
 
             chmod($temporary, 0o600);
             $complete = fwrite($handle, $json) === \strlen($json);
             fclose($handle);
 
-            if (!$complete || !rename($temporary, $target)) {
-                unlink($temporary);
+            if ($complete && rename($temporary, $target)) {
+                return true;
             }
+
+            unlink($temporary);
+
+            return false;
         });
+
+        if (!$written) {
+            throw new \RuntimeException('The hot keys register could not be written to ' . $target);
+        }
     }
 
     public function reset(): void

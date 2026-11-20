@@ -177,8 +177,9 @@ final class Aggregator
     {
         $weights = [];
         foreach ($groups as ['family' => $family, 'key' => $key, 'counters' => $counters]) {
-            $measure = $counters[$family->weightMetric()] ?? null;
-            $weights[$family->value][$key] = ($weights[$family->value][$key] ?? 0.0) + ($measure === null ? 0.0 : ($family->isOpen() ? $measure[1] : $measure[0]));
+            if ($key !== self::OTHER) {
+                $weights[$family->value][$key] = ($weights[$family->value][$key] ?? 0.0) + $family->weight($counters);
+            }
         }
 
         $folded = [];

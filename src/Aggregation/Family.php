@@ -36,6 +36,19 @@ enum Family: string
         };
     }
 
+    /**
+     * @param array<string, array{int, float, float}> $counters count, sum and max of each metric type of a key
+     */
+    public function weight(array $counters): float
+    {
+        $measure = $counters[$this->weightMetric()] ?? null;
+        if ($measure === null) {
+            return 0.0;
+        }
+
+        return $this->isOpen() ? $measure[1] : (float) $measure[0];
+    }
+
     public static function ofMetric(string $metricType): ?self
     {
         return self::tryFrom(strstr($metricType, '.', true) ?: $metricType);

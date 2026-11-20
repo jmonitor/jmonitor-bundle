@@ -27,4 +27,17 @@ class FamilyTest extends TestCase
             array_map(static fn(Family $f): string => $f->weightMetric(), Family::cases()),
         );
     }
+
+    public function testWeightIsTheSumForAnOpenFamilyAndTheCountForAClosedOne(): void
+    {
+        $counters = [
+            'request.duration' => [4, 80.0, 30.0],
+            'query.duration' => [3, 12.5, 8.0],
+            'query.slow' => [1, 0.0, 0.0],
+        ];
+
+        static::assertSame(4.0, Family::Request->weight($counters));
+        static::assertSame(12.5, Family::Query->weight($counters));
+        static::assertSame(0.0, Family::NPlusOne->weight($counters));
+    }
 }

@@ -495,6 +495,35 @@ class AggregatorTest extends TestCase
         static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, 'GET a'));
     }
 
+    public function testTheOtherKeyOfTheCaptureTakesNoPlaceInTheRegister(): void
+    {
+        $dir = sys_get_temp_dir() . '/jmonitor-aggregator-' . bin2hex(random_bytes(6));
+        mkdir($dir);
+
+        $children = [new Entry(Entry::TYPE_QUERY, Aggregator::OTHER, 1700000045.0, 5000.0, ['n' => 1, 'm' => 1.0])];
+        for ($i = 1; $i <= 200; ++$i) {
+            $children[] = new Entry(Entry::TYPE_QUERY, sprintf('q%03d', $i), 1700000045.0, 10.0 + $i, ['n' => 1, 'm' => 1.0]);
+        }
+        $unit = new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0, [], $children);
+
+        try {
+            $registry = new HotKeys(new BufferDirectory($dir, 'app'), new MockClock('@1700000000'));
+            $batches = [
+                'per flush' => (new Aggregator(1000))->aggregate([$unit]),
+                'registry' => (new Aggregator(1000, $registry))->aggregate([$unit]),
+            ];
+        } finally {
+            (new Filesystem())->remove($dir);
+        }
+
+        foreach ($batches as $name => $aggregates) {
+            $rows = array_filter($aggregates, static fn(Aggregate $a): bool => $a->period === Period::OneHour && $a->type === Metric::QUERY_DURATION);
+            static::assertCount(201, $rows, $name);
+            static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, 'q001'), $name);
+            static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, Aggregator::OTHER)?->count, $name);
+        }
+    }
+
     /**
      * @param list<Aggregate> $aggregates
      */

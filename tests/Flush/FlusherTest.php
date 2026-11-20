@@ -504,6 +504,30 @@ final class FlusherTest extends TestCase
         static::assertCount(1, glob($this->dir . '/jmonitor-app-*/hot-keys.json') ?: []);
     }
 
+    public function testARegisterThatCannotBeWrittenIsLoggedOnceAndTheFlushSucceeds(): void
+    {
+        $logger = $this->memoryLogger();
+        $directory = new BufferDirectory($this->dir, 'app');
+        mkdir($directory->path() . '/hot-keys.json');
+        $registry = new HotKeys($directory, $this->clock);
+        $flusher = new Flusher($this->buffer, new Aggregator(500, $registry), $this->dbalStorage(), new FlushLock($directory, 10, $this->clock), $this->clock, $logger, 300, $registry);
+
+        foreach ([1, 2] as $round) {
+            $this->buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET app_home', (float) $this->clock->now()->getTimestamp(), 20.0, [], [
+                new Entry(Entry::TYPE_QUERY, 'abc', (float) $this->clock->now()->getTimestamp(), 12.0, ['n' => 1, 'm' => 12.0]),
+            ]));
+            $this->clock->sleep(11);
+
+            static::assertTrue($flusher->flush(), "round {$round}");
+            static::assertNull($flusher->lastFailure(), "round {$round}");
+            static::assertSame([], glob($this->dir . '/*/*.ndjson'), "round {$round}");
+        }
+
+        static::assertSame(2, $this->storedRequests());
+        static::assertCount(1, $logger->records);
+        static::assertStringStartsWith('error JMonitor could not update its bookkeeping after a flush: ', $logger->records[0]);
+    }
+
     public function testOldLabelsArePrunedEvenWhenNothingIsStored(): void
     {
         $clock = new MockClock('@' . (time() + LabelStore::STORE_EVERY + 60));
