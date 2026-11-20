@@ -724,6 +724,44 @@ final class RecorderTest extends TestCase
         static::assertSame([], $this->buffer->entries[0]->children);
     }
 
+    public function testNothingIsRecordingWhileTheInnermostUnitIsMuted(): void
+    {
+        $recorder = $this->recorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $muted = $recorder->begin(Entry::TYPE_COMMAND, 1001.0, true);
+
+        static::assertFalse($recorder->isRecording());
+
+        $command = $recorder->begin(Entry::TYPE_COMMAND, 1002.0);
+
+        static::assertTrue($recorder->isRecording());
+
+        $recorder->discard($command);
+
+        static::assertFalse($recorder->isRecording());
+
+        $recorder->discard($muted);
+
+        static::assertTrue($recorder->isRecording());
+
+        $recorder->discard($request);
+    }
+
+    public function testEndingAMutedUnitWritesNothing(): void
+    {
+        $recorder = $this->recorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $muted = $recorder->begin(Entry::TYPE_COMMAND, 1001.0, true);
+        $recorder->end($muted, 'cache:clear', 5.0, ['exit' => 0]);
+
+        static::assertSame([], $this->buffer->entries);
+        static::assertFalse($recorder->hasWritten());
+        static::assertSame(1, $recorder->openUnits());
+        static::assertSame($request, $recorder->current());
+    }
+
     public function testAnInnerUnitCarriesItsTotalsToItsParent(): void
     {
         $recorder = $this->sqlRecorder();

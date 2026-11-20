@@ -1,0 +1,20 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Input\ArgvInput;
+
+require dirname(__DIR__, 4) . '/vendor/autoload.php';
+
+$environment = $_SERVER['APP_ENV'] ?? getenv('APP_ENV');
+$debug = $_SERVER['APP_DEBUG'] ?? getenv('APP_DEBUG');
+
+$kernel = new TestKernel(
+    \is_string($environment) && $environment !== '' ? $environment : 'dev',
+    \is_string($debug) && $debug !== '' ? filter_var($debug, \FILTER_VALIDATE_BOOL) : true,
+);
+
+exit((new Application($kernel))->run(new ArgvInput()));

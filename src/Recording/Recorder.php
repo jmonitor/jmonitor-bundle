@@ -78,7 +78,7 @@ final class Recorder implements ResetInterface
     public function end(int $token, string $key, float $durationMs, array $attributes = []): void
     {
         $unit = $this->close($token);
-        if ($unit === null) {
+        if ($unit === null || $unit->muted) {
             return;
         }
 
@@ -161,7 +161,7 @@ final class Recorder implements ResetInterface
 
     public function isRecording(): bool
     {
-        return $this->units !== [] && !$this->paused;
+        return $this->units !== [] && !$this->paused && !$this->units[array_key_last($this->units)]->muted;
     }
 
     public function pause(): void

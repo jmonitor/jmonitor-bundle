@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Command\SetupCommand;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
+use Jmonitor\JmonitorBundle\Recording\CommandRecorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
@@ -30,7 +31,7 @@ final class StorageConnectionPass implements CompilerPassInterface
             return;
         }
 
-        foreach ([RequestRecorder::class, Flusher::class, DbalStorage::class, DbalReader::class, SchemaAssetFilter::class, SetupCommand::class, Middleware::class, LabelSync::class] as $id) {
+        foreach ([RequestRecorder::class, CommandRecorder::class, Flusher::class, DbalStorage::class, DbalReader::class, SchemaAssetFilter::class, SetupCommand::class, Middleware::class, LabelSync::class] as $id) {
             $container->removeDefinition($id);
         }
 

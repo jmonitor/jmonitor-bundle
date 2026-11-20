@@ -66,6 +66,8 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.recording.users', $config['recording']['users']);
         $builder->setParameter('jmonitor.recording.http_client', $config['recording']['http_client']);
         $builder->setParameter('jmonitor.recording.cache', $config['recording']['cache']);
+        $builder->setParameter('jmonitor.recording.commands.enabled', $config['recording']['commands']['enabled']);
+        $builder->setParameter('jmonitor.recording.commands.ignore', $config['recording']['commands']['ignore']);
         $builder->setParameter('jmonitor.recording.app_id', substr(hash('xxh128', $projectDir . '|' . $environment), 0, 12));
         $builder->setParameter('jmonitor.storage.connection', $config['storage']['connection']);
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
@@ -332,6 +334,17 @@ final class JmonitorBundle extends AbstractBundle
                         ->booleanNode('users')->defaultTrue()->info('Record the requests of each signed-in user. Requires the SecurityBundle.')->end()
                         ->booleanNode('http_client')->defaultTrue()->info('Record the outgoing calls made through the http_client service and its scoped clients, per host.')->end()
                         ->booleanNode('cache')->defaultTrue()->info('Count the reads, writes and deletes of cache.app and of the pools declared under framework.cache.pools.')->end()
+                        ->arrayNode('commands')
+                            ->canBeDisabled()
+                            ->info('Record the console commands.')
+                            ->children()
+                                ->arrayNode('ignore')
+                                    ->scalarPrototype()->end()
+                                    ->defaultValue([])
+                                    ->info('Command names that are not recorded, on top of the default ones. fnmatch patterns allowed.')
+                                ->end()
+                            ->end()
+                        ->end()
                     ->end()
                 ->end()
                 ->arrayNode('storage')

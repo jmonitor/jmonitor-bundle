@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Command\SetupCommand;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
+use Jmonitor\JmonitorBundle\Recording\CommandRecorder;
 use Jmonitor\JmonitorBundle\Recording\ExceptionRecorder;
 use Jmonitor\JmonitorBundle\Recording\HttpClient\CallRecorder;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
@@ -166,6 +167,20 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             ->args([service(Recorder::class), $recorderLogger]);
     }
 
+    $commandRecorder = null;
+    if ($builder->getParameter('jmonitor.recording.commands.enabled') !== false) {
+        $commandRecorder = $services->set(CommandRecorder::class)
+            ->args([
+                service(Recorder::class),
+                service(Flusher::class),
+                param('jmonitor.recording.commands.ignore'),
+                param('jmonitor.recording.exceptions'),
+                $logger,
+            ])
+            ->tag('kernel.event_subscriber')
+            ->tag('kernel.reset', ['method' => 'reset']);
+    }
+
     $userRecorder = null;
     if ($builder->getParameter('jmonitor.recording.users') !== false && isset($builder->getParameter('kernel.bundles')['SecurityBundle'])) {
         $userRecorder = $services->set(UserRecorder::class)
@@ -176,6 +191,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     if ($customLogger === null) {
         $recorder->tag('monolog.logger', ['channel' => 'jmonitor']);
         $requestRecorder->tag('monolog.logger', ['channel' => 'jmonitor']);
+        $commandRecorder?->tag('monolog.logger', ['channel' => 'jmonitor']);
         $userRecorder?->tag('monolog.logger', ['channel' => 'jmonitor']);
     }
 };

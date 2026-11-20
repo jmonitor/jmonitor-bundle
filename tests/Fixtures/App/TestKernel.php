@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App;
 
 use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Command\WorkCommand;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller\DemoController;
 use Psr\Log\LogLevel;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
@@ -170,6 +171,9 @@ final class TestKernel extends Kernel
                 service('cache.app'),
             ])
             ->tag('controller.service_arguments');
+        $services->set(WorkCommand::class)
+            ->args([service('doctrine.dbal.default_connection')->nullOnInvalid()])
+            ->tag('console.command');
         $services->set(CacheConsumer::class)
             ->autowire()
             ->public();

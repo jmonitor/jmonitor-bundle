@@ -29,6 +29,7 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
+use Jmonitor\JmonitorBundle\Recording\CommandRecorder;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
@@ -183,6 +184,44 @@ class JmonitorBundleTest extends TestCase
         static::assertFalse($container->hasDefinition(LabelSync::class));
     }
 
+    public function testCommandRecordingHasDefaults(): void
+    {
+        $container = $this->loadBundle([], environment: 'prod');
+
+        static::assertTrue($container->getParameter('jmonitor.recording.commands.enabled'));
+        static::assertSame([], $container->getParameter('jmonitor.recording.commands.ignore'));
+
+        $definition = $container->getDefinition(CommandRecorder::class);
+        static::assertSame(Recorder::class, (string) $definition->getArgument(0));
+        static::assertSame(Flusher::class, (string) $definition->getArgument(1));
+        static::assertSame('%jmonitor.recording.commands.ignore%', $definition->getArgument(2));
+        static::assertSame('%jmonitor.recording.exceptions%', $definition->getArgument(3));
+        static::assertTrue($definition->hasTag('kernel.event_subscriber'));
+        static::assertSame([['method' => 'reset']], $definition->getTag('kernel.reset'));
+    }
+
+    public function testCommandRecordingTakesTheProvidedPatterns(): void
+    {
+        $container = $this->loadBundle(['recording' => ['commands' => ['ignore' => ['app:internal:*']]]], environment: 'prod');
+
+        static::assertTrue($container->getParameter('jmonitor.recording.commands.enabled'));
+        static::assertSame(['app:internal:*'], $container->getParameter('jmonitor.recording.commands.ignore'));
+    }
+
+    public function testCommandRecordingCanBeSwitchedOff(): void
+    {
+        $container = $this->loadBundle(['recording' => ['commands' => false]], environment: 'prod');
+
+        static::assertFalse($container->getParameter('jmonitor.recording.commands.enabled'));
+        static::assertFalse($container->hasDefinition(CommandRecorder::class));
+        static::assertTrue($container->hasDefinition(RequestRecorder::class));
+    }
+
+    public function testNoCommandRecorderWhenRecordingIsOff(): void
+    {
+        static::assertFalse($this->loadBundle(['recording' => ['enabled' => false]], environment: 'prod')->hasDefinition(CommandRecorder::class));
+    }
+
     /**
      * @return iterable<string, array{array<string, int>}>
      */
@@ -207,7 +246,7 @@ class JmonitorBundleTest extends TestCase
      */
     private static function loggingServices(): array
     {
-        return [Flusher::class => 5, RequestRecorder::class => 3, ScreenBuilder::class => 4];
+        return [Flusher::class => 5, RequestRecorder::class => 3, CommandRecorder::class => 4, ScreenBuilder::class => 4];
     }
 
     public function testApplicationMonitoringUsesTheConfiguredLogger(): void
