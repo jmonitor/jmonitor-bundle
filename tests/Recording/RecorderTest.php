@@ -14,6 +14,7 @@ use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use Jmonitor\JmonitorBundle\Recording\Unit;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\AbstractLogger;
 use Symfony\Component\Filesystem\Filesystem;
@@ -563,6 +564,36 @@ final class RecorderTest extends TestCase
         $key = $this->buffer->entries[0]->children[0]->key;
         static::assertSame(254, \strlen($key));
         static::assertTrue(mb_check_encoding($key, 'UTF-8'));
+    }
+
+    #[DataProvider('keysAroundTheLimit')]
+    public function testAKeyKeepsEveryWholeCharacterWithin255Bytes(string $key, int $keptBytes): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->add($token, Entry::TYPE_USER, $key);
+        $recorder->end($token, 'GET app_home', 1.0);
+
+        $cut = $this->buffer->entries[0]->children[0]->key;
+        static::assertSame(substr($key, 0, $keptBytes), $cut);
+        static::assertTrue(mb_check_encoding($cut, 'UTF-8'));
+    }
+
+    /**
+     * @return iterable<string, array{string, int}>
+     */
+    public static function keysAroundTheLimit(): iterable
+    {
+        yield 'ASCII' => [str_repeat('a', 300), 255];
+        yield '255 bytes exactly' => ['a' . str_repeat('é', 127), 255];
+        yield '3-byte character ending on the limit' => [str_repeat('€', 100), 255];
+        yield '3-byte character with 1 byte within the limit' => ['aa' . str_repeat('€', 100), 254];
+        yield '3-byte character with 2 bytes within the limit' => ['a' . str_repeat('€', 100), 253];
+        yield '4-byte character ending on the limit' => ['aaa' . str_repeat('😀', 100), 255];
+        yield '4-byte character with 1 byte within the limit' => ['aa' . str_repeat('😀', 100), 254];
+        yield '4-byte character with 2 bytes within the limit' => ['a' . str_repeat('😀', 100), 253];
+        yield '4-byte character with 3 bytes within the limit' => [str_repeat('😀', 100), 252];
     }
 
     public function testUnderPressureTheTotalsStayAndKeptChildrenWeighTen(): void

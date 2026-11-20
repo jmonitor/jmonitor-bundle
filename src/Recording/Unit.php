@@ -28,7 +28,7 @@ final class Unit
     public function add(string $type, string $key, float $durationMs, array $counters): void
     {
         if (\strlen($key) > self::MAX_KEY_BYTES) {
-            $key = mb_strcut($key, 0, self::MAX_KEY_BYTES, 'UTF-8');
+            $key = self::cut($key);
         }
         if (!isset($this->measures[$type][$key]) && \count($this->measures[$type] ?? []) >= Recorder::MAX_KEYS_PER_TYPE) {
             $key = Aggregator::OTHER;
@@ -108,5 +108,25 @@ final class Unit
         }
 
         return $children;
+    }
+
+    /**
+     * Cuts at the limit, before the last character when its bytes run past it.
+     */
+    private static function cut(string $key): string
+    {
+        $lead = self::MAX_KEY_BYTES;
+        do {
+            $byte = \ord($key[--$lead]);
+        } while (($byte & 0xC0) === 0x80 && $lead > self::MAX_KEY_BYTES - 4);
+
+        $length = match (true) {
+            $byte >= 0xF0 => 4,
+            $byte >= 0xE0 => 3,
+            $byte >= 0xC0 => 2,
+            default => 1,
+        };
+
+        return substr($key, 0, $lead + $length > self::MAX_KEY_BYTES ? $lead : self::MAX_KEY_BYTES);
     }
 }
