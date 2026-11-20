@@ -259,7 +259,7 @@ The bundle can also record the HTTP requests your application serves, with the S
 - **Exceptions** (`/jmonitor/exceptions`): count and last occurrence per exception class, and per class and route.
 - **Users** (`/jmonitor/users`): requests, total and average time, slow requests and 5xx errors, per signed-in user.
 
-A screen only appears when its component is installed and its recording option is on: HTTP client needs the Symfony HttpClient, Users needs the SecurityBundle.
+A screen only appears when its component is installed and its recording option is on: HTTP client needs the `http_client` service of the framework, Users needs the SecurityBundle.
 
 Only HTTP requests are covered for now: what console commands and message consumers do is not recorded.
 
@@ -295,7 +295,7 @@ jmonitor:
             n_plus_one_threshold: 10  # executions of the same SELECT within one request that make an N+1
         exceptions: true      # count the exceptions behind 5xx responses
         users: true           # record the requests of each signed-in user (needs the SecurityBundle)
-        http_client: true     # record the outgoing calls made with the Symfony HttpClient
+        http_client: true     # record the outgoing calls of the http_client service and the scoped clients
         cache: true           # count the reads and writes of cache.app and of the pools you declare
     storage:
         connection: 'default' # name of the Doctrine DBAL connection
@@ -329,7 +329,7 @@ Exceptions: only the class of the exception is kept, and only when the final res
 
 Users: the identifier of the signed-in user (`getUserIdentifier()`, often a username or an email address) is stored in clear in your application database, in the `jmonitor_keys` table. Set `recording.users: false` to go without it. It needs the SecurityBundle. Anonymous requests are not counted, and under `switch_user` the request counts for the impersonated user. A request is attributed to a user only when your application resolved the user during that request: JMonitor never triggers a lazy authentication itself, so the public pages a signed-in user visits may not be counted.
 
-Outgoing HTTP calls: only the calls made with the Symfony HttpClient are seen, not those made with Guzzle or curl directly. Only the host and port of a call are kept, never its scheme, credentials, path or query string. A retried call counts once, and its duration covers every attempt and the pauses between them.
+Outgoing HTTP calls: only the calls made through the `http_client` service and the scoped clients declared under `framework.http_client.scoped_clients` are seen, that is the clients your application receives by injection. A client created by hand with `HttpClient::create()`, Guzzle or curl is not seen. Only the host and port of a call are kept, never its scheme, credentials, path or query string. A retried call counts once, and its duration covers every attempt and the pauses between them.
 
 Cache: `cache.app` and the pools declared under `framework.cache.pools` in YAML or PHP are counted. Not counted: the pools built on the system adapter (`cache.adapter.system`), those with `early_expiration_message_bus`, and the pools Symfony or other bundles create for their own use. Only counters are kept: hits, misses, writes and deletes per pool, never a key nor a value.
 
