@@ -13,6 +13,7 @@ use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 final class DbalStorage implements StorageInterface
 {
     private const KEY_GRACE_SECONDS = 86400;
+    private const PURGED_TYPES_PER_STATEMENT = 100;
 
     private bool $schemaReady = false;
     private bool $installed = false;
@@ -66,10 +67,14 @@ final class DbalStorage implements StorageInterface
 
         try {
             foreach (Period::cases() as $period) {
-                $this->connection->executeStatement(
-                    'DELETE FROM ' . AggregatesTable::NAME . ' WHERE period = ? AND bucket < ?',
-                    [$period->value, $now - min($period->value, $this->retention) - $period->bucketSeconds()],
-                );
+                $before = $now - min($period->value, $this->retention) - $period->bucketSeconds();
+                foreach (array_chunk($this->metricTypes($period), self::PURGED_TYPES_PER_STATEMENT) as $types) {
+                    $this->connection->executeStatement(
+                        'DELETE FROM ' . AggregatesTable::NAME . ' WHERE period = ? AND metric_type IN ('
+                        . implode(', ', array_fill(0, \count($types), '?')) . ') AND bucket < ?',
+                        [$period->value, ...$types, $before],
+                    );
+                }
             }
 
             $this->connection->executeStatement(
@@ -77,6 +82,28 @@ final class DbalStorage implements StorageInterface
                 [$now - $this->retention - self::KEY_GRACE_SECONDS, KeysTable::VERSION_ROW],
             );
         } catch (TableNotFoundException) {
+        }
+    }
+
+    /**
+     * One index seek per type: the primary key orders a period by metric type, then by bucket.
+     *
+     * @return list<string>
+     */
+    private function metricTypes(Period $period): array
+    {
+        $types = [];
+        $type = '';
+        while (true) {
+            $type = $this->connection->fetchOne(
+                'SELECT metric_type FROM ' . AggregatesTable::NAME . ' WHERE period = ? AND metric_type > ? ORDER BY metric_type LIMIT 1',
+                [$period->value, $type],
+            );
+            if (!\is_string($type)) {
+                return $types;
+            }
+
+            $types[] = $type;
         }
     }
 

@@ -198,6 +198,49 @@ final class DbalStorageTest extends TestCase
     }
 
     #[DataProvider('connections')]
+    public function testPurgeReachesEveryMetricType(Connection $connection): void
+    {
+        $this->reset($connection);
+        $now = 1700700000;
+        $storage = $this->storage($connection, 604800);
+        $aggregates = [];
+        for ($status = 100; $status < 350; ++$status) {
+            foreach ([Period::OneHour, Period::OneDay] as $period) {
+                $aggregates[] = new Aggregate($period, $now - 2 * $period->value, Metric::REQUEST_STATUS_PREFIX . $status, 'GET app_home', 1, 1.0, 1.0);
+                $aggregates[] = new Aggregate($period, $period->bucketFor($now), Metric::REQUEST_STATUS_PREFIX . $status, 'GET app_home', 1, 1.0, 1.0);
+            }
+        }
+        $storage->store($aggregates, $now);
+
+        $storage->purge($now);
+
+        static::assertSame(
+            [[3600, 250, Period::OneHour->bucketFor($now)], [86400, 250, Period::OneDay->bucketFor($now)]],
+            array_map(
+                static fn(array $row): array => array_map('intval', $row),
+                $connection->fetchAllNumeric('SELECT period, COUNT(DISTINCT metric_type), MIN(bucket) FROM jmonitor_aggregates GROUP BY period ORDER BY period'),
+            ),
+        );
+    }
+
+    public function testPurgeDeletesFromTheHeadOfEachMetricType(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $storage = $this->storage($connection);
+        $storage->store([
+            $this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0),
+            new Aggregate(Period::OneHour, 1700000040, Metric::REQUEST_SLOW, 'GET app_home', 1, 1.0, 1.0),
+        ], 1700000100);
+
+        $storage->purge(1700700000);
+
+        $deletes = $recorder->paramsOf('DELETE FROM ' . AggregatesTable::NAME);
+        static::assertNotSame([], $deletes);
+        static::assertSame($deletes, $recorder->paramsOf('DELETE FROM ' . AggregatesTable::NAME . ' WHERE period = ? AND metric_type IN (?, ?) AND bucket < ?'));
+        static::assertSame(0, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
+    }
+
+    #[DataProvider('connections')]
     public function testPurgeHonoursShorterRetention(Connection $connection): void
     {
         $this->reset($connection);
