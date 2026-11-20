@@ -10,20 +10,14 @@ It ships a **Symfony-specific collector** and a **console command** that runs th
 
 <table>
   <tr>
-    <th valign="top"><a href="https://github.com/jmonitor/jmonitor">jmonitor/jmonitor</a><br>&nbsp;</th>
     <th valign="top"><a href="https://github.com/jmonitor/collector">jmonitor/collector</a><br>&nbsp;</th>
     <th valign="top">jmonitor/jmonitor-bundle<br><img src="https://img.shields.io/badge/you_are_here-0969da?style=flat-square" alt="you are here"></th>
+    <th valign="top"><a href="https://github.com/jmonitor/easyadmin-bundle">jmonitor/easyadmin-bundle</a><br>&nbsp;</th>
   </tr>
   <tr>
-    <td>Self-hostable backend — not needed with the cloud version</td>
     <td>The collectors — install them in the project to monitor</td>
     <td>Symfony-specific integration of the collectors</td>
-  </tr>
-  <tr>
-    <td colspan="3" align="center">
-      <a href="https://github.com/jmonitor/easyadmin-bundle">jmonitor/easyadmin-bundle</a><br>
-      Live monitoring pages inside EasyAdmin — no backend, no worker
-    </td>
+    <td>Live monitoring pages inside EasyAdmin — no backend, no worker</td>
   </tr>
   <tr>
     <td colspan="3" align="center">
@@ -53,7 +47,7 @@ It ships a **Symfony-specific collector** and a **console command** that runs th
 
 ### 1. Create your project
 
-Create a project on [jmonitor.io](https://jmonitor.io) — or on your self-hosted instance — and copy its API key.
+Create a project on [jmonitor.io](https://jmonitor.io) and copy its API key.
 
 ### 2. Install the bundle
 
@@ -318,4 +312,4 @@ RewriteRule ^ %{ENV:BASE}/index.php [L]
 ## Need help?
 - Anything about this bundle — installation, Symfony configuration, the `jmonitor:collect` command, the Symfony collector: open an issue on this repo https://github.com/jmonitor/jmonitor-bundle/issues
 - Anything about a metric — a missing or wrong value, a collector that does not gather what you expect: open an issue on https://github.com/jmonitor/collector/issues
-- Anything about the app itself — dashboards, alerts, [dash.jmonitor.io](https://dash.jmonitor.io): open an issue on https://github.com/jmonitor/jmonitor/issues
+- Anything about the app itself — dashboards, alerts, [dash.jmonitor.io](https://dash.jmonitor.io): write to [contact@jmonitor.io](mailto:contact@jmonitor.io)
