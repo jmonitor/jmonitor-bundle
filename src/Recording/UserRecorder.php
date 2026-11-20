@@ -47,8 +47,14 @@ final class UserRecorder implements EventSubscriberInterface
                 return;
             }
 
+            if ($this->isPending === null) {
+                $this->logUnreadableStorage();
+
+                return;
+            }
+
             // Only a request whose security the application already resolved is attributed to a user.
-            if ($this->isPending === null || ($this->isPending)()) {
+            if (($this->isPending)()) {
                 return;
             }
 
@@ -74,5 +80,15 @@ final class UserRecorder implements EventSubscriberInterface
 
         $this->failureLogged = true;
         $this->logger?->error('JMonitor could not record the user of a request: ' . $e->getMessage(), ['exception' => $e]);
+    }
+
+    private function logUnreadableStorage(): void
+    {
+        if ($this->failureLogged) {
+            return;
+        }
+
+        $this->failureLogged = true;
+        $this->logger?->warning(sprintf('JMonitor does not record users: the state of the token storage "%s" cannot be read.', get_debug_type($this->tokens)));
     }
 }

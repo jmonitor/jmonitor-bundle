@@ -207,7 +207,7 @@ final class UserRecorderTest extends KernelTestCase
         static::assertSame('admin', $children[0]->key);
     }
 
-    public function testAStorageOfAnotherClassIsNotRead(): void
+    public function testAStorageOfAnotherClassIsNotReadAndLoggedOnce(): void
     {
         $tokens = new class implements TokenStorageInterface {
             public int $reads = 0;
@@ -222,8 +222,21 @@ final class UserRecorderTest extends KernelTestCase
             public function setToken(?TokenInterface $token): void {}
         };
 
-        static::assertSame([], $this->request(users: new UserRecorder($this->recorder, $tokens, $this->logger)));
+        $users = new UserRecorder($this->recorder, $tokens, $this->logger);
+
+        static::assertSame([], $this->request(users: $users));
+        static::assertSame([], $this->request(users: $users));
         static::assertSame(0, $tokens->reads);
+        static::assertSame([sprintf('warning JMonitor does not record users: the state of the token storage "%s" cannot be read.', get_debug_type($tokens))], $this->logger->records);
+    }
+
+    public function testASymfonyStorageLogsNothing(): void
+    {
+        $users = new UserRecorder($this->recorder, $this->tokens, $this->logger);
+
+        static::assertSame([], $this->request(users: $users));
+        $this->tokens->setToken(self::token('admin'));
+        static::assertCount(1, $this->request(users: $users));
         static::assertSame([], $this->logger->records);
     }
 
