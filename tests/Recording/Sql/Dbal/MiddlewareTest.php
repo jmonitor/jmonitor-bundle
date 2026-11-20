@@ -14,7 +14,6 @@ use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception as DbalException;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
 use Doctrine\DBAL\Platforms\OraclePlatform;
-use Doctrine\DBAL\Tools\DsnParser;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Recording\Entry;
@@ -24,6 +23,7 @@ use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
+use Jmonitor\JmonitorBundle\Tests\Storage\Dbal\ConnectionProvider;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
@@ -166,7 +166,7 @@ final class MiddlewareTest extends TestCase
 
         foreach (['mysql' => 'JMONITOR_TEST_MYSQL_URL', 'pgsql' => 'JMONITOR_TEST_PGSQL_URL'] as $name => $variable) {
             if (is_string($url = getenv($variable)) && $url !== '') {
-                yield $name => [(new DsnParser(['mysql' => 'pdo_mysql', 'postgresql' => 'pdo_pgsql']))->parse($url)];
+                yield $name => [ConnectionProvider::parse($url)];
             }
         }
     }
