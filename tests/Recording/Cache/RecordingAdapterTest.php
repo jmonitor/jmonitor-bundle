@@ -87,6 +87,40 @@ final class RecordingAdapterTest extends TestCase
         static::assertSame(['h' => 2, 'mi' => 2], $this->counts($unit));
     }
 
+    public function testItemsTheApplicationDoesNotReadAreNotCounted(): void
+    {
+        $unit = $this->begin();
+
+        $items = $this->adapter->getItems(['stored', 'missing']);
+
+        static::assertInstanceOf(\Generator::class, $items);
+        static::assertSame([], $this->counts($unit));
+    }
+
+    public function testAnArrayOfItemsFromThePoolIsHandedBackAsIs(): void
+    {
+        $pool = new class extends ArrayAdapter {
+            /** @var array<string, CacheItem> */
+            public array $returned = [];
+
+            public function getItems(array $keys = []): iterable
+            {
+                return $this->returned = iterator_to_array(parent::getItems($keys));
+            }
+        };
+        $pool->save($pool->getItem('stored')->set('value'));
+        $adapter = new RecordingAdapter($pool, $this->recorder, self::POOL);
+        $unit = $this->begin();
+
+        $items = $adapter->getItems(['stored', 'missing']);
+
+        static::assertIsArray($items);
+        static::assertSame($pool->returned, $items);
+        static::assertCount(2, $items);
+        static::assertTrue($items['stored']->isHit());
+        static::assertSame(['h' => 1, 'mi' => 1], $this->counts($unit));
+    }
+
     public function testAGetThatDoesNotComputeIsAHit(): void
     {
         $this->adapter->get('cached', static fn(): string => 'value');

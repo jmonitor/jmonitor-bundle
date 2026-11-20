@@ -84,15 +84,26 @@ class RecordingAdapter extends TraceableAdapter
     }
 
     /**
-     * An item is counted when the application takes it from the iterable, which stays as lazy as the pool's.
+     * An item is counted when the application takes it from the iterable, which stays as lazy as the pool's; an array
+     * is counted at once and handed back as is.
      */
     public function getItems(array $keys = []): iterable
     {
         $items = $this->pool->getItems($keys);
 
         $unit = $this->recorder->current();
+        if ($unit === null) {
+            return $items;
+        }
+        if (!\is_array($items)) {
+            return $this->counted($unit, $items);
+        }
 
-        return $unit === null ? $items : $this->counted($unit, $items);
+        foreach ($items as $item) {
+            $this->recorder->add($unit, Entry::TYPE_CACHE, $this->name, 0.0, $item->isHit() ? self::HIT : self::MISS);
+        }
+
+        return $items;
     }
 
     public function hasItem(mixed $key): bool
