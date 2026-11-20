@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Tools\DsnParser;
+use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
@@ -59,9 +62,11 @@ const SQL_PER_REQUEST = 30;
 /** routes, distinct queries, requests in the ten-second slot, queries per request, users, called hosts, cache pools */
 const TYPICAL = [30, 50, 1_000, 10, 20, 5, 3];
 const LOADED = [150, 200, 10_000, 20, 200, 50, 20];
-/** routes, distinct queries, couples of a route and a repeated query, users, called hosts, cache pools, exception classes, in each bucket of the one-hour period */
+/** routes, distinct queries, couples of a route and a repeated query, users, called hosts, cache pools, exception classes, in each bucket of every period */
 const DISPLAYED = [150, 200, 100, 200, 50, 20, 20];
 const DISPLAY_RUNS = 5;
+/** Seconds after which five one-minute buckets have left the one-hour window, and no bucket of the other periods theirs. */
+const PURGE_DELAY = 420;
 const QUERIES_PER_ROUTE = 5;
 const EXCEPTION_CLASSES = 5;
 
@@ -338,13 +343,13 @@ function aggregateMillis(): array
 }
 
 /**
- * Stores the data set in each of the sixty buckets of the one-hour period, as sixty flushes would.
+ * Stores the data set in each of the sixty buckets of every period, as a week of flushes would.
  *
  * @param array{int, int, int, int, int, int, int} $dataSet
  *
  * @return int rows stored, every period included
  */
-function fillHour(Connection $connection, int $now, array $dataSet): int
+function fillPeriods(Connection $connection, int $now, array $dataSet): int
 {
     [$routes, $queries, $repeated, $users, $hosts, $pools, $classes] = $dataSet;
     $ids = [];
@@ -387,10 +392,50 @@ function fillHour(Connection $connection, int $now, array $dataSet): int
     $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
     $connection->executeStatement('DROP TABLE IF EXISTS ' . KeysTable::NAME);
     $storage->setUp();
-    $storage->store((new Aggregator(500))->aggregate($units), $now, $labels);
+
+    $hour = array_filter((new Aggregator(500))->aggregate($units), static fn(Aggregate $aggregate): bool => $aggregate->period === Period::OneHour);
+    foreach (Period::cases() as $period) {
+        $aggregates = [];
+        foreach ($hour as $aggregate) {
+            $age = intdiv($now - $aggregate->bucket, Period::OneHour->bucketSeconds());
+            $aggregates[] = new Aggregate($period, $period->bucketFor($now) - $age * $period->bucketSeconds(), $aggregate->type, $aggregate->key, $aggregate->count, $aggregate->sum, $aggregate->max);
+        }
+        $storage->store($aggregates, $now, $labels);
+    }
+    refreshStatistics($connection);
 
     return (int) $connection->fetchOne('SELECT COUNT(*) FROM ' . AggregatesTable::NAME);
 }
+
+/** SQLite is left without statistics, as in an application that never runs ANALYZE. */
+function refreshStatistics(Connection $connection): void
+{
+    $platform = $connection->getDatabasePlatform();
+    foreach ([AggregatesTable::NAME, KeysTable::NAME] as $table) {
+        if ($platform instanceof AbstractMySQLPlatform) {
+            $connection->fetchAllAssociative('ANALYZE TABLE ' . $table);
+        } elseif ($platform instanceof PostgreSQLPlatform) {
+            $connection->executeStatement('ANALYZE ' . $table);
+        }
+    }
+}
+
+/**
+ * @return array{float, int} milliseconds of the purge that follows the fill by PURGE_DELAY, rows deleted
+ */
+function purgeMillis(Connection $connection, int $now): array
+{
+    $count = static fn(): int => (int) $connection->fetchOne('SELECT COUNT(*) FROM ' . AggregatesTable::NAME);
+    $storage = new DbalStorage($connection, 31_536_000);
+    $before = $count();
+
+    $start = hrtime(true);
+    $storage->purge($now + PURGE_DELAY);
+    $elapsed = (hrtime(true) - $start) / 1_000_000;
+
+    return [$elapsed, $before - $count()];
+}
+
 
 /**
  * @return array{float, int} median milliseconds of the builds of the screen on its default sort, rows shown
@@ -517,33 +562,45 @@ report('flush 10k requests, no SQL (sqlite)', flushMillis($sqlite, 'requestsOnly
 $sqlite->close();
 @unlink($sqlitePath);
 
-$mysqlUrl = getenv('JMONITOR_TEST_MYSQL_URL');
-if (!\is_string($mysqlUrl) || $mysqlUrl === '') {
-    echo "JMONITOR_TEST_MYSQL_URL is not set: MySQL flushes skipped\n";
-
-    return;
-}
-
-$mysql = DriverManager::getConnection((new DsnParser(['mysql' => 'pdo_mysql']))->parse($mysqlUrl));
-report('flush 10k requests, no SQL (mysql)', flushMillis($mysql, 'requestsOnly')[0], 'ms', 50);
-foreach (['typical' => [TYPICAL, 100], 'loaded' => [LOADED, 500]] as $name => [$dataSet, $target]) {
-    $sampled = 0;
-    [$milliseconds, $rows] = flushMillis($mysql, static function (BufferDirectory $directory, ClockInterface $clock) use ($dataSet, &$sampled): void {
-        $sampled = fillSlot($directory, $clock, $dataSet);
-    });
-    report(
-        sprintf('flush %s, %d routes, %d queries, %d users, %d hosts, %d pools (mysql)', $name, $dataSet[0], $dataSet[1], $dataSet[4], $dataSet[5], $dataSet[6]),
-        $milliseconds,
-        'ms',
-        $target,
-        sprintf('(%d requests, %d kept their queries under sampling, %d rows written)', $dataSet[2], $sampled, $rows),
-    );
-}
-
 $now = 1_700_003_600;
-$stored = fillHour($mysql, $now, DISPLAYED);
-foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpClientScreen(true), new CacheScreen(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
-    [$milliseconds, $rows] = displayMillis($mysql, $now, $screen);
-    report(sprintf('display, %s, loaded database (mysql)', $screen->id()), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
+$loadedPath = tempnam(sys_get_temp_dir(), 'jmonitor_bench_') ?: ':memory:';
+$bases = ['sqlite' => DriverManager::getConnection(['driver' => 'pdo_sqlite', 'path' => $loadedPath])];
+foreach (['mysql' => 'JMONITOR_TEST_MYSQL_URL', 'pgsql' => 'JMONITOR_TEST_PGSQL_URL'] as $name => $variable) {
+    $url = getenv($variable);
+    if (!\is_string($url) || $url === '') {
+        printf("%s is not set: %s measures skipped\n", $variable, $name);
+
+        continue;
+    }
+
+    $bases[$name] = DriverManager::getConnection((new DsnParser(['mysql' => 'pdo_mysql', 'postgresql' => 'pdo_pgsql']))->parse($url));
 }
-$mysql->close();
+
+if (isset($bases['mysql'])) {
+    report('flush 10k requests, no SQL (mysql)', flushMillis($bases['mysql'], 'requestsOnly')[0], 'ms', 50);
+    foreach (['typical' => [TYPICAL, 100], 'loaded' => [LOADED, 500]] as $name => [$dataSet, $target]) {
+        $sampled = 0;
+        [$milliseconds, $rows] = flushMillis($bases['mysql'], static function (BufferDirectory $directory, ClockInterface $clock) use ($dataSet, &$sampled): void {
+            $sampled = fillSlot($directory, $clock, $dataSet);
+        });
+        report(
+            sprintf('flush %s, %d routes, %d queries, %d users, %d hosts, %d pools (mysql)', $name, $dataSet[0], $dataSet[1], $dataSet[4], $dataSet[5], $dataSet[6]),
+            $milliseconds,
+            'ms',
+            $target,
+            sprintf('(%d requests, %d kept their queries under sampling, %d rows written)', $dataSet[2], $sampled, $rows),
+        );
+    }
+}
+
+foreach ($bases as $name => $connection) {
+    $stored = fillPeriods($connection, $now, DISPLAYED);
+    foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpClientScreen(true), new CacheScreen(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
+        [$milliseconds, $rows] = displayMillis($connection, $now, $screen);
+        report(sprintf('display, %s, loaded database (%s)', $screen->id(), $name), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
+    }
+    [$milliseconds, $deleted] = purgeMillis($connection, $now);
+    report(sprintf('purge, five one-minute buckets, loaded database (%s)', $name), $milliseconds, 'ms', null, sprintf('(%d of %d rows deleted)', $deleted, $stored));
+    $connection->close();
+}
+@unlink($loadedPath);
