@@ -267,10 +267,15 @@ final class QueryDigesterTest extends TestCase
 
     public function testACommentThatCannotBeDelimitedIsFoldedIntoOtherAndNeverWritten(): void
     {
-        $digest = $this->digester()->digest(self::raw([
-            "SELECT id FROM users # don't use the cache\nWHERE email = 'john@example.com' AND token = 'abc'" => [1, 1.0, 1.0, 0],
-            "SELECT 1 /* /* */ it's */ FROM t WHERE a = 'secret' AND b = 'x'" => [1, 1.0, 1.0, 0],
-        ]), 1000.0);
+        $mysql = "SELECT 1 /*!50000 , 'secret' */";
+        $postgresql = "SELECT 1 /* /* */ 'secret'";
+        static::assertNotNull(SqlNormalizer::normalize($mysql, SqlDialect::Sqlite));
+        static::assertNotNull(SqlNormalizer::normalize($postgresql, SqlDialect::Sqlite));
+
+        $digest = $this->digester()->digest(
+            self::raw([$mysql => [1, 1.0, 1.0, 0]], SqlDialect::MySql) + self::raw([$postgresql => [1, 1.0, 1.0, 0]], SqlDialect::PostgreSql),
+            1000.0,
+        );
 
         static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertSame(['n' => 2, 'm' => 1.0], $digest->children[0]->attributes);
