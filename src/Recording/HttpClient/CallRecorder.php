@@ -13,7 +13,6 @@ final class CallRecorder
 {
     private const UNKNOWN_HOST = '(unknown)';
     private const DEFAULT_PORTS = ['http' => 80, 'https' => 443];
-    private const INFO_TYPES = ['previous_info', 'total_time', 'url', 'http_code', 'error', 'response_headers'];
 
     private bool $failureLogged = false;
 
@@ -36,7 +35,8 @@ final class CallRecorder
     public function record(int $unit, ResponseInterface $response, string $url, int $startedAt): void
     {
         try {
-            $info = self::info($response);
+            $info = $response->getInfo();
+            $info = \is_array($info) ? $info : [];
             $previousAttempts = $info['previous_info'] ?? null;
             // A retried call is timed from its request, earlier attempts and pauses included.
             $seconds = \is_array($previousAttempts) && $previousAttempts !== [] ? null : ($info['total_time'] ?? null);
@@ -50,25 +50,6 @@ final class CallRecorder
         } catch (\Throwable $e) {
             $this->logFailure($e);
         }
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private static function info(ResponseInterface $response): array
-    {
-        $info = $response->getInfo();
-        if (\is_array($info)) {
-            return $info;
-        }
-
-        // A response that does not hand back all its info at once is read key by key.
-        $info = [];
-        foreach (self::INFO_TYPES as $type) {
-            $info[$type] = $response->getInfo($type);
-        }
-
-        return $info;
     }
 
     private static function host(mixed $url): ?string

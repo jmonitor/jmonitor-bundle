@@ -579,6 +579,7 @@ final class RecordingHttpClientTest extends TestCase
             public function getInfo(?string $type = null): mixed
             {
                 return match ($type) {
+                    null => ['http_code' => 200, 'url' => 'https://a.example/', 'total_time' => 0.01],
                     'http_code' => 200,
                     'url' => 'https://a.example/',
                     'total_time' => 0.01,
