@@ -131,6 +131,7 @@ body.jm {
 
 .jm-nav {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
 }
 
@@ -141,6 +142,7 @@ body.jm {
     font-size: 14px;
     font-weight: 600;
     text-decoration: none;
+    white-space: nowrap;
 }
 
 .jm-nav__item:hover {
@@ -447,7 +449,7 @@ body.jm {
 
 .jm-table th,
 .jm-table td {
-    padding: 10px 14px;
+    padding: 10px 12px;
     text-align: left;
     vertical-align: middle;
 }
@@ -508,15 +510,11 @@ body.jm {
 }
 
 .jm-sort {
+    position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
     color: inherit;
     text-decoration: none;
-}
-
-.jm-num .jm-sort {
-    flex-direction: row-reverse;
 }
 
 .jm-sort:hover {
@@ -524,11 +522,18 @@ body.jm {
 }
 
 .jm-sort__icon {
-    display: inline-block;
-    width: 1em;
+    position: absolute;
+    left: 100%;
+    margin-left: 4px;
     font-size: 13px;
-    text-align: center;
     opacity: 0;
+}
+
+.jm-num .jm-sort__icon {
+    right: 100%;
+    left: auto;
+    margin-right: 4px;
+    margin-left: 0;
 }
 
 .jm-sort:hover .jm-sort__icon,
@@ -587,10 +592,20 @@ body.jm {
     color: var(--jm-bad);
 }
 
-.jm-route {
+.jm-route,
+.jm-code {
     color: var(--jm-text-strong);
     font-size: 13px;
+}
+
+.jm-route {
     overflow-wrap: anywhere;
+}
+
+.jm-code {
+    display: inline-block;
+    max-width: 60ch;
+    overflow-wrap: break-word;
 }
 
 .jm-route--unmatched {
@@ -732,7 +747,7 @@ body.jm {
         gap: 12px;
     }
 
-    .jm-card:last-child {
+    .jm-card:last-child:nth-child(odd of :not(.jm-card--wide)) {
         grid-column: 1 / -1;
     }
 

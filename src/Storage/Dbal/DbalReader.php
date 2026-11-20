@@ -37,8 +37,7 @@ final class DbalReader implements ReaderInterface
             if ($query->family->isOpen()) {
                 $hashes = $this->topKeys($query);
                 $metrics = $this->metrics($query, [...$hashes, $otherHash]);
-                $keyCount = $this->keyCount($query);
-                $totals = $this->totals($query);
+                [$totals, $keyCount] = $this->totals($query);
             } else {
                 $metrics = $this->metrics($query);
                 $hashes = array_values(array_diff(array_map('strval', array_keys($metrics)), [$otherHash]));
@@ -106,17 +105,6 @@ final class DbalReader implements ReaderInterface
         ));
     }
 
-    private function keyCount(ReportQuery $query): int
-    {
-        [$period, $since] = self::window($query);
-
-        return (int) $this->connection->fetchOne(
-            'SELECT COUNT(DISTINCT key_hash) FROM ' . AggregatesTable::NAME
-            . ' WHERE period = ? AND bucket > ? AND metric_type = ? AND key_hash <> ?',
-            [$period, $since, $query->family->weightMetric(), AggregatesTable::keyHash(Aggregator::OTHER)],
-        );
-    }
-
     /**
      * @param list<string>|null $hashes null for every key of the family
      *
@@ -147,14 +135,19 @@ final class DbalReader implements ReaderInterface
         return $metrics;
     }
 
-    /** @return array<string, MetricValue> metric type => total over every key */
+    /**
+     * @return array{array<string, MetricValue>, int} metric type => total over every key, and the number of keys
+     *                                                of the weight metric
+     */
     private function totals(ReportQuery $query): array
     {
         [$period, $since] = self::window($query);
         $rows = $this->connection->fetchAllAssociative(
-            'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max FROM '
-            . AggregatesTable::NAME . ' WHERE period = ? AND bucket > ? AND metric_type LIKE ? GROUP BY metric_type',
-            [$period, $since, $query->family->value . '.%'],
+            'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max,'
+            . ' (SELECT COUNT(DISTINCT key_hash) FROM ' . AggregatesTable::NAME
+            . ' WHERE period = ? AND bucket > ? AND metric_type = ? AND key_hash <> ?) AS key_count FROM ' . AggregatesTable::NAME
+            . ' WHERE period = ? AND bucket > ? AND metric_type LIKE ? GROUP BY metric_type',
+            [$period, $since, $query->family->weightMetric(), AggregatesTable::keyHash(Aggregator::OTHER), $period, $since, $query->family->value . '.%'],
         );
 
         $totals = [];
@@ -162,7 +155,7 @@ final class DbalReader implements ReaderInterface
             $totals[(string) $row['metric_type']] = new MetricValue((int) $row['entry_count'], (float) $row['value_sum'], (float) $row['value_max']);
         }
 
-        return $totals;
+        return [$totals, (int) ($rows[0]['key_count'] ?? 0)];
     }
 
     /**

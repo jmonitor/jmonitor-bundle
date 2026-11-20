@@ -37,10 +37,37 @@ start() {
 counter=0
 hit() {
     headers="$(curl -s -D - -o /dev/null "$BASE$1")" || fail "GET $1 failed"
+    if [ -n "${2:-}" ]; then
+        status="$(printf '%s\n' "$headers" | sed -n '1s/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p')"
+        [ "$status" = "$2" ] || fail "GET $1 answered $status instead of $2"
+    fi
     value="$(printf '%s\n' "$headers" | tr -d '\r' | sed -n 's/^[Xx]-[Ww]orker-[Rr]equests: //p')"
     [ -n "$value" ] || fail "GET $1 carried no X-Worker-Requests header: not served by the worker script"
     [ "$value" -gt "$counter" ] || fail "worker request counter did not increase on GET $1: $value after $counter"
     counter="$value"
+}
+
+expect_page() {
+    found=0
+    for _ in $(seq 1 30); do
+        page="$(curl -sf "$BASE$1")" || fail "GET $1 did not return 2xx"
+        if printf '%s\n' "$page" | grep -q "$2"; then
+            found=1
+            break
+        fi
+        sleep 1
+    done
+    [ "$found" = 1 ] || fail "$3 within 30 s"
+}
+
+captures_round() {
+    for _ in 1 2 3; do
+        hit /cached 200
+    done
+    hit /boom 500
+    hit /boom 500
+    expect_page /jmonitor/cache 'data-jm-pool="cache.app" data-jm-reads="3"' "round $1: the Cache screen did not list 3 reads of cache.app"
+    expect_page /jmonitor/exceptions 'data-jm-exception="RuntimeException" data-jm-count="2"' "round $1: the Exceptions screen did not list 2 RuntimeException"
 }
 
 # The readiness check flushed, so no flush is due for an hour and the lines stay in the buffer files.
@@ -99,4 +126,9 @@ for _ in $(seq 1 30); do
 done
 [ "$repeated" = 1 ] || fail 'the Queries screen did not list the N+1 of "GET app_n_plus_one" within 30 s'
 
-echo "OK: worker mode records correct durations, memory, counts and SQL queries"
+# The first round runs in a worker that has already served the requests above, the second in a new one.
+captures_round 1
+start 1
+captures_round 2
+
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads and exceptions"

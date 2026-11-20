@@ -7,12 +7,24 @@ use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
+use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\CacheScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\HttpClientScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
+use Jmonitor\JmonitorBundle\Recording\Cache\RecordingAdapter;
 use Jmonitor\JmonitorBundle\Recording\Entry;
+use Jmonitor\JmonitorBundle\Recording\HttpClient\CallRecorder;
+use Jmonitor\JmonitorBundle\Recording\HttpClient\RecordingHttpClient;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
@@ -20,12 +32,16 @@ use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
+use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
 use Psr\Clock\ClockInterface;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
@@ -40,9 +56,14 @@ const FLUSH_ENTRIES = 10_000;
 const FLUSH_ROUTES = 50;
 const SQL_PER_REQUEST = 30;
 
-/** routes, distinct queries, requests in the ten-second slot, queries per request */
-const TYPICAL = [30, 50, 1_000, 10];
-const LOADED = [150, 200, 10_000, 20];
+/** routes, distinct queries, requests in the ten-second slot, queries per request, users, called hosts, cache pools */
+const TYPICAL = [30, 50, 1_000, 10, 20, 5, 3];
+const LOADED = [150, 200, 10_000, 20, 200, 50, 20];
+/** routes, distinct queries, couples of a route and a repeated query, users, called hosts, cache pools, exception classes, in each bucket of the one-hour period */
+const DISPLAYED = [150, 200, 100, 200, 50, 20, 20];
+const DISPLAY_RUNS = 5;
+const QUERIES_PER_ROUTE = 5;
+const EXCEPTION_CLASSES = 5;
 
 function workDir(): string
 {
@@ -90,6 +111,16 @@ function sqlTexts(int $count): array
     }
 
     return $texts;
+}
+
+function poolName(int $index): string
+{
+    return $index === 0 ? 'cache.app' : 'app.pool_' . $index;
+}
+
+function exceptionClass(int $index): string
+{
+    return 'App\Exception\Failure' . $index;
 }
 
 function sqlRecorder(BufferDirectory $directory, ClockInterface $clock): Recorder
@@ -179,13 +210,13 @@ function lineBytes(): int
 /**
  * Records one ten-second slot of requests the way the application does, sampling under pressure included.
  *
- * @param array{int, int, int, int} $dataSet
+ * @param array{int, int, int, int, int, int, int} $dataSet
  *
  * @return int units recorded under pressure that kept their queries, at weight 10
  */
 function fillSlot(BufferDirectory $directory, ClockInterface $clock, array $dataSet): int
 {
-    [$routes, $queries, $requests, $perRequest] = $dataSet;
+    [$routes, $queries, $requests, $perRequest, $users, $hosts, $pools] = $dataSet;
     $texts = sqlTexts($queries);
     $start = (float) $clock->now()->getTimestamp();
     $recorder = sqlRecorder($directory, $clock);
@@ -201,7 +232,15 @@ function fillSlot(BufferDirectory $directory, ClockInterface $clock, array $data
                 $recorder->addSql($texts[$route % $queries], 0.15, SqlDialect::Sqlite);
             }
         }
-        $recorder->end($token, 'GET route_' . $route, 5.0 + ($i * 37) % 1500, ['status' => $i % 50 === 0 ? 500 : 200, 'memory' => 2_097_152 + ($i % 64) * 65_536]);
+        $recorder->add($token, Entry::TYPE_USER, 'user' . ($i % $users) . '@example.com');
+        $recorder->add($token, Entry::TYPE_HTTP, 'api' . ($i % $hosts) . '.example.com', 20.0 + ($i % 30), $i % 40 === 0 ? ['c5' => 1] : []);
+        $recorder->add($token, Entry::TYPE_CACHE, poolName($i % $pools), 0.0, ['h' => 1]);
+        $recorder->add($token, Entry::TYPE_CACHE, poolName(($i + 1) % $pools), 0.0, ['mi' => 1, 'w' => 1]);
+        $failed = $i % 50 === 0;
+        if ($failed) {
+            $recorder->add($token, Entry::TYPE_EXCEPTION, exceptionClass(intdiv($i, 50) % EXCEPTION_CLASSES));
+        }
+        $recorder->end($token, 'GET route_' . $route, 5.0 + ($i * 37) % 1500, ['status' => $failed ? 500 : 200, 'memory' => 2_097_152 + ($i % 64) * 65_536]);
     }
 
     $sampled = 0;
@@ -298,6 +337,83 @@ function aggregateMillis(): array
     return [$elapsed, $sampled];
 }
 
+/**
+ * Stores the data set in each of the sixty buckets of the one-hour period, as sixty flushes would.
+ *
+ * @param array{int, int, int, int, int, int, int} $dataSet
+ *
+ * @return int rows stored, every period included
+ */
+function fillHour(Connection $connection, int $now, array $dataSet): int
+{
+    [$routes, $queries, $repeated, $users, $hosts, $pools, $classes] = $dataSet;
+    $ids = [];
+    $labels = [];
+    foreach (sqlTexts($queries) as $text) {
+        $ids[] = $id = substr(hash('xxh3', $text), 0, 16);
+        $labels[$id] = $text;
+    }
+
+    $units = [];
+    for ($minute = 0; $minute < 60; ++$minute) {
+        $startedAt = (float) ($now - $minute * 60);
+        for ($route = 0; $route < $routes; ++$route) {
+            $children = [];
+            for ($k = 0; $k < QUERIES_PER_ROUTE; ++$k) {
+                $children[] = new Entry(Entry::TYPE_QUERY, $ids[($route * QUERIES_PER_ROUTE + $k) % $queries], $startedAt, 0.4 + ($minute + $k) % 7 * 0.3, ['n' => 1 + $k, 'm' => 0.4]);
+            }
+            if ($route < $repeated) {
+                $children[] = new Entry(Entry::TYPE_NPLUS1, $ids[$route * QUERIES_PER_ROUTE % $queries], $startedAt, 1.8, ['n' => 12]);
+            }
+            $children[] = new Entry(Entry::TYPE_USER, 'user' . (($minute * $routes + $route) % $users) . '@example.com', $startedAt, 0.0, ['n' => 1]);
+            $children[] = new Entry(Entry::TYPE_HTTP, 'api' . (($minute + $route) % $hosts) . '.example.com', $startedAt, 24.0, ['n' => 2, 'm' => 15.0] + ($route % 40 === 0 ? ['c5' => 1] : []));
+            $children[] = new Entry(Entry::TYPE_CACHE, poolName($route % $pools), $startedAt, 0.0, ['n' => 3, 'h' => 2, 'mi' => 1, 'w' => 1]);
+            $failed = $route % 10 === 0;
+            if ($failed) {
+                $children[] = new Entry(Entry::TYPE_EXCEPTION, exceptionClass(($minute + $route) % $classes), $startedAt, 0.0, ['n' => 1]);
+            }
+            $units[] = new Entry(Entry::TYPE_REQUEST, 'GET route_' . $route, $startedAt, 5.0 + ($minute * 37 + $route) % 1500, [
+                'status' => $failed ? 500 : 200,
+                'memory' => 2_097_152 + ($route % 64) * 65_536,
+                'sql_n' => 15,
+                'sql_ms' => 4.5,
+                'http_n' => 2,
+                'http_ms' => 24.0,
+            ], $children);
+        }
+    }
+
+    $storage = new DbalStorage($connection, 31_536_000);
+    $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
+    $connection->executeStatement('DROP TABLE IF EXISTS ' . KeysTable::NAME);
+    $storage->setUp();
+    $storage->store((new Aggregator(500))->aggregate($units), $now, $labels);
+
+    return (int) $connection->fetchOne('SELECT COUNT(*) FROM ' . AggregatesTable::NAME);
+}
+
+/**
+ * @return array{float, int} median milliseconds of the builds of the screen on its default sort, rows shown
+ */
+function displayMillis(Connection $connection, int $now, ScreenInterface $screen): array
+{
+    $reader = new DbalReader($connection);
+    $sorts = $screen->sorts();
+    $sort = (string) array_key_first($sorts);
+
+    $timings = [];
+    $rows = 0;
+    for ($run = 0; $run < DISPLAY_RUNS; ++$run) {
+        $start = hrtime(true);
+        $view = $screen->build($reader, Period::OneHour, $now, $sort, $sorts[$sort]);
+        $timings[] = (hrtime(true) - $start) / 1_000_000;
+        $rows = array_sum(array_map(static fn(Table $table): int => \count($table->rows), $view->tables));
+    }
+    sort($timings);
+
+    return [$timings[intdiv(DISPLAY_RUNS, 2)], $rows];
+}
+
 $dir = workDir();
 $clock = new NativeClock();
 $buffer = new FileBuffer(new BufferDirectory($dir, 'bench'), 10, $clock);
@@ -362,6 +478,36 @@ report('normalize(), per distinct text', microsPerCall(static function () use ($
     SqlNormalizer::normalize($texts[$call++ % SQL_PER_REQUEST], SqlDialect::MySql);
 }), 'µs', null);
 
+$dir = workDir();
+$httpRecorder = new Recorder(new FileBuffer(new BufferDirectory($dir, 'bench'), 10, $clock));
+$httpRecorder->begin(Entry::TYPE_REQUEST, microtime(true));
+$mockResponse = static fn(): MockResponse => new MockResponse('{"ok":true}', ['total_time' => 0.012]);
+$bareClient = new MockHttpClient($mockResponse);
+$recordingClient = new RecordingHttpClient(new MockHttpClient($mockResponse), new CallRecorder($httpRecorder));
+$bareCall = static fn() => $bareClient->request('GET', 'https://api.example.com/v1/items?page=2')->getContent();
+$recordedCall = static fn() => $recordingClient->request('GET', 'https://api.example.com/v1/items?page=2')->getContent();
+microsPerCall($bareCall);
+microsPerCall($recordedCall);
+$bareMicros = microsPerCall($bareCall);
+report('outgoing call, recording overhead', microsPerCall($recordedCall) - $bareMicros, 'µs', 20, sprintf('(%.2f µs per call without recording)', $bareMicros));
+$httpRecorder->reset();
+removeDir($dir);
+
+$dir = workDir();
+$cacheRecorder = new Recorder(new FileBuffer(new BufferDirectory($dir, 'bench'), 10, $clock));
+$cacheRecorder->begin(Entry::TYPE_REQUEST, microtime(true));
+$barePool = new ArrayAdapter(0, false);
+$barePool->save($barePool->getItem('item')->set('value'));
+$recordedPool = new RecordingAdapter($barePool, $cacheRecorder, 'cache.app');
+$bareRead = static fn() => $barePool->getItem('item');
+$recordedRead = static fn() => $recordedPool->getItem('item');
+microsPerCall($bareRead);
+microsPerCall($recordedRead);
+$bareMicros = microsPerCall($bareRead);
+report('cache read, recording overhead', microsPerCall($recordedRead) - $bareMicros, 'µs', 1, sprintf('(%.2f µs per getItem() without recording)', $bareMicros));
+$cacheRecorder->reset();
+removeDir($dir);
+
 [$aggregateMs, $sampled] = aggregateMillis();
 report(sprintf('read and aggregate %d units, no database', LOADED[2]), $aggregateMs, 'ms', 300, sprintf('(%d kept their queries under sampling)', $sampled));
 
@@ -386,11 +532,18 @@ foreach (['typical' => [TYPICAL, 100], 'loaded' => [LOADED, 500]] as $name => [$
         $sampled = fillSlot($directory, $clock, $dataSet);
     });
     report(
-        sprintf('flush %s, %d routes, %d queries (mysql)', $name, $dataSet[0], $dataSet[1]),
+        sprintf('flush %s, %d routes, %d queries, %d users, %d hosts, %d pools (mysql)', $name, $dataSet[0], $dataSet[1], $dataSet[4], $dataSet[5], $dataSet[6]),
         $milliseconds,
         'ms',
         $target,
         sprintf('(%d requests, %d kept their queries under sampling, %d rows written)', $dataSet[2], $sampled, $rows),
     );
+}
+
+$now = 1_700_003_600;
+$stored = fillHour($mysql, $now, DISPLAYED);
+foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpClientScreen(true), new CacheScreen(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
+    [$milliseconds, $rows] = displayMillis($mysql, $now, $screen);
+    report(sprintf('display, %s, loaded database (mysql)', $screen->id()), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
 }
 $mysql->close();

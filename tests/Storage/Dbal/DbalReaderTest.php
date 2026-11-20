@@ -61,7 +61,7 @@ final class DbalReaderTest extends TestCase
         $home = $view->tables[0]->rows[1];
         static::assertSame('GET app_home', $home->attributes['data-jm-route']);
         static::assertSame(
-            ['route' => 'app_home', 'requests' => '3', 'total' => '120 ms', 'avg' => '40 ms', 'p95' => '60 ms', 'max' => '60 ms', 'sql' => '—', 'errors' => '1', 'slow' => '0', 'memory' => '2.9 KB'],
+            ['route' => 'app_home', 'requests' => '3', 'total' => '120 ms', 'avg' => '40 ms', 'p95' => '60 ms', 'max' => '60 ms', 'sql' => '—', 'http' => '—', 'errors' => '1', 'slow' => '0', 'memory' => '2.9 KB'],
             array_map(static fn(Cell $cell): string => $cell->text, $home->cells),
         );
     }

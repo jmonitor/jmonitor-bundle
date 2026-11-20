@@ -9,6 +9,10 @@ final class Entry
     public const TYPE_REQUEST = 'request';
     public const TYPE_QUERY = 'q';
     public const TYPE_NPLUS1 = 'n1';
+    public const TYPE_HTTP = 'h';
+    public const TYPE_CACHE = 'ca';
+    public const TYPE_EXCEPTION = 'ex';
+    public const TYPE_USER = 'u';
     public const KEY_SEPARATOR = "\x1f";
 
     /**
@@ -76,7 +80,12 @@ final class Entry
             || \count($attributes) !== ($hasSlow ? 3 : 2)
             || $needsTail && !$hasSlow
         ) {
-            return $this->toArray();
+            $data = $this->toArray();
+            if (!$differentStart && $this->type !== self::TYPE_QUERY && $this->type !== self::TYPE_NPLUS1) {
+                unset($data['s']);
+            }
+
+            return $data;
         }
 
         $row = [$this->key, round($this->durationMs, 2), $attributes['n'], round((float) $attributes['m'], 2)];

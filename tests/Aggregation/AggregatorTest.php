@@ -356,6 +356,196 @@ class AggregatorTest extends TestCase
         static::assertSame(["request\x1fGET app_home\x1fabc"], $keys);
     }
 
+    public function testAnExceptionIsCountedPerClassAndPerEntryPoint(): void
+    {
+        $unit = static fn(float $at, string $route): Entry => new Entry(Entry::TYPE_REQUEST, $route, $at, 50.0, ['status' => 500], [
+            new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $at, 0.0, ['n' => 1]),
+        ]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            $unit(1700000045.5, 'GET app_boom'),
+            $unit(1700000050.25, 'GET app_boom'),
+            $unit(1700000047.0, 'POST app_save'),
+        ]);
+
+        $count = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class);
+        $boom = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_WHERE_COUNT, "request\x1fGET app_boom\x1f" . \RuntimeException::class);
+        $save = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_WHERE_COUNT, "request\x1fPOST app_save\x1f" . \RuntimeException::class);
+        static::assertNotNull($count);
+        static::assertNotNull($boom);
+        static::assertNotNull($save);
+        static::assertSame([3, 0.0, 1700000050.25], [$count->count, $count->sum, $count->max]);
+        static::assertSame([2, 0.0, 1700000050.25], [$boom->count, $boom->sum, $boom->max]);
+        static::assertSame([1, 0.0, 1700000047.0], [$save->count, $save->sum, $save->max]);
+        static::assertSame(Family::Exception, Family::ofMetric($count->type));
+        static::assertSame(Family::ExceptionWhere, Family::ofMetric($boom->type));
+    }
+
+    public function testAnExceptionReadFromALineIsLastSeenAtTheStartOfItsUnit(): void
+    {
+        $line = (new Entry(Entry::TYPE_REQUEST, 'GET app_boom', 1700000045.5, 50.0, ['status' => 500], [
+            new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, 1700000045.5, 0.0, ['n' => 1]),
+        ]))->toLine();
+        $entry = Entry::fromLine($line);
+        static::assertNotNull($entry);
+
+        $aggregates = (new Aggregator(1000))->aggregate([$entry]);
+
+        $count = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class);
+        $where = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_WHERE_COUNT, "request\x1fGET app_boom\x1f" . \RuntimeException::class);
+        static::assertNotNull($count);
+        static::assertNotNull($where);
+        static::assertSame([1, 0.0, 1700000045.5], [$count->count, $count->sum, $count->max]);
+        static::assertSame([1, 0.0, 1700000045.5], [$where->count, $where->sum, $where->max]);
+    }
+
+    public function testAnExceptionWeighsTenWhenSampled(): void
+    {
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET app_boom', 1700000045.0, 50.0, ['status' => 500, 'cw' => 10], [
+                new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, 1700000045.0, 0.0, ['n' => 1]),
+            ]),
+        ]);
+
+        $count = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class);
+        $where = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_WHERE_COUNT, "request\x1fGET app_boom\x1f" . \RuntimeException::class);
+        $request = $this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, 'GET app_boom');
+        static::assertNotNull($count);
+        static::assertNotNull($where);
+        static::assertNotNull($request);
+        static::assertSame(10, $count->count);
+        static::assertSame(10, $where->count);
+        static::assertSame(1, $request->count);
+    }
+
+    public function testASignedInRequestCountsForItsUser(): void
+    {
+        $unit = static fn(string $route, float $duration, int $status, array $users, array $attributes = []): Entry => new Entry(
+            Entry::TYPE_REQUEST,
+            $route,
+            1700000045.0,
+            $duration,
+            ['status' => $status] + $attributes,
+            array_map(static fn(string $user): Entry => new Entry(Entry::TYPE_USER, $user, 1700000045.0, 0.0, ['n' => 1]), $users),
+        );
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            $unit('GET app_home', 40.0, 200, ['alice']),
+            $unit('GET app_report', 1500.0, 200, ['alice']),
+            $unit('GET app_boom', 30.0, 503, ['bob', 'mallory']),
+            $unit('GET app_home', 20.0, 500, ['carol'], ['cw' => 10]),
+        ]);
+
+        $alice = $this->find($aggregates, Period::OneHour, Metric::USER_DURATION, 'alice');
+        $bob = $this->find($aggregates, Period::OneHour, Metric::USER_DURATION, 'bob');
+        $carol = $this->find($aggregates, Period::OneHour, Metric::USER_DURATION, 'carol');
+        static::assertNotNull($alice);
+        static::assertNotNull($bob);
+        static::assertNotNull($carol);
+        static::assertSame([2, 1540.0, 1500.0], [$alice->count, $alice->sum, $alice->max]);
+        static::assertSame([1, 30.0, 30.0], [$bob->count, $bob->sum, $bob->max]);
+        static::assertSame([10, 200.0, 20.0], [$carol->count, $carol->sum, $carol->max]);
+        static::assertSame(Family::User, Family::ofMetric($alice->type));
+
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::USER_SLOW, 'alice')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::USER_ERROR, 'alice'));
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::USER_SLOW, 'bob'));
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::USER_ERROR, 'bob')?->count);
+        static::assertSame(10, $this->find($aggregates, Period::OneHour, Metric::USER_ERROR, 'carol')?->count);
+
+        foreach ([Metric::USER_DURATION, Metric::USER_SLOW, Metric::USER_ERROR] as $type) {
+            static::assertNull($this->find($aggregates, Period::OneHour, $type, 'mallory'));
+        }
+    }
+
+    public function testOutgoingCallsAreCountedPerHostAndOnTheirRequest(): void
+    {
+        $call = static fn(string $host, float $total, int $calls, float $max, array $counters = []): Entry
+            => new Entry(Entry::TYPE_HTTP, $host, 1700000045.0, $total, ['n' => $calls] + ($max > 0.0 ? ['m' => $max] : []) + $counters);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 300.0, ['status' => 200, 'http_ms' => 180.0, 'http_n' => 3], [
+                $call('api.example.com', 150.0, 2, 100.0, ['c4' => 1]),
+                $call('pay.example.com:8443', 30.0, 1, 30.0, ['c5' => 1]),
+            ]),
+            new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000046.0, 90.0, ['status' => 200, 'http_ms' => 40.0, 'http_n' => 2, 'cw' => 10], [
+                $call('api.example.com', 40.0, 2, 0.0, ['cf' => 1]),
+            ]),
+            new Entry(Entry::TYPE_REQUEST, 'GET b', 1700000047.0, 10.0, ['status' => 200]),
+        ]);
+
+        $api = $this->find($aggregates, Period::OneHour, Metric::HTTP_DURATION, 'api.example.com');
+        $pay = $this->find($aggregates, Period::OneHour, Metric::HTTP_DURATION, 'pay.example.com:8443');
+        static::assertNotNull($api);
+        static::assertNotNull($pay);
+        static::assertSame([22, 550.0, 100.0], [$api->count, $api->sum, $api->max]);
+        static::assertSame([1, 30.0, 30.0], [$pay->count, $pay->sum, $pay->max]);
+        static::assertSame(Family::Http, Family::ofMetric($api->type));
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::HTTP_STATUS_PREFIX . '4xx', 'api.example.com')?->count);
+        static::assertSame(10, $this->find($aggregates, Period::OneHour, Metric::HTTP_FAILED, 'api.example.com')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::HTTP_STATUS_PREFIX . '5xx', 'api.example.com'));
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::HTTP_STATUS_PREFIX . '5xx', 'pay.example.com:8443')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::HTTP_FAILED, 'pay.example.com:8443'));
+
+        $time = $this->find($aggregates, Period::OneHour, Metric::REQUEST_HTTP_TIME, 'GET a');
+        static::assertNotNull($time);
+        static::assertSame([2, 220.0, 180.0], [$time->count, $time->sum, $time->max]);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_HTTP_TIME, 'GET b'));
+    }
+
+    public function testCacheOperationsAreCountedPerPool(): void
+    {
+        $pool = static fn(string $name, array $counters, int $operations): Entry
+            => new Entry(Entry::TYPE_CACHE, $name, 1700000045.0, 0.0, ['n' => $operations] + $counters);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 30.0, ['status' => 200], [
+                $pool('cache.app', ['h' => 3, 'mi' => 1, 'w' => 1], 4),
+                $pool('app.sessions', ['de' => 2], 1),
+            ]),
+            new Entry(Entry::TYPE_REQUEST, 'GET b', 1700000046.0, 10.0, ['status' => 200, 'cw' => 10], [
+                $pool('cache.app', ['h' => 2], 2),
+                $pool('app.empty', [], 1),
+                $pool('app.broken', ['h' => 'many', 'mi' => -1, 'w' => \INF], 1),
+            ]),
+        ]);
+
+        $count = fn(string $metric, string $pool): ?int => $this->find($aggregates, Period::OneHour, $metric, $pool)?->count;
+        static::assertSame([23, 1, 1, null], [
+            $count(Metric::CACHE_HIT, 'cache.app'),
+            $count(Metric::CACHE_MISS, 'cache.app'),
+            $count(Metric::CACHE_WRITE, 'cache.app'),
+            $count(Metric::CACHE_DELETE, 'cache.app'),
+        ]);
+        static::assertSame([null, null, null, 2], [
+            $count(Metric::CACHE_HIT, 'app.sessions'),
+            $count(Metric::CACHE_MISS, 'app.sessions'),
+            $count(Metric::CACHE_WRITE, 'app.sessions'),
+            $count(Metric::CACHE_DELETE, 'app.sessions'),
+        ]);
+        $hits = $this->find($aggregates, Period::OneHour, Metric::CACHE_HIT, 'cache.app');
+        static::assertNotNull($hits);
+        static::assertSame([0.0, 0.0], [$hits->sum, $hits->max]);
+        static::assertSame(Family::Cache, Family::ofMetric($hits->type));
+        static::assertSame([], array_filter($aggregates, static fn(Aggregate $a): bool => \in_array($a->key, ['app.empty', 'app.broken'], true)));
+    }
+
+    public function testCachePoolsBeyondTheCapFoldIntoOtherByTheirOperations(): void
+    {
+        $children = [];
+        for ($i = 1; $i <= 21; ++$i) {
+            $children[] = new Entry(Entry::TYPE_CACHE, sprintf('app.pool%02d', $i), 1700000045.0, 0.0, ['n' => 1, 'w' => $i]);
+        }
+        $children[] = new Entry(Entry::TYPE_CACHE, 'app.reads', 1700000045.0, 0.0, ['n' => 1, 'h' => 1, 'mi' => 1, 'de' => 1]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 10.0, [], $children)]);
+
+        static::assertSame(1 + 2, $this->find($aggregates, Period::OneHour, Metric::CACHE_WRITE, Aggregator::OTHER)?->count);
+        static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::CACHE_WRITE, 'app.pool03'));
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::CACHE_HIT, 'app.reads')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::CACHE_HIT, Aggregator::OTHER));
+    }
+
     public function testKeysBeyondTheCapOfAFamilyFoldIntoOther(): void
     {
         $entries = [];
@@ -396,6 +586,25 @@ class AggregatorTest extends TestCase
             array_map(static fn(Aggregate $a): string => $a->type, (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0)])),
             array_map(static fn(Aggregate $a): string => $a->type, $aggregates),
         );
+    }
+
+    public function testAChildOfAnUnknownTypeIsIgnored(): void
+    {
+        $known = [
+            new Entry(Entry::TYPE_QUERY, 'abc', 1700000045.0, 12.0, ['n' => 3, 'm' => 5.0]),
+            new Entry(Entry::TYPE_NPLUS1, 'abc', 1700000045.0, 40.0, ['n' => 12]),
+        ];
+        $unknown = new Entry('zz', 'api.example.com', 1700000045.0, 25.0, ['n' => 2, 'm' => 12.5, 'c5' => 2]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0, ['cw' => 10], [$known[0], $unknown, $known[1]]),
+        ]);
+
+        static::assertSame(
+            self::canonical((new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0, ['cw' => 10], $known)])),
+            self::canonical($aggregates),
+        );
+        static::assertSame([], array_filter($aggregates, static fn(Aggregate $a): bool => $a->key === 'api.example.com'));
     }
 
     public function testHugeCountsAndWeightsDoNotBreakTheFlush(): void
@@ -474,6 +683,35 @@ class AggregatorTest extends TestCase
         static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, 'known'));
         static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, Aggregator::OTHER));
         static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, 'GET a'));
+    }
+
+    public function testTheOtherKeyOfTheCaptureTakesNoPlaceInTheRegister(): void
+    {
+        $dir = sys_get_temp_dir() . '/jmonitor-aggregator-' . bin2hex(random_bytes(6));
+        mkdir($dir);
+
+        $children = [new Entry(Entry::TYPE_QUERY, Aggregator::OTHER, 1700000045.0, 5000.0, ['n' => 1, 'm' => 1.0])];
+        for ($i = 1; $i <= 200; ++$i) {
+            $children[] = new Entry(Entry::TYPE_QUERY, sprintf('q%03d', $i), 1700000045.0, 10.0 + $i, ['n' => 1, 'm' => 1.0]);
+        }
+        $unit = new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0, [], $children);
+
+        try {
+            $registry = new HotKeys(new BufferDirectory($dir, 'app'), new MockClock('@1700000000'));
+            $batches = [
+                'per flush' => (new Aggregator(1000))->aggregate([$unit]),
+                'registry' => (new Aggregator(1000, $registry))->aggregate([$unit]),
+            ];
+        } finally {
+            (new Filesystem())->remove($dir);
+        }
+
+        foreach ($batches as $name => $aggregates) {
+            $rows = array_filter($aggregates, static fn(Aggregate $a): bool => $a->period === Period::OneHour && $a->type === Metric::QUERY_DURATION);
+            static::assertCount(201, $rows, $name);
+            static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, 'q001'), $name);
+            static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, Aggregator::OTHER)?->count, $name);
+        }
     }
 
     /**

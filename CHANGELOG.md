@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` Queries screen: SQL queries run through Doctrine DBAL with their executions, time and slow count, and the queries repeated within one request (N+1).
 - Requests screen: SQL time and number of queries per request.
 - `recording.sql` option: turns SQL recording off or changes its slow query and N+1 thresholds.
+- `/jmonitor` HTTP client screen: outgoing calls of the `http_client` service and scoped clients, per host.
+- `/jmonitor` Cache screen: hits, misses, writes and deletes per cache pool.
+- `/jmonitor` Exceptions screen: the exceptions behind 5xx responses, per class and per route.
+- `/jmonitor` Users screen: requests, time and errors per signed-in user.
+- Requests screen: `HTTP out` column with the time spent in outgoing HTTP calls.
+- `recording.exceptions`, `recording.users`, `recording.http_client` and `recording.cache` options: each turns its recording off.
 - The `/jmonitor` page says when its buffer directory is unusable.
 
 ### Changed

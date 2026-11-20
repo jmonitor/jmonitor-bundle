@@ -162,6 +162,46 @@ final class HotKeysTest extends TestCase
         static::assertSame(['hot-keys.json'], array_map('basename', glob(\dirname($files[0]) . '/*') ?: []));
     }
 
+    public function testAKeyThatIsNotValidUtf8NeverEntersTheRegister(): void
+    {
+        $registry = $this->registry();
+
+        static::assertSame(['ok' => true], $registry->select(Family::Query, ["a\xFFb" => 5.0, 'ok' => 1.0], 10));
+        $registry->commit();
+
+        static::assertCount(1, glob($this->dir . '/*/hot-keys.json') ?: []);
+        static::assertSame(['ok'], $this->registry()->keys(Family::Query));
+    }
+
+    public function testAnAbandonedTemporaryFileIsOverwritten(): void
+    {
+        $directory = new BufferDirectory($this->dir, 'app');
+        file_put_contents($directory->path() . '/hot-keys.json.tmp', 'garbage');
+        $registry = new HotKeys($directory, $this->clock);
+
+        $registry->select(Family::Query, ['a' => 1.0], 200);
+        $registry->commit();
+
+        static::assertSame(['a'], $this->registry()->keys(Family::Query));
+        static::assertSame(['hot-keys.json'], array_map('basename', glob($directory->path() . '/*') ?: []));
+    }
+
+    public function testAWriteThatFailsIsReported(): void
+    {
+        $directory = new BufferDirectory($this->dir, 'app');
+        $path = (string) $directory->path();
+        $registry = new HotKeys($directory, $this->clock);
+        $registry->select(Family::Query, ['a' => 1.0], 200);
+        chmod($path, 0o500);
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            $registry->commit();
+        } finally {
+            chmod($path, 0o700);
+        }
+    }
+
     private function registry(): HotKeys
     {
         return new HotKeys(new BufferDirectory($this->dir, 'app'), $this->clock);

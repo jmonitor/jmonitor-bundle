@@ -250,12 +250,18 @@ php bin/console jmonitor:collect -vv --memory-limit=32M --time-limit=3600
 
 ## Application monitoring (preview)
 
-The bundle can also record the HTTP requests your application serves and the SQL queries they run, and show them on a `/jmonitor` page, over the last hour, 6 hours, 24 hours or 7 days:
+The bundle can also record the HTTP requests your application serves, with the SQL queries, outgoing HTTP calls, cache reads, writes and deletes, exceptions and signed-in users behind them, and show them on a `/jmonitor` page, over the last hour, 6 hours, 24 hours or 7 days:
 
-- **Requests** (`/jmonitor/`): requests, response times (average, p95, max), SQL time and number of queries, slow requests, 5xx errors and peak memory, per route.
+- **Requests** (`/jmonitor/`): requests, response times (average, p95, max), SQL time and number of queries, time spent in outgoing HTTP calls (`HTTP out`), slow requests, 5xx errors and peak memory, per route.
 - **Queries** (`/jmonitor/queries`): executions, total, average and maximum time and slow executions per SQL query, and the queries repeated within one request (N+1).
+- **HTTP client** (`/jmonitor/http-client`): calls, total, average and maximum time, 4xx and 5xx responses and network failures, per called host.
+- **Cache** (`/jmonitor/cache`): hits, misses, hit rate, writes and deletes, per cache pool.
+- **Exceptions** (`/jmonitor/exceptions`): count and last occurrence per exception class, and per class and route.
+- **Users** (`/jmonitor/users`): requests, total and average time, slow requests and 5xx errors, per signed-in user.
 
-Only HTTP requests are covered for now: queries run by console commands or message consumers are not recorded.
+A screen only appears when its component is installed and its recording option is on: HTTP client needs the `http_client` service of the framework, Users needs the SecurityBundle.
+
+Only HTTP requests are covered for now: what console commands and message consumers do is not recorded.
 
 It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` and `jmonitor_keys` tables are created automatically in the configured connection, upgraded automatically when a new version of the bundle changes them, and Doctrine migrations will not try to drop them. Tables created by an earlier development build of 3.x are dropped and recreated, losing the metrics they held. Your database receives batched writes, at most once per `flush_interval` per server, never one write per request or per query.
 
@@ -287,6 +293,10 @@ jmonitor:
             enabled: true             # record the SQL queries run through Doctrine DBAL
             slow_threshold: 100       # ms from which a query counts as slow
             n_plus_one_threshold: 10  # executions of the same SELECT within one request that make an N+1
+        exceptions: true      # count the exceptions behind 5xx responses
+        users: true           # record the requests of each signed-in user (needs the SecurityBundle)
+        http_client: true     # record the outgoing calls of the http_client service and the scoped clients
+        cache: true           # count the reads, writes and deletes of cache.app and of the pools you declare
     storage:
         connection: 'default' # name of the Doctrine DBAL connection
         retention: 604800     # seconds the data is kept (7 days, 3600 minimum)
@@ -315,9 +325,17 @@ Main requests only. Not recorded: any route whose name starts with `jmonitor_`, 
 
 SQL queries: every query run through Doctrine DBAL during a recorded request, on every connection. The values bound to a query as parameters are never read, so they are never stored. The query text is read with the rules of the database of its connection (MySQL or MariaDB, PostgreSQL, SQLite): its comments are removed, the numbers and strings written in it are replaced by `?`, and its `IN (…)` and multi-row `VALUES (…)` lists are folded. A double-quoted token is a string under MySQL, always replaced; an identifier under PostgreSQL, kept; and under SQLite, which accepts both, replaced only where a value is expected (right after `=`, `<`, `>` or `LIKE`, in a `VALUES (…)` list, or in an `IN (…)` list made only of values), so a double-quoted value anywhere else is kept. A query whose text cannot be delimited with certainty is counted on the `Other queries` row and its text is not kept, for instance an unterminated string or comment, a backslash whose meaning depends on a session setting of the server when the possible readings differ, a MySQL optimizer hint or versioned comment that is not plain (letters, digits, parentheses, commas…), or a text longer than 64 KiB. So is every query of a connection to another database, or of a connection whose `charset` option or a driver option such as an init command names a multi-byte encoding in which a backslash can be part of a character (Big5, GBK, GB18030, Shift_JIS…); such an encoding set another way, by the server default or a `SET NAMES` query, is not detected, and a value can then survive. This reading assumes the server accepts the query: a query the server rejects can be stored with a value in it, so pass sensitive values as bound parameters rather than concatenating them into the SQL. The same `SELECT` run at least `n_plus_one_threshold` times (10 by default) within one request is reported as an N+1.
 
-Each flush keeps the 300 most requested routes (method and route) of its batch; the requests of the others are added up on an `Other routes` row. Only the heaviest queries, by total time, are tracked individually, about 200 per server; the others are added up on an `Other queries` row. Under heavy load the per-query detail of a request is sampled, while the requests themselves, with their SQL time and number of queries, are always counted.
+Exceptions: only the class of the exception is kept, and only when the final response of the request is a 5xx. Its message, file and stack trace are never kept.
 
-Requests are buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access; the text of the recorded queries is kept there too. When the web server and the console run as different users, each keeps and flushes its own buffer. When that subdirectory cannot be used, nothing is recorded and the page shows "Buffer directory unusable".
+Users: the identifier of the signed-in user (`getUserIdentifier()`, often a username or an email address) is stored in clear in your application database, in the `jmonitor_keys` table. Set `recording.users: false` to go without it. It needs the SecurityBundle. Anonymous requests are not counted, and under `switch_user` the request counts for the impersonated user. A request is attributed to a user only when your application resolved the user during that request: JMonitor never triggers a lazy authentication itself, so the public pages a signed-in user visits may not be counted.
+
+Outgoing HTTP calls: only the calls made through the `http_client` service and the scoped clients declared under `framework.http_client.scoped_clients` are seen, that is the clients your application receives by injection. A client created by hand with `HttpClient::create()`, Guzzle or curl is not seen. Only the host and port of a call are kept, never its scheme, credentials, path or query string. A retried call counts once, and its duration covers every attempt and the pauses between them. `HTTP out` adds up the durations of the calls of a request, so concurrent calls can make it longer than the request itself.
+
+Cache: `cache.app`, whatever its adapter, and the pools declared under `framework.cache.pools` in YAML or PHP are counted. Not counted: the declared pools built on the system adapter (`cache.adapter.system`), those with `early_expiration_message_bus`, and the pools Symfony or other bundles create for their own use. Only counters are kept: hits, misses, writes and deletes per pool, never a key nor a value.
+
+Each flush keeps the 300 most requested routes (method and route) of its batch; the requests of the others are added up on an `Other routes` row. Only the heaviest queries, by total time, are tracked individually, about 200 per server; the others are added up on an `Other queries` row. Likewise, about 200 users, the most active, and 50 hosts, by total time, are tracked individually per server, and each flush keeps 20 cache pools, 50 exception classes and 100 couples of a class and a route; the rest is added up on an `Other …` row. Under heavy load the detail of a request (its queries, user, outgoing calls, cache operations and exception) is sampled, while the requests themselves, with their SQL time, number of queries and time spent in outgoing calls, are always counted.
+
+Requests are buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access; the text of the recorded queries and the identifiers of the signed-in users are kept there too. When the web server and the console run as different users, each keeps and flushes its own buffer. When that subdirectory cannot be used, nothing is recorded and the page shows "Buffer directory unusable".
 
 Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
 

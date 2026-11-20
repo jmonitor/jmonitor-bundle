@@ -9,12 +9,17 @@ enum Family: string
     case Request = 'request';
     case Query = 'query';
     case NPlusOne = 'nplus1';
+    case Exception = 'exception';
+    case ExceptionWhere = 'exception_where';
+    case User = 'user';
+    case Http = 'http';
+    case Cache = 'cache';
 
     public function isOpen(): bool
     {
         return match ($this) {
-            self::Request => false,
-            self::Query, self::NPlusOne => true,
+            self::Request, self::Exception, self::ExceptionWhere, self::Cache => false,
+            self::Query, self::NPlusOne, self::User, self::Http => true,
         };
     }
 
@@ -22,8 +27,10 @@ enum Family: string
     {
         return match ($this) {
             self::Request => 300,
-            self::Query => 200,
-            self::NPlusOne => 100,
+            self::Query, self::User => 200,
+            self::NPlusOne, self::ExceptionWhere => 100,
+            self::Exception, self::Http => 50,
+            self::Cache => 20,
         };
     }
 
@@ -33,7 +40,35 @@ enum Family: string
             self::Request => Metric::REQUEST_DURATION,
             self::Query => Metric::QUERY_DURATION,
             self::NPlusOne => Metric::NPLUS1_DURATION,
+            self::Exception => Metric::EXCEPTION_COUNT,
+            self::ExceptionWhere => Metric::EXCEPTION_WHERE_COUNT,
+            self::User => Metric::USER_DURATION,
+            self::Http => Metric::HTTP_DURATION,
+            self::Cache => Metric::CACHE_HIT,
         };
+    }
+
+    /**
+     * @param array<string, array{int, float, float}> $counters count, sum and max of each metric type of a key
+     */
+    public function weight(array $counters): float
+    {
+        if ($this === self::User) {
+            return ($counters[Metric::USER_DURATION][0] ?? 0)
+                + 10 * (($counters[Metric::USER_SLOW][0] ?? 0) + ($counters[Metric::USER_ERROR][0] ?? 0));
+        }
+
+        if ($this === self::Cache) {
+            return ($counters[Metric::CACHE_HIT][0] ?? 0) + ($counters[Metric::CACHE_MISS][0] ?? 0)
+                + ($counters[Metric::CACHE_WRITE][0] ?? 0) + ($counters[Metric::CACHE_DELETE][0] ?? 0);
+        }
+
+        $measure = $counters[$this->weightMetric()] ?? null;
+        if ($measure === null) {
+            return 0.0;
+        }
+
+        return $this->isOpen() ? $measure[1] : (float) $measure[0];
     }
 
     public static function ofMetric(string $metricType): ?self

@@ -6,11 +6,22 @@ namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception as DbalException;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Symfony\Contracts\Cache\CacheInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 final class DemoController
 {
-    public function __construct(private readonly ?Connection $connection = null) {}
+    public function __construct(
+        private readonly ?Connection $connection = null,
+        private readonly ?HttpKernelInterface $kernel = null,
+        private readonly ?HttpClientInterface $httpClient = null,
+        private readonly ?HttpClientInterface $flakyClient = null,
+        private readonly ?CacheInterface $cache = null,
+    ) {}
 
     public function hello(string $name): Response
     {
@@ -34,6 +45,18 @@ final class DemoController
     public function boom(): Response
     {
         throw new \RuntimeException('Boom');
+    }
+
+    public function handled(): Response
+    {
+        throw new NotFoundHttpException('Handled');
+    }
+
+    public function subBoom(): Response
+    {
+        $kernel = $this->kernel ?? throw new \LogicException('This route needs the HTTP kernel.');
+
+        return $kernel->handle(Request::create('/boom'), HttpKernelInterface::SUB_REQUEST, false);
     }
 
     public function teapot(): Response
@@ -68,6 +91,27 @@ final class DemoController
         $this->connection()->executeQuery('SELECT \'<script>\' AS "<img src=x onerror=alert(1)>"')->fetchAllAssociative();
 
         return new Response('Done');
+    }
+
+    public function call(): Response
+    {
+        $client = $this->httpClient ?? throw new \LogicException('This route needs the HTTP client.');
+
+        return new Response($client->request('GET', 'https://API.example.com:8443/secret?token=1')->getContent());
+    }
+
+    public function callFlaky(): Response
+    {
+        $client = $this->flakyClient ?? throw new \LogicException('This route needs the flaky client.');
+
+        return new Response($client->request('GET', 'status')->getContent());
+    }
+
+    public function cached(): Response
+    {
+        $cache = $this->cache ?? throw new \LogicException('This route needs the application cache.');
+
+        return new Response($cache->get('demo', static fn(): string => 'Computed once'));
     }
 
     private function connection(): Connection

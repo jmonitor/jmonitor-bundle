@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Recording;
 
+use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Recording\Entry;
@@ -12,6 +13,8 @@ use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
+use Jmonitor\JmonitorBundle\Recording\Unit;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\AbstractLogger;
 use Symfony\Component\Filesystem\Filesystem;
@@ -432,15 +435,237 @@ final class RecorderTest extends TestCase
         static::assertSame([], $this->buffer->entries[0]->children);
     }
 
+    public function testAMeasureIsAddedToItsUnit(): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.5);
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', 12.5, ['c5' => 1]);
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', 12.5, ['c5' => 1]);
+        $recorder->end($token, 'GET app_home', 40.0, ['status' => 200]);
+
+        $entry = $this->buffer->entries[0];
+        static::assertSame(['status' => 200, 'http_ms' => 25.0, 'http_n' => 2], $entry->attributes);
+        static::assertCount(1, $entry->children);
+        $child = $entry->children[0];
+        static::assertSame([Entry::TYPE_HTTP, 'api.example.com', 1000.5, 25.0], [$child->type, $child->key, $child->startedAt, $child->durationMs]);
+        static::assertSame(['n' => 2, 'm' => 12.5, 'c5' => 2], $child->attributes);
+    }
+
+    public function testAMeasureWithoutDurationCarriesNoMaximum(): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->add($token, Entry::TYPE_EXCEPTION, 'App\\Boom');
+        $recorder->end($token, 'GET app_home', 5.0);
+
+        $entry = $this->buffer->entries[0];
+        static::assertSame([], $entry->attributes);
+        static::assertCount(1, $entry->children);
+        static::assertSame([Entry::TYPE_EXCEPTION, 'App\\Boom', 0.0], [$entry->children[0]->type, $entry->children[0]->key, $entry->children[0]->durationMs]);
+        static::assertSame(['n' => 1], $entry->children[0]->attributes);
+    }
+
+    public function testAMeasureForAClosedUnknownOrNullUnitIsDropped(): void
+    {
+        $recorder = $this->recorder();
+
+        $ended = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->end($ended, 'GET first', 1.0);
+        $forgotten = $recorder->begin(Entry::TYPE_REQUEST, 1001.0);
+        $recorder->reset();
+        $open = $recorder->begin(Entry::TYPE_REQUEST, 1002.0);
+        foreach ([$ended, $forgotten, 999, null] as $unit) {
+            $recorder->add($unit, Entry::TYPE_HTTP, 'api.example.com', 1.0, ['c5' => 1]);
+        }
+        $recorder->end($open, 'GET second', 2.0);
+
+        static::assertCount(2, $this->buffer->entries);
+        static::assertSame([], $this->buffer->entries[1]->attributes);
+        static::assertSame([], $this->buffer->entries[1]->children);
+    }
+
+    public function testAMeasureGoesToTheUnitItNames(): void
+    {
+        $recorder = $this->recorder();
+
+        $outer = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $inner = $recorder->begin('command', 1001.0);
+        $recorder->add($outer, Entry::TYPE_HTTP, 'api.example.com', 3.0);
+        $recorder->end($inner, 'app:import', 2.0);
+        $recorder->end($outer, 'GET app_home', 5.0);
+
+        [$innerEntry, $outerEntry] = $this->buffer->entries;
+        static::assertSame([], $innerEntry->children);
+        static::assertSame([], $innerEntry->attributes);
+        static::assertCount(1, $outerEntry->children);
+        static::assertSame([Entry::TYPE_HTTP, 'api.example.com', 1000.0], [$outerEntry->children[0]->type, $outerEntry->children[0]->key, $outerEntry->children[0]->startedAt]);
+        static::assertSame(['http_ms' => 3.0, 'http_n' => 1], $outerEntry->attributes);
+    }
+
+    public function testCurrentIsNullWithoutUnitOrWhilePaused(): void
+    {
+        $recorder = $this->recorder();
+
+        static::assertNull($recorder->current());
+
+        $outer = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $inner = $recorder->begin('command', 1001.0);
+
+        static::assertSame($inner, $recorder->current());
+
+        $recorder->pause();
+
+        static::assertNull($recorder->current());
+
+        $recorder->resume();
+        $recorder->end($inner, 'app:import', 1.0);
+
+        static::assertSame($outer, $recorder->current());
+
+        $recorder->end($outer, 'GET app_home', 2.0);
+
+        static::assertNull($recorder->current());
+    }
+
+    public function testKeysPastTheLimitOfATypeAreFoldedUnderOther(): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        for ($i = 1; $i <= 60; ++$i) {
+            $recorder->add($token, Entry::TYPE_CACHE, 'pool_' . $i, 0.0, ['h' => 1]);
+            $recorder->add($token, Entry::TYPE_USER, 'user_' . $i, 1.0);
+        }
+        $recorder->end($token, 'GET app_home', 100.0);
+
+        $byType = [];
+        foreach ($this->buffer->entries[0]->children as $child) {
+            $byType[$child->type][$child->key] = $child->attributes;
+        }
+        static::assertSame([Entry::TYPE_CACHE, Entry::TYPE_USER], array_keys($byType));
+        foreach ([Entry::TYPE_CACHE => 'pool_', Entry::TYPE_USER => 'user_'] as $type => $prefix) {
+            $named = array_map(static fn(int $i): string => $prefix . $i, range(1, Recorder::MAX_KEYS_PER_TYPE));
+            static::assertSame([...$named, Aggregator::OTHER], array_keys($byType[$type]));
+        }
+        static::assertSame(['n' => 10, 'h' => 10], $byType[Entry::TYPE_CACHE][Aggregator::OTHER]);
+        static::assertSame(['n' => 10, 'm' => 1.0], $byType[Entry::TYPE_USER][Aggregator::OTHER]);
+    }
+
+    public function testAKeyLongerThan255BytesIsCut(): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->add($token, Entry::TYPE_USER, str_repeat('é', 300));
+        $recorder->end($token, 'GET app_home', 1.0);
+
+        $key = $this->buffer->entries[0]->children[0]->key;
+        static::assertSame(254, \strlen($key));
+        static::assertTrue(mb_check_encoding($key, 'UTF-8'));
+    }
+
+    #[DataProvider('keysAroundTheLimit')]
+    public function testAKeyKeepsEveryWholeCharacterWithin255Bytes(string $key, int $keptBytes): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->add($token, Entry::TYPE_USER, $key);
+        $recorder->end($token, 'GET app_home', 1.0);
+
+        $cut = $this->buffer->entries[0]->children[0]->key;
+        static::assertSame(substr($key, 0, $keptBytes), $cut);
+        static::assertTrue(mb_check_encoding($cut, 'UTF-8'));
+    }
+
+    /**
+     * @return iterable<string, array{string, int}>
+     */
+    public static function keysAroundTheLimit(): iterable
+    {
+        yield 'ASCII' => [str_repeat('a', 300), 255];
+        yield '255 bytes exactly' => ['a' . str_repeat('é', 127), 255];
+        yield '3-byte character ending on the limit' => [str_repeat('€', 100), 255];
+        yield '3-byte character with 1 byte within the limit' => ['aa' . str_repeat('€', 100), 254];
+        yield '3-byte character with 2 bytes within the limit' => ['a' . str_repeat('€', 100), 253];
+        yield '4-byte character ending on the limit' => ['aaa' . str_repeat('😀', 100), 255];
+        yield '4-byte character with 1 byte within the limit' => ['aa' . str_repeat('😀', 100), 254];
+        yield '4-byte character with 2 bytes within the limit' => ['a' . str_repeat('😀', 100), 253];
+        yield '4-byte character with 3 bytes within the limit' => [str_repeat('😀', 100), 252];
+    }
+
+    public function testUnderPressureTheTotalsStayAndKeptChildrenWeighTen(): void
+    {
+        $this->buffer->pressure = true;
+
+        foreach ([false, true] as $kept) {
+            $recorder = new Recorder($this->buffer, $this->logger, static fn(): bool => $kept, $this->digester());
+            $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+            $recorder->addSql('SELECT 1', 2.0, SqlDialect::Sqlite);
+            $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', 4.0, ['c2' => 1]);
+            $recorder->end($token, 'GET app_home', 10.0);
+        }
+
+        [$dropped, $sampled] = $this->buffer->entries;
+        static::assertSame(['sql_ms' => 2.0, 'sql_n' => 1, 'http_ms' => 4.0, 'http_n' => 1], $dropped->attributes);
+        static::assertSame([], $dropped->children);
+        static::assertSame(['sql_ms' => 2.0, 'sql_n' => 1, 'http_ms' => 4.0, 'http_n' => 1, 'cw' => Recorder::SAMPLE_WEIGHT], $sampled->attributes);
+        static::assertSame(10, $sampled->attributes['cw']);
+        static::assertSame([Entry::TYPE_QUERY, Entry::TYPE_HTTP], array_map(static fn(Entry $child): string => $child->type, $sampled->children));
+    }
+
+    public function testGenericChildrenAreWrittenShortWithDurationsRoundedToTheMicrosecond(): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1700000000.25);
+        $recorder->add($token, Entry::TYPE_USER, 'jane@example.com');
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', 1 / 3, ['c5' => 1]);
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', 0.2);
+        $recorder->add($token, Entry::TYPE_CACHE, 'cache.app', 0.0, ['h' => 1]);
+        $recorder->add($token, Entry::TYPE_CACHE, 'app.pool', 0.0, ['mi' => 1, 'w' => 1]);
+        $recorder->end($token, 'GET app_home', 12.5, ['status' => 200]);
+
+        $line = $this->buffer->entries[0]->toLine();
+
+        static::assertSame(
+            '{"t":"request","k":"GET app_home","s":1700000000.25,"d":12.5,"a":{"status":200,"http_ms":0.533,"http_n":2},"c":['
+            . '{"t":"u","k":"jane@example.com","d":0.0,"a":{"n":1}},'
+            . '{"t":"h","k":"api.example.com","d":0.533,"a":{"n":2,"m":0.333,"c5":1}},'
+            . '{"t":"ca","k":"cache.app","d":0.0,"a":{"n":1,"h":1}},'
+            . '{"t":"ca","k":"app.pool","d":0.0,"a":{"n":1,"mi":1,"w":1}}]}',
+            $line,
+        );
+        static::assertLessThan(350, \strlen($line));
+    }
+
+    public function testAUnitWithoutNewMeasureWritesTheSameLineAsBefore(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1700000000.25);
+        $recorder->addSql('SELECT * FROM t WHERE id = 1', 1.25, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT * FROM u', 2.5, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT * FROM t WHERE id = 2', 0.5, SqlDialect::Sqlite);
+        $recorder->end($token, 'GET app_home', 12.5, ['status' => 200, 'memory' => 2_097_152]);
+
+        static::assertSame(
+            '{"t":"request","k":"GET app_home","s":1700000000.25,"d":12.5,"a":{"status":200,"memory":2097152,"sql_ms":4.25,"sql_n":3},"c":[["597fdddc6d533c76",1.75,2,1.25],["aacb387c71b230c8",2.5,1,2.5]]}',
+            $this->buffer->entries[0]->toLine(),
+        );
+    }
+
     /**
      * @return list<array{string, string}> [dialect value, text] of each SQL entry the open unit holds
      */
     private static function retainedTexts(Recorder $recorder, int $token): array
     {
-        /** @var array<int, array{string, float, array<string, array<string, mixed>>}> $units */
+        /** @var array<int, Unit> $units */
         $units = (new \ReflectionProperty(Recorder::class, 'units'))->getValue($recorder);
         $texts = [];
-        foreach ($units[$token][2] as $bucket => $entries) {
+        foreach ($units[$token]->sql as $bucket => $entries) {
             foreach (array_keys($entries) as $text) {
                 $texts[] = [(string) $bucket, (string) $text];
             }

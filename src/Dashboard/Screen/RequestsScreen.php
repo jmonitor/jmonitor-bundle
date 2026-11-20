@@ -21,7 +21,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 
 /**
- * @phpstan-type Route array{row: ReportRow, cell: Cell, requests: int, total: float, avg: float, p95: float, max: float, sql: float, queries: float, hasSql: bool, errors: int, slow: int, memory: int}
+ * @phpstan-type Route array{row: ReportRow, cell: Cell, requests: int, total: float, avg: float, p95: float, max: float, sql: float, queries: float, hasSql: bool, http: float, hasHttp: bool, errors: int, slow: int, memory: int}
  */
 final class RequestsScreen implements ScreenInterface
 {
@@ -57,6 +57,7 @@ final class RequestsScreen implements ScreenInterface
             'p95' => 'desc',
             'max' => 'desc',
             'sql' => 'desc',
+            'http' => 'desc',
             'errors' => 'desc',
             'slow' => 'desc',
             'memory' => 'desc',
@@ -107,6 +108,7 @@ final class RequestsScreen implements ScreenInterface
             new Column('p95', 'p95', sort: 'p95'),
             new Column('max', 'Max', sort: 'max'),
             new Column('sql', 'SQL', sort: 'sql'),
+            new Column('http', 'HTTP out', sort: 'http'),
             new Column('errors', '5xx', sort: 'errors'),
             new Column('slow', 'Slow', sort: 'slow'),
             new Column('memory', 'Peak memory', sort: 'memory'),
@@ -165,6 +167,8 @@ final class RequestsScreen implements ScreenInterface
             'sql' => $row->sum(Metric::REQUEST_SQL_TIME) / $requests,
             'queries' => $row->sum(Metric::REQUEST_SQL_COUNT) / $requests,
             'hasSql' => $row->count(Metric::REQUEST_SQL_TIME) > 0,
+            'http' => $row->sum(Metric::REQUEST_HTTP_TIME) / $requests,
+            'hasHttp' => $row->count(Metric::REQUEST_HTTP_TIME) > 0,
             'errors' => $row->count(Metric::REQUEST_STATUS_PREFIX . '5xx'),
             'slow' => $row->count(Metric::REQUEST_SLOW),
             'memory' => (int) $row->max(Metric::REQUEST_MEMORY),
@@ -184,6 +188,7 @@ final class RequestsScreen implements ScreenInterface
             'sql' => $route['hasSql']
                 ? new Cell(Format::duration($route['sql']) . ' · ' . self::queries($route['queries']) . ' q')
                 : new Cell('—', 'zero'),
+            'http' => $route['hasHttp'] ? new Cell(Format::duration($route['http'])) : new Cell('—', 'zero'),
             'errors' => new Cell(Format::number($route['errors']), $route['errors'] > 0 ? 'bad' : 'zero'),
             'slow' => new Cell(Format::number($route['slow']), $route['slow'] > 0 ? 'warn' : 'zero'),
             'memory' => new Cell(Format::bytes($route['memory'])),
@@ -216,7 +221,7 @@ final class RequestsScreen implements ScreenInterface
     {
         return match ($sort) {
             'route' => strcmp($a['cell']->text, $b['cell']->text),
-            'requests', 'avg', 'p95', 'max', 'sql', 'errors', 'slow', 'memory' => $a[$sort] <=> $b[$sort],
+            'requests', 'avg', 'p95', 'max', 'sql', 'http', 'errors', 'slow', 'memory' => $a[$sort] <=> $b[$sort],
             default => $a['total'] <=> $b['total'],
         };
     }

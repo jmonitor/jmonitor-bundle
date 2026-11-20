@@ -5,8 +5,12 @@ declare(strict_types=1);
 use Jmonitor\JmonitorBundle\Controller\DashboardController;
 use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\CacheScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\HttpClientScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -71,6 +75,24 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             param('jmonitor.recording.sql.n_plus_one_threshold'),
         ])
         ->tag('jmonitor.screen', ['priority' => 90]);
+
+    $services->set(HttpClientScreen::class)
+        ->args([param('jmonitor.recording.http_client')])
+        ->tag('jmonitor.screen', ['priority' => 50]);
+
+    $services->set(CacheScreen::class)
+        ->args([param('jmonitor.recording.cache')])
+        ->tag('jmonitor.screen', ['priority' => 40]);
+
+    $services->set(ExceptionsScreen::class)
+        ->args([param('jmonitor.recording.exceptions')])
+        ->tag('jmonitor.screen', ['priority' => 30]);
+
+    if (isset($builder->getParameter('kernel.bundles')['SecurityBundle'])) {
+        $services->set(UsersScreen::class)
+            ->args([param('jmonitor.recording.users'), param('jmonitor.recording.slow_threshold')])
+            ->tag('jmonitor.screen', ['priority' => 20]);
+    }
 
     $services->set(JmonitorExtension::class)
         ->args([service('request_stack')->nullOnInvalid()])

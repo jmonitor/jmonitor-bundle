@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle;
 
+use Jmonitor\JmonitorBundle\DependencyInjection\CachePoolPass;
+use Jmonitor\JmonitorBundle\DependencyInjection\HttpClientPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
@@ -19,6 +21,21 @@ final class JmonitorBundle extends AbstractBundle
     public function build(ContainerBuilder $container): void
     {
         $container->addCompilerPass(new StorageConnectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+        $container->addCompilerPass(new HttpClientPass());
+        // After the CacheCollectorPass of debug mode: the profiler keeps tracing the pools from inside the wrappers.
+        $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
+    }
+
+    public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
+    {
+        $pools = [];
+        foreach ($builder->getExtensionConfig('framework') as $config) {
+            foreach ($config['cache']['pools'] ?? [] as $name => $pool) {
+                $pools[] = \is_string($name) ? $name : ($pool['name'] ?? null);
+            }
+        }
+
+        $builder->setParameter(CachePoolPass::DECLARED_POOLS, array_values(array_unique(array_filter($pools, '\is_string'))));
     }
 
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
@@ -45,6 +62,10 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.recording.sql.enabled', $config['recording']['sql']['enabled']);
         $builder->setParameter('jmonitor.recording.sql.slow_threshold', $config['recording']['sql']['slow_threshold']);
         $builder->setParameter('jmonitor.recording.sql.n_plus_one_threshold', $config['recording']['sql']['n_plus_one_threshold']);
+        $builder->setParameter('jmonitor.recording.exceptions', $config['recording']['exceptions']);
+        $builder->setParameter('jmonitor.recording.users', $config['recording']['users']);
+        $builder->setParameter('jmonitor.recording.http_client', $config['recording']['http_client']);
+        $builder->setParameter('jmonitor.recording.cache', $config['recording']['cache']);
         $builder->setParameter('jmonitor.recording.app_id', substr(hash('xxh128', $projectDir . '|' . $environment), 0, 12));
         $builder->setParameter('jmonitor.storage.connection', $config['storage']['connection']);
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
@@ -307,6 +328,10 @@ final class JmonitorBundle extends AbstractBundle
                                 ->integerNode('n_plus_one_threshold')->defaultValue(10)->min(1)->info('Executions of the same SELECT within one request from which it counts as an N+1.')->end()
                             ->end()
                         ->end()
+                        ->booleanNode('exceptions')->defaultTrue()->info('Count the exceptions behind the 5xx responses.')->end()
+                        ->booleanNode('users')->defaultTrue()->info('Record the requests of each signed-in user. Requires the SecurityBundle.')->end()
+                        ->booleanNode('http_client')->defaultTrue()->info('Record the outgoing calls made through the http_client service and its scoped clients, per host.')->end()
+                        ->booleanNode('cache')->defaultTrue()->info('Count the reads, writes and deletes of cache.app and of the pools declared under framework.cache.pools.')->end()
                     ->end()
                 ->end()
                 ->arrayNode('storage')

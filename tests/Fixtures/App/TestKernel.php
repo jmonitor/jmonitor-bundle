@@ -37,11 +37,13 @@ final class TestKernel extends Kernel
         private readonly bool $withSecurity = false,
         private readonly bool $withTwig = true,
         private readonly bool $withConnectionLogger = false,
+        private readonly bool $withHttpClient = true,
+        private readonly bool $withProfiler = false,
     ) {
         parent::__construct($environment, $debug);
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler]));
     }
 
     public function registerBundles(): iterable
@@ -101,7 +103,23 @@ final class TestKernel extends Kernel
             'handle_all_throwables' => true,
             'php_errors' => ['log' => true],
             'router' => ['utf8' => true],
+            'http_client' => $this->withHttpClient ? [
+                'mock_response_factory' => HttpResponses::class,
+                'scoped_clients' => [
+                    'flaky.client' => ['base_uri' => HttpResponses::FLAKY_BASE_URI, 'retry_failed' => ['max_retries' => 1, 'delay' => 0]],
+                ],
+            ] : ['enabled' => false],
+            'cache' => ['pools' => [
+                'app.plain' => ['adapter' => 'cache.adapter.array'],
+                'app.tagged' => ['tags' => true],
+                'app.system' => ['adapter' => 'cache.adapter.system'],
+                'app.derived' => ['adapter' => 'cache.app'],
+            ]],
         ]);
+
+        if ($this->withProfiler) {
+            $container->extension('framework', ['profiler' => ['enabled' => true, 'collect' => false]]);
+        }
 
         $container->extension('jmonitor', $this->jmonitorConfig ?: $this->environmentConfig());
 
@@ -116,14 +134,19 @@ final class TestKernel extends Kernel
                 'password_hashers' => [InMemoryUser::class => 'plaintext'],
                 'providers' => [
                     'users' => ['memory' => ['users' => [
-                        'admin' => ['password' => 'test', 'roles' => ['ROLE_ADMIN']],
+                        'admin' => ['password' => 'test', 'roles' => ['ROLE_ADMIN', 'ROLE_ALLOWED_TO_SWITCH']],
                         'user' => ['password' => 'test', 'roles' => ['ROLE_USER']],
                     ]]],
                 ],
                 'firewalls' => [
-                    'main' => ['stateless' => true, 'http_basic' => ['realm' => 'JMonitor test']],
+                    'lazy' => ['pattern' => '^/lazy/', 'lazy' => true, 'http_basic' => ['realm' => 'JMonitor test']],
+                    'main' => ['stateless' => true, 'http_basic' => ['realm' => 'JMonitor test'], 'switch_user' => true],
+                ],
+                'access_control' => [
+                    ['path' => '^/lazy/me$', 'roles' => 'IS_AUTHENTICATED_FULLY'],
                 ],
             ]);
+            $container->extension('framework', ['session' => ['storage_factory_id' => 'session.storage.factory.mock_file']]);
         }
 
         $services = $container->services();
@@ -135,9 +158,21 @@ final class TestKernel extends Kernel
             $services->set('logger', Logger::class)
                 ->args([LogLevel::WARNING, $this->getLogDir() . '/' . $this->environment . '.log']);
         }
+        if ($this->withHttpClient) {
+            $services->set(HttpResponses::class);
+        }
         $services->set(DemoController::class)
-            ->args([service('doctrine.dbal.default_connection')->nullOnInvalid()])
+            ->args([
+                service('doctrine.dbal.default_connection')->nullOnInvalid(),
+                service('http_kernel'),
+                service('http_client')->nullOnInvalid(),
+                service('flaky.client')->nullOnInvalid(),
+                service('cache.app'),
+            ])
             ->tag('controller.service_arguments');
+        $services->set(CacheConsumer::class)
+            ->autowire()
+            ->public();
     }
 
     /**
@@ -153,13 +188,20 @@ final class TestKernel extends Kernel
     protected function configureRoutes(RoutingConfigurator $routes): void
     {
         $routes->add('app_hello', '/hello/{name}')->controller([DemoController::class, 'hello']);
+        $routes->add('app_lazy_hello', '/lazy/hello/{name}')->controller([DemoController::class, 'hello']);
+        $routes->add('app_lazy_me', '/lazy/me')->controller([DemoController::class, 'hello'])->defaults(['name' => 'me']);
         $routes->add('app_slow', '/slow')->controller([DemoController::class, 'slow']);
         $routes->add('app_alloc', '/alloc')->controller([DemoController::class, 'alloc']);
         $routes->add('app_boom', '/boom')->controller([DemoController::class, 'boom']);
+        $routes->add('app_handled', '/handled')->controller([DemoController::class, 'handled']);
+        $routes->add('app_sub_boom', '/sub-boom')->controller([DemoController::class, 'subBoom']);
         $routes->add('app_teapot', '/teapot')->controller([DemoController::class, 'teapot']);
         $routes->add('app_n_plus_one', '/n-plus-one')->controller([DemoController::class, 'nPlusOne']);
         $routes->add('app_sql_error', '/sql-error')->controller([DemoController::class, 'sqlError']);
         $routes->add('app_hostile_query', '/hostile-query')->controller([DemoController::class, 'hostileQuery']);
+        $routes->add('app_call', '/call')->controller([DemoController::class, 'call']);
+        $routes->add('app_call_flaky', '/call-flaky')->controller([DemoController::class, 'callFlaky']);
+        $routes->add('app_cached', '/cached')->controller([DemoController::class, 'cached']);
         $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');
     }
 }

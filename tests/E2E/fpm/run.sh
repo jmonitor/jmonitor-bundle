@@ -67,4 +67,28 @@ for _ in $(seq 1 30); do
 done
 [ "$repeated" = 1 ] || fail 'the Queries screen did not list the N+1 of "GET app_n_plus_one" within 30 s'
 
-echo "OK: 30 requests and an N+1 recorded under PHP-FPM"
+for _ in 1 2 3; do
+    curl -sf -o /dev/null "$BASE/cached" || fail "GET /cached did not return 2xx"
+done
+for _ in 1 2; do
+    status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/boom")"
+    [ "$status" = 500 ] || fail "GET /boom answered $status instead of 500"
+done
+
+expect_page() {
+    found=0
+    for _ in $(seq 1 30); do
+        page="$(curl -sf "$BASE$1")" || fail "GET $1 did not return 2xx"
+        if printf '%s\n' "$page" | grep -q "$2"; then
+            found=1
+            break
+        fi
+        sleep 1
+    done
+    [ "$found" = 1 ] || fail "$3 within 30 s"
+}
+
+expect_page /jmonitor/cache 'data-jm-pool="cache.app" data-jm-reads="3"' 'the Cache screen did not list 3 reads of cache.app'
+expect_page /jmonitor/exceptions 'data-jm-exception="RuntimeException" data-jm-count="2"' 'the Exceptions screen did not list 2 RuntimeException'
+
+echo "OK: 30 requests, an N+1, cache reads and exceptions recorded under PHP-FPM"

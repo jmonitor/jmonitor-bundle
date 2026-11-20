@@ -46,11 +46,11 @@ final class RequestsScreenTest extends TestCase
         static::assertSame('Requests', $screen->label());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
-            ['total' => 'desc', 'route' => 'asc', 'requests' => 'desc', 'avg' => 'desc', 'p95' => 'desc', 'max' => 'desc', 'sql' => 'desc', 'errors' => 'desc', 'slow' => 'desc', 'memory' => 'desc'],
+            ['total' => 'desc', 'route' => 'asc', 'requests' => 'desc', 'avg' => 'desc', 'p95' => 'desc', 'max' => 'desc', 'sql' => 'desc', 'http' => 'desc', 'errors' => 'desc', 'slow' => 'desc', 'memory' => 'desc'],
             $screen->sorts(),
         );
         static::assertSame(
-            ['route', 'requests', 'total', 'avg', 'p95', 'max', 'sql', 'errors', 'slow', 'memory'],
+            ['route', 'requests', 'total', 'avg', 'p95', 'max', 'sql', 'http', 'errors', 'slow', 'memory'],
             array_map(static fn($column): string => $column->id, $this->table($this->build([$this->route('GET app_a')]))->columns),
         );
     }
@@ -58,10 +58,10 @@ final class RequestsScreenTest extends TestCase
     public function testEverySortKey(): void
     {
         $rows = [
-            $this->route('POST app_b', 40, 500.0, 90.0, ['25' => 40], 2, 0, 4096, 40, 400.0, 80.0),
-            $this->route('GET app_a', 7, 560.0, 400.0, ['250' => 7], 0, 3, 1024, 7, 350.0, 7.0),
+            $this->route('POST app_b', 40, 500.0, 90.0, ['25' => 40], 2, 0, 4096, 40, 400.0, 80.0, httpRequests: 40, httpTime: 800.0),
+            $this->route('GET app_a', 7, 560.0, 400.0, ['250' => 7], 0, 3, 1024, 7, 350.0, 7.0, httpRequests: 5, httpTime: 350.0),
             $this->route('GET app_d', 120, 384.0, 15.0, ['10' => 100, '25' => 20], 1, 2, 2048),
-            $this->route('DELETE app_c', 1, 900.0, 900.0, ['1000' => 1], 3, 1, 8192, 1, 2.0, 1.0),
+            $this->route('DELETE app_c', 1, 900.0, 900.0, ['1000' => 1], 3, 1, 8192, 1, 2.0, 1.0, httpRequests: 1, httpTime: 30.0),
         ];
         $descending = [
             'total' => ['c', 'a', 'b', 'd'],
@@ -71,6 +71,7 @@ final class RequestsScreenTest extends TestCase
             'p95' => ['c', 'a', 'b', 'd'],
             'max' => ['c', 'a', 'b', 'd'],
             'sql' => ['a', 'b', 'c', 'd'],
+            'http' => ['a', 'c', 'b', 'd'],
             'errors' => ['c', 'b', 'd', 'a'],
             'slow' => ['a', 'd', 'c', 'b'],
             'memory' => ['c', 'b', 'd', 'a'],
@@ -93,7 +94,7 @@ final class RequestsScreenTest extends TestCase
         static::assertSame(['data-jm-route' => 'GET app_a', 'data-jm-requests' => '7'], $row->attributes);
         static::assertFalse($row->muted);
         static::assertSame(
-            ['route' => 'app_a', 'requests' => '7', 'total' => '560 ms', 'avg' => '80 ms', 'p95' => '243 ms', 'max' => '400 ms', 'sql' => '50 ms · 1.0 q', 'errors' => '0', 'slow' => '3', 'memory' => '1 KB'],
+            ['route' => 'app_a', 'requests' => '7', 'total' => '560 ms', 'avg' => '80 ms', 'p95' => '243 ms', 'max' => '400 ms', 'sql' => '50 ms · 1.0 q', 'http' => '—', 'errors' => '0', 'slow' => '3', 'memory' => '1 KB'],
             $texts,
         );
         static::assertSame('route', $row->cells['route']->kind);
@@ -168,6 +169,22 @@ final class RequestsScreenTest extends TestCase
         static::assertSame('zero', $rows[2]->cells['sql']->tone);
     }
 
+    public function testTheHttpOutColumnShowsTheMeanTimePerRequest(): void
+    {
+        $rows = $this->table($this->build([
+            $this->route('GET app_api', 10, 1000.0, 200.0, httpRequests: 8, httpTime: 450.0),
+            $this->route('GET app_light', 4, 100.0, 50.0, httpRequests: 1, httpTime: 2.0),
+            $this->route('GET app_none', 1, 10.0, 10.0, sqlRequests: 1, sqlTime: 3.0, sqlCount: 2.0),
+        ], 'total', 'desc'))->rows;
+
+        static::assertSame('45 ms', $rows[0]->cells['http']->text);
+        static::assertNull($rows[0]->cells['http']->tone);
+        static::assertSame('<1 ms', $rows[1]->cells['http']->text);
+        static::assertSame('—', $rows[2]->cells['http']->text);
+        static::assertSame('zero', $rows[2]->cells['http']->tone);
+        static::assertSame('3 ms · 2.0 q', $rows[2]->cells['sql']->text);
+    }
+
     public function testOtherRoutesComeLastWhateverTheSort(): void
     {
         $rows = [$this->route('GET app_a', 2, 20.0, 10.0), $this->route('GET app_b', 3, 30.0, 10.0)];
@@ -239,6 +256,8 @@ final class RequestsScreenTest extends TestCase
         int $sqlRequests = 0,
         float $sqlTime = 0.0,
         float $sqlCount = 0.0,
+        int $httpRequests = 0,
+        float $httpTime = 0.0,
     ): ReportRow {
         $metrics = $this->metrics($requests, $totalMs, $maxMs);
         $metrics[Metric::REQUEST_MEMORY] = new MetricValue($requests, (float) ($memory * $requests), (float) $memory);
@@ -254,6 +273,9 @@ final class RequestsScreenTest extends TestCase
         if ($sqlRequests > 0) {
             $metrics[Metric::REQUEST_SQL_TIME] = new MetricValue($sqlRequests, $sqlTime, $sqlTime);
             $metrics[Metric::REQUEST_SQL_COUNT] = new MetricValue($sqlRequests, $sqlCount, $sqlCount);
+        }
+        if ($httpRequests > 0) {
+            $metrics[Metric::REQUEST_HTTP_TIME] = new MetricValue($httpRequests, $httpTime, $httpTime);
         }
 
         return new ReportRow(md5($key), $key, $key, $metrics);

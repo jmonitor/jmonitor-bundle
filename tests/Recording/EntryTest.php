@@ -55,6 +55,29 @@ final class EntryTest extends TestCase
         static::assertEquals($entry, Entry::fromLine($entry->toLine()));
     }
 
+    public function testAnHttpChildWithCountersSurvivesARoundTrip(): void
+    {
+        $child = new Entry(Entry::TYPE_HTTP, 'api.example.com', 1000.5, 25.0, ['n' => 2, 'm' => 12.5, 'c5' => 2]);
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1000.5, 40.0, ['http_ms' => 25.0, 'http_n' => 2], [$child]);
+
+        $read = Entry::fromLine($entry->toLine());
+
+        static::assertEquals($entry, $read);
+        static::assertSame(['n' => 2, 'm' => 12.5, 'c5' => 2], $read?->children[0]->attributes);
+    }
+
+    public function testAnExceptionChildWithoutDurationSurvivesARoundTrip(): void
+    {
+        $child = new Entry(Entry::TYPE_EXCEPTION, 'App\\Boom', 1000.5, 0.0, ['n' => 1]);
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1000.5, 40.0, ['status' => 500], [$child]);
+
+        $read = Entry::fromLine($entry->toLine());
+
+        static::assertEquals($entry, $read);
+        static::assertSame(0.0, $read?->children[0]->durationMs);
+        static::assertSame(['n' => 1], $read->children[0]->attributes);
+    }
+
     public function testAChildInheritsTheStartOfItsParent(): void
     {
         $entry = Entry::fromLine('{"t":"request","k":"GET a","s":1000.5,"d":9.0,"c":[["abc",1.5,2,1.0],{"t":"q","k":"x","d":2.0}]}');
@@ -63,6 +86,52 @@ final class EntryTest extends TestCase
         static::assertSame(1000.5, $entry->children[0]->startedAt);
         static::assertSame(Entry::TYPE_QUERY, $entry->children[0]->type);
         static::assertSame(1000.5, $entry->children[1]->startedAt);
+    }
+
+    public function testAGenericChildLeavesOutTheStartItSharesWithItsParent(): void
+    {
+        $children = [
+            new Entry(Entry::TYPE_HTTP, 'api.example.com', 1000.5, 25.0, ['n' => 2, 'm' => 12.5, 'c5' => 2]),
+            new Entry(Entry::TYPE_EXCEPTION, 'App\\Boom', 1000.5, 0.0, ['n' => 1]),
+        ];
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET a', 1000.5, 40.0, [], $children);
+
+        $line = $entry->toLine();
+
+        static::assertSame(
+            '{"t":"request","k":"GET a","s":1000.5,"d":40.0,"c":[{"t":"h","k":"api.example.com","d":25.0,"a":{"n":2,"m":12.5,"c5":2}},{"t":"ex","k":"App\\\\Boom","d":0.0,"a":{"n":1}}]}',
+            $line,
+        );
+        static::assertEquals($entry, Entry::fromLine($line));
+    }
+
+    public function testAGenericChildWithItsOwnStartKeepsIt(): void
+    {
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET a', 1000.5, 40.0, [], [
+            new Entry(Entry::TYPE_HTTP, 'api.example.com', 1001.0, 25.0, ['n' => 1, 'm' => 25.0]),
+        ]);
+
+        static::assertStringContainsString('{"t":"h","k":"api.example.com","s":1001.0,', $entry->toLine());
+        static::assertEquals($entry, Entry::fromLine($entry->toLine()));
+    }
+
+    public function testAnNPlusOneChildKeepsTheStartItSharesWithItsParent(): void
+    {
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET a', 1000.5, 40.0, [], [
+            new Entry(Entry::TYPE_NPLUS1, 'abc', 1000.5, 4.5, ['n' => 12]),
+        ]);
+
+        static::assertSame('{"t":"request","k":"GET a","s":1000.5,"d":40.0,"c":[{"t":"n1","k":"abc","s":1000.5,"d":4.5,"a":{"n":12}}]}', $entry->toLine());
+    }
+
+    public function testAGenericChildWrittenWithTheStartOfItsParentStillReads(): void
+    {
+        $entry = Entry::fromLine('{"t":"request","k":"GET a","s":1000.5,"d":40.0,"c":[{"t":"h","k":"api.example.com","s":1000.5,"d":25.0,"a":{"n":2,"m":12.5,"c5":2}},{"t":"ex","k":"App\\\\Boom","s":1000.5,"d":0.0,"a":{"n":1}}]}');
+
+        static::assertEquals(new Entry(Entry::TYPE_REQUEST, 'GET a', 1000.5, 40.0, [], [
+            new Entry(Entry::TYPE_HTTP, 'api.example.com', 1000.5, 25.0, ['n' => 2, 'm' => 12.5, 'c5' => 2]),
+            new Entry(Entry::TYPE_EXCEPTION, 'App\\Boom', 1000.5, 0.0, ['n' => 1]),
+        ]), $entry);
     }
 
     public function testALineWrittenByTheFirstFormatStillReads(): void
