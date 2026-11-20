@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Recording;
 
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
@@ -16,7 +17,7 @@ final class Recorder implements ResetInterface
     public const MAX_SQL_PER_UNIT = 200;
     public const MAX_SQL_BYTES = 65_536;
 
-    /** @var array<int, array{string, float, array<string, array{int, float, float, int}>}> token => [type, started at, SQL], in opening order */
+    /** @var array<int, array{string, float, array<string, array<string, array{int, float, float, int}>>}> token => [type, started at, dialect value => raw SQL => stats], in opening order */
     private array $units = [];
     private int $lastToken = 0;
     private bool $paused = false;
@@ -63,9 +64,11 @@ final class Recorder implements ResetInterface
         if ($unit[2] !== [] && $this->queries !== null) {
             $totalMs = 0.0;
             $count = 0;
-            foreach ($unit[2] as [$executions, $ms]) {
-                $count += $executions;
-                $totalMs += $ms;
+            foreach ($unit[2] as $texts) {
+                foreach ($texts as [$executions, $ms]) {
+                    $count += $executions;
+                    $totalMs += $ms;
+                }
             }
             $attributes['sql_ms'] = round($totalMs, 3);
             $attributes['sql_n'] = $count;
@@ -90,24 +93,27 @@ final class Recorder implements ResetInterface
         }
     }
 
-    public function addSql(string $sql, float $durationMs): void
+    public function addSql(string $sql, float $durationMs, SqlDialect $dialect): void
     {
         if ($this->paused || $this->units === [] || $this->queries === null) {
             return;
         }
 
         $token = array_key_last($this->units);
-        if (\strlen($sql) > self::MAX_SQL_BYTES) {
+        $bucket = $dialect->value;
+        if ($dialect === SqlDialect::Unknown || \strlen($sql) > self::MAX_SQL_BYTES) {
+            $bucket = SqlDialect::Unknown->value;
             $sql = QueryDigester::OTHER;
         }
-        if (!isset($this->units[$token][2][$sql])) {
-            if (\count($this->units[$token][2]) >= self::MAX_SQL_PER_UNIT) {
+        if (!isset($this->units[$token][2][$bucket][$sql])) {
+            if ($this->sqlEntries($token) >= self::MAX_SQL_PER_UNIT) {
+                $bucket = SqlDialect::Unknown->value;
                 $sql = QueryDigester::OTHER;
             }
-            $this->units[$token][2][$sql] ??= [0, 0.0, 0.0, 0];
+            $this->units[$token][2][$bucket][$sql] ??= [0, 0.0, 0.0, 0];
         }
 
-        $stats = &$this->units[$token][2][$sql];
+        $stats = &$this->units[$token][2][$bucket][$sql];
         ++$stats[0];
         $stats[1] += $durationMs;
         $stats[2] = max($stats[2], $durationMs);
@@ -140,8 +146,18 @@ final class Recorder implements ResetInterface
         $this->paused = false;
     }
 
+    private function sqlEntries(int $token): int
+    {
+        $entries = 0;
+        foreach ($this->units[$token][2] as $texts) {
+            $entries += \count($texts);
+        }
+
+        return $entries;
+    }
+
     /**
-     * @return array{string, float, array<string, array{int, float, float, int}>}|null
+     * @return array{string, float, array<string, array<string, array{int, float, float, int}>>}|null
      */
     private function close(int $token): ?array
     {

@@ -8,20 +8,24 @@ use Doctrine\DBAL\Driver\Connection as ConnectionInterface;
 use Doctrine\DBAL\Driver\Result;
 use Doctrine\DBAL\Driver\Statement as StatementInterface;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 
 /**
  * The part of the connection middleware shared by DBAL 3 and 4, whose commit() and rollBack() signatures differ.
  */
 trait TimesQueries
 {
-    public function __construct(ConnectionInterface $connection, private readonly Recorder $recorder)
-    {
+    public function __construct(
+        ConnectionInterface $connection,
+        private readonly Recorder $recorder,
+        private readonly SqlDialect $dialect,
+    ) {
         parent::__construct($connection);
     }
 
     public function prepare(string $sql): StatementInterface
     {
-        return new Statement(parent::prepare($sql), $this->recorder, $sql);
+        return new Statement(parent::prepare($sql), $this->recorder, $sql, $this->dialect);
     }
 
     public function query(string $sql): Result
@@ -34,7 +38,7 @@ trait TimesQueries
         try {
             return parent::query($sql);
         } finally {
-            $this->recorder->addSql($sql, (hrtime(true) - $start) / 1e6);
+            $this->recorder->addSql($sql, (hrtime(true) - $start) / 1e6, $this->dialect);
         }
     }
 
@@ -48,7 +52,7 @@ trait TimesQueries
         try {
             return (int) parent::exec($sql);
         } finally {
-            $this->recorder->addSql($sql, (hrtime(true) - $start) / 1e6);
+            $this->recorder->addSql($sql, (hrtime(true) - $start) / 1e6, $this->dialect);
         }
     }
 }

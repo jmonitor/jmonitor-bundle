@@ -8,63 +8,71 @@ final class SqlNormalizer
 {
     public const MAX_LENGTH = 2000;
 
-    private const DOUBLE_QUOTED = '"(?:[^"]++|"")*+"';
-    private const BACKTICKED = '`(?:[^`]++|``)*+`';
-    private const MARKER = '(?:\?|:\w++|\$\d++|' . self::DOUBLE_QUOTED . ')';
+    private const MARKER = '(?:\?|:\w++|\$\d++|' . SqlScanner::MAYBE_VALUE . ')';
+    private const DIGITS = '\d[\d_]*+';
+    private const RADIX = '0[xbo][0-9a-f_]++';
+    private const DECIMAL = '(?:' . self::DIGITS . '\.(?:' . self::DIGITS . ')?+|\.' . self::DIGITS . ')';
+    private const EXPONENT = 'e[-+]?' . self::DIGITS;
+    private const UNGLUED = '(?![\w$])';
+    private const NUMBER_START = '~' . SqlScanner::KEPT . '(*SKIP)(*FAIL)|(?<![\w$.])[-+]?(?:';
+    private const NUMBER = self::NUMBER_START . self::RADIX . '|' . self::DECIMAL . '(?:' . self::EXPONENT . ')?|' . self::DIGITS . '(?:' . self::EXPONENT . ')?)~iu';
+    /** MySQL reads a run of digits or a radix form glued to a letter as an identifier. */
+    private const MYSQL_NUMBER = self::NUMBER_START . self::RADIX . self::UNGLUED . '|' . self::DECIMAL . '(?:' . self::EXPONENT . ')?|' . self::DIGITS . '(?:' . self::EXPONENT . '|' . self::UNGLUED . '))~iu';
 
-    /**
-     * A double-quoted token right after a comparison is a MySQL or SQLite string, elsewhere an identifier;
-     * an unterminated token runs to the end of the text, which keeps the pass linear.
-     */
-    private const TOKENS = '~'
-        . '(?<value>(?:[=<>]|\bLIKE)\s*+)"(?:[^"]++|"")*+(?:"|\z)'
-        . '|(?<quoted>"(?:[^"]++|"")*+(?:"|\z)|`(?:[^`]++|``)*+(?:`|\z))'
-        . '|(?<blank>(?:\s++|/\*(?:[^*]++|\*(?!/))*+(?:\*/|\z)|--[^\n]*+)++)'
-        . '|\'(?:[^\'\\\\]++|\\\\.?|\'\')*+(?:\'|\z)'
-        . '|(?<![\w$.])[-+]?(?:0x[0-9a-f]++|(?:\d++(?:\.\d*+)?|\.\d++)(?:e[-+]?\d++)?)(?![\w$])'
-        . '~isu';
-
-    /** Skips quoted tokens whole, so that no search starts inside one. */
-    private const SKIP_QUOTED = '(?:"(?:[^"]++|"")*+(?:"|\z)|`(?:[^`]++|``)*+(?:`|\z))(*SKIP)(*FAIL)';
-    private const IN_LIST = '~' . self::SKIP_QUOTED . '|\b(IN)\s*+\(\s*+' . self::MARKER . '(?:\s*+,\s*+' . self::MARKER . ')*+\s*+\)~i';
-    private const VALUES_START = '~' . self::SKIP_QUOTED . '|\bVALUES(?=\s*+\()~i';
-    private const VALUE_IN_GROUP = '~' . self::BACKTICKED . '(*SKIP)(*FAIL)|' . self::DOUBLE_QUOTED . '~';
+    /** After the numbers: blanks, then a SQLite double-quoted token right after a comparison, then IN lists. */
+    private const PASSES = [
+        '~\s++~u' => ' ',
+        '~(?:[=<>]|\bLIKE)\s*+\K' . SqlScanner::MAYBE_VALUE . '~iu' => '?',
+        '~\b(IN)\s*+\(\s*+' . self::MARKER . '(?:\s*+,\s*+' . self::MARKER . ')*+\s*+\)~i' => '$1 (?)',
+    ];
+    private const VALUES_START = '~\bVALUES(?=\s*+\()~i';
     private const BLANKS = " \t\n\r\f\v";
-    private const DOLLAR_QUOTE = '~(?:(?<![\w$])|(?<=\d))\$(?:[^\W\d]\w*+)?\$~u';
 
     /**
-     * Whether a backslash escapes a quote depends on the dialect and its settings, which are not known here: a text
-     * holding one, a PostgreSQL dollar quote, a `#` outside a quoted token or a comment PostgreSQL would read as nested
-     * gives null rather than risk reading a value as SQL.
+     * Whether a backslash escapes a quote depends on a session setting that is not known here: the text is read once
+     * per setting its dialect allows, and kept only when the readings that delimit it all give the same result.
      *
      * @return string|null null as well when a pattern fails, the text then possibly still holding values
      */
-    public static function normalize(string $sql): ?string
+    public static function normalize(string $sql, SqlDialect $dialect): ?string
     {
-        $sql = mb_scrub($sql, 'UTF-8');
-        if (str_contains($sql, '\\\'') || str_contains($sql, '\\"') || preg_match(self::DOLLAR_QUOTE, $sql) !== 0) {
-            return null;
-        }
-        if (self::holdsDialectComment($sql)) {
+        if ($dialect === SqlDialect::Unknown || str_contains($sql, "\0")) {
             return null;
         }
 
-        $sql = preg_replace_callback(self::TOKENS, self::token(...), $sql, flags: \PREG_UNMATCHED_AS_NULL);
-        if ($sql === null) {
+        $read = null;
+        foreach (self::readings($sql, $dialect) as $escaping) {
+            $reading = SqlScanner::scan($sql, $dialect, $escaping);
+            if ($reading === SqlScanner::INVALID) {
+                continue;
+            }
+            if ($reading === SqlScanner::UNDECIDABLE || ($read !== null && $reading !== $read)) {
+                return null;
+            }
+            $read = $reading;
+        }
+        if ($read === null) {
             return null;
         }
 
-        $sql = preg_replace(self::IN_LIST, '$1 (?)', $sql);
-        if ($sql === null) {
+        [$text, $kept] = $read;
+        $number = $dialect === SqlDialect::MySql ? self::MYSQL_NUMBER : self::NUMBER;
+        $text = preg_replace([$number, ...array_keys(self::PASSES)], ['?', ...array_values(self::PASSES)], mb_scrub($text, 'UTF-8'));
+        if ($text === null) {
             return null;
         }
 
-        $sql = self::foldValues($sql);
-        if ($sql === null) {
+        $text = self::foldValues($text);
+        if ($text === null) {
             return null;
         }
 
-        return mb_substr(rtrim(trim($sql), '; '), 0, self::MAX_LENGTH);
+        $text = preg_replace_callback('~' . SqlScanner::KEPT . '~', static fn(array $marker): string => $kept[(int) $marker[1]], $text);
+        if ($text === null) {
+            return null;
+        }
+
+        return mb_substr(rtrim(trim(mb_scrub($text, 'UTF-8')), '; '), 0, self::MAX_LENGTH);
     }
 
     public static function id(string $normalized): string
@@ -82,59 +90,18 @@ final class SqlNormalizer
     }
 
     /**
-     * Any `#` outside a quoted token counts, comments included, since MySQL reads it as a comment opening. A `--` opens
-     * a comment in MySQL only before a blank, and PostgreSQL also ends one at a carriage return, which only matters
-     * when no line feed follows it. A comment body is searched up to the `*` of its end, since PostgreSQL reads a slash
-     * right before that `*` as a nested opening.
+     * @return list<string> per reading, the quotes whose strings take a backslash as an escape
      */
-    private static function holdsDialectComment(string $sql): bool
+    private static function readings(string $sql, SqlDialect $dialect): array
     {
-        $length = \strlen($sql);
-
-        for ($i = 0; $i < $length; ++$i) {
-            $i += strcspn($sql, '\'"`#-/', $i);
-            $char = $sql[$i] ?? null;
-            $next = $sql[$i + 1] ?? '';
-
-            if ($char === '#') {
-                return true;
-            } elseif ($char === '-') {
-                if ($next === '-') {
-                    $after = $sql[$i + 2] ?? ' ';
-                    if (!str_contains(self::BLANKS, $after)) {
-                        return true;
-                    }
-                    $end = strpos($sql, "\n", $i);
-                    $line = $end === false ? substr($sql, $i) : substr($sql, $i, $end - $i - (int) ($sql[$end - 1] === "\r"));
-                    if (str_contains($line, '#') || str_contains($line, "\r")) {
-                        return true;
-                    }
-                    if ($end === false) {
-                        return false;
-                    }
-                    $i = $end;
-                }
-            } elseif ($char === '/') {
-                if ($next === '*') {
-                    $close = strpos($sql, '*/', $i + 2);
-                    if ($close === false) {
-                        return str_contains(substr($sql, $i + 2), '#');
-                    }
-                    $body = substr($sql, $i + 2, $close - $i - 1);
-                    if (str_contains($body, '/*') || str_contains($body, '#')) {
-                        return true;
-                    }
-                    $i = $close + 1;
-                }
-            } elseif ($char !== null) {
-                $i = self::quoteEnd($sql, $i);
-                if ($i === null) {
-                    return false;
-                }
-            }
+        if ($dialect === SqlDialect::Sqlite || !str_contains($sql, '\\')) {
+            return [''];
+        }
+        if ($dialect === SqlDialect::PostgreSql) {
+            return ['', "'"];
         }
 
-        return false;
+        return str_contains($sql, '"') ? ['\'"', "'", ''] : ["'", ''];
     }
 
     /**
@@ -161,7 +128,7 @@ final class SqlNormalizer
                 break;
             }
 
-            $first = preg_replace(self::VALUE_IN_GROUP, '?', substr($sql, $open, $end - $open));
+            $first = preg_replace('~' . SqlScanner::MAYBE_VALUE . '~', '?', substr($sql, $open, $end - $open));
             if ($first === null) {
                 return null;
             }
@@ -200,54 +167,17 @@ final class SqlNormalizer
         $depth = 0;
 
         for ($i = $open; $i < $length; ++$i) {
-            $i += strcspn($sql, '()"`', $i);
-            $char = $sql[$i] ?? null;
-
-            if ($char === '(') {
+            $i += strcspn($sql, '()', $i);
+            if ($i >= $length) {
+                break;
+            }
+            if ($sql[$i] === '(') {
                 ++$depth;
-            } elseif ($char === ')') {
-                if (--$depth === 0) {
-                    return $i + 1;
-                }
-            } elseif ($char !== null) {
-                $i = self::quoteEnd($sql, $i);
-                if ($i === null) {
-                    return null;
-                }
+            } elseif (--$depth === 0) {
+                return $i + 1;
             }
         }
 
         return null;
-    }
-
-    private static function quoteEnd(string $sql, int $open): ?int
-    {
-        $quote = $sql[$open];
-        $i = $open;
-
-        while (true) {
-            $i = strpos($sql, $quote, $i + 1);
-            if ($i === false) {
-                return null;
-            }
-            if (($sql[$i + 1] ?? '') !== $quote) {
-                return $i;
-            }
-            ++$i;
-        }
-    }
-
-    /**
-     * @param array<int|string, string|null> $token
-     */
-    private static function token(array $token): string
-    {
-        if ($token['value'] !== null) {
-            $operator = rtrim($token['value']);
-
-            return $operator . ($operator === $token['value'] ? '' : ' ') . '?';
-        }
-
-        return $token['quoted'] ?? ($token['blank'] !== null ? ' ' : '?');
     }
 }

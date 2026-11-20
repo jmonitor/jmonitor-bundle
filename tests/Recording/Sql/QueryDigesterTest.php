@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigest;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
@@ -32,12 +33,12 @@ final class QueryDigesterTest extends TestCase
 
     public function testTheSameQueryWithDifferentValuesIsOneChild(): void
     {
-        $raw = [];
+        $texts = [];
         for ($i = 1; $i <= 12; ++$i) {
-            $raw['SELECT * FROM items WHERE id = ' . $i] = [1, 2.0, 2.0, 0];
+            $texts['SELECT * FROM items WHERE id = ' . $i] = [1, 2.0, 2.0, 0];
         }
 
-        $digest = $this->digester()->digest($raw, 1000.5);
+        $digest = $this->digester()->digest(self::raw($texts), 1000.5);
         $id = SqlNormalizer::id('SELECT * FROM items WHERE id = ?');
 
         static::assertSame([12, 24.0], self::totals($digest));
@@ -54,12 +55,12 @@ final class QueryDigesterTest extends TestCase
 
     public function testWritesAreNeverAnNPlusOne(): void
     {
-        $raw = [];
+        $texts = [];
         for ($i = 1; $i <= 12; ++$i) {
-            $raw['INSERT INTO items (id) VALUES (' . $i . ')'] = [1, 1.0, 1.0, 0];
+            $texts['INSERT INTO items (id) VALUES (' . $i . ')'] = [1, 1.0, 1.0, 0];
         }
 
-        $digest = $this->digester()->digest($raw, 1000.0);
+        $digest = $this->digester()->digest(self::raw($texts), 1000.0);
 
         static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id('INSERT INTO items (id) VALUES (?)')]], self::keys($digest));
         static::assertSame(12, $digest->children[0]->attributes['n']);
@@ -67,19 +68,19 @@ final class QueryDigesterTest extends TestCase
 
     public function testBelowTheThresholdThereIsNoNPlusOne(): void
     {
-        $digest = $this->digester()->digest(['SELECT * FROM items WHERE id = ?' => [9, 9.0, 1.0, 0]], 1000.0);
+        $digest = $this->digester()->digest(self::raw(['SELECT * FROM items WHERE id = ?' => [9, 9.0, 1.0, 0]]), 1000.0);
 
         static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id('SELECT * FROM items WHERE id = ?')]], self::keys($digest));
     }
 
     public function testNewLabelsAreLimitedPerUnit(): void
     {
-        $raw = [];
+        $texts = [];
         for ($i = 1; $i <= 25; ++$i) {
-            $raw['SELECT * FROM table_' . $i] = [1, 1.5, 1.5, 0];
+            $texts['SELECT * FROM table_' . $i] = [1, 1.5, 1.5, 0];
         }
 
-        $digest = $this->digester()->digest($raw, 1000.0);
+        $digest = $this->digester()->digest(self::raw($texts), 1000.0);
 
         static::assertCount(20, $this->labelFiles());
         static::assertCount(21, $digest->children);
@@ -93,14 +94,14 @@ final class QueryDigesterTest extends TestCase
 
     public function testAKnownLabelIsNotRewritten(): void
     {
-        $raw = ['SELECT * FROM items WHERE id = 1' => [1, 1.0, 1.0, 0]];
+        $raw = self::raw(['SELECT * FROM items WHERE id = 1' => [1, 1.0, 1.0, 0]]);
         $this->digester()->digest($raw, 1000.0);
         $file = $this->labelFiles()[0];
         touch($file, 5000);
 
         $digester = $this->digester();
         $digester->digest($raw, 1000.0);
-        $digester->digest(['SELECT * FROM items WHERE id = 2' => [1, 1.0, 1.0, 0]], 2000.0);
+        $digester->digest(self::raw(['SELECT * FROM items WHERE id = 2' => [1, 1.0, 1.0, 0]]), 2000.0);
 
         clearstatcache();
         static::assertSame(5000, filemtime($file));
@@ -110,7 +111,7 @@ final class QueryDigesterTest extends TestCase
     public function testAKnownQueryIsTakenFromMemory(): void
     {
         $digester = $this->digester();
-        $raw = ['SELECT * FROM items WHERE id = 1' => [1, 1.0, 1.0, 0]];
+        $raw = self::raw(['SELECT * FROM items WHERE id = 1' => [1, 1.0, 1.0, 0]]);
         $digester->digest($raw, 1000.0);
         (new Filesystem())->remove($this->labelFiles());
 
@@ -131,10 +132,10 @@ final class QueryDigesterTest extends TestCase
         $labels->write(SqlNormalizer::id($known), $known);
         $labels->prune([SqlNormalizer::id($known)], time());
 
-        $digest = (new QueryDigester($labels))->digest([
+        $digest = (new QueryDigester($labels))->digest(self::raw([
             $known => [2, 4.0, 3.0, 0],
             'SELECT * FROM unknown' => [12, 6.0, 1.0, 0],
-        ], 1000.0);
+        ]), 1000.0);
 
         static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id($known)], [Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertSame(['n' => 12, 'm' => 1.0], $digest->children[1]->attributes);
@@ -144,19 +145,46 @@ final class QueryDigesterTest extends TestCase
 
     public function testTheOtherKeyOfTheRecorderIsNotNormalized(): void
     {
-        $digest = $this->digester()->digest([
-            'SELECT 1' => [1, 1.0, 1.0, 0],
-            QueryDigester::OTHER => [30, 30.0, 4.0, 1],
-        ], 1000.0);
+        $digester = $this->digester();
+        $digest = $digester->digest(
+            self::raw(['SELECT 1' => [1, 1.0, 1.0, 0]]) + self::raw([QueryDigester::OTHER => [30, 30.0, 4.0, 1]], SqlDialect::Unknown),
+            1000.0,
+        );
 
         static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id('SELECT ?')], [Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertSame(['n' => 30, 'm' => 4.0, 'sl' => 1], $digest->children[1]->attributes);
         static::assertSame([31, 31.0], self::totals($digest));
+        static::assertCount(1, self::cached($digester));
+    }
+
+    public function testNothingOfTheUnknownDialectIsRead(): void
+    {
+        foreach ([SqlDialect::MySql, SqlDialect::PostgreSql, SqlDialect::Sqlite] as $dialect) {
+            static::assertSame('SELECT ?', SqlNormalizer::normalize('SELECT 1', $dialect));
+        }
+        $digester = $this->digester();
+        $raw = self::raw(['SELECT 1' => [2, 3.0, 2.0, 0]], SqlDialect::Unknown);
+
+        foreach ([1000.0, 1001.0] as $startedAt) {
+            $digest = $digester->digest($raw, $startedAt);
+
+            static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
+            static::assertSame(['n' => 2, 'm' => 2.0], $digest->children[0]->attributes);
+            static::assertSame([], self::cached($digester));
+            static::assertSame([], $this->labelFiles());
+        }
+    }
+
+    public function testATextThatLooksLikeANumberIsRead(): void
+    {
+        $digest = $this->digester()->digest(self::raw(['1' => [1, 1.0, 1.0, 0]]), 1000.0);
+
+        static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id((string) SqlNormalizer::normalize('1', SqlDialect::Sqlite))]], self::keys($digest));
     }
 
     public function testSlowExecutionsAreCarried(): void
     {
-        $digest = $this->digester()->digest(['UPDATE t SET a = 1' => [3, 400.0, 250.0, 2]], 1000.0);
+        $digest = $this->digester()->digest(self::raw(['UPDATE t SET a = 1' => [3, 400.0, 250.0, 2]]), 1000.0);
 
         static::assertSame(['n' => 3, 'm' => 250.0, 'sl' => 2], $digest->children[0]->attributes);
         static::assertSame(400.0, $digest->children[0]->durationMs);
@@ -164,10 +192,10 @@ final class QueryDigesterTest extends TestCase
 
     public function testMergedTextsKeepTheirLargestMaximum(): void
     {
-        $digest = $this->digester()->digest([
+        $digest = $this->digester()->digest(self::raw([
             'SELECT * FROM t WHERE id = 1' => [2, 5.0, 4.0, 0],
             'SELECT * FROM t WHERE id = 2' => [1, 9.0, 9.0, 1],
-        ], 1000.0);
+        ]), 1000.0);
 
         static::assertSame(['n' => 3, 'm' => 9.0, 'sl' => 1], $digest->children[0]->attributes);
         static::assertSame(14.0, $digest->children[0]->durationMs);
@@ -179,7 +207,7 @@ final class QueryDigesterTest extends TestCase
         ini_set('pcre.backtrack_limit', '1');
 
         try {
-            $digest = $this->digester()->digest(["SELECT * FROM t WHERE a = 'secret'" => [1, 1.0, 1.0, 0]], 1000.0);
+            $digest = $this->digester()->digest(self::raw(["SELECT * FROM t WHERE a = 'secret' AND b = 2" => [1, 1.0, 1.0, 0]]), 1000.0);
         } finally {
             ini_set('pcre.backtrack_limit', (string) $limit);
         }
@@ -190,25 +218,75 @@ final class QueryDigesterTest extends TestCase
 
     public function testAValueThatCannotBeDelimitedIsFoldedIntoOtherAndNeverWritten(): void
     {
-        $digest = $this->digester()->digest([
-            'SELECT * FROM t WHERE a = "it\\"s" AND b = "secret"' => [1, 1.0, 1.0, 0],
-            'INSERT INTO t VALUES ("it\\"s (", "secret")' => [1, 1.0, 1.0, 0],
-            "SELECT * FROM t WHERE path = 'C:\\dir\\' AND name = 'secret'" => [1, 1.0, 1.0, 0],
-            "INSERT INTO t (p, n) VALUES ('C:\\', 'secret')" => [1, 1.0, 1.0, 0],
-            'SELECT $$secret$$ FROM t' => [1, 1.0, 1.0, 0],
-        ], 1000.0);
+        $digest = $this->digester()->digest(
+            self::raw([
+                'SELECT * FROM t WHERE a = "it\\"s" AND b = "secret"' => [1, 1.0, 1.0, 0],
+                'INSERT INTO t VALUES ("it\\"s (", "secret")' => [1, 1.0, 1.0, 0],
+                "SELECT 'it\\'s secret'" => [1, 1.0, 1.0, 0],
+            ])
+            + self::raw(["SELECT 'a\\' /* ' */ , 'secret'" => [1, 1.0, 1.0, 0]], SqlDialect::MySql)
+            + self::raw(['SELECT $$secret' => [1, 1.0, 1.0, 0]], SqlDialect::PostgreSql),
+            1000.0,
+        );
 
         static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertSame(['n' => 5, 'm' => 1.0], $digest->children[0]->attributes);
         static::assertSame([], $this->labelFiles());
     }
 
+    public function testAValueThatCannotBeDelimitedStaysInOtherOnTheNextDigest(): void
+    {
+        $digester = $this->digester();
+        $raw = self::raw(['SELECT $$secret' => [1, 1.0, 1.0, 0]], SqlDialect::PostgreSql);
+
+        $first = $digester->digest($raw, 1000.0);
+        $second = $digester->digest($raw, 1001.0);
+
+        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($first));
+        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($second));
+        static::assertSame([], $this->labelFiles());
+    }
+
+    public function testATextThatCouldNotBeNormalizedIsNotReadAgain(): void
+    {
+        $digester = $this->digester();
+        $raw = self::raw(["SELECT * FROM t WHERE a = 'secret' AND b = 2" => [1, 1.0, 1.0, 0]]);
+        $limit = \ini_get('pcre.backtrack_limit');
+        ini_set('pcre.backtrack_limit', '1');
+
+        try {
+            $digester->digest($raw, 1000.0);
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $limit);
+        }
+        $digest = $digester->digest($raw, 1001.0);
+
+        static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
+        static::assertSame([], $this->labelFiles());
+    }
+
+    public function testTheCacheNeverServesOneDialectForAnother(): void
+    {
+        $digester = $this->digester();
+
+        $mysql = $digester->digest(self::raw(['SELECT "a"' => [1, 1.0, 1.0, 0]], SqlDialect::MySql), 1000.0);
+        $postgresql = $digester->digest(self::raw(['SELECT "a"' => [1, 1.0, 1.0, 0]], SqlDialect::PostgreSql), 1000.0);
+
+        static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id('SELECT ?')]], self::keys($mysql));
+        static::assertSame([[Entry::TYPE_QUERY, SqlNormalizer::id('SELECT "a"')]], self::keys($postgresql));
+    }
+
     public function testACommentThatCannotBeDelimitedIsFoldedIntoOtherAndNeverWritten(): void
     {
-        $digest = $this->digester()->digest([
-            "SELECT id FROM users # don't use the cache\nWHERE email = 'john@example.com' AND token = 'abc'" => [1, 1.0, 1.0, 0],
-            "SELECT 1 /* /* */ it's */ FROM t WHERE a = 'secret' AND b = 'x'" => [1, 1.0, 1.0, 0],
-        ], 1000.0);
+        $mysql = "SELECT 1 /*!50000 , 'secret' */";
+        $postgresql = "SELECT 1 /* /* */ 'secret'";
+        static::assertNotNull(SqlNormalizer::normalize($mysql, SqlDialect::Sqlite));
+        static::assertNotNull(SqlNormalizer::normalize($postgresql, SqlDialect::Sqlite));
+
+        $digest = $this->digester()->digest(
+            self::raw([$mysql => [1, 1.0, 1.0, 0]], SqlDialect::MySql) + self::raw([$postgresql => [1, 1.0, 1.0, 0]], SqlDialect::PostgreSql),
+            1000.0,
+        );
 
         static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertSame(['n' => 2, 'm' => 1.0], $digest->children[0]->attributes);
@@ -220,10 +298,29 @@ final class QueryDigesterTest extends TestCase
         touch($this->dir . '/file');
         $digester = new QueryDigester(new LabelStore(new BufferDirectory($this->dir . '/file', 'app')));
 
-        $digest = $digester->digest(['SELECT 1' => [1, 1.0, 1.0, 0]], 1000.0);
+        $digest = $digester->digest(self::raw(['SELECT 1' => [1, 1.0, 1.0, 0]]), 1000.0);
 
         static::assertSame([[Entry::TYPE_QUERY, QueryDigester::OTHER]], self::keys($digest));
         static::assertInstanceOf(QueryDigest::class, $digest);
+    }
+
+    /**
+     * @param array<string, array{int, float, float, int}> $texts
+     *
+     * @return array<string, array<string, array{int, float, float, int}>>
+     */
+    private static function raw(array $texts, SqlDialect $dialect = SqlDialect::Sqlite): array
+    {
+        return [$dialect->value => $texts];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function cached(QueryDigester $digester): array
+    {
+        /** @var array<string, mixed> */
+        return (new \ReflectionProperty(QueryDigester::class, 'known'))->getValue($digester);
     }
 
     private function digester(): QueryDigester

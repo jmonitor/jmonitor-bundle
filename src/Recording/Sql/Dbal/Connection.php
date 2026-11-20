@@ -22,7 +22,7 @@ final class Connection extends AbstractConnectionMiddleware
         try {
             parent::commit();
         } finally {
-            $this->recorder->addSql('COMMIT', (hrtime(true) - $start) / 1e6);
+            $this->recorder->addSql('COMMIT', (hrtime(true) - $start) / 1e6, $this->dialect);
         }
     }
 
@@ -38,7 +38,7 @@ final class Connection extends AbstractConnectionMiddleware
         try {
             parent::rollBack();
         } finally {
-            $this->recorder->addSql('ROLLBACK', (hrtime(true) - $start) / 1e6);
+            $this->recorder->addSql('ROLLBACK', (hrtime(true) - $start) / 1e6, $this->dialect);
         }
     }
 }

@@ -17,6 +17,8 @@ use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
@@ -102,7 +104,7 @@ function openUnitWithQueries(Recorder $recorder, array $texts, float $startedAt)
 {
     $token = $recorder->begin(Entry::TYPE_REQUEST, $startedAt);
     foreach ($texts as $k => $sql) {
-        $recorder->addSql($sql, 0.2 + $k * 0.037);
+        $recorder->addSql($sql, 0.2 + $k * 0.037, SqlDialect::Sqlite);
     }
 
     return $token;
@@ -192,11 +194,11 @@ function fillSlot(BufferDirectory $directory, ClockInterface $clock, array $data
         $route = $i % $routes;
         $token = $recorder->begin(Entry::TYPE_REQUEST, $start + $i * 10 / $requests);
         for ($k = 0; $k < $perRequest; ++$k) {
-            $recorder->addSql($texts[(($i * $perRequest + $k) * 7) % $queries], 0.1 + (($i + $k) % 40) * 0.05);
+            $recorder->addSql($texts[(($i * $perRequest + $k) * 7) % $queries], 0.1 + (($i + $k) % 40) * 0.05, SqlDialect::Sqlite);
         }
         if ($route % 10 === 0) {
             for ($n = 0; $n < 12; ++$n) {
-                $recorder->addSql($texts[$route % $queries], 0.15);
+                $recorder->addSql($texts[$route % $queries], 0.15, SqlDialect::Sqlite);
             }
         }
         $recorder->end($token, 'GET route_' . $route, 5.0 + ($i * 37) % 1500, ['status' => $i % 50 === 0 ? 500 : 200, 'memory' => 2_097_152 + ($i % 64) * 65_536]);
@@ -339,13 +341,13 @@ $texts = sqlTexts(SQL_PER_REQUEST);
 $sqlRecorder->begin(Entry::TYPE_REQUEST, microtime(true));
 $call = 0;
 report('addSql(), per call in an open unit', microsPerCall(static function () use ($sqlRecorder, $texts, &$call): void {
-    $sqlRecorder->addSql($texts[$call++ % SQL_PER_REQUEST], 0.25);
+    $sqlRecorder->addSql($texts[$call++ % SQL_PER_REQUEST], 0.25, SqlDialect::Sqlite);
 }), 'µs', 2);
 $sqlRecorder->reset();
 report(sprintf('request path, %d SQL queries', SQL_PER_REQUEST), microsPerCall(static function () use ($sqlRequestRecorder, $sqlRecorder, $requestEvent, $texts): void {
     $sqlRequestRecorder->onRequest($requestEvent);
     foreach ($texts as $k => $sql) {
-        $sqlRecorder->addSql($sql, 0.2 + $k * 0.037);
+        $sqlRecorder->addSql($sql, 0.2 + $k * 0.037, SqlDialect::Sqlite);
     }
     $sqlRecorder->reset();
 }), 'µs', 100);
@@ -355,6 +357,10 @@ removeDir($dir);
 report(sprintf('end(), %d distinct queries, new digester and directory (FPM)', SQL_PER_REQUEST), endMicros(true), 'µs', 300);
 report(sprintf('end(), %d distinct queries, reused digester (worker)', SQL_PER_REQUEST), endMicros(false), 'µs', 100);
 report(sprintf('buffer line, %d distinct queries', SQL_PER_REQUEST), lineBytes(), 'bytes', 1200);
+$call = 0;
+report('normalize(), per distinct text', microsPerCall(static function () use ($texts, &$call): void {
+    SqlNormalizer::normalize($texts[$call++ % SQL_PER_REQUEST], SqlDialect::MySql);
+}), 'µs', null);
 
 [$aggregateMs, $sampled] = aggregateMillis();
 report(sprintf('read and aggregate %d units, no database', LOADED[2]), $aggregateMs, 'ms', 300, sprintf('(%d kept their queries under sampling)', $sampled));
