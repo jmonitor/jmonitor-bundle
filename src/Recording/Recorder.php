@@ -17,7 +17,7 @@ final class Recorder implements ResetInterface
     public const MAX_SQL_PER_UNIT = 200;
     public const MAX_SQL_BYTES = 65_536;
 
-    /** @var array<int, array{string, float, array<string, array{int, float, float, int}>}> token => [type, started at, SQL], in opening order */
+    /** @var array<int, array{string, float, array<string, array<string, array{int, float, float, int}>>}> token => [type, started at, dialect value => raw SQL => stats], in opening order */
     private array $units = [];
     private int $lastToken = 0;
     private bool $paused = false;
@@ -64,9 +64,11 @@ final class Recorder implements ResetInterface
         if ($unit[2] !== [] && $this->queries !== null) {
             $totalMs = 0.0;
             $count = 0;
-            foreach ($unit[2] as [$executions, $ms]) {
-                $count += $executions;
-                $totalMs += $ms;
+            foreach ($unit[2] as $texts) {
+                foreach ($texts as [$executions, $ms]) {
+                    $count += $executions;
+                    $totalMs += $ms;
+                }
             }
             $attributes['sql_ms'] = round($totalMs, 3);
             $attributes['sql_n'] = $count;
@@ -98,17 +100,16 @@ final class Recorder implements ResetInterface
         }
 
         $token = array_key_last($this->units);
-        $key = $dialect === SqlDialect::Unknown || \strlen($sql) > self::MAX_SQL_BYTES
-            ? QueryDigester::OTHER
-            : $dialect->value . $sql;
-        if (!isset($this->units[$token][2][$key])) {
-            if (\count($this->units[$token][2]) >= self::MAX_SQL_PER_UNIT) {
-                $key = QueryDigester::OTHER;
+        $bucket = $dialect->value;
+        if (!isset($this->units[$token][2][$bucket][$sql])) {
+            if ($dialect === SqlDialect::Unknown || \strlen($sql) > self::MAX_SQL_BYTES || $this->sqlEntries($token) >= self::MAX_SQL_PER_UNIT) {
+                $bucket = SqlDialect::Unknown->value;
+                $sql = QueryDigester::OTHER;
             }
-            $this->units[$token][2][$key] ??= [0, 0.0, 0.0, 0];
+            $this->units[$token][2][$bucket][$sql] ??= [0, 0.0, 0.0, 0];
         }
 
-        $stats = &$this->units[$token][2][$key];
+        $stats = &$this->units[$token][2][$bucket][$sql];
         ++$stats[0];
         $stats[1] += $durationMs;
         $stats[2] = max($stats[2], $durationMs);
@@ -141,8 +142,18 @@ final class Recorder implements ResetInterface
         $this->paused = false;
     }
 
+    private function sqlEntries(int $token): int
+    {
+        $entries = 0;
+        foreach ($this->units[$token][2] as $texts) {
+            $entries += \count($texts);
+        }
+
+        return $entries;
+    }
+
     /**
-     * @return array{string, float, array<string, array{int, float, float, int}>}|null
+     * @return array{string, float, array<string, array<string, array{int, float, float, int}>>}|null
      */
     private function close(int $token): ?array
     {

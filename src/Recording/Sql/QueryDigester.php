@@ -15,7 +15,7 @@ final class QueryDigester
     private const CACHE_LIFETIME = 600;
 
     /**
-     * @var array<string, array{string, bool}|null> hash of a raw key => [id, is a select] for a label known to exist,
+     * @var array<string, array{string, bool}|null> dialect value + hash of a raw SQL => [id, is a select] for a label known to exist,
      *                                              null for a text that cannot be normalized
      */
     private array $known = [];
@@ -28,7 +28,8 @@ final class QueryDigester
     ) {}
 
     /**
-     * @param array<string, array{int, float, float, int}> $raw dialect value + raw SQL, or OTHER => [executions, total ms, max ms, slow executions]
+     * @param array<string, array<string, array{int, float, float, int}>> $raw dialect value => raw SQL => [executions, total ms, max ms, slow executions];
+     *                                                                     the bucket of the unknown dialect goes to OTHER unread
      */
     public function digest(array $raw, float $startedAt): QueryDigest
     {
@@ -43,16 +44,18 @@ final class QueryDigester
         $other = null;
         $writes = 0;
 
-        foreach ($raw as $key => $stats) {
-            $key = (string) $key;
-            $label = $key === self::OTHER ? null : $this->label($key, $writes);
-            if ($label === null) {
-                $other = self::merge($other, $stats);
-                continue;
-            }
+        foreach ($raw as $bucket => $texts) {
+            $dialect = SqlDialect::from($bucket);
+            foreach ($texts as $sql => $stats) {
+                $label = $dialect === SqlDialect::Unknown ? null : $this->label((string) $sql, $dialect, $writes);
+                if ($label === null) {
+                    $other = self::merge($other, $stats);
+                    continue;
+                }
 
-            [$id, $selects[$id]] = $label;
-            $groups[$id] = self::merge($groups[$id] ?? null, $stats);
+                [$id, $selects[$id]] = $label;
+                $groups[$id] = self::merge($groups[$id] ?? null, $stats);
+            }
         }
 
         $children = [];
@@ -74,14 +77,14 @@ final class QueryDigester
     /**
      * @return array{string, bool}|null null when the text cannot be normalized, or its label does not exist and cannot be written
      */
-    private function label(string $key, int &$writes): ?array
+    private function label(string $sql, SqlDialect $dialect, int &$writes): ?array
     {
-        $hash = hash('xxh128', $key);
+        $hash = $dialect->value . hash('xxh128', $sql);
         if (\array_key_exists($hash, $this->known)) {
             return $this->known[$hash];
         }
 
-        $normalized = SqlNormalizer::normalize(substr($key, 1), SqlDialect::from($key[0]));
+        $normalized = SqlNormalizer::normalize($sql, $dialect);
         if ($normalized === null) {
             return $this->known[$hash] = null;
         }
