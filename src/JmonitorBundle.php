@@ -330,7 +330,7 @@ final class JmonitorBundle extends AbstractBundle
                         ->end()
                         ->booleanNode('exceptions')->defaultTrue()->info('Count the exceptions behind the 5xx responses.')->end()
                         ->booleanNode('users')->defaultTrue()->info('Record the requests of each signed-in user. Requires the SecurityBundle.')->end()
-                        ->booleanNode('http_client')->defaultTrue()->info('Record the outgoing calls made with the Symfony HttpClient, per host.')->end()
+                        ->booleanNode('http_client')->defaultTrue()->info('Record the outgoing calls made through the http_client service and its scoped clients, per host.')->end()
                         ->booleanNode('cache')->defaultTrue()->info('Count the reads and writes of cache.app and of the pools declared under framework.cache.pools.')->end()
                     ->end()
                 ->end()

@@ -51,7 +51,7 @@ final class HttpClientScreen implements ScreenInterface
 
     public function heading(): string
     {
-        return 'Outgoing calls made with the Symfony HttpClient, per host';
+        return 'Outgoing calls made through the http_client service and its scoped clients, per host';
     }
 
     public function isAvailable(): bool
@@ -68,7 +68,7 @@ final class HttpClientScreen implements ScreenInterface
     {
         return [
             'title' => 'No outgoing calls recorded yet',
-            'text' => 'Calls made with the Symfony HttpClient show up here within a few seconds.',
+            'text' => 'Calls made through the http_client service or a scoped client show up here within a few seconds.',
         ];
     }
 

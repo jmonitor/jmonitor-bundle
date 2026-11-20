@@ -30,14 +30,14 @@ final class HttpClientScreenTest extends TestCase
 
         static::assertSame('http-client', $screen->id());
         static::assertSame('HTTP client', $screen->label());
-        static::assertSame('Outgoing calls made with the Symfony HttpClient, per host', $screen->heading());
+        static::assertSame('Outgoing calls made through the http_client service and its scoped clients, per host', $screen->heading());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
             ['total' => 'desc', 'calls' => 'desc', 'avg' => 'desc', 'max' => 'desc', '4xx' => 'desc', '5xx' => 'desc', 'failed' => 'desc'],
             $screen->sorts(),
         );
         static::assertSame(
-            ['title' => 'No outgoing calls recorded yet', 'text' => 'Calls made with the Symfony HttpClient show up here within a few seconds.'],
+            ['title' => 'No outgoing calls recorded yet', 'text' => 'Calls made through the http_client service or a scoped client show up here within a few seconds.'],
             $screen->emptyState(),
         );
     }
