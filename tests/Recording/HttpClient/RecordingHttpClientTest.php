@@ -159,7 +159,7 @@ final class RecordingHttpClientTest extends TestCase
         static::assertSame(['a.example' => ['n' => 1, 'm' => 10.0, 'c4' => 1, 'd' => 10.0]], $this->calls($unit));
     }
 
-    public function testACallCancelledBeforeItsHeadersIsANetworkFailure(): void
+    public function testACallCancelledBeforeItsHeadersIsACallWithoutOutcome(): void
     {
         $unit = $this->recorder->begin(Entry::TYPE_REQUEST, 1700000000.0);
         $response = $this->client(new MockResponse('late'))->request('GET', 'https://a.example/');
@@ -167,7 +167,47 @@ final class RecordingHttpClientTest extends TestCase
         $response->cancel();
 
         static::assertTrue($response->getInfo('canceled'));
-        static::assertSame(['cf' => 1], array_diff_key($this->calls($unit)['a.example'], ['n' => 0, 'm' => 0, 'd' => 0]));
+        static::assertSame(0, $response->getInfo('http_code'));
+        $call = $this->calls($unit)['a.example'];
+        static::assertSame(['n' => 1], array_diff_key($call, ['m' => 0, 'd' => 0]));
+        static::assertGreaterThan(0.0, $call['d']);
+    }
+
+    public function testACallCancelledAfterItsHeadersIsCountedByItsStatus(): void
+    {
+        $unit = $this->recorder->begin(Entry::TYPE_REQUEST, 1700000000.0);
+        $client = $this->client([
+            new MockResponse('ok', ['response_headers' => ['content-type' => 'text/plain'], 'total_time' => 0.01]),
+            new MockResponse('oops', ['http_code' => 500, 'response_headers' => ['content-type' => 'text/plain'], 'total_time' => 0.02]),
+        ]);
+
+        foreach (['https://a.example/' => 200, 'https://b.example/' => 500] as $url => $status) {
+            $response = $client->request('GET', $url);
+            static::assertSame($status, $response->getStatusCode());
+            $response->cancel();
+            static::assertTrue($response->getInfo('canceled'));
+        }
+
+        static::assertSame([
+            'a.example' => ['n' => 1, 'm' => 10.0, 'd' => 10.0],
+            'b.example' => ['n' => 1, 'm' => 20.0, 'c5' => 1, 'd' => 20.0],
+        ], $this->calls($unit));
+    }
+
+    public function testATransportErrorSeenByTheCallerThenCancelledStaysOneNetworkFailure(): void
+    {
+        $unit = $this->recorder->begin(Entry::TYPE_REQUEST, 1700000000.0);
+        $response = $this->client(new MockResponse('', ['error' => 'Could not resolve host', 'total_time' => 0.005]))->request('GET', 'https://a.example/');
+
+        try {
+            $response->getContent();
+            static::fail('The transport error was swallowed.');
+        } catch (TransportExceptionInterface) {
+        }
+        $response->cancel();
+
+        static::assertTrue($response->getInfo('canceled'));
+        static::assertSame(['a.example' => ['n' => 1, 'm' => 5.0, 'cf' => 1, 'd' => 5.0]], $this->calls($unit));
     }
 
     public function testStreamYieldsTheRecordingResponsesAndCountsEachOfThem(): void

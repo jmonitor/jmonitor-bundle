@@ -79,7 +79,7 @@ final class CallRecorder
     {
         $status = $info['http_code'] ?? null;
         if (!\is_int($status) || $status <= 0 || (($info['error'] ?? null) !== null && !($info['response_headers'] ?? null))) {
-            return ['cf' => 1];
+            return ($info['canceled'] ?? null) === true ? [] : ['cf' => 1];
         }
 
         return match (intdiv($status, 100)) {
