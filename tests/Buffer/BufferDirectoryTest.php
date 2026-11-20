@@ -46,7 +46,7 @@ final class BufferDirectoryTest extends TestCase
         static::assertFileDoesNotExist($this->dir . '/missing');
     }
 
-    public function testTheFallbackIsLoggedWhenItsDirectoryIsCreatedAndNotAfter(): void
+    public function testTheFallbackIsLoggedOncePerFallbackDirectory(): void
     {
         (new BufferDirectory($this->dir . '/missing', $this->appId, $this->logger))->path();
         (new BufferDirectory($this->dir . '/missing', $this->appId, $this->logger))->path();
@@ -54,6 +54,28 @@ final class BufferDirectoryTest extends TestCase
         static::assertSame([
             'warning The configured buffer directory "' . $this->dir . '/missing" does not exist: JMonitor buffers in the system temporary directory instead.',
         ], $this->logger->records);
+    }
+
+    public function testTheFallbackIsLoggedEvenWhenItsDirectoryAlreadyExisted(): void
+    {
+        mkdir($this->fallback(), 0o700);
+
+        $first = (new BufferDirectory($this->dir . '/missing', $this->appId, $this->logger))->path();
+        (new BufferDirectory($this->dir . '/missing', $this->appId, $this->logger))->path();
+
+        static::assertSame($this->fallback(), $first);
+        static::assertSame([
+            'warning The configured buffer directory "' . $this->dir . '/missing" does not exist: JMonitor buffers in the system temporary directory instead.',
+        ], $this->logger->records);
+    }
+
+    public function testWithoutConfiguredDirectoryNothingIsLoggedNorMarked(): void
+    {
+        $path = (new BufferDirectory(null, $this->appId, $this->logger))->path();
+
+        static::assertSame($this->fallback(), $path);
+        static::assertSame([], $this->logger->records);
+        static::assertSame([], array_values(array_diff(scandir((string) $path) ?: [], ['.', '..'])));
     }
 
     public function testALoggerGivenAsAClosureIsOnlyResolvedToLog(): void
@@ -81,6 +103,7 @@ final class BufferDirectoryTest extends TestCase
         static::assertSame(0o700, fileperms((string) $path) & 0o777);
         static::assertSame([], $this->logger->records);
         static::assertFileDoesNotExist($this->fallback());
+        static::assertSame([], array_values(array_diff(scandir((string) $path) ?: [], ['.', '..'])));
     }
 
     public function testAConfiguredDirectoryThatCannotBeWrittenIsRefusedWithoutFallback(): void

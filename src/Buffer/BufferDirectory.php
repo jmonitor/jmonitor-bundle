@@ -8,6 +8,8 @@ use Psr\Log\LoggerInterface;
 
 final class BufferDirectory
 {
+    private const FALLBACK_MARKER = 'fallback-warned';
+
     private ?string $verified = null;
 
     /**
@@ -56,7 +58,7 @@ final class BufferDirectory
 
         $path = $base . '/jmonitor-' . $this->appId . '-u' . $uid;
 
-        $created = mkdir($path, 0o700);
+        mkdir($path, 0o700);
         clearstatcache(true, $path);
         $stat = lstat($path);
 
@@ -69,7 +71,7 @@ final class BufferDirectory
             return null;
         }
 
-        if ($fallback && $created) {
+        if ($fallback && self::markOnce($path . '/' . self::FALLBACK_MARKER)) {
             $this->warn(\sprintf('The configured buffer directory "%s" does not exist: JMonitor buffers in the system temporary directory instead.', $this->baseDirectory));
         }
 
@@ -93,6 +95,17 @@ final class BufferDirectory
         unlink($probe);
 
         return $uid === false ? null : $uid;
+    }
+
+    private static function markOnce(string $marker): bool
+    {
+        $handle = fopen($marker, 'x');
+        if ($handle === false) {
+            return false;
+        }
+        fclose($handle);
+
+        return true;
     }
 
     private function warn(string $message): void
