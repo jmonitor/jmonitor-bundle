@@ -7,6 +7,10 @@ namespace Jmonitor\JmonitorBundle\Recording;
 final class Entry
 {
     public const TYPE_REQUEST = 'request';
+    public const TYPE_COMMAND = 'command';
+    public const TYPE_MESSAGE = 'message';
+    public const TYPE_TASK = 'task';
+    public const TYPE_SENT = 'ms';
     public const TYPE_QUERY = 'q';
     public const TYPE_NPLUS1 = 'n1';
     public const TYPE_HTTP = 'h';

@@ -17,9 +17,15 @@ final class Unit
     /** @var array<string, array<string, array{int, float, float, array<string, int>}>> type => key => [occurrences, total ms, max ms, summed counters], types in the order of their first measure */
     private array $measures = [];
 
+    /** @var array<string, int|float> totals carried from the units that ran inside this one */
+    private array $carried = [];
+
+    private int $sqlTextBytes = 0;
+
     public function __construct(
         public readonly string $type,
         public readonly float $startedAt,
+        public readonly bool $muted = false,
     ) {}
 
     /**
@@ -27,9 +33,10 @@ final class Unit
      */
     public function add(string $type, string $key, float $durationMs, array $counters): void
     {
-        if (\strlen($key) > self::MAX_KEY_BYTES) {
-            $key = self::cut($key);
+        if (!is_finite($durationMs)) {
+            $durationMs = 0.0;
         }
+        $key = self::cut($key, self::MAX_KEY_BYTES);
         if (!isset($this->measures[$type][$key]) && \count($this->measures[$type] ?? []) >= Recorder::MAX_KEYS_PER_TYPE) {
             $key = Aggregator::OTHER;
         }
@@ -49,6 +56,20 @@ final class Unit
         return $this->sql === [] && $this->measures === [];
     }
 
+    /**
+     * Reserves room for a new raw SQL text, false when the unit holds too many texts or too many bytes.
+     */
+    public function retainSqlText(string $sql): bool
+    {
+        if ($this->sqlTexts() >= Recorder::MAX_SQL_PER_UNIT || $this->sqlTextBytes + \strlen($sql) > Recorder::MAX_SQL_TEXT_BYTES) {
+            return false;
+        }
+
+        $this->sqlTextBytes += \strlen($sql);
+
+        return true;
+    }
+
     public function sqlTexts(): int
     {
         $texts = 0;
@@ -60,15 +81,25 @@ final class Unit
     }
 
     /**
-     * @return array<string, int|float>
+     * @param array<string, int|float> $totals
+     */
+    public function carry(array $totals): void
+    {
+        foreach ($totals as $name => $value) {
+            $this->carried[$name] = ($this->carried[$name] ?? 0) + $value;
+        }
+    }
+
+    /**
+     * @return array<string, int|float> own totals plus the carried ones
      */
     public function totals(): array
     {
         $totals = [];
 
-        if ($this->sql !== []) {
-            $totalMs = 0.0;
-            $count = 0;
+        if ($this->sql !== [] || isset($this->carried['sql_n'])) {
+            $totalMs = (float) ($this->carried['sql_ms'] ?? 0.0);
+            $count = (int) ($this->carried['sql_n'] ?? 0);
             foreach ($this->sql as $texts) {
                 foreach ($texts as [$executions, $ms]) {
                     $count += $executions;
@@ -79,10 +110,10 @@ final class Unit
             $totals['sql_n'] = $count;
         }
 
-        if (isset($this->measures[Entry::TYPE_HTTP])) {
-            $totalMs = 0.0;
-            $count = 0;
-            foreach ($this->measures[Entry::TYPE_HTTP] as [$occurrences, $ms]) {
+        if (isset($this->measures[Entry::TYPE_HTTP]) || isset($this->carried['http_n'])) {
+            $totalMs = (float) ($this->carried['http_ms'] ?? 0.0);
+            $count = (int) ($this->carried['http_n'] ?? 0);
+            foreach ($this->measures[Entry::TYPE_HTTP] ?? [] as [$occurrences, $ms]) {
                 $count += $occurrences;
                 $totalMs += $ms;
             }
@@ -113,12 +144,19 @@ final class Unit
     /**
      * Cuts at the limit, before the last character when its bytes run past it.
      */
-    private static function cut(string $key): string
+    public static function cut(string $key, int $maxBytes): string
     {
-        $lead = self::MAX_KEY_BYTES;
+        if (\strlen($key) <= $maxBytes) {
+            return $key;
+        }
+        if ($maxBytes <= 0) {
+            return '';
+        }
+
+        $lead = $maxBytes;
         do {
             $byte = \ord($key[--$lead]);
-        } while (($byte & 0xC0) === 0x80 && $lead > self::MAX_KEY_BYTES - 4);
+        } while (($byte & 0xC0) === 0x80 && $lead > max(0, $maxBytes - 4));
 
         $length = match (true) {
             $byte >= 0xF0 => 4,
@@ -127,6 +165,6 @@ final class Unit
             default => 1,
         };
 
-        return substr($key, 0, $lead + $length > self::MAX_KEY_BYTES ? $lead : self::MAX_KEY_BYTES);
+        return substr($key, 0, $lead + $length > $maxBytes ? $lead : $maxBytes);
     }
 }
