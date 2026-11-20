@@ -46,6 +46,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.recording.sql.slow_threshold', $config['recording']['sql']['slow_threshold']);
         $builder->setParameter('jmonitor.recording.sql.n_plus_one_threshold', $config['recording']['sql']['n_plus_one_threshold']);
         $builder->setParameter('jmonitor.recording.exceptions', $config['recording']['exceptions']);
+        $builder->setParameter('jmonitor.recording.users', $config['recording']['users']);
         $builder->setParameter('jmonitor.recording.app_id', substr(hash('xxh128', $projectDir . '|' . $environment), 0, 12));
         $builder->setParameter('jmonitor.storage.connection', $config['storage']['connection']);
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
@@ -309,6 +310,7 @@ final class JmonitorBundle extends AbstractBundle
                             ->end()
                         ->end()
                         ->booleanNode('exceptions')->defaultTrue()->info('Count the exceptions behind the 5xx responses.')->end()
+                        ->booleanNode('users')->defaultTrue()->info('Record the requests of each signed-in user. Requires the SecurityBundle.')->end()
                     ->end()
                 ->end()
                 ->arrayNode('storage')

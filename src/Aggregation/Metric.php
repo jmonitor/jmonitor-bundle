@@ -19,6 +19,9 @@ final class Metric
     public const NPLUS1_DURATION = 'nplus1.duration';
     public const EXCEPTION_COUNT = 'exception.count';
     public const EXCEPTION_WHERE_COUNT = 'exception_where.count';
+    public const USER_DURATION = 'user.duration';
+    public const USER_SLOW = 'user.slow';
+    public const USER_ERROR = 'user.error';
 
     /** @var list<int> */
     public const DURATION_BOUNDS_MS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];

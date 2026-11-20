@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -76,6 +77,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(ExceptionsScreen::class)
         ->args([param('jmonitor.recording.exceptions')])
         ->tag('jmonitor.screen', ['priority' => 30]);
+
+    if (isset($builder->getParameter('kernel.bundles')['SecurityBundle'])) {
+        $services->set(UsersScreen::class)
+            ->args([param('jmonitor.recording.users'), param('jmonitor.recording.slow_threshold')])
+            ->tag('jmonitor.screen', ['priority' => 20]);
+    }
 
     $services->set(JmonitorExtension::class)
         ->args([service('request_stack')->nullOnInvalid()])

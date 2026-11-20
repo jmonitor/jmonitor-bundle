@@ -400,6 +400,46 @@ class AggregatorTest extends TestCase
         static::assertSame(1, $request->count);
     }
 
+    public function testASignedInRequestCountsForItsUser(): void
+    {
+        $unit = static fn(string $route, float $duration, int $status, array $users, array $attributes = []): Entry => new Entry(
+            Entry::TYPE_REQUEST,
+            $route,
+            1700000045.0,
+            $duration,
+            ['status' => $status] + $attributes,
+            array_map(static fn(string $user): Entry => new Entry(Entry::TYPE_USER, $user, 1700000045.0, 0.0, ['n' => 1]), $users),
+        );
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            $unit('GET app_home', 40.0, 200, ['alice']),
+            $unit('GET app_report', 1500.0, 200, ['alice']),
+            $unit('GET app_boom', 30.0, 503, ['bob', 'mallory']),
+            $unit('GET app_home', 20.0, 500, ['carol'], ['cw' => 10]),
+        ]);
+
+        $alice = $this->find($aggregates, Period::OneHour, Metric::USER_DURATION, 'alice');
+        $bob = $this->find($aggregates, Period::OneHour, Metric::USER_DURATION, 'bob');
+        $carol = $this->find($aggregates, Period::OneHour, Metric::USER_DURATION, 'carol');
+        static::assertNotNull($alice);
+        static::assertNotNull($bob);
+        static::assertNotNull($carol);
+        static::assertSame([2, 1540.0, 1500.0], [$alice->count, $alice->sum, $alice->max]);
+        static::assertSame([1, 30.0, 30.0], [$bob->count, $bob->sum, $bob->max]);
+        static::assertSame([10, 200.0, 20.0], [$carol->count, $carol->sum, $carol->max]);
+        static::assertSame(Family::User, Family::ofMetric($alice->type));
+
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::USER_SLOW, 'alice')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::USER_ERROR, 'alice'));
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::USER_SLOW, 'bob'));
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::USER_ERROR, 'bob')?->count);
+        static::assertSame(10, $this->find($aggregates, Period::OneHour, Metric::USER_ERROR, 'carol')?->count);
+
+        foreach ([Metric::USER_DURATION, Metric::USER_SLOW, Metric::USER_ERROR] as $type) {
+            static::assertNull($this->find($aggregates, Period::OneHour, $type, 'mallory'));
+        }
+    }
+
     public function testKeysBeyondTheCapOfAFamilyFoldIntoOther(): void
     {
         $entries = [];

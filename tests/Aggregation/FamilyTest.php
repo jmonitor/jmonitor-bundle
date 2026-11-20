@@ -20,10 +20,10 @@ class FamilyTest extends TestCase
 
     public function testCapsAndOpenness(): void
     {
-        static::assertSame([300, 200, 100, 50, 100], array_map(static fn(Family $f): int => $f->cap(), Family::cases()));
-        static::assertSame([false, true, true, false, false], array_map(static fn(Family $f): bool => $f->isOpen(), Family::cases()));
+        static::assertSame([300, 200, 100, 50, 100, 200], array_map(static fn(Family $f): int => $f->cap(), Family::cases()));
+        static::assertSame([false, true, true, false, false, true], array_map(static fn(Family $f): bool => $f->isOpen(), Family::cases()));
         static::assertSame(
-            ['request.duration', 'query.duration', 'nplus1.duration', 'exception.count', 'exception_where.count'],
+            ['request.duration', 'query.duration', 'nplus1.duration', 'exception.count', 'exception_where.count', 'user.duration'],
             array_map(static fn(Family $f): string => $f->weightMetric(), Family::cases()),
         );
     }
@@ -39,5 +39,18 @@ class FamilyTest extends TestCase
         static::assertSame(4.0, Family::Request->weight($counters));
         static::assertSame(12.5, Family::Query->weight($counters));
         static::assertSame(0.0, Family::NPlusOne->weight($counters));
+    }
+
+    public function testAUserWithErrorsOutweighsABusierOne(): void
+    {
+        $busy = ['user.duration' => [30, 3000.0, 200.0]];
+        $failing = ['user.duration' => [5, 500.0, 200.0], 'user.error' => [3, 0.0, 0.0]];
+        $slow = ['user.duration' => [5, 9000.0, 3000.0], 'user.slow' => [3, 0.0, 0.0]];
+
+        static::assertSame(30.0, Family::User->weight($busy));
+        static::assertSame(35.0, Family::User->weight($failing));
+        static::assertSame(35.0, Family::User->weight($slow));
+        static::assertLessThan(Family::User->weight($failing), Family::User->weight($busy));
+        static::assertSame(0.0, Family::User->weight([]));
     }
 }

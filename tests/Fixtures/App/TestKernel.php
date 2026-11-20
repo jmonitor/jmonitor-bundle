@@ -116,12 +116,12 @@ final class TestKernel extends Kernel
                 'password_hashers' => [InMemoryUser::class => 'plaintext'],
                 'providers' => [
                     'users' => ['memory' => ['users' => [
-                        'admin' => ['password' => 'test', 'roles' => ['ROLE_ADMIN']],
+                        'admin' => ['password' => 'test', 'roles' => ['ROLE_ADMIN', 'ROLE_ALLOWED_TO_SWITCH']],
                         'user' => ['password' => 'test', 'roles' => ['ROLE_USER']],
                     ]]],
                 ],
                 'firewalls' => [
-                    'main' => ['stateless' => true, 'http_basic' => ['realm' => 'JMonitor test']],
+                    'main' => ['stateless' => true, 'http_basic' => ['realm' => 'JMonitor test'], 'switch_user' => true],
                 ],
             ]);
         }

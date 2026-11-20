@@ -111,6 +111,7 @@ final class Aggregator
         $weight = self::number($unit->attributes['cw'] ?? null);
         $weight = $weight !== null && $weight >= 1 && $weight <= self::MAX_WEIGHT ? $weight : 1.0;
 
+        $user = null;
         foreach ($unit->children as $child) {
             $occurrences = self::number($child->attributes['n'] ?? null);
             if ($occurrences === null || $occurrences < 0 || $occurrences > self::MAX_OCCURRENCES || !is_finite($child->durationMs)) {
@@ -121,8 +122,13 @@ final class Aggregator
                 Entry::TYPE_QUERY => $this->addQuery($groups, $minute, $child, $occurrences, $weight),
                 Entry::TYPE_NPLUS1 => $this->addNPlusOne($groups, $minute, $unit, $child, $occurrences, $weight),
                 Entry::TYPE_EXCEPTION => $this->addException($groups, $minute, $unit, $child, $occurrences, $weight),
+                Entry::TYPE_USER => $user ??= $child,
                 default => null,
             };
+        }
+
+        if ($user !== null) {
+            $this->addUser($groups, $minute, $unit, $user, $weight);
         }
     }
 
@@ -173,6 +179,27 @@ final class Aggregator
 
         $byEntryPoint = &self::counters($groups, $minute, Family::ExceptionWhere, (new EntryPointKey($unit->type, $unit->key, $child->key))->toString());
         self::add($byEntryPoint, Metric::EXCEPTION_WHERE_COUNT, 0.0, $unit->startedAt, $count);
+    }
+
+    /**
+     * A request counts once for its user, whatever the occurrences of the child.
+     *
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addUser(array &$groups, int $minute, Entry $unit, Entry $child, float $weight): void
+    {
+        $count = (int) round($weight);
+        $counters = &self::counters($groups, $minute, Family::User, $child->key);
+        self::add($counters, Metric::USER_DURATION, $unit->durationMs * $weight, $unit->durationMs, $count);
+
+        if ($unit->durationMs >= $this->slowThresholdMs) {
+            self::add($counters, Metric::USER_SLOW, 0.0, 0.0, $count);
+        }
+
+        $status = $unit->attributes['status'] ?? null;
+        if (is_numeric($status) && $status >= 500) {
+            self::add($counters, Metric::USER_ERROR, 0.0, 0.0, $count);
+        }
     }
 
     /**

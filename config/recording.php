@@ -17,6 +17,7 @@ use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Jmonitor\JmonitorBundle\Recording\UserRecorder;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\SchemaAssetFilter;
@@ -158,8 +159,16 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             ->tag('kernel.reset', ['method' => 'reset']);
     }
 
+    $userRecorder = null;
+    if ($builder->getParameter('jmonitor.recording.users') !== false && isset($builder->getParameter('kernel.bundles')['SecurityBundle'])) {
+        $userRecorder = $services->set(UserRecorder::class)
+            ->args([service(Recorder::class), service('security.untracked_token_storage'), $logger])
+            ->tag('kernel.event_subscriber');
+    }
+
     if ($customLogger === null) {
         $recorder->tag('monolog.logger', ['channel' => 'jmonitor']);
         $requestRecorder->tag('monolog.logger', ['channel' => 'jmonitor']);
+        $userRecorder?->tag('monolog.logger', ['channel' => 'jmonitor']);
     }
 };
