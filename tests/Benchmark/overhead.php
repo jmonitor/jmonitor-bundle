@@ -7,8 +7,13 @@ use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
+use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
@@ -20,6 +25,7 @@ use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
+use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
 use Psr\Clock\ClockInterface;
@@ -43,6 +49,10 @@ const SQL_PER_REQUEST = 30;
 /** routes, distinct queries, requests in the ten-second slot, queries per request */
 const TYPICAL = [30, 50, 1_000, 10];
 const LOADED = [150, 200, 10_000, 20];
+/** routes, distinct queries, couples of a route and a repeated query, in each bucket of the one-hour period */
+const DISPLAYED = [150, 200, 100];
+const DISPLAY_RUNS = 5;
+const QUERIES_PER_ROUTE = 5;
 
 function workDir(): string
 {
@@ -298,6 +308,74 @@ function aggregateMillis(): array
     return [$elapsed, $sampled];
 }
 
+/**
+ * Stores the data set in each of the sixty buckets of the one-hour period, as sixty flushes would.
+ *
+ * @param array{int, int, int} $dataSet
+ *
+ * @return int rows stored, every period included
+ */
+function fillHour(Connection $connection, int $now, array $dataSet): int
+{
+    [$routes, $queries, $repeated] = $dataSet;
+    $ids = [];
+    $labels = [];
+    foreach (sqlTexts($queries) as $text) {
+        $ids[] = $id = substr(hash('xxh3', $text), 0, 16);
+        $labels[$id] = $text;
+    }
+
+    $units = [];
+    for ($minute = 0; $minute < 60; ++$minute) {
+        $startedAt = (float) ($now - $minute * 60);
+        for ($route = 0; $route < $routes; ++$route) {
+            $children = [];
+            for ($k = 0; $k < QUERIES_PER_ROUTE; ++$k) {
+                $children[] = new Entry(Entry::TYPE_QUERY, $ids[($route * QUERIES_PER_ROUTE + $k) % $queries], $startedAt, 0.4 + ($minute + $k) % 7 * 0.3, ['n' => 1 + $k, 'm' => 0.4]);
+            }
+            if ($route < $repeated) {
+                $children[] = new Entry(Entry::TYPE_NPLUS1, $ids[$route * QUERIES_PER_ROUTE % $queries], $startedAt, 1.8, ['n' => 12]);
+            }
+            $units[] = new Entry(Entry::TYPE_REQUEST, 'GET route_' . $route, $startedAt, 5.0 + ($minute * 37 + $route) % 1500, [
+                'status' => $route % 50 === 0 ? 500 : 200,
+                'memory' => 2_097_152 + ($route % 64) * 65_536,
+                'sql_n' => 15,
+                'sql_ms' => 4.5,
+            ], $children);
+        }
+    }
+
+    $storage = new DbalStorage($connection, 31_536_000);
+    $connection->executeStatement('DROP TABLE IF EXISTS ' . AggregatesTable::NAME);
+    $connection->executeStatement('DROP TABLE IF EXISTS ' . KeysTable::NAME);
+    $storage->setUp();
+    $storage->store((new Aggregator(500))->aggregate($units), $now, $labels);
+
+    return (int) $connection->fetchOne('SELECT COUNT(*) FROM ' . AggregatesTable::NAME);
+}
+
+/**
+ * @return array{float, int} median milliseconds of the builds of the screen on its default sort, rows shown
+ */
+function displayMillis(Connection $connection, int $now, ScreenInterface $screen): array
+{
+    $reader = new DbalReader($connection);
+    $sorts = $screen->sorts();
+    $sort = (string) array_key_first($sorts);
+
+    $timings = [];
+    $rows = 0;
+    for ($run = 0; $run < DISPLAY_RUNS; ++$run) {
+        $start = hrtime(true);
+        $view = $screen->build($reader, Period::OneHour, $now, $sort, $sorts[$sort]);
+        $timings[] = (hrtime(true) - $start) / 1_000_000;
+        $rows = array_sum(array_map(static fn(Table $table): int => \count($table->rows), $view->tables));
+    }
+    sort($timings);
+
+    return [$timings[intdiv(DISPLAY_RUNS, 2)], $rows];
+}
+
 $dir = workDir();
 $clock = new NativeClock();
 $buffer = new FileBuffer(new BufferDirectory($dir, 'bench'), 10, $clock);
@@ -392,5 +470,12 @@ foreach (['typical' => [TYPICAL, 100], 'loaded' => [LOADED, 500]] as $name => [$
         $target,
         sprintf('(%d requests, %d kept their queries under sampling, %d rows written)', $dataSet[2], $sampled, $rows),
     );
+}
+
+$now = 1_700_003_600;
+$stored = fillHour($mysql, $now, DISPLAYED);
+foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10)] as $screen) {
+    [$milliseconds, $rows] = displayMillis($mysql, $now, $screen);
+    report(sprintf('display, %s, loaded database (mysql)', $screen->id()), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
 }
 $mysql->close();
