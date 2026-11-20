@@ -81,7 +81,6 @@ final class Entry
             || $needsTail && !$hasSlow
         ) {
             $data = $this->toArray();
-            // SQL children keep the start they always wrote, so that a line without any other child stays the same.
             if (!$differentStart && $this->type !== self::TYPE_QUERY && $this->type !== self::TYPE_NPLUS1) {
                 unset($data['s']);
             }

@@ -250,7 +250,7 @@ php bin/console jmonitor:collect -vv --memory-limit=32M --time-limit=3600
 
 ## Application monitoring (preview)
 
-The bundle can also record the HTTP requests your application serves, with the SQL queries, outgoing HTTP calls, cache reads and writes, exceptions and signed-in users behind them, and show them on a `/jmonitor` page, over the last hour, 6 hours, 24 hours or 7 days:
+The bundle can also record the HTTP requests your application serves, with the SQL queries, outgoing HTTP calls, cache reads, writes and deletes, exceptions and signed-in users behind them, and show them on a `/jmonitor` page, over the last hour, 6 hours, 24 hours or 7 days:
 
 - **Requests** (`/jmonitor/`): requests, response times (average, p95, max), SQL time and number of queries, time spent in outgoing HTTP calls (`HTTP out`), slow requests, 5xx errors and peak memory, per route.
 - **Queries** (`/jmonitor/queries`): executions, total, average and maximum time and slow executions per SQL query, and the queries repeated within one request (N+1).
