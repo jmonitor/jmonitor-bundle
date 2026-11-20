@@ -6,7 +6,7 @@ This is a **Symfony Bundle** (`jmonitor/jmonitor-bundle`) that integrates metric
 
 ## Commands
 
-Never prepend `cd [path]` before commands, and never use `git -C "[path]"` for git commands. The shell is already running at the project root — use commands directly as-is.
+Run every command, git included, from the repository root.
 
 ```bash
 # Run unit tests
