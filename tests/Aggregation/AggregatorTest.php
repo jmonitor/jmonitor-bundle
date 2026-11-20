@@ -356,6 +356,50 @@ class AggregatorTest extends TestCase
         static::assertSame(["request\x1fGET app_home\x1fabc"], $keys);
     }
 
+    public function testAnExceptionIsCountedPerClassAndPerEntryPoint(): void
+    {
+        $unit = static fn(float $at, string $route): Entry => new Entry(Entry::TYPE_REQUEST, $route, $at, 50.0, ['status' => 500], [
+            new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $at, 0.0, ['n' => 1]),
+        ]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            $unit(1700000045.5, 'GET app_boom'),
+            $unit(1700000050.25, 'GET app_boom'),
+            $unit(1700000047.0, 'POST app_save'),
+        ]);
+
+        $count = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class);
+        $boom = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_WHERE_COUNT, "request\x1fGET app_boom\x1f" . \RuntimeException::class);
+        $save = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_WHERE_COUNT, "request\x1fPOST app_save\x1f" . \RuntimeException::class);
+        static::assertNotNull($count);
+        static::assertNotNull($boom);
+        static::assertNotNull($save);
+        static::assertSame([3, 0.0, 1700000050.25], [$count->count, $count->sum, $count->max]);
+        static::assertSame([2, 0.0, 1700000050.25], [$boom->count, $boom->sum, $boom->max]);
+        static::assertSame([1, 0.0, 1700000047.0], [$save->count, $save->sum, $save->max]);
+        static::assertSame(Family::Exception, Family::ofMetric($count->type));
+        static::assertSame(Family::ExceptionWhere, Family::ofMetric($boom->type));
+    }
+
+    public function testAnExceptionWeighsTenWhenSampled(): void
+    {
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET app_boom', 1700000045.0, 50.0, ['status' => 500, 'cw' => 10], [
+                new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, 1700000045.0, 0.0, ['n' => 1]),
+            ]),
+        ]);
+
+        $count = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class);
+        $where = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_WHERE_COUNT, "request\x1fGET app_boom\x1f" . \RuntimeException::class);
+        $request = $this->find($aggregates, Period::OneHour, Metric::REQUEST_DURATION, 'GET app_boom');
+        static::assertNotNull($count);
+        static::assertNotNull($where);
+        static::assertNotNull($request);
+        static::assertSame(10, $count->count);
+        static::assertSame(10, $where->count);
+        static::assertSame(1, $request->count);
+    }
+
     public function testKeysBeyondTheCapOfAFamilyFoldIntoOther(): void
     {
         $entries = [];

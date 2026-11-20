@@ -61,6 +61,19 @@ final class Format
         return self::trimZero(number_format($percent, $percent < 10 ? 1 : 0)) . ' %';
     }
 
+    public static function ago(int $timestamp, int $now): string
+    {
+        $seconds = $now - $timestamp;
+
+        return match (true) {
+            $seconds < 5 => 'just now',
+            $seconds < 60 => $seconds . ' s ago',
+            $seconds < 3600 => intdiv($seconds, 60) . ' min ago',
+            $seconds < 86400 => intdiv($seconds, 3600) . ' h ago',
+            default => intdiv($seconds, 86400) . ' d ago',
+        };
+    }
+
     public static function period(Period $period): string
     {
         return match ($period) {

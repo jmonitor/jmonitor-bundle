@@ -7,9 +7,9 @@ namespace Jmonitor\JmonitorBundle\Dashboard\View;
 final class Cell
 {
     /**
-     * @param 'warn'|'bad'|'zero'|null $tone
-     * @param 'text'|'route'|'sql'     $kind
-     * @param array<string, string>    $data
+     * @param 'warn'|'bad'|'zero'|null    $tone
+     * @param 'text'|'code'|'route'|'sql' $kind
+     * @param array<string, string>       $data
      */
     public function __construct(
         public readonly string $text,

@@ -120,6 +120,7 @@ final class Aggregator
             match ($child->type) {
                 Entry::TYPE_QUERY => $this->addQuery($groups, $minute, $child, $occurrences, $weight),
                 Entry::TYPE_NPLUS1 => $this->addNPlusOne($groups, $minute, $unit, $child, $occurrences, $weight),
+                Entry::TYPE_EXCEPTION => $this->addException($groups, $minute, $unit, $child, $occurrences, $weight),
                 default => null,
             };
         }
@@ -153,6 +154,25 @@ final class Aggregator
         $count = (int) round($weight);
         self::add($counters, Metric::NPLUS1_CALLS, $occurrences * $weight, $occurrences, $count);
         self::add($counters, Metric::NPLUS1_DURATION, $child->durationMs * $weight, $child->durationMs, $count);
+    }
+
+    /**
+     * The maximum of an exception is the start of its unit, which makes it the time of the last occurrence.
+     *
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addException(array &$groups, int $minute, Entry $unit, Entry $child, float $occurrences, float $weight): void
+    {
+        $count = (int) round($occurrences * $weight);
+        if ($count < 1) {
+            return;
+        }
+
+        $byClass = &self::counters($groups, $minute, Family::Exception, $child->key);
+        self::add($byClass, Metric::EXCEPTION_COUNT, 0.0, $unit->startedAt, $count);
+
+        $byEntryPoint = &self::counters($groups, $minute, Family::ExceptionWhere, (new EntryPointKey($unit->type, $unit->key, $child->key))->toString());
+        self::add($byEntryPoint, Metric::EXCEPTION_WHERE_COUNT, 0.0, $unit->startedAt, $count);
     }
 
     /**

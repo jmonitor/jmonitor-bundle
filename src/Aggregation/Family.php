@@ -9,11 +9,13 @@ enum Family: string
     case Request = 'request';
     case Query = 'query';
     case NPlusOne = 'nplus1';
+    case Exception = 'exception';
+    case ExceptionWhere = 'exception_where';
 
     public function isOpen(): bool
     {
         return match ($this) {
-            self::Request => false,
+            self::Request, self::Exception, self::ExceptionWhere => false,
             self::Query, self::NPlusOne => true,
         };
     }
@@ -23,7 +25,8 @@ enum Family: string
         return match ($this) {
             self::Request => 300,
             self::Query => 200,
-            self::NPlusOne => 100,
+            self::NPlusOne, self::ExceptionWhere => 100,
+            self::Exception => 50,
         };
     }
 
@@ -33,6 +36,8 @@ enum Family: string
             self::Request => Metric::REQUEST_DURATION,
             self::Query => Metric::QUERY_DURATION,
             self::NPlusOne => Metric::NPLUS1_DURATION,
+            self::Exception => Metric::EXCEPTION_COUNT,
+            self::ExceptionWhere => Metric::EXCEPTION_WHERE_COUNT,
         };
     }
 

@@ -6,11 +6,17 @@ namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception as DbalException;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 final class DemoController
 {
-    public function __construct(private readonly ?Connection $connection = null) {}
+    public function __construct(
+        private readonly ?Connection $connection = null,
+        private readonly ?HttpKernelInterface $kernel = null,
+    ) {}
 
     public function hello(string $name): Response
     {
@@ -34,6 +40,18 @@ final class DemoController
     public function boom(): Response
     {
         throw new \RuntimeException('Boom');
+    }
+
+    public function handled(): Response
+    {
+        throw new NotFoundHttpException('Handled');
+    }
+
+    public function subBoom(): Response
+    {
+        $kernel = $this->kernel ?? throw new \LogicException('This route needs the HTTP kernel.');
+
+        return $kernel->handle(Request::create('/boom'), HttpKernelInterface::SUB_REQUEST, false);
     }
 
     public function teapot(): Response

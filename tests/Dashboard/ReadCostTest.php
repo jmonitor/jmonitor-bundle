@@ -25,6 +25,7 @@ final class ReadCostTest extends KernelTestCase
     private const BUDGET = [
         'requests' => 3,
         'queries' => 10,
+        'exceptions' => 5,
     ];
 
     private const QUERY_ID = 'a1b2c3d4e5f6a7b8';
@@ -85,6 +86,7 @@ final class ReadCostTest extends KernelTestCase
                 new Entry(Entry::TYPE_QUERY, self::QUERY_ID, $startedAt, 1.0, ['n' => 1, 'm' => 1.0]),
                 new Entry(Entry::TYPE_QUERY, self::REPEATED_QUERY_ID, $startedAt, 2.0, ['n' => 12, 'm' => 0.5]),
                 new Entry(Entry::TYPE_NPLUS1, self::REPEATED_QUERY_ID, $startedAt, 2.0, ['n' => 12]),
+                new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $startedAt, 0.0, ['n' => 1]),
             ]),
         ];
     }

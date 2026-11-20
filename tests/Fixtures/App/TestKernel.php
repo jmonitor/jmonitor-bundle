@@ -136,7 +136,7 @@ final class TestKernel extends Kernel
                 ->args([LogLevel::WARNING, $this->getLogDir() . '/' . $this->environment . '.log']);
         }
         $services->set(DemoController::class)
-            ->args([service('doctrine.dbal.default_connection')->nullOnInvalid()])
+            ->args([service('doctrine.dbal.default_connection')->nullOnInvalid(), service('http_kernel')])
             ->tag('controller.service_arguments');
     }
 
@@ -156,6 +156,8 @@ final class TestKernel extends Kernel
         $routes->add('app_slow', '/slow')->controller([DemoController::class, 'slow']);
         $routes->add('app_alloc', '/alloc')->controller([DemoController::class, 'alloc']);
         $routes->add('app_boom', '/boom')->controller([DemoController::class, 'boom']);
+        $routes->add('app_handled', '/handled')->controller([DemoController::class, 'handled']);
+        $routes->add('app_sub_boom', '/sub-boom')->controller([DemoController::class, 'subBoom']);
         $routes->add('app_teapot', '/teapot')->controller([DemoController::class, 'teapot']);
         $routes->add('app_n_plus_one', '/n-plus-one')->controller([DemoController::class, 'nPlusOne']);
         $routes->add('app_sql_error', '/sql-error')->controller([DemoController::class, 'sqlError']);

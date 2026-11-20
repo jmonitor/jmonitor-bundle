@@ -34,6 +34,8 @@
                             {% set tag = loop.first ? 'th' : 'td' %}
                             <{{ tag }}{% if loop.first %} scope="row"{% endif %} class="{{ column.numeric ? 'jm-num' : 'jm-col-' ~ column.id }}{{ cell and cell.tone ? ' jm-' ~ cell.tone }}">
                                 {%- if cell is null -%}
+                                {%- elseif cell.kind == 'code' -%}
+                                    <code class="jm-code">{{ cell.text }}</code>
                                 {%- elseif cell.kind == 'route' -%}
                                     {% set method = (cell.data.method ?? '')|lower %}
                                     <span class="jm-method jm-method--{{ method in ['get', 'post', 'put', 'patch', 'delete'] ? method : 'other' }}">{{ cell.data.method ?? '' }}</span>

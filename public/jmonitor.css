@@ -587,7 +587,8 @@ body.jm {
     color: var(--jm-bad);
 }
 
-.jm-route {
+.jm-route,
+.jm-code {
     color: var(--jm-text-strong);
     font-size: 13px;
     overflow-wrap: anywhere;

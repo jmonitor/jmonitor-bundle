@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Command\SetupCommand;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
+use Jmonitor\JmonitorBundle\Recording\ExceptionRecorder;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
@@ -149,6 +150,13 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             param('jmonitor.recording.enabled'),
         ])
         ->tag('kernel.event_subscriber');
+
+    if ($builder->getParameter('jmonitor.recording.exceptions') !== false) {
+        $services->set(ExceptionRecorder::class)
+            ->args([service(Recorder::class)])
+            ->tag('kernel.event_subscriber')
+            ->tag('kernel.reset', ['method' => 'reset']);
+    }
 
     if ($customLogger === null) {
         $recorder->tag('monolog.logger', ['channel' => 'jmonitor']);

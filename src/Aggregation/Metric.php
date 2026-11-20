@@ -17,6 +17,8 @@ final class Metric
     public const QUERY_SLOW = 'query.slow';
     public const NPLUS1_CALLS = 'nplus1.calls';
     public const NPLUS1_DURATION = 'nplus1.duration';
+    public const EXCEPTION_COUNT = 'exception.count';
+    public const EXCEPTION_WHERE_COUNT = 'exception_where.count';
 
     /** @var list<int> */
     public const DURATION_BOUNDS_MS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];

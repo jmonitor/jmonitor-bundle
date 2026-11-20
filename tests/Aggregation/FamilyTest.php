@@ -20,10 +20,10 @@ class FamilyTest extends TestCase
 
     public function testCapsAndOpenness(): void
     {
-        static::assertSame([300, 200, 100], array_map(static fn(Family $f): int => $f->cap(), Family::cases()));
-        static::assertSame([false, true, true], array_map(static fn(Family $f): bool => $f->isOpen(), Family::cases()));
+        static::assertSame([300, 200, 100, 50, 100], array_map(static fn(Family $f): int => $f->cap(), Family::cases()));
+        static::assertSame([false, true, true, false, false], array_map(static fn(Family $f): bool => $f->isOpen(), Family::cases()));
         static::assertSame(
-            ['request.duration', 'query.duration', 'nplus1.duration'],
+            ['request.duration', 'query.duration', 'nplus1.duration', 'exception.count', 'exception_where.count'],
             array_map(static fn(Family $f): string => $f->weightMetric(), Family::cases()),
         );
     }
