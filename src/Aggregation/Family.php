@@ -14,11 +14,14 @@ enum Family: string
     case User = 'user';
     case Http = 'http';
     case Cache = 'cache';
+    case Command = 'command';
+    case Message = 'message';
+    case Task = 'task';
 
     public function isOpen(): bool
     {
         return match ($this) {
-            self::Request, self::Exception, self::ExceptionWhere, self::Cache => false,
+            self::Request, self::Exception, self::ExceptionWhere, self::Cache, self::Command, self::Message, self::Task => false,
             self::Query, self::NPlusOne, self::User, self::Http => true,
         };
     }
@@ -28,7 +31,7 @@ enum Family: string
         return match ($this) {
             self::Request => 300,
             self::Query, self::User => 200,
-            self::NPlusOne, self::ExceptionWhere => 100,
+            self::NPlusOne, self::ExceptionWhere, self::Command, self::Message, self::Task => 100,
             self::Exception, self::Http => 50,
             self::Cache => 20,
         };
@@ -45,6 +48,9 @@ enum Family: string
             self::User => Metric::USER_DURATION,
             self::Http => Metric::HTTP_DURATION,
             self::Cache => Metric::CACHE_HIT,
+            self::Command => Metric::COMMAND_DURATION,
+            self::Message => Metric::MESSAGE_DURATION,
+            self::Task => Metric::TASK_DURATION,
         };
     }
 
@@ -61,6 +67,10 @@ enum Family: string
         if ($this === self::Cache) {
             return ($counters[Metric::CACHE_HIT][0] ?? 0) + ($counters[Metric::CACHE_MISS][0] ?? 0)
                 + ($counters[Metric::CACHE_WRITE][0] ?? 0) + ($counters[Metric::CACHE_DELETE][0] ?? 0);
+        }
+
+        if ($this === self::Message) {
+            return ($counters[Metric::MESSAGE_DURATION][0] ?? 0) + ($counters[Metric::MESSAGE_SENT][0] ?? 0);
         }
 
         $measure = $counters[$this->weightMetric()] ?? null;

@@ -34,8 +34,12 @@ final class Aggregator
                 continue;
             }
 
+            $minute = Period::OneHour->bucketFor($entry->startedAt);
             match ($entry->type) {
-                Entry::TYPE_REQUEST => $this->addRequest($groups, Period::OneHour->bucketFor($entry->startedAt), $entry),
+                Entry::TYPE_REQUEST => $this->addRequest($groups, $minute, $entry),
+                Entry::TYPE_COMMAND => $this->addCommand($groups, $minute, $entry),
+                Entry::TYPE_MESSAGE => $this->addMessage($groups, $minute, $entry),
+                Entry::TYPE_TASK => $this->addTask($groups, $minute, $entry),
                 default => null,
             };
         }
@@ -77,11 +81,7 @@ final class Aggregator
 
         self::add($counters, Metric::REQUEST_DURATION, $entry->durationMs);
         self::add($counters, Metric::REQUEST_DURATION_LE_PREFIX . Metric::durationBound($entry->durationMs), 1.0);
-
-        $memory = $entry->attributes['memory'] ?? null;
-        if (is_numeric($memory) && $memory >= 0 && is_finite((float) $memory)) {
-            self::add($counters, Metric::REQUEST_MEMORY, (float) $memory);
-        }
+        self::addMemory($counters, Metric::REQUEST_MEMORY, $entry);
 
         $status = $entry->attributes['status'] ?? null;
         if (is_numeric($status) && $status >= 200 && $status <= 599) {
@@ -92,22 +92,111 @@ final class Aggregator
             self::add($counters, Metric::REQUEST_SLOW, 1.0);
         }
 
-        $sqlCount = self::number($entry->attributes['sql_n'] ?? null);
-        $sqlTime = self::number($entry->attributes['sql_ms'] ?? null);
-        if ($sqlCount !== null && $sqlTime !== null && $sqlCount > 0) {
-            self::add($counters, Metric::REQUEST_SQL_TIME, $sqlTime);
-            self::add($counters, Metric::REQUEST_SQL_COUNT, $sqlCount);
+        self::addTimeSplit($counters, $entry, Metric::REQUEST_SQL_TIME, Metric::REQUEST_SQL_COUNT, Metric::REQUEST_HTTP_TIME);
+
+        unset($counters);
+
+        $this->addChildren($groups, $minute, $entry);
+    }
+
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addCommand(array &$groups, int $minute, Entry $entry): void
+    {
+        $counters = &self::counters($groups, $minute, Family::Command, $entry->key);
+
+        self::add($counters, Metric::COMMAND_DURATION, $entry->durationMs);
+        self::add($counters, Metric::COMMAND_LAST_RUN, 0.0, $entry->startedAt);
+        self::addMemory($counters, Metric::COMMAND_MEMORY, $entry);
+
+        $exit = $entry->attributes['exit'] ?? null;
+        if (\is_int($exit) && $exit !== 0) {
+            self::add($counters, Metric::COMMAND_FAILED, 1.0);
         }
 
-        $httpCount = self::number($entry->attributes['http_n'] ?? null);
-        $httpTime = self::number($entry->attributes['http_ms'] ?? null);
-        if ($httpCount !== null && $httpTime !== null && $httpCount > 0) {
-            self::add($counters, Metric::REQUEST_HTTP_TIME, $httpTime);
+        self::addTimeSplit($counters, $entry, Metric::COMMAND_SQL_TIME, Metric::COMMAND_SQL_COUNT, Metric::COMMAND_HTTP_TIME);
+
+        unset($counters);
+
+        $this->addChildren($groups, $minute, $entry);
+    }
+
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addMessage(array &$groups, int $minute, Entry $entry): void
+    {
+        $counters = &self::counters($groups, $minute, Family::Message, $entry->key);
+
+        self::add($counters, Metric::MESSAGE_DURATION, $entry->durationMs);
+        self::add($counters, Metric::MESSAGE_DURATION_LE_PREFIX . Metric::durationBound($entry->durationMs), 1.0);
+        self::addMemory($counters, Metric::MESSAGE_MEMORY, $entry);
+
+        if (($entry->attributes['failed'] ?? null) === 1) {
+            self::add($counters, Metric::MESSAGE_FAILED, 1.0);
+        }
+
+        if (($entry->attributes['retried'] ?? null) === 1) {
+            self::add($counters, Metric::MESSAGE_RETRIED, 1.0);
+        }
+
+        self::addTimeSplit($counters, $entry, Metric::MESSAGE_SQL_TIME, Metric::MESSAGE_SQL_COUNT, Metric::MESSAGE_HTTP_TIME);
+
+        unset($counters);
+
+        $this->addChildren($groups, $minute, $entry);
+    }
+
+    /**
+     * The maximum of a failure is the start of its run, which makes it the time of the last failure.
+     *
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addTask(array &$groups, int $minute, Entry $entry): void
+    {
+        $counters = &self::counters($groups, $minute, Family::Task, $entry->key);
+
+        self::add($counters, Metric::TASK_DURATION, $entry->durationMs);
+        self::add($counters, Metric::TASK_LAST_RUN, 0.0, $entry->startedAt);
+
+        if (($entry->attributes['failed'] ?? null) === 1) {
+            self::add($counters, Metric::TASK_FAILED, 0.0, $entry->startedAt);
         }
 
         unset($counters);
 
         $this->addChildren($groups, $minute, $entry);
+    }
+
+    /**
+     * @param array<string, array{int, float, float}> $counters
+     */
+    private static function addMemory(array &$counters, string $metric, Entry $entry): void
+    {
+        $memory = $entry->attributes['memory'] ?? null;
+        if (is_numeric($memory) && $memory >= 0 && is_finite((float) $memory)) {
+            self::add($counters, $metric, (float) $memory);
+        }
+    }
+
+    /**
+     * @param array<string, array{int, float, float}> $counters
+     */
+    private static function addTimeSplit(array &$counters, Entry $entry, string $sqlTimeMetric, string $sqlCountMetric, string $httpTimeMetric): void
+    {
+        $sqlCount = self::number($entry->attributes['sql_n'] ?? null);
+        $sqlTime = self::number($entry->attributes['sql_ms'] ?? null);
+        if ($sqlCount !== null && $sqlTime !== null && $sqlCount > 0) {
+            self::add($counters, $sqlTimeMetric, $sqlTime);
+            self::add($counters, $sqlCountMetric, $sqlCount);
+        }
+
+        $httpCount = self::number($entry->attributes['http_n'] ?? null);
+        $httpTime = self::number($entry->attributes['http_ms'] ?? null);
+        if ($httpCount !== null && $httpTime !== null && $httpCount > 0) {
+            self::add($counters, $httpTimeMetric, $httpTime);
+        }
     }
 
     /**
@@ -131,12 +220,13 @@ final class Aggregator
                 Entry::TYPE_EXCEPTION => $this->addException($groups, $minute, $unit, $child, $occurrences, $weight),
                 Entry::TYPE_HTTP => $this->addHttp($groups, $minute, $child, $occurrences, $weight),
                 Entry::TYPE_CACHE => $this->addCache($groups, $minute, $child, $weight),
+                Entry::TYPE_SENT => $this->addSent($groups, $minute, $child, $occurrences, $weight),
                 Entry::TYPE_USER => $user ??= $child,
                 default => null,
             };
         }
 
-        if ($user !== null) {
+        if ($user !== null && $unit->type === Entry::TYPE_REQUEST) {
             $this->addUser($groups, $minute, $unit, $user, $weight);
         }
     }
@@ -226,6 +316,20 @@ final class Aggregator
         foreach ($counts as $metric => $count) {
             self::add($counters, $metric, 0.0, 0.0, $count);
         }
+    }
+
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addSent(array &$groups, int $minute, Entry $child, float $occurrences, float $weight): void
+    {
+        $count = (int) round($occurrences * $weight);
+        if ($count < 1) {
+            return;
+        }
+
+        $counters = &self::counters($groups, $minute, Family::Message, $child->key);
+        self::add($counters, Metric::MESSAGE_SENT, 0.0, 0.0, $count);
     }
 
     /**

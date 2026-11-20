@@ -30,6 +30,25 @@ final class Metric
     public const CACHE_MISS = 'cache.miss';
     public const CACHE_WRITE = 'cache.write';
     public const CACHE_DELETE = 'cache.delete';
+    public const COMMAND_DURATION = 'command.duration';
+    public const COMMAND_FAILED = 'command.failed';
+    public const COMMAND_MEMORY = 'command.memory';
+    public const COMMAND_LAST_RUN = 'command.last_run';
+    public const COMMAND_SQL_TIME = 'command.sql_time';
+    public const COMMAND_SQL_COUNT = 'command.sql_count';
+    public const COMMAND_HTTP_TIME = 'command.http_time';
+    public const MESSAGE_DURATION = 'message.duration';
+    public const MESSAGE_DURATION_LE_PREFIX = 'message.duration_le.';
+    public const MESSAGE_FAILED = 'message.failed';
+    public const MESSAGE_RETRIED = 'message.retried';
+    public const MESSAGE_MEMORY = 'message.memory';
+    public const MESSAGE_SENT = 'message.sent';
+    public const MESSAGE_SQL_TIME = 'message.sql_time';
+    public const MESSAGE_SQL_COUNT = 'message.sql_count';
+    public const MESSAGE_HTTP_TIME = 'message.http_time';
+    public const TASK_DURATION = 'task.duration';
+    public const TASK_FAILED = 'task.failed';
+    public const TASK_LAST_RUN = 'task.last_run';
 
     /** @var list<int> */
     public const DURATION_BOUNDS_MS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
