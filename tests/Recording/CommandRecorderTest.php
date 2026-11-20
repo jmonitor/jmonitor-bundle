@@ -352,6 +352,23 @@ final class CommandRecorderTest extends TestCase
         static::assertSame([], $this->logger->records);
     }
 
+    public function testTheClosingFlushStillRunsAfterTheServicesWereReset(): void
+    {
+        $commands = $this->commands(flusher: $this->flusher());
+        $worker = new Command('messenger:consume');
+        $commands->onCommand(new ConsoleCommandEvent($worker, new ArrayInput([]), new NullOutput()));
+        $this->runCommand($commands, 'app:work');
+
+        static::assertSame(0, $this->storage->stores);
+
+        $commands->reset();
+        $this->recorder->reset();
+        $commands->onTerminate(new ConsoleTerminateEvent($worker, new ArrayInput([]), new NullOutput(), 0));
+
+        static::assertSame(1, $this->storage->stores);
+        static::assertSame([], $this->buffer->entries);
+    }
+
     public function testATerminateSeenTwiceWritesOnce(): void
     {
         $commands = $this->commands();

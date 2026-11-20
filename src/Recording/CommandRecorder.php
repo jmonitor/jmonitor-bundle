@@ -114,22 +114,8 @@ final class CommandRecorder implements EventSubscriberInterface, ResetInterface
         try {
             $now = microtime(true);
             $index = $this->frameOf($event->getCommand());
-            if ($index === null) {
-                return;
-            }
-
-            $frame = $this->frames[$index];
-            $this->frames = \array_slice($this->frames, 0, $index);
-
-            if ($frame['ignored']) {
-                $this->recorder->discard($frame['token']);
-            } else {
-                $this->recorder->end(
-                    $frame['token'],
-                    $frame['name'],
-                    ($now - $frame['startedAt']) * 1000,
-                    ['exit' => $event->getExitCode(), 'memory' => memory_get_peak_usage(true)],
-                );
+            if ($index !== null) {
+                $this->close($index, $event->getExitCode(), $now);
             }
 
             if ($this->recorder->openUnits() === 0) {
@@ -144,6 +130,25 @@ final class CommandRecorder implements EventSubscriberInterface, ResetInterface
     {
         $this->frames = [];
         $this->counted = new \WeakMap();
+    }
+
+    private function close(int $index, int $exitCode, float $now): void
+    {
+        $frame = $this->frames[$index];
+        $this->frames = \array_slice($this->frames, 0, $index);
+
+        if ($frame['ignored']) {
+            $this->recorder->discard($frame['token']);
+
+            return;
+        }
+
+        $this->recorder->end(
+            $frame['token'],
+            $frame['name'],
+            ($now - $frame['startedAt']) * 1000,
+            ['exit' => $exitCode, 'memory' => memory_get_peak_usage(true)],
+        );
     }
 
     private function frameOf(?Command $command): ?int
