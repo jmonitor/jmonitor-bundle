@@ -115,8 +115,8 @@ final class DbalReader implements ReaderInterface
         [$period, $since] = self::window($query);
         $sql = 'SELECT key_hash, metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum,'
             . ' MAX(value_max) AS value_max FROM ' . AggregatesTable::NAME
-            . ' WHERE period = ? AND bucket > ? AND metric_type LIKE ?';
-        $params = [$period, $since, $query->family->value . '.%'];
+            . ' WHERE period = ? AND bucket > ? AND metric_type >= ? AND metric_type < ?';
+        $params = [$period, $since, ...AggregatesTable::familyBounds($query->family)];
 
         if ($hashes !== null) {
             $sql .= ' AND key_hash IN (' . implode(', ', array_fill(0, \count($hashes), '?')) . ')';
@@ -146,8 +146,8 @@ final class DbalReader implements ReaderInterface
             'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max,'
             . ' (SELECT COUNT(DISTINCT key_hash) FROM ' . AggregatesTable::NAME
             . ' WHERE period = ? AND bucket > ? AND metric_type = ? AND key_hash <> ?) AS key_count FROM ' . AggregatesTable::NAME
-            . ' WHERE period = ? AND bucket > ? AND metric_type LIKE ? GROUP BY metric_type',
-            [$period, $since, $query->family->weightMetric(), AggregatesTable::keyHash(Aggregator::OTHER), $period, $since, $query->family->value . '.%'],
+            . ' WHERE period = ? AND bucket > ? AND metric_type >= ? AND metric_type < ? GROUP BY metric_type',
+            [$period, $since, $query->family->weightMetric(), AggregatesTable::keyHash(Aggregator::OTHER), $period, $since, ...AggregatesTable::familyBounds($query->family)],
         );
 
         $totals = [];

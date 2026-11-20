@@ -312,20 +312,18 @@ final class DbalStorageTest extends TestCase
     #[DataProvider('connections')]
     public function testPrimaryKeyGroupsEachPeriodByMetricType(Connection $connection): void
     {
-        $sql = implode("\n", $connection->getDatabasePlatform()->getCreateTableSQL(AggregatesTable::definition()));
+        $platform = $connection->getDatabasePlatform();
+        $sql = implode("\n", $platform->getCreateTableSQL(AggregatesTable::definition($platform)));
 
         static::assertSame(1, preg_match('/PRIMARY KEY\s*\(([^)]*)\)/i', $sql, $matches));
         static::assertSame('period,metric_type,bucket,key_hash', str_replace([' ', '"', '`'], '', $matches[1]));
     }
 
-    public function testMySqlOrdersMetricTypesAsAFlushSortsThem(): void
+    #[DataProvider('connections')]
+    public function testMetricTypesAreOrderedAsAFlushSortsThem(Connection $connection): void
     {
-        $connection = ConnectionProvider::all()['mysql'][0] ?? null;
-        if ($connection === null) {
-            static::markTestSkipped('JMONITOR_TEST_MYSQL_URL is not set');
-        }
         $this->reset($connection);
-        $types = [Metric::EXCEPTION_WHERE_COUNT, Metric::EXCEPTION_COUNT];
+        $types = ['a_a', 'a.b', 'B', Metric::EXCEPTION_WHERE_COUNT, Metric::EXCEPTION_COUNT];
         $this->storage($connection)->store(
             array_map(static fn(string $type): Aggregate => new Aggregate(Period::OneHour, 1700000040, $type, 'GET app_home', 1, 1.0, 1.0), $types),
             1700000100,
@@ -723,8 +721,9 @@ final class DbalStorageTest extends TestCase
         $params = $this->sqliteFile();
         $other = DriverManager::getConnection($params);
         $connection = DdlDenier::connect($params, static function () use ($other): void {
-            foreach ([AggregatesTable::definition(), KeysTable::definition()] as $table) {
-                foreach ($other->getDatabasePlatform()->getCreateTableSQL($table) as $sql) {
+            $platform = $other->getDatabasePlatform();
+            foreach ([AggregatesTable::definition($platform), KeysTable::definition()] as $table) {
+                foreach ($platform->getCreateTableSQL($table) as $sql) {
                     $other->executeStatement($sql);
                 }
             }

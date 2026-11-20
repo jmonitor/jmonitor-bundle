@@ -278,7 +278,7 @@ final class DbalStorage implements StorageInterface
         }
 
         $platform = $this->connection->getDatabasePlatform();
-        foreach ([AggregatesTable::definition(), KeysTable::definition()] as $table) {
+        foreach ([AggregatesTable::definition($platform), KeysTable::definition()] as $table) {
             foreach ($platform->getCreateTableSQL($table) as $sql) {
                 $this->connection->executeStatement($sql);
             }

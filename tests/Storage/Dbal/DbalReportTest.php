@@ -166,6 +166,31 @@ final class DbalReportTest extends TestCase
         static::assertEquals(new MetricValue(1, 0.0, 0.0), $report->totals[Metric::REQUEST_STATUS_PREFIX . '5xx']);
     }
 
+    #[DataProvider('connections')]
+    public function testAFamilyIsReadWithoutTheTypesAroundIt(Connection $connection): void
+    {
+        $aggregates = [];
+        foreach (['exception', 'query'] as $family) {
+            $aggregates[] = $this->aggregate($family . '.~', 'inside', 1, 1.0, 1.0);
+            foreach (['-count', '/count', '_where.count', 's.count'] as $suffix) {
+                $aggregates[] = $this->aggregate($family . $suffix, 'outside', 1, 1.0, 1.0);
+            }
+            $aggregates[] = $this->aggregate(ucfirst($family) . '.count', 'outside', 1, 1.0, 1.0);
+        }
+        $aggregates[] = $this->aggregate(Metric::EXCEPTION_COUNT, 'inside', 2, 0.0, 0.0);
+        $aggregates[] = $this->aggregate(Metric::QUERY_DURATION, 'inside', 2, 8.0, 5.0);
+        $this->seed($connection, $aggregates);
+        $reader = new DbalReader($connection);
+
+        $closed = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Exception));
+        $open = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_DURATION));
+
+        static::assertEqualsCanonicalizing([Metric::EXCEPTION_COUNT, 'exception.~'], array_keys($closed->totals));
+        static::assertSame(['inside'], array_map(static fn(ReportRow $row): string => $row->key, $closed->rows));
+        static::assertEqualsCanonicalizing([Metric::QUERY_DURATION, 'query.~'], array_keys($open->totals));
+        static::assertEqualsCanonicalizing([Metric::QUERY_DURATION, 'query.~'], array_keys($open->rows[0]->metrics));
+    }
+
     #[DataProvider('sorts')]
     public function testAnOpenFamilySortsByCountMaxAverageAndAscending(Connection $connection, string $field, bool $descending, string $firstKey): void
     {
