@@ -15,6 +15,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
+use Jmonitor\JmonitorBundle\Storage\Dbal\SetupResult;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
@@ -197,6 +198,62 @@ final class DbalStorageTest extends TestCase
     }
 
     #[DataProvider('connections')]
+    public function testPurgeReachesEveryMetricType(Connection $connection): void
+    {
+        $this->reset($connection);
+        $now = 1700700000;
+        $storage = $this->storage($connection, 604800);
+        $types = [
+            Metric::EXCEPTION_COUNT,
+            Metric::EXCEPTION_WHERE_COUNT,
+            Metric::REQUEST_DURATION,
+            Metric::REQUEST_DURATION_LE_PREFIX . '10',
+            Metric::REQUEST_DURATION_LE_PREFIX . Metric::DURATION_OVERFLOW,
+            Metric::REQUEST_SQL_TIME,
+            Metric::HTTP_FAILED,
+            Metric::NPLUS1_CALLS,
+        ];
+        for ($status = 100; $status < 350; ++$status) {
+            $types[] = Metric::REQUEST_STATUS_PREFIX . $status;
+        }
+        $aggregates = [];
+        foreach ($types as $type) {
+            foreach ([Period::OneHour, Period::OneDay] as $period) {
+                $aggregates[] = new Aggregate($period, $now - 2 * $period->value, $type, 'GET app_home', 1, 1.0, 1.0);
+                $aggregates[] = new Aggregate($period, $period->bucketFor($now), $type, 'GET app_home', 1, 1.0, 1.0);
+            }
+        }
+        $storage->store($aggregates, $now);
+
+        $storage->purge($now);
+
+        static::assertSame(
+            [[3600, \count($types), Period::OneHour->bucketFor($now)], [86400, \count($types), Period::OneDay->bucketFor($now)]],
+            array_map(
+                static fn(array $row): array => array_map('intval', $row),
+                $connection->fetchAllNumeric('SELECT period, COUNT(DISTINCT metric_type), MIN(bucket) FROM jmonitor_aggregates GROUP BY period ORDER BY period'),
+            ),
+        );
+    }
+
+    public function testPurgeDeletesFromTheHeadOfEachMetricType(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $storage = $this->storage($connection);
+        $storage->store([
+            $this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0),
+            new Aggregate(Period::OneHour, 1700000040, Metric::REQUEST_SLOW, 'GET app_home', 1, 1.0, 1.0),
+        ], 1700000100);
+
+        $storage->purge(1700700000);
+
+        $deletes = $recorder->paramsOf('DELETE FROM ' . AggregatesTable::NAME);
+        static::assertNotSame([], $deletes);
+        static::assertSame($deletes, $recorder->paramsOf('DELETE FROM ' . AggregatesTable::NAME . ' WHERE period = ? AND metric_type IN (?, ?) AND bucket < ?'));
+        static::assertSame(0, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
+    }
+
+    #[DataProvider('connections')]
     public function testPurgeHonoursShorterRetention(Connection $connection): void
     {
         $this->reset($connection);
@@ -253,12 +310,27 @@ final class DbalStorageTest extends TestCase
     }
 
     #[DataProvider('connections')]
-    public function testPrimaryKeyStartsWithPeriodThenBucket(Connection $connection): void
+    public function testPrimaryKeyGroupsEachPeriodByMetricType(Connection $connection): void
     {
-        $sql = implode("\n", $connection->getDatabasePlatform()->getCreateTableSQL(AggregatesTable::definition()));
+        $platform = $connection->getDatabasePlatform();
+        $sql = implode("\n", $platform->getCreateTableSQL(AggregatesTable::definition($platform)));
 
         static::assertSame(1, preg_match('/PRIMARY KEY\s*\(([^)]*)\)/i', $sql, $matches));
-        static::assertSame('period,bucket,metric_type,key_hash', str_replace([' ', '"', '`'], '', $matches[1]));
+        static::assertSame('period,metric_type,bucket,key_hash', str_replace([' ', '"', '`'], '', $matches[1]));
+    }
+
+    #[DataProvider('connections')]
+    public function testMetricTypesAreOrderedAsAFlushSortsThem(Connection $connection): void
+    {
+        $this->reset($connection);
+        $types = ['a_a', 'a.b', 'B', Metric::EXCEPTION_WHERE_COUNT, Metric::EXCEPTION_COUNT];
+        $this->storage($connection)->store(
+            array_map(static fn(string $type): Aggregate => new Aggregate(Period::OneHour, 1700000040, $type, 'GET app_home', 1, 1.0, 1.0), $types),
+            1700000100,
+        );
+
+        sort($types, \SORT_STRING);
+        static::assertSame($types, $connection->fetchFirstColumn('SELECT metric_type FROM jmonitor_aggregates ORDER BY metric_type'));
     }
 
     public function testRowsAreSentInPrimaryKeyOrder(): void
@@ -283,11 +355,11 @@ final class DbalStorageTest extends TestCase
         foreach ($recorder->paramsOf('INSERT INTO ' . AggregatesTable::NAME) as $params) {
             ksort($params);
             foreach (array_chunk(array_values($params), 7) as $row) {
-                $sent[] = [(int) $row[0], (int) $row[2], $row[1], $row[3]];
+                $sent[] = [(int) $row[0], $row[1], (int) $row[2], $row[3]];
             }
         }
         $expected = $sent;
-        usort($expected, static fn(array $a, array $b): int => $a[0] <=> $b[0] ?: $a[1] <=> $b[1] ?: strcmp($a[2], $b[2]) ?: strcmp($a[3], $b[3]));
+        usort($expected, static fn(array $a, array $b): int => $a[0] <=> $b[0] ?: strcmp($a[1], $b[1]) ?: $a[2] <=> $b[2] ?: strcmp($a[3], $b[3]));
 
         static::assertCount(\count($aggregates), $sent);
         static::assertGreaterThan(1, \count($recorder->paramsOf('INSERT INTO ' . AggregatesTable::NAME)));
@@ -408,7 +480,24 @@ final class DbalStorageTest extends TestCase
         );
         static::assertNotContains('metric_key', $columns);
         static::assertSame(0, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
-        static::assertSame('2', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+        static::assertSame('3', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+    }
+
+    #[DataProvider('connections')]
+    public function testTablesOfTheSecondSchemaAreReplaced(Connection $connection): void
+    {
+        $this->reset($connection);
+        $this->createSecondSchema($connection);
+
+        static::assertSame(SetupResult::Upgraded, $this->storage($connection)->setUp());
+
+        $primary = $connection->createSchemaManager()->listTableIndexes(AggregatesTable::NAME)['primary'];
+        static::assertSame(
+            ['period', 'metric_type', 'bucket', 'key_hash'],
+            array_map(static fn(string $name): string => strtolower(trim($name, '`"')), $primary->getColumns()),
+        );
+        static::assertSame(0, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
+        static::assertSame('3', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
     }
 
     #[DataProvider('connections')]
@@ -416,7 +505,7 @@ final class DbalStorageTest extends TestCase
     {
         $this->reset($connection);
         $this->storage($connection)->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)], 1700000100);
-        $connection->executeStatement("UPDATE jmonitor_keys SET metric_key = '3' WHERE key_hash = 'schema'");
+        $connection->executeStatement("UPDATE jmonitor_keys SET metric_key = '4' WHERE key_hash = 'schema'");
 
         try {
             $this->storage($connection)->prepare();
@@ -427,7 +516,7 @@ final class DbalStorageTest extends TestCase
 
         static::assertSame(1, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
         static::assertSame(2, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_keys'));
-        static::assertSame('3', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+        static::assertSame('4', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
     }
 
     #[DataProvider('connections')]
@@ -540,7 +629,7 @@ final class DbalStorageTest extends TestCase
 
         $storage->purge(1000 + 3600 + 86400 + 1);
         static::assertFalse($kept());
-        static::assertSame('2', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+        static::assertSame('3', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
     }
 
     public function testAnUpgradeWithoutTheRightToDropTablesFailsCleanly(): void
@@ -590,7 +679,7 @@ final class DbalStorageTest extends TestCase
         $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 2, 1.0, 1.0)], 1700000100);
 
         static::assertSame(2, (int) $connection->fetchOne('SELECT SUM(entry_count) FROM jmonitor_aggregates'));
-        static::assertSame('2', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+        static::assertSame('3', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
     }
 
     public function testAnOlderVersionIsNotMistakenForAConcurrentInstall(): void
@@ -624,7 +713,7 @@ final class DbalStorageTest extends TestCase
         $storage->store([$this->aggregate(Period::OneHour, 1700000040, 'GET app_home', 1, 1.0, 1.0)], 1700000100);
 
         static::assertSame(1, (int) $connection->fetchOne('SELECT COUNT(*) FROM jmonitor_aggregates'));
-        static::assertSame('2', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+        static::assertSame('3', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
     }
 
     public function testTablesCreatedByAnotherServerBeforeItsVersionRowAreAccepted(): void
@@ -632,8 +721,9 @@ final class DbalStorageTest extends TestCase
         $params = $this->sqliteFile();
         $other = DriverManager::getConnection($params);
         $connection = DdlDenier::connect($params, static function () use ($other): void {
-            foreach ([AggregatesTable::definition(), KeysTable::definition()] as $table) {
-                foreach ($other->getDatabasePlatform()->getCreateTableSQL($table) as $sql) {
+            $platform = $other->getDatabasePlatform();
+            foreach ([AggregatesTable::definition($platform), KeysTable::definition()] as $table) {
+                foreach ($platform->getCreateTableSQL($table) as $sql) {
                     $other->executeStatement($sql);
                 }
             }
@@ -668,6 +758,29 @@ final class DbalStorageTest extends TestCase
             'bucket' => 1700000040,
             'key_hash' => AggregatesTable::keyHash('GET app_home'),
             'metric_key' => 'GET app_home',
+            'entry_count' => 1,
+            'value_sum' => 1.0,
+            'value_max' => 1.0,
+        ]);
+    }
+
+    private function createSecondSchema(Connection $connection): void
+    {
+        $connection->executeStatement(
+            'CREATE TABLE jmonitor_aggregates (period INTEGER NOT NULL, metric_type VARCHAR(64) NOT NULL,'
+            . ' bucket BIGINT NOT NULL, key_hash CHAR(32) NOT NULL, entry_count BIGINT NOT NULL,'
+            . ' value_sum DOUBLE PRECISION NOT NULL, value_max DOUBLE PRECISION NOT NULL,'
+            . ' PRIMARY KEY (period, bucket, metric_type, key_hash))',
+        );
+        foreach ($connection->getDatabasePlatform()->getCreateTableSQL(KeysTable::definition()) as $sql) {
+            $connection->executeStatement($sql);
+        }
+        $connection->insert(KeysTable::NAME, ['key_hash' => KeysTable::VERSION_ROW, 'metric_key' => '2', 'last_seen' => 0]);
+        $connection->insert(AggregatesTable::NAME, [
+            'period' => 3600,
+            'metric_type' => Metric::REQUEST_DURATION,
+            'bucket' => 1700000040,
+            'key_hash' => AggregatesTable::keyHash('GET app_home'),
             'entry_count' => 1,
             'value_sum' => 1.0,
             'value_max' => 1.0,

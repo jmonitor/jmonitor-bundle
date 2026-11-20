@@ -10,7 +10,7 @@ use Doctrine\DBAL\Types\Types;
 final class KeysTable
 {
     public const NAME = 'jmonitor_keys';
-    public const VERSION = 2;
+    public const VERSION = 3;
     public const VERSION_ROW = 'schema';
     public const LABEL_MAX_LENGTH = 4000;
 
