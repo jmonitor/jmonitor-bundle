@@ -21,7 +21,7 @@ use Symfony\Contracts\Service\ResetInterface;
 
 final class MessengerRecorder implements EventSubscriberInterface, ResetInterface
 {
-    /** @var array{token: int, message: object, type: string, key: string, startedAt: float}|null */
+    /** @var array{token: int, message: object, type: string, key: string, startedAt: float, stoppedAt: ?float, memory: ?int}|null */
     private ?array $unit = null;
 
     private bool $failureLogged = false;
@@ -40,7 +40,7 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
         return [
             WorkerMessageReceivedEvent::class => ['onReceived', -4096],
             WorkerMessageHandledEvent::class => ['onHandled', 4096],
-            WorkerMessageFailedEvent::class => ['onFailed', 0],
+            WorkerMessageFailedEvent::class => [['stopOnFailure', 4096], ['closeOnFailure', 0]],
             SendMessageToTransportsEvent::class => ['onSent', 0],
             WorkerRunningEvent::class => ['onRunning', 0],
             WorkerStoppedEvent::class => ['onStopped', 0],
@@ -81,6 +81,8 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
                 'type' => $type,
                 'key' => $key,
                 'startedAt' => $startedAt,
+                'stoppedAt' => null,
+                'memory' => null,
             ];
         } catch (\Throwable $e) {
             $this->logFailure($e);
@@ -91,21 +93,28 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
     {
         try {
             $now = microtime(true);
-            $unit = $this->takeUnitOf($event);
-            if ($unit !== null) {
-                $this->close($unit, $now, []);
+            $unit = $this->unitOf($event);
+            if ($unit === null || $unit['stoppedAt'] !== null) {
+                return;
             }
+
+            $this->unit = null;
+            $this->close($unit, $now, $this->peakMemory($unit['type']), []);
         } catch (\Throwable $e) {
             $this->logFailure($e);
         }
     }
 
-    public function onFailed(WorkerMessageFailedEvent $event): void
+    /**
+     * Ends the measure before the other listeners, such as the one that sends the message again for a retry,
+     * and mutes what they do until the unit is closed.
+     */
+    public function stopOnFailure(WorkerMessageFailedEvent $event): void
     {
         try {
             $now = microtime(true);
-            $unit = $this->takeUnitOf($event);
-            if ($unit === null) {
+            $unit = $this->unitOf($event);
+            if ($unit === null || $unit['stoppedAt'] !== null) {
                 return;
             }
 
@@ -117,8 +126,26 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
                 $this->recorder->add($unit['token'], Entry::TYPE_EXCEPTION, ClassName::of($error));
             }
 
+            $unit['stoppedAt'] = $now;
+            $unit['memory'] = $this->peakMemory($unit['type']);
+            $this->unit = $unit;
+            $this->recorder->begin($unit['type'], $now, true);
+        } catch (\Throwable $e) {
+            $this->logFailure($e);
+        }
+    }
+
+    public function closeOnFailure(WorkerMessageFailedEvent $event): void
+    {
+        try {
+            $unit = $this->unit;
+            if ($unit === null || $unit['stoppedAt'] === null || $unit['message'] !== $event->getEnvelope()->getMessage()) {
+                return;
+            }
+
+            $this->unit = null;
             $outcome = $unit['type'] === Entry::TYPE_MESSAGE && $event->willRetry() ? 'retried' : 'failed';
-            $this->close($unit, $now, [$outcome => 1]);
+            $this->close($unit, $unit['stoppedAt'], $unit['memory'], [$outcome => 1]);
         } catch (\Throwable $e) {
             $this->logFailure($e);
         }
@@ -140,6 +167,7 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
     public function onRunning(WorkerRunningEvent $event): void
     {
         try {
+            $this->discardOpenUnit();
             $this->flusher?->flushIfDue();
         } catch (\Throwable $e) {
             $this->logFailure($e);
@@ -162,31 +190,36 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
     }
 
     /**
-     * @return array{token: int, message: object, type: string, key: string, startedAt: float}|null
+     * An acknowledgement for another message than the one of the open unit comes from a batch: the open unit
+     * holds the work of the whole batch, and is abandoned.
+     *
+     * @return array{token: int, message: object, type: string, key: string, startedAt: float, stoppedAt: ?float, memory: ?int}|null
      */
-    private function takeUnitOf(AbstractWorkerMessageEvent $event): ?array
+    private function unitOf(AbstractWorkerMessageEvent $event): ?array
     {
-        $unit = $this->unit;
-        if ($unit === null || $unit['message'] !== $event->getEnvelope()->getMessage()) {
-            return null;
+        if ($this->unit !== null && $this->unit['message'] !== $event->getEnvelope()->getMessage()) {
+            $this->discardOpenUnit();
         }
 
-        $this->unit = null;
-
-        return $unit;
+        return $this->unit;
     }
 
     /**
-     * @param array{token: int, message: object, type: string, key: string, startedAt: float} $unit
-     * @param array<string, int>                                                             $attributes
+     * @param array{token: int, message: object, type: string, key: string, startedAt: float, stoppedAt: ?float, memory: ?int} $unit
+     * @param array<string, int> $attributes
      */
-    private function close(array $unit, float $now, array $attributes): void
+    private function close(array $unit, float $endedAt, ?int $memory, array $attributes): void
     {
-        if ($unit['type'] === Entry::TYPE_MESSAGE) {
-            $attributes['memory'] = memory_get_peak_usage(true);
+        if ($memory !== null) {
+            $attributes['memory'] = $memory;
         }
 
-        $this->recorder->end($unit['token'], $unit['key'], ($now - $unit['startedAt']) * 1000, $attributes);
+        $this->recorder->end($unit['token'], $unit['key'], ($endedAt - $unit['startedAt']) * 1000, $attributes);
+    }
+
+    private function peakMemory(string $type): ?int
+    {
+        return $type === Entry::TYPE_MESSAGE ? memory_get_peak_usage(true) : null;
     }
 
     private function discardOpenUnit(): void

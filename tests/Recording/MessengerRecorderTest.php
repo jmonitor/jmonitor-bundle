@@ -245,20 +245,97 @@ final class MessengerRecorderTest extends TestCase
         static::assertSame([], $this->logger->records);
     }
 
-    public function testAnAcknowledgementForAnotherMessageIsIgnored(): void
+    public function testAnAcknowledgementForAnotherMessageAbandonsTheOpenUnit(): void
+    {
+        $messages = $this->messages();
+        $envelope = new Envelope(new Ping());
+        $this->receive($messages, $envelope);
+        $this->recorder->addSql('SELECT 1', 2.0, SqlDialect::Sqlite);
+
+        $messages->onHandled(new WorkerMessageHandledEvent(new Envelope(new Ping()), self::RECEIVER));
+
+        static::assertSame(0, $this->recorder->openUnits());
+
+        $messages->onHandled(new WorkerMessageHandledEvent($envelope, self::RECEIVER));
+
+        static::assertSame([], $this->buffer->entries);
+    }
+
+    public function testAFailureOfAnotherMessageAbandonsTheOpenUnit(): void
     {
         $messages = $this->messages();
         $envelope = new Envelope(new Ping());
         $this->receive($messages, $envelope);
 
-        $other = new Envelope(new Ping());
-        $messages->onHandled(new WorkerMessageHandledEvent($other, self::RECEIVER));
-        $messages->onFailed(new WorkerMessageFailedEvent($other, self::RECEIVER, new \DomainException('boom')));
+        $event = new WorkerMessageFailedEvent(new Envelope(new Ping()), self::RECEIVER, new \DomainException('boom'));
+        $messages->stopOnFailure($event);
+        $messages->closeOnFailure($event);
+
+        static::assertSame(0, $this->recorder->openUnits());
+
+        $messages->onHandled(new WorkerMessageHandledEvent($envelope, self::RECEIVER));
 
         static::assertSame([], $this->buffer->entries);
-        static::assertSame(1, $this->recorder->openUnits());
+    }
 
-        $messages->onHandled(new WorkerMessageHandledEvent($envelope->with(), self::RECEIVER));
+    public function testAUnitStillOpenWhenTheWorkerRunsAgainIsAbandonedBeforeTheFlush(): void
+    {
+        $messages = $this->messages(flusher: $this->flusher());
+        $envelope = new Envelope(new Ping());
+        $this->receive($messages, $envelope);
+        $this->recorder->addSql('SELECT 1', 2.0, SqlDialect::Sqlite);
+
+        $messages->onRunning(new WorkerRunningEvent($this->worker, false));
+
+        static::assertSame(0, $this->recorder->openUnits());
+        static::assertSame(1, $this->storage->stores);
+        static::assertSame([], $this->storage->aggregates);
+
+        $messages->onHandled(new WorkerMessageHandledEvent($envelope, self::RECEIVER));
+
+        static::assertSame([], $this->buffer->entries);
+    }
+
+    public function testWhatTheWorkerDoesAfterAFailureIsNotMeasured(): void
+    {
+        $messages = $this->messages();
+        $envelope = new Envelope(new Ping('fail'));
+        $this->receive($messages, $envelope);
+        $this->recorder->addSql('SELECT 1', 2.0, SqlDialect::Sqlite);
+        $event = new WorkerMessageFailedEvent($envelope, self::RECEIVER, new HandlerFailedException($envelope, [new \DomainException('boom')]));
+
+        $messages->stopOnFailure($event);
+        $stoppedBy = microtime(true);
+        usleep(50_000);
+        $this->recorder->addSql('INSERT INTO messenger_messages (body) VALUES (?)', 3.0, SqlDialect::Sqlite);
+        $this->recorder->add($this->recorder->current(), Entry::TYPE_HTTP, 'broker.example', 4.0);
+        $event->setForRetry();
+        $messages->closeOnFailure($event);
+
+        static::assertCount(1, $this->buffer->entries);
+        $entry = $this->buffer->entries[0];
+        static::assertSame(1, $entry->attributes['retried']);
+        static::assertSame(1, $entry->attributes['sql_n']);
+        static::assertSame(2.0, $entry->attributes['sql_ms']);
+        static::assertArrayNotHasKey('http_ms', $entry->attributes);
+        static::assertEqualsCanonicalizing([Entry::TYPE_QUERY, Entry::TYPE_EXCEPTION], array_map(static fn(Entry $child): string => $child->type, $entry->children));
+        static::assertLessThanOrEqual($stoppedBy + 1e-6, $entry->startedAt + $entry->durationMs / 1000);
+        static::assertSame(0, $this->recorder->openUnits());
+    }
+
+    public function testAFailureWhoseClosingListenerIsNeverReachedLeavesNothingOpen(): void
+    {
+        $messages = $this->messages();
+        $envelope = new Envelope(new Ping('fail'));
+        $this->receive($messages, $envelope);
+
+        $messages->stopOnFailure(new WorkerMessageFailedEvent($envelope, self::RECEIVER, new \DomainException('boom')));
+        $messages->onRunning(new WorkerRunningEvent($this->worker, false));
+
+        static::assertSame([], $this->buffer->entries);
+        static::assertSame(0, $this->recorder->openUnits());
+
+        $this->handle($messages, new Envelope(new Ping()));
 
         static::assertCount(1, $this->buffer->entries);
         static::assertSame(0, $this->recorder->openUnits());
@@ -455,7 +532,7 @@ final class MessengerRecorderTest extends TestCase
         static::assertSame([
             WorkerMessageReceivedEvent::class => ['onReceived', -4096],
             WorkerMessageHandledEvent::class => ['onHandled', 4096],
-            WorkerMessageFailedEvent::class => ['onFailed', 0],
+            WorkerMessageFailedEvent::class => [['stopOnFailure', 4096], ['closeOnFailure', 0]],
             SendMessageToTransportsEvent::class => ['onSent', 0],
             WorkerRunningEvent::class => ['onRunning', 0],
             WorkerStoppedEvent::class => ['onStopped', 0],
@@ -522,9 +599,10 @@ final class MessengerRecorderTest extends TestCase
     {
         $this->receive($messages, $envelope);
         $event = new WorkerMessageFailedEvent($envelope, self::RECEIVER, $error);
+        $messages->stopOnFailure($event);
         if ($retry) {
             $event->setForRetry();
         }
-        $messages->onFailed($event);
+        $messages->closeOnFailure($event);
     }
 }

@@ -8,8 +8,11 @@ use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Command\WorkCommand;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller\DemoController;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPing;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPingHandler;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\PingHandler;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\QueueTransportFactory;
 use Psr\Log\LogLevel;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -146,8 +149,9 @@ final class TestKernel extends Kernel
                 'enabled' => true,
                 'transports' => [
                     'async' => ['dsn' => 'in-memory://', 'retry_strategy' => ['max_retries' => 1, 'delay' => 0]],
+                    'batch' => ['dsn' => 'queue://'],
                 ],
-                'routing' => [Ping::class => 'async'],
+                'routing' => [Ping::class => 'async', BatchPing::class => 'batch'],
             ]]);
         }
 
@@ -211,6 +215,11 @@ final class TestKernel extends Kernel
         if ($this->withMessenger || $this->withScheduler) {
             $services->set(PingHandler::class)
                 ->args([service('doctrine.dbal.default_connection')->nullOnInvalid(), service('messenger.default_bus')])
+                ->tag('messenger.message_handler');
+            $services->set(QueueTransportFactory::class)
+                ->tag('messenger.transport_factory');
+            $services->set(BatchPingHandler::class)
+                ->args([service('doctrine.dbal.default_connection')->nullOnInvalid()])
                 ->tag('messenger.message_handler');
         }
         if ($this->withScheduler) {

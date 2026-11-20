@@ -16,13 +16,18 @@ use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPing;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPingHandler;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\Console\Tester\ApplicationTester;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\KernelInterface;
+use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Messenger\Stamp\TransportNamesStamp;
 
 final class MessengerRecordingTest extends WebTestCase
 {
@@ -85,6 +90,7 @@ final class MessengerRecordingTest extends WebTestCase
 
         $this->flush();
         $ping = self::rowKeyed($this->read(Family::Message), Ping::class);
+        static::assertSame(1, $ping->count(Metric::MESSAGE_SENT));
         static::assertSame(1, $ping->count(Metric::MESSAGE_RETRIED));
         static::assertSame(1, $ping->count(Metric::MESSAGE_FAILED));
         static::assertSame(2, $ping->count(Metric::MESSAGE_DURATION));
@@ -105,6 +111,45 @@ final class MessengerRecordingTest extends WebTestCase
         $ping = self::rowKeyed($this->read(Family::Message), Ping::class);
         static::assertSame(2, $ping->count(Metric::MESSAGE_SENT));
         static::assertSame(2, $ping->count(Metric::MESSAGE_DURATION));
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>}>
+     */
+    public static function workerRegimes(): iterable
+    {
+        yield 'services reset after each message' => [[]];
+        yield 'services never reset' => [['--no-reset' => null]];
+    }
+
+    /**
+     * @param array<string, mixed> $regime
+     */
+    #[DataProvider('workerRegimes')]
+    public function testMessagesHandledInABatchAreNotCounted(array $regime): void
+    {
+        static::bootKernel($this->options(messenger: true));
+        $this->sendToTheBatchTransport(new Ping(), ...[...array_map(static fn(): BatchPing => new BatchPing(), range(1, BatchPingHandler::SIZE)), new Ping()]);
+
+        static::assertSame(0, $this->consume(['receivers' => ['batch'], '--limit' => (string) (BatchPingHandler::SIZE + 2), ...$regime]));
+
+        $this->flush();
+        $this->assertOnlyThePingsAreCounted(2);
+    }
+
+    /**
+     * @param array<string, mixed> $regime
+     */
+    #[DataProvider('workerRegimes')]
+    public function testAnUnfinishedBatchProcessedWhenTheWorkerStopsIsNotCounted(array $regime): void
+    {
+        static::bootKernel($this->options(messenger: true));
+        $this->sendToTheBatchTransport(new Ping(), new BatchPing(), new BatchPing());
+
+        static::assertSame(0, $this->consume(['receivers' => ['batch'], '--limit' => '3', ...$regime]));
+
+        $this->flush();
+        $this->assertOnlyThePingsAreCounted(1);
     }
 
     public function testAScheduledCommandIsATaskAndACommand(): void
@@ -173,6 +218,28 @@ final class MessengerRecordingTest extends WebTestCase
             ['command' => 'messenger:consume', '--time-limit' => '10', ...$input],
             ['interactive' => false],
         );
+    }
+
+    private function sendToTheBatchTransport(object ...$messages): void
+    {
+        $bus = static::getContainer()->get('messenger.default_bus');
+        \assert($bus instanceof MessageBusInterface);
+        foreach ($messages as $message) {
+            $bus->dispatch($message, [new TransportNamesStamp(['batch'])]);
+        }
+    }
+
+    private function assertOnlyThePingsAreCounted(int $pings): void
+    {
+        $messages = $this->read(Family::Message);
+        $ping = self::rowKeyed($messages, Ping::class);
+        static::assertSame($pings, $ping->count(Metric::MESSAGE_DURATION));
+        static::assertSame((float) $pings, $ping->sum(Metric::MESSAGE_SQL_COUNT));
+        foreach ($messages->rows as $row) {
+            if ($row->key === BatchPing::class) {
+                static::assertSame(0, $row->count(Metric::MESSAGE_DURATION));
+            }
+        }
     }
 
     private function flush(): void
