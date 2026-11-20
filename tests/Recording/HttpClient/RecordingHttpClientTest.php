@@ -422,6 +422,76 @@ final class RecordingHttpClientTest extends TestCase
         static::assertSame($this->logger, $inner->logger);
     }
 
+    public function testACallReadsTheInfoOfItsResponseOnce(): void
+    {
+        $response = new class implements ResponseInterface {
+            /** @var array<string, mixed> */
+            public array $info = [];
+            public int $infoReads = 0;
+
+            public function getStatusCode(): int
+            {
+                return 200;
+            }
+
+            public function getHeaders(bool $throw = true): array
+            {
+                return [];
+            }
+
+            public function getContent(bool $throw = true): string
+            {
+                return '';
+            }
+
+            public function toArray(bool $throw = true): array
+            {
+                return [];
+            }
+
+            public function cancel(): void {}
+
+            public function getInfo(?string $type = null): mixed
+            {
+                ++$this->infoReads;
+
+                return $type === null ? $this->info : $this->info[$type] ?? null;
+            }
+        };
+        $inner = new class ($response) implements HttpClientInterface {
+            use DecoratorTrait;
+
+            public function __construct(private readonly ResponseInterface $response)
+            {
+                $this->client = new MockHttpClient();
+            }
+
+            public function request(string $method, string $url, array $options = []): ResponseInterface
+            {
+                return $this->response;
+            }
+        };
+        $client = new RecordingHttpClient($inner, new CallRecorder($this->recorder, $this->logger));
+        $unit = $this->recorder->begin(Entry::TYPE_REQUEST, 1700000000.0);
+
+        foreach ([
+            ['http_code' => 404, 'error' => null, 'total_time' => 0.25, 'url' => 'https://a.example/x', 'response_headers' => ['HTTP/1.1 404 Not Found']],
+            ['http_code' => 0, 'error' => 'Connection refused', 'total_time' => 0.01, 'url' => 'https://b.example/', 'response_headers' => []],
+        ] as $info) {
+            $response->info = $info;
+            $response->infoReads = 0;
+            $client->request('GET', $info['url'])->getContent();
+
+            static::assertSame(1, $response->infoReads, $info['url']);
+        }
+
+        static::assertSame([
+            'a.example' => ['n' => 1, 'm' => 250.0, 'c4' => 1, 'd' => 250.0],
+            'b.example' => ['n' => 1, 'm' => 10.0, 'cf' => 1, 'd' => 10.0],
+        ], $this->calls($unit));
+        static::assertSame([], $this->logger->records);
+    }
+
     public function testAFailureOfTheCaptureIsSwallowedAndLoggedOnce(): void
     {
         $response = new class implements ResponseInterface {
