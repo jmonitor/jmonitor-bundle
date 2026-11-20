@@ -26,6 +26,10 @@ final class Metric
     public const HTTP_DURATION = 'http.duration';
     public const HTTP_STATUS_PREFIX = 'http.status.';
     public const HTTP_FAILED = 'http.failed';
+    public const CACHE_HIT = 'cache.hit';
+    public const CACHE_MISS = 'cache.miss';
+    public const CACHE_WRITE = 'cache.write';
+    public const CACHE_DELETE = 'cache.delete';
 
     /** @var list<int> */
     public const DURATION_BOUNDS_MS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];

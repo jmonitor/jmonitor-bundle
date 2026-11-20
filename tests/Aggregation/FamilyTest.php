@@ -20,10 +20,10 @@ class FamilyTest extends TestCase
 
     public function testCapsAndOpenness(): void
     {
-        static::assertSame([300, 200, 100, 50, 100, 200, 50], array_map(static fn(Family $f): int => $f->cap(), Family::cases()));
-        static::assertSame([false, true, true, false, false, true, true], array_map(static fn(Family $f): bool => $f->isOpen(), Family::cases()));
+        static::assertSame([300, 200, 100, 50, 100, 200, 50, 20], array_map(static fn(Family $f): int => $f->cap(), Family::cases()));
+        static::assertSame([false, true, true, false, false, true, true, false], array_map(static fn(Family $f): bool => $f->isOpen(), Family::cases()));
         static::assertSame(
-            ['request.duration', 'query.duration', 'nplus1.duration', 'exception.count', 'exception_where.count', 'user.duration', 'http.duration'],
+            ['request.duration', 'query.duration', 'nplus1.duration', 'exception.count', 'exception_where.count', 'user.duration', 'http.duration', 'cache.hit'],
             array_map(static fn(Family $f): string => $f->weightMetric(), Family::cases()),
         );
     }
@@ -40,6 +40,18 @@ class FamilyTest extends TestCase
         static::assertSame(12.5, Family::Query->weight($counters));
         static::assertSame(0.0, Family::NPlusOne->weight($counters));
         static::assertSame(250.0, Family::Http->weight(['http.duration' => [5, 250.0, 120.0], 'http.failed' => [3, 0.0, 0.0]]));
+    }
+
+    public function testTheWeightOfACachePoolIsItsNumberOfOperations(): void
+    {
+        static::assertSame(10.0, Family::Cache->weight([
+            'cache.hit' => [4, 0.0, 0.0],
+            'cache.miss' => [3, 0.0, 0.0],
+            'cache.write' => [2, 0.0, 0.0],
+            'cache.delete' => [1, 0.0, 0.0],
+        ]));
+        static::assertSame(2.0, Family::Cache->weight(['cache.delete' => [2, 0.0, 0.0]]));
+        static::assertSame(0.0, Family::Cache->weight([]));
     }
 
     public function testAUserWithErrorsOutweighsABusierOne(): void

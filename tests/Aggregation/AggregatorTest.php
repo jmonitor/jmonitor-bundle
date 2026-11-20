@@ -475,6 +475,59 @@ class AggregatorTest extends TestCase
         static::assertNull($this->find($aggregates, Period::OneHour, Metric::REQUEST_HTTP_TIME, 'GET b'));
     }
 
+    public function testCacheOperationsAreCountedPerPool(): void
+    {
+        $pool = static fn(string $name, array $counters, int $operations): Entry
+            => new Entry(Entry::TYPE_CACHE, $name, 1700000045.0, 0.0, ['n' => $operations] + $counters);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 30.0, ['status' => 200], [
+                $pool('cache.app', ['h' => 3, 'mi' => 1, 'w' => 1], 4),
+                $pool('app.sessions', ['de' => 2], 1),
+            ]),
+            new Entry(Entry::TYPE_REQUEST, 'GET b', 1700000046.0, 10.0, ['status' => 200, 'cw' => 10], [
+                $pool('cache.app', ['h' => 2], 2),
+                $pool('app.empty', [], 1),
+                $pool('app.broken', ['h' => 'many', 'mi' => -1, 'w' => \INF], 1),
+            ]),
+        ]);
+
+        $count = fn(string $metric, string $pool): ?int => $this->find($aggregates, Period::OneHour, $metric, $pool)?->count;
+        static::assertSame([23, 1, 1, null], [
+            $count(Metric::CACHE_HIT, 'cache.app'),
+            $count(Metric::CACHE_MISS, 'cache.app'),
+            $count(Metric::CACHE_WRITE, 'cache.app'),
+            $count(Metric::CACHE_DELETE, 'cache.app'),
+        ]);
+        static::assertSame([null, null, null, 2], [
+            $count(Metric::CACHE_HIT, 'app.sessions'),
+            $count(Metric::CACHE_MISS, 'app.sessions'),
+            $count(Metric::CACHE_WRITE, 'app.sessions'),
+            $count(Metric::CACHE_DELETE, 'app.sessions'),
+        ]);
+        $hits = $this->find($aggregates, Period::OneHour, Metric::CACHE_HIT, 'cache.app');
+        static::assertNotNull($hits);
+        static::assertSame([0.0, 0.0], [$hits->sum, $hits->max]);
+        static::assertSame(Family::Cache, Family::ofMetric($hits->type));
+        static::assertSame([], array_filter($aggregates, static fn(Aggregate $a): bool => \in_array($a->key, ['app.empty', 'app.broken'], true)));
+    }
+
+    public function testCachePoolsBeyondTheCapFoldIntoOtherByTheirOperations(): void
+    {
+        $children = [];
+        for ($i = 1; $i <= 21; ++$i) {
+            $children[] = new Entry(Entry::TYPE_CACHE, sprintf('app.pool%02d', $i), 1700000045.0, 0.0, ['n' => 1, 'w' => $i]);
+        }
+        $children[] = new Entry(Entry::TYPE_CACHE, 'app.reads', 1700000045.0, 0.0, ['n' => 1, 'h' => 1, 'mi' => 1, 'de' => 1]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 10.0, [], $children)]);
+
+        static::assertSame(1 + 2, $this->find($aggregates, Period::OneHour, Metric::CACHE_WRITE, Aggregator::OTHER)?->count);
+        static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::CACHE_WRITE, 'app.pool03'));
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::CACHE_HIT, 'app.reads')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::CACHE_HIT, Aggregator::OTHER));
+    }
+
     public function testKeysBeyondTheCapOfAFamilyFoldIntoOther(): void
     {
         $entries = [];

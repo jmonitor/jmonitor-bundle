@@ -12,6 +12,7 @@ final class Aggregator
 
     private const MAX_OCCURRENCES = 1e9;
     private const MAX_WEIGHT = 1e6;
+    private const CACHE_COUNTERS = ['h' => Metric::CACHE_HIT, 'mi' => Metric::CACHE_MISS, 'w' => Metric::CACHE_WRITE, 'de' => Metric::CACHE_DELETE];
 
     public function __construct(
         private readonly int $slowThresholdMs,
@@ -129,6 +130,7 @@ final class Aggregator
                 Entry::TYPE_NPLUS1 => $this->addNPlusOne($groups, $minute, $unit, $child, $occurrences, $weight),
                 Entry::TYPE_EXCEPTION => $this->addException($groups, $minute, $unit, $child, $occurrences, $weight),
                 Entry::TYPE_HTTP => $this->addHttp($groups, $minute, $child, $occurrences, $weight),
+                Entry::TYPE_CACHE => $this->addCache($groups, $minute, $child, $weight),
                 Entry::TYPE_USER => $user ??= $child,
                 default => null,
             };
@@ -201,6 +203,28 @@ final class Aggregator
             if ($count > 0 && $count <= self::MAX_OCCURRENCES) {
                 self::add($counters, $metric, 0.0, 0.0, (int) round($count * $weight));
             }
+        }
+    }
+
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addCache(array &$groups, int $minute, Entry $child, float $weight): void
+    {
+        $counts = [];
+        foreach (self::CACHE_COUNTERS as $attribute => $metric) {
+            $count = self::number($child->attributes[$attribute] ?? null) ?? 0.0;
+            if ($count > 0 && $count <= self::MAX_OCCURRENCES) {
+                $counts[$metric] = (int) round($count * $weight);
+            }
+        }
+        if ($counts === []) {
+            return;
+        }
+
+        $counters = &self::counters($groups, $minute, Family::Cache, $child->key);
+        foreach ($counts as $metric => $count) {
+            self::add($counters, $metric, 0.0, 0.0, $count);
         }
     }
 

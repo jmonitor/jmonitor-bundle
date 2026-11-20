@@ -28,6 +28,7 @@ final class ReadCostTest extends KernelTestCase
         'exceptions' => 5,
         'users' => 5,
         'http-client' => 5,
+        'cache' => 2,
     ];
 
     private const QUERY_ID = 'a1b2c3d4e5f6a7b8';
@@ -91,6 +92,7 @@ final class ReadCostTest extends KernelTestCase
                 new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $startedAt, 0.0, ['n' => 1]),
                 new Entry(Entry::TYPE_USER, 'admin', $startedAt, 0.0, ['n' => 1]),
                 new Entry(Entry::TYPE_HTTP, 'api.example.com', $startedAt, 30.0, ['n' => 2, 'm' => 20.0, 'c4' => 1, 'c5' => 1, 'cf' => 1]),
+                new Entry(Entry::TYPE_CACHE, 'cache.app', $startedAt, 0.0, ['n' => 4, 'h' => 2, 'mi' => 1, 'w' => 1, 'de' => 1]),
             ]),
         ];
     }

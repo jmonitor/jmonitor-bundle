@@ -38,11 +38,12 @@ final class TestKernel extends Kernel
         private readonly bool $withTwig = true,
         private readonly bool $withConnectionLogger = false,
         private readonly bool $withHttpClient = true,
+        private readonly bool $withProfiler = false,
     ) {
         parent::__construct($environment, $debug);
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler]));
     }
 
     public function registerBundles(): iterable
@@ -108,7 +109,17 @@ final class TestKernel extends Kernel
                     'flaky.client' => ['base_uri' => HttpResponses::FLAKY_BASE_URI, 'retry_failed' => ['max_retries' => 1, 'delay' => 0]],
                 ],
             ] : ['enabled' => false],
+            'cache' => ['pools' => [
+                'app.plain' => ['adapter' => 'cache.adapter.array'],
+                'app.tagged' => ['tags' => true],
+                'app.system' => ['adapter' => 'cache.adapter.system'],
+                'app.derived' => ['adapter' => 'cache.app'],
+            ]],
         ]);
+
+        if ($this->withProfiler) {
+            $container->extension('framework', ['profiler' => ['enabled' => true, 'collect' => false]]);
+        }
 
         $container->extension('jmonitor', $this->jmonitorConfig ?: $this->environmentConfig());
 
@@ -156,8 +167,12 @@ final class TestKernel extends Kernel
                 service('http_kernel'),
                 service('http_client')->nullOnInvalid(),
                 service('flaky.client')->nullOnInvalid(),
+                service('cache.app'),
             ])
             ->tag('controller.service_arguments');
+        $services->set(CacheConsumer::class)
+            ->autowire()
+            ->public();
     }
 
     /**
@@ -186,6 +201,7 @@ final class TestKernel extends Kernel
         $routes->add('app_hostile_query', '/hostile-query')->controller([DemoController::class, 'hostileQuery']);
         $routes->add('app_call', '/call')->controller([DemoController::class, 'call']);
         $routes->add('app_call_flaky', '/call-flaky')->controller([DemoController::class, 'callFlaky']);
+        $routes->add('app_cached', '/cached')->controller([DemoController::class, 'cached']);
         $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');
     }
 }
