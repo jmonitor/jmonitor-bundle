@@ -39,6 +39,7 @@ final class SqlRecordingTest extends WebTestCase
     protected function setUp(): void
     {
         $this->bufferDir = sys_get_temp_dir() . '/jmonitor-sql-recording-' . bin2hex(random_bytes(6));
+        mkdir($this->bufferDir);
     }
 
     protected function tearDown(): void

@@ -288,7 +288,7 @@ jmonitor:
         flush_interval: 10    # seconds between two writes to the database (3600 maximum)
         slow_threshold: 1000  # ms above which a request counts as slow
         ignore_routes: []     # route names not recorded, fnmatch patterns allowed (e.g. 'app_health*')
-        buffer_dir: ~         # where the buffer gets its private subdirectory; default: the system temporary directory
+        buffer_dir: ~         # where the buffer gets its private subdirectory, must exist and be writable by every user running PHP; default: the system temporary directory
         sql:
             enabled: true             # record the SQL queries run through Doctrine DBAL
             slow_threshold: 100       # ms from which a query counts as slow
@@ -335,7 +335,7 @@ Cache: `cache.app`, whatever its adapter, and the pools declared under `framewor
 
 Each flush keeps the 300 most requested routes (method and route) of its batch; the requests of the others are added up on an `Other routes` row. Only the heaviest queries, by total time, are tracked individually, about 200 per server; the others are added up on an `Other queries` row. Likewise, about 200 users, the most active, and 50 hosts, by total time, are tracked individually per server, and each flush keeps 20 cache pools, 50 exception classes and 100 couples of a class and a route; the rest is added up on an `Other …` row. Under heavy load the detail of a request (its queries, user, outgoing calls, cache operations and exception) is sampled, while the requests themselves, with their SQL time, number of queries and time spent in outgoing calls, are always counted.
 
-Requests are buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access; the text of the recorded queries and the identifiers of the signed-in users are kept there too. When the web server and the console run as different users, each keeps and flushes its own buffer. When that subdirectory cannot be used, nothing is recorded and the page shows "Buffer directory unusable".
+Requests are buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access; the text of the recorded queries and the identifiers of the signed-in users are kept there too. When the web server and the console run as different users, each keeps and flushes its own buffer. `buffer_dir` must exist and be writable by every user that runs PHP: JMonitor never creates it, and while it is missing the system temporary directory is used instead, with a warning in the logs. When that subdirectory cannot be used, nothing is recorded and the page shows "Buffer directory unusable".
 
 Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
 

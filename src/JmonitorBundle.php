@@ -319,7 +319,7 @@ final class JmonitorBundle extends AbstractBundle
                             ->defaultValue([])
                             ->info('Route names that are not recorded.')
                         ->end()
-                        ->scalarNode('buffer_dir')->defaultNull()->info('Directory in which the recording buffer gets its private subdirectory. Defaults to the system temporary directory.')->end()
+                        ->scalarNode('buffer_dir')->defaultNull()->info('Existing directory, writable by every user that runs PHP, in which the recording buffer gets its private subdirectory. Defaults to the system temporary directory, also used while the directory is missing: it is never created.')->end()
                         ->arrayNode('sql')
                             ->canBeDisabled()
                             ->info('Record the SQL queries run through Doctrine DBAL during a request.')

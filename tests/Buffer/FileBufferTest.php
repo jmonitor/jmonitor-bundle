@@ -348,7 +348,7 @@ final class FileBufferTest extends TestCase
 
     public function testUnwritableDirectoryIsSilent(): void
     {
-        $buffer = new FileBuffer(new BufferDirectory('/proc/jmonitor-nope', 'app'), 10, new MockClock('@1000'));
+        $buffer = new FileBuffer(new BufferDirectory('/proc', 'app'), 10, new MockClock('@1000'));
         $errors = [];
         set_error_handler(static function (int $no, string $message) use (&$errors): bool {
             $errors[] = $message;
@@ -469,7 +469,7 @@ final class FileBufferTest extends TestCase
         static::assertSame([], glob($target . '/*'));
     }
 
-    public function testWithoutPosixTheOwnerIsNotComparedWithTheScriptOwner(): void
+    public function testWithoutPosixTheDirectoryIsNamedAfterTheUserRunningPhp(): void
     {
         if (posix_geteuid() === 0 || fileowner('/etc/passwd') !== 0) {
             static::markTestSkipped('Needs a non-root process and a root-owned /etc/passwd.');
@@ -488,7 +488,7 @@ final class FileBufferTest extends TestCase
         proc_close($process);
 
         static::assertSame('', $errors);
-        static::assertSame($this->dir . '/jmonitor-app-u0', $output);
+        static::assertSame($this->dir . '/jmonitor-app-u' . posix_geteuid(), $output);
         static::assertSame(0o700, fileperms($output) & 0o777);
     }
 

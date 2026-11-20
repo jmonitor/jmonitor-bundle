@@ -52,6 +52,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->args([
             param('jmonitor.recording.buffer_dir'),
             param('jmonitor.recording.app_id'),
+            $recorderLogger,
         ]);
 
     $services->set(FileBuffer::class)

@@ -49,6 +49,7 @@ final class CachePoolPassTest extends KernelTestCase
     protected function setUp(): void
     {
         $this->bufferDir = sys_get_temp_dir() . '/jmonitor-cache-pool-pass-' . bin2hex(random_bytes(6));
+        mkdir($this->bufferDir);
     }
 
     protected function tearDown(): void

@@ -58,7 +58,7 @@ final class FlushLockTest extends TestCase
 
     public function testUnwritableDirectoryNeverAcquires(): void
     {
-        $lock = new FlushLock(new BufferDirectory('/proc/jmonitor-nope', 'app'), 10, new MockClock('@1000'));
+        $lock = new FlushLock(new BufferDirectory('/proc', 'app'), 10, new MockClock('@1000'));
 
         $warnings = [];
         set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {

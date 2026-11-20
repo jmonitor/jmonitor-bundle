@@ -32,6 +32,7 @@ final class RecordingTest extends WebTestCase
     protected function setUp(): void
     {
         $this->bufferDir = sys_get_temp_dir() . '/jmonitor-recording-' . bin2hex(random_bytes(6));
+        mkdir($this->bufferDir);
     }
 
     protected function tearDown(): void
