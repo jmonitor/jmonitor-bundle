@@ -17,6 +17,7 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Symfony\Component\HttpKernel\KernelInterface;
+use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorage;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 
 final class UserRecordingTest extends WebTestCase
@@ -103,6 +104,29 @@ final class UserRecordingTest extends WebTestCase
         $crawler = self::requestUntil($client, '/jmonitor/users', 'tr[data-jm-user]');
 
         static::assertSame(['user'], self::userRows($crawler)->each(static fn(Crawler $row): ?string => $row->attr('data-jm-user')));
+    }
+
+    public function testAnAuthenticationThatNobodyAskedForIsNotTriggered(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+        $client->disableReboot();
+
+        $client->request('GET', '/lazy/me', server: self::ADMIN);
+        static::assertResponseIsSuccessful();
+        $client->request('GET', '/lazy/hello/world');
+        static::assertResponseIsSuccessful();
+        $storage = static::getContainer()->get('security.untracked_token_storage');
+        static::assertInstanceOf(TokenStorage::class, $storage);
+        static::assertNotNull((new \ReflectionProperty(TokenStorage::class, 'initializer'))->getValue($storage), 'The authentication of the lazy firewall ran.');
+        $client->request('GET', '/lazy/me');
+        static::assertResponseIsSuccessful();
+        $client->request('GET', '/hello/world', server: self::USER);
+        static::assertResponseIsSuccessful();
+        $crawler = self::requestUntil($client, '/jmonitor/users', 'tr[data-jm-user="user"]');
+
+        $rows = self::userRows($crawler);
+        static::assertSame(['admin', 'user'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-user')));
+        static::assertSame(['2', '1'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-requests')));
     }
 
     public function testAHostileIdentifierIsShownEscaped(): void

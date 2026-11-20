@@ -121,9 +121,14 @@ final class TestKernel extends Kernel
                     ]]],
                 ],
                 'firewalls' => [
+                    'lazy' => ['pattern' => '^/lazy/', 'lazy' => true, 'http_basic' => ['realm' => 'JMonitor test']],
                     'main' => ['stateless' => true, 'http_basic' => ['realm' => 'JMonitor test'], 'switch_user' => true],
                 ],
+                'access_control' => [
+                    ['path' => '^/lazy/me$', 'roles' => 'IS_AUTHENTICATED_FULLY'],
+                ],
             ]);
+            $container->extension('framework', ['session' => ['storage_factory_id' => 'session.storage.factory.mock_file']]);
         }
 
         $services = $container->services();
@@ -153,6 +158,8 @@ final class TestKernel extends Kernel
     protected function configureRoutes(RoutingConfigurator $routes): void
     {
         $routes->add('app_hello', '/hello/{name}')->controller([DemoController::class, 'hello']);
+        $routes->add('app_lazy_hello', '/lazy/hello/{name}')->controller([DemoController::class, 'hello']);
+        $routes->add('app_lazy_me', '/lazy/me')->controller([DemoController::class, 'hello'])->defaults(['name' => 'me']);
         $routes->add('app_slow', '/slow')->controller([DemoController::class, 'slow']);
         $routes->add('app_alloc', '/alloc')->controller([DemoController::class, 'alloc']);
         $routes->add('app_boom', '/boom')->controller([DemoController::class, 'boom']);

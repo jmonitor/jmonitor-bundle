@@ -178,21 +178,53 @@ final class UserRecorderTest extends KernelTestCase
         }
     }
 
-    public function testAFailingTokenStorageIsSwallowedAndLoggedOnce(): void
+    public function testAFailingUserIsSwallowedAndLoggedOnce(): void
+    {
+        $this->tokens->setToken(self::token('admin', new \RuntimeException('User backend down')));
+        $users = new UserRecorder($this->recorder, $this->tokens, $this->logger);
+
+        static::assertSame([], $this->request(users: $users));
+        static::assertSame([], $this->request(users: $users));
+        static::assertSame(['error JMonitor could not record the user of a request: User backend down'], $this->logger->records);
+    }
+
+    public function testAPendingAuthenticationIsNeverTriggered(): void
+    {
+        $initialized = 0;
+        $this->tokens->setInitializer(function () use (&$initialized): void {
+            ++$initialized;
+            $this->tokens->setToken(self::token('admin'));
+        });
+
+        static::assertSame([], $this->request());
+        static::assertSame(0, $initialized);
+
+        $this->tokens->getToken();
+        $children = $this->request();
+
+        static::assertSame(1, $initialized);
+        static::assertCount(1, $children);
+        static::assertSame('admin', $children[0]->key);
+    }
+
+    public function testAStorageOfAnotherClassIsNotRead(): void
     {
         $tokens = new class implements TokenStorageInterface {
+            public int $reads = 0;
+
             public function getToken(): ?TokenInterface
             {
-                throw new \RuntimeException('Session backend down');
+                ++$this->reads;
+
+                throw new \LogicException('This storage must not be read.');
             }
 
             public function setToken(?TokenInterface $token): void {}
         };
-        $users = new UserRecorder($this->recorder, $tokens, $this->logger);
 
-        static::assertSame([], $this->request(users: $users));
-        static::assertSame([], $this->request(users: $users));
-        static::assertSame(['error JMonitor could not record the user of a request: Session backend down'], $this->logger->records);
+        static::assertSame([], $this->request(users: new UserRecorder($this->recorder, $tokens, $this->logger)));
+        static::assertSame(0, $tokens->reads);
+        static::assertSame([], $this->logger->records);
     }
 
     public function testTheCaptureCanBeSwitchedOff(): void
@@ -234,14 +266,17 @@ final class UserRecorderTest extends KernelTestCase
         return $entry;
     }
 
-    private static function token(string $identifier): UsernamePasswordToken
+    private static function token(string $identifier, ?\Throwable $failure = null): UsernamePasswordToken
     {
-        $user = new class ($identifier) implements UserInterface {
-            public function __construct(private readonly string $identifier) {}
+        $user = new class ($identifier, $failure) implements UserInterface {
+            public function __construct(
+                private readonly string $identifier,
+                private readonly ?\Throwable $failure,
+            ) {}
 
             public function getUserIdentifier(): string
             {
-                return $this->identifier;
+                return $this->failure === null ? $this->identifier : throw $this->failure;
             }
 
             public function getRoles(): array
