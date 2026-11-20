@@ -39,7 +39,9 @@ final class Driver extends AbstractDriverMiddleware
         self::$dbal3 ??= !(new \ReflectionMethod(AbstractConnectionMiddleware::class, 'commit'))->hasReturnType();
 
         $connection = parent::connect($params);
-        $dialect = self::isReadable($params) ? ($this->platformDialect ??= $this->platformDialect($connection)) : SqlDialect::Unknown;
+        $dialect = self::isReadable($params)
+            ? ($this->platformDialect ??= $this->platformDialect($connection)) ?? SqlDialect::Unknown
+            : SqlDialect::Unknown;
 
         return self::$dbal3
             ? new Dbal3Connection($connection, $this->recorder, $dialect)
@@ -73,12 +75,15 @@ final class Driver extends AbstractDriverMiddleware
         return true;
     }
 
-    private function platformDialect(ConnectionInterface $connection): SqlDialect
+    /**
+     * @return SqlDialect|null null when the platform could not be read, so that the next connection asks again
+     */
+    private function platformDialect(ConnectionInterface $connection): ?SqlDialect
     {
         try {
             $platform = $this->getDatabasePlatform($connection);
         } catch (\Throwable) {
-            return SqlDialect::Unknown;
+            return null;
         }
 
         return match (true) {

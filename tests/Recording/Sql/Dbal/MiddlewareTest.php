@@ -331,6 +331,22 @@ final class MiddlewareTest extends TestCase
         static::assertSame([QueryDigester::OTHER], self::childKeys($entry));
     }
 
+    public function testAPlatformThatCouldNotBeReadIsLookedUpAgainOnTheNextConnection(): void
+    {
+        $connection = $this->connectionBehind(static fn(): AbstractPlatform => throw new \RuntimeException('No platform.'));
+
+        $token = $this->recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        $connection->fetchOne('SELECT 1');
+        $first = $this->end($token);
+        $connection->close();
+        $token = $this->recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        $connection->fetchOne('SELECT 1');
+        $next = $this->end($token);
+
+        static::assertSame([QueryDigester::OTHER], self::childKeys($first));
+        static::assertSame([self::id('SELECT 1')], self::childKeys($next));
+    }
+
     private function end(int $token): Entry
     {
         $this->recorder->end($token, 'GET app_test', 1.0);
