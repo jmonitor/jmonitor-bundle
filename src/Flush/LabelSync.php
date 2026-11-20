@@ -6,9 +6,9 @@ namespace Jmonitor\JmonitorBundle\Flush;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\EntryPointKey;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
-use Jmonitor\JmonitorBundle\Aggregation\NPlusOneKey;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 
 final class LabelSync
@@ -64,6 +64,6 @@ final class LabelSync
 
     private static function repeatedQuery(string $key): ?string
     {
-        return NPlusOneKey::parse($key)?->queryId;
+        return EntryPointKey::parse($key)?->subject;
     }
 }

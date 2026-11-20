@@ -55,6 +55,29 @@ final class EntryTest extends TestCase
         static::assertEquals($entry, Entry::fromLine($entry->toLine()));
     }
 
+    public function testAnHttpChildWithCountersSurvivesARoundTrip(): void
+    {
+        $child = new Entry(Entry::TYPE_HTTP, 'api.example.com', 1000.5, 25.0, ['n' => 2, 'm' => 12.5, 'c5' => 2]);
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1000.5, 40.0, ['http_ms' => 25.0, 'http_n' => 2], [$child]);
+
+        $read = Entry::fromLine($entry->toLine());
+
+        static::assertEquals($entry, $read);
+        static::assertSame(['n' => 2, 'm' => 12.5, 'c5' => 2], $read?->children[0]->attributes);
+    }
+
+    public function testAnExceptionChildWithoutDurationSurvivesARoundTrip(): void
+    {
+        $child = new Entry(Entry::TYPE_EXCEPTION, 'App\\Boom', 1000.5, 0.0, ['n' => 1]);
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1000.5, 40.0, ['status' => 500], [$child]);
+
+        $read = Entry::fromLine($entry->toLine());
+
+        static::assertEquals($entry, $read);
+        static::assertSame(0.0, $read?->children[0]->durationMs);
+        static::assertSame(['n' => 1], $read->children[0]->attributes);
+    }
+
     public function testAChildInheritsTheStartOfItsParent(): void
     {
         $entry = Entry::fromLine('{"t":"request","k":"GET a","s":1000.5,"d":9.0,"c":[["abc",1.5,2,1.0],{"t":"q","k":"x","d":2.0}]}');

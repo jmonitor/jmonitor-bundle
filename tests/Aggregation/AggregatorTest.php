@@ -398,6 +398,25 @@ class AggregatorTest extends TestCase
         );
     }
 
+    public function testAChildOfAnUnknownTypeIsIgnored(): void
+    {
+        $known = [
+            new Entry(Entry::TYPE_QUERY, 'abc', 1700000045.0, 12.0, ['n' => 3, 'm' => 5.0]),
+            new Entry(Entry::TYPE_NPLUS1, 'abc', 1700000045.0, 40.0, ['n' => 12]),
+        ];
+        $unknown = new Entry('zz', 'api.example.com', 1700000045.0, 25.0, ['n' => 2, 'm' => 12.5, 'c5' => 2]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0, ['cw' => 10], [$known[0], $unknown, $known[1]]),
+        ]);
+
+        static::assertSame(
+            self::canonical((new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_REQUEST, 'GET a', 1700000045.0, 50.0, ['cw' => 10], $known)])),
+            self::canonical($aggregates),
+        );
+        static::assertSame([], array_filter($aggregates, static fn(Aggregate $a): bool => $a->key === 'api.example.com'));
+    }
+
     public function testHugeCountsAndWeightsDoNotBreakTheFlush(): void
     {
         $hostile = static fn(float $at): Entry => new Entry(Entry::TYPE_REQUEST, 'GET a', $at, 50.0, ['cw' => 1e300], [

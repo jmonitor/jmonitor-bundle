@@ -29,45 +29,14 @@ final class Aggregator
         $groups = [];
 
         foreach ($entries as $entry) {
-            if ($entry->type !== Entry::TYPE_REQUEST || !is_finite($entry->durationMs)) {
+            if (!is_finite($entry->durationMs)) {
                 continue;
             }
 
-            $minute = Period::OneHour->bucketFor($entry->startedAt);
-            $counters = &self::counters($groups, $minute, Family::Request, $entry->key);
-
-            self::add($counters, Metric::REQUEST_DURATION, $entry->durationMs);
-            self::add($counters, Metric::REQUEST_DURATION_LE_PREFIX . Metric::durationBound($entry->durationMs), 1.0);
-
-            $memory = $entry->attributes['memory'] ?? null;
-            if (is_numeric($memory) && $memory >= 0 && is_finite((float) $memory)) {
-                self::add($counters, Metric::REQUEST_MEMORY, (float) $memory);
-            }
-
-            $status = $entry->attributes['status'] ?? null;
-            if (is_numeric($status) && $status >= 200 && $status <= 599) {
-                self::add($counters, Metric::REQUEST_STATUS_PREFIX . intdiv((int) $status, 100) . 'xx', 1.0);
-            }
-
-            if ($entry->durationMs >= $this->slowThresholdMs) {
-                self::add($counters, Metric::REQUEST_SLOW, 1.0);
-            }
-
-            $sqlCount = self::number($entry->attributes['sql_n'] ?? null);
-            $sqlTime = self::number($entry->attributes['sql_ms'] ?? null);
-            if ($sqlCount !== null && $sqlTime !== null && $sqlCount > 0) {
-                self::add($counters, Metric::REQUEST_SQL_TIME, $sqlTime);
-                self::add($counters, Metric::REQUEST_SQL_COUNT, $sqlCount);
-            }
-
-            unset($counters);
-
-            $weight = self::number($entry->attributes['cw'] ?? null);
-            $weight = $weight !== null && $weight >= 1 && $weight <= self::MAX_WEIGHT ? $weight : 1.0;
-
-            foreach ($entry->children as $child) {
-                $this->addChild($groups, $minute, $entry, $child, $weight);
-            }
+            match ($entry->type) {
+                Entry::TYPE_REQUEST => $this->addRequest($groups, Period::OneHour->bucketFor($entry->startedAt), $entry),
+                default => null,
+            };
         }
 
         $groups = $this->capKeys($groups);
@@ -101,36 +70,89 @@ final class Aggregator
     /**
      * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
      */
-    private function addChild(array &$groups, int $minute, Entry $unit, Entry $child, float $weight): void
+    private function addRequest(array &$groups, int $minute, Entry $entry): void
     {
-        $occurrences = self::number($child->attributes['n'] ?? null);
-        if ($occurrences === null || $occurrences < 0 || $occurrences > self::MAX_OCCURRENCES || !is_finite($child->durationMs)) {
+        $counters = &self::counters($groups, $minute, Family::Request, $entry->key);
+
+        self::add($counters, Metric::REQUEST_DURATION, $entry->durationMs);
+        self::add($counters, Metric::REQUEST_DURATION_LE_PREFIX . Metric::durationBound($entry->durationMs), 1.0);
+
+        $memory = $entry->attributes['memory'] ?? null;
+        if (is_numeric($memory) && $memory >= 0 && is_finite((float) $memory)) {
+            self::add($counters, Metric::REQUEST_MEMORY, (float) $memory);
+        }
+
+        $status = $entry->attributes['status'] ?? null;
+        if (is_numeric($status) && $status >= 200 && $status <= 599) {
+            self::add($counters, Metric::REQUEST_STATUS_PREFIX . intdiv((int) $status, 100) . 'xx', 1.0);
+        }
+
+        if ($entry->durationMs >= $this->slowThresholdMs) {
+            self::add($counters, Metric::REQUEST_SLOW, 1.0);
+        }
+
+        $sqlCount = self::number($entry->attributes['sql_n'] ?? null);
+        $sqlTime = self::number($entry->attributes['sql_ms'] ?? null);
+        if ($sqlCount !== null && $sqlTime !== null && $sqlCount > 0) {
+            self::add($counters, Metric::REQUEST_SQL_TIME, $sqlTime);
+            self::add($counters, Metric::REQUEST_SQL_COUNT, $sqlCount);
+        }
+
+        unset($counters);
+
+        $this->addChildren($groups, $minute, $entry);
+    }
+
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addChildren(array &$groups, int $minute, Entry $unit): void
+    {
+        $weight = self::number($unit->attributes['cw'] ?? null);
+        $weight = $weight !== null && $weight >= 1 && $weight <= self::MAX_WEIGHT ? $weight : 1.0;
+
+        foreach ($unit->children as $child) {
+            $occurrences = self::number($child->attributes['n'] ?? null);
+            if ($occurrences === null || $occurrences < 0 || $occurrences > self::MAX_OCCURRENCES || !is_finite($child->durationMs)) {
+                continue;
+            }
+
+            match ($child->type) {
+                Entry::TYPE_QUERY => $this->addQuery($groups, $minute, $child, $occurrences, $weight),
+                Entry::TYPE_NPLUS1 => $this->addNPlusOne($groups, $minute, $unit, $child, $occurrences, $weight),
+                default => null,
+            };
+        }
+    }
+
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addQuery(array &$groups, int $minute, Entry $child, float $occurrences, float $weight): void
+    {
+        $max = self::number($child->attributes['m'] ?? null);
+        $slow = self::number($child->attributes['sl'] ?? null) ?? 0.0;
+        if ($max === null || $slow < 0 || $slow > self::MAX_OCCURRENCES) {
             return;
         }
 
-        if ($child->type === Entry::TYPE_QUERY) {
-            $max = self::number($child->attributes['m'] ?? null);
-            $slow = self::number($child->attributes['sl'] ?? null) ?? 0.0;
-            if ($max === null || $slow < 0 || $slow > self::MAX_OCCURRENCES) {
-                return;
-            }
-
-            $counters = &self::counters($groups, $minute, Family::Query, $child->key);
-            self::add($counters, Metric::QUERY_DURATION, $child->durationMs * $weight, $max, (int) round($occurrences * $weight));
-            if ($slow > 0) {
-                self::add($counters, Metric::QUERY_SLOW, 0.0, 0.0, (int) round($slow * $weight));
-            }
-
-            return;
+        $counters = &self::counters($groups, $minute, Family::Query, $child->key);
+        self::add($counters, Metric::QUERY_DURATION, $child->durationMs * $weight, $max, (int) round($occurrences * $weight));
+        if ($slow > 0) {
+            self::add($counters, Metric::QUERY_SLOW, 0.0, 0.0, (int) round($slow * $weight));
         }
+    }
 
-        if ($child->type === Entry::TYPE_NPLUS1) {
-            $key = (new NPlusOneKey($unit->type, $unit->key, $child->key))->toString();
-            $counters = &self::counters($groups, $minute, Family::NPlusOne, $key);
-            $count = (int) round($weight);
-            self::add($counters, Metric::NPLUS1_CALLS, $occurrences * $weight, $occurrences, $count);
-            self::add($counters, Metric::NPLUS1_DURATION, $child->durationMs * $weight, $child->durationMs, $count);
-        }
+    /**
+     * @param array<string, array{minute: int, family: Family, key: string, counters: array<string, array{int, float, float}>}> $groups
+     */
+    private function addNPlusOne(array &$groups, int $minute, Entry $unit, Entry $child, float $occurrences, float $weight): void
+    {
+        $key = (new EntryPointKey($unit->type, $unit->key, $child->key))->toString();
+        $counters = &self::counters($groups, $minute, Family::NPlusOne, $key);
+        $count = (int) round($weight);
+        self::add($counters, Metric::NPLUS1_CALLS, $occurrences * $weight, $occurrences, $count);
+        self::add($counters, Metric::NPLUS1_DURATION, $child->durationMs * $weight, $child->durationMs, $count);
     }
 
     /**

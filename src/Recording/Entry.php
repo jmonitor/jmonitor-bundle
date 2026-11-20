@@ -9,6 +9,10 @@ final class Entry
     public const TYPE_REQUEST = 'request';
     public const TYPE_QUERY = 'q';
     public const TYPE_NPLUS1 = 'n1';
+    public const TYPE_HTTP = 'h';
+    public const TYPE_CACHE = 'ca';
+    public const TYPE_EXCEPTION = 'ex';
+    public const TYPE_USER = 'u';
     public const KEY_SEPARATOR = "\x1f";
 
     /**
