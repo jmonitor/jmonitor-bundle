@@ -54,7 +54,7 @@ final class SetupCommandTest extends TestCase
 
         static::assertSame(Command::SUCCESS, $tester->getStatusCode());
         static::assertStringContainsString('Upgraded the JMonitor tables in the "default" connection.', $this->display($tester));
-        static::assertSame('2', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
+        static::assertSame('3', $connection->fetchOne("SELECT metric_key FROM jmonitor_keys WHERE key_hash = 'schema'"));
     }
 
     #[DataProvider('connections')]

@@ -104,7 +104,7 @@ final class DbalStorage implements StorageInterface
         }
 
         usort($rows, static fn(array $a, array $b): int
-            => $a[0] <=> $b[0] ?: $a[2] <=> $b[2] ?: strcmp($a[1], $b[1]) ?: strcmp($a[3], $b[3]));
+            => $a[0] <=> $b[0] ?: strcmp($a[1], $b[1]) ?: $a[2] <=> $b[2] ?: strcmp($a[3], $b[3]));
 
         return $rows;
     }
