@@ -585,6 +585,31 @@ final class RecorderTest extends TestCase
         static::assertSame([Entry::TYPE_QUERY, Entry::TYPE_HTTP], array_map(static fn(Entry $child): string => $child->type, $sampled->children));
     }
 
+    public function testGenericChildrenAreWrittenShortWithDurationsRoundedToTheMicrosecond(): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1700000000.25);
+        $recorder->add($token, Entry::TYPE_USER, 'jane@example.com');
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', 1 / 3, ['c5' => 1]);
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', 0.2);
+        $recorder->add($token, Entry::TYPE_CACHE, 'cache.app', 0.0, ['h' => 1]);
+        $recorder->add($token, Entry::TYPE_CACHE, 'app.pool', 0.0, ['mi' => 1, 'w' => 1]);
+        $recorder->end($token, 'GET app_home', 12.5, ['status' => 200]);
+
+        $line = $this->buffer->entries[0]->toLine();
+
+        static::assertSame(
+            '{"t":"request","k":"GET app_home","s":1700000000.25,"d":12.5,"a":{"status":200,"http_ms":0.533,"http_n":2},"c":['
+            . '{"t":"u","k":"jane@example.com","d":0.0,"a":{"n":1}},'
+            . '{"t":"h","k":"api.example.com","d":0.533,"a":{"n":2,"m":0.333,"c5":1}},'
+            . '{"t":"ca","k":"cache.app","d":0.0,"a":{"n":1,"h":1}},'
+            . '{"t":"ca","k":"app.pool","d":0.0,"a":{"n":1,"mi":1,"w":1}}]}',
+            $line,
+        );
+        static::assertLessThan(350, \strlen($line));
+    }
+
     public function testAUnitWithoutNewMeasureWritesTheSameLineAsBefore(): void
     {
         $recorder = $this->sqlRecorder();

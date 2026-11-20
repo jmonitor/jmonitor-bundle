@@ -88,6 +88,52 @@ final class EntryTest extends TestCase
         static::assertSame(1000.5, $entry->children[1]->startedAt);
     }
 
+    public function testAGenericChildLeavesOutTheStartItSharesWithItsParent(): void
+    {
+        $children = [
+            new Entry(Entry::TYPE_HTTP, 'api.example.com', 1000.5, 25.0, ['n' => 2, 'm' => 12.5, 'c5' => 2]),
+            new Entry(Entry::TYPE_EXCEPTION, 'App\\Boom', 1000.5, 0.0, ['n' => 1]),
+        ];
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET a', 1000.5, 40.0, [], $children);
+
+        $line = $entry->toLine();
+
+        static::assertSame(
+            '{"t":"request","k":"GET a","s":1000.5,"d":40.0,"c":[{"t":"h","k":"api.example.com","d":25.0,"a":{"n":2,"m":12.5,"c5":2}},{"t":"ex","k":"App\\\\Boom","d":0.0,"a":{"n":1}}]}',
+            $line,
+        );
+        static::assertEquals($entry, Entry::fromLine($line));
+    }
+
+    public function testAGenericChildWithItsOwnStartKeepsIt(): void
+    {
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET a', 1000.5, 40.0, [], [
+            new Entry(Entry::TYPE_HTTP, 'api.example.com', 1001.0, 25.0, ['n' => 1, 'm' => 25.0]),
+        ]);
+
+        static::assertStringContainsString('{"t":"h","k":"api.example.com","s":1001.0,', $entry->toLine());
+        static::assertEquals($entry, Entry::fromLine($entry->toLine()));
+    }
+
+    public function testAnNPlusOneChildKeepsTheStartItSharesWithItsParent(): void
+    {
+        $entry = new Entry(Entry::TYPE_REQUEST, 'GET a', 1000.5, 40.0, [], [
+            new Entry(Entry::TYPE_NPLUS1, 'abc', 1000.5, 4.5, ['n' => 12]),
+        ]);
+
+        static::assertSame('{"t":"request","k":"GET a","s":1000.5,"d":40.0,"c":[{"t":"n1","k":"abc","s":1000.5,"d":4.5,"a":{"n":12}}]}', $entry->toLine());
+    }
+
+    public function testAGenericChildWrittenWithTheStartOfItsParentStillReads(): void
+    {
+        $entry = Entry::fromLine('{"t":"request","k":"GET a","s":1000.5,"d":40.0,"c":[{"t":"h","k":"api.example.com","s":1000.5,"d":25.0,"a":{"n":2,"m":12.5,"c5":2}},{"t":"ex","k":"App\\\\Boom","s":1000.5,"d":0.0,"a":{"n":1}}]}');
+
+        static::assertEquals(new Entry(Entry::TYPE_REQUEST, 'GET a', 1000.5, 40.0, [], [
+            new Entry(Entry::TYPE_HTTP, 'api.example.com', 1000.5, 25.0, ['n' => 2, 'm' => 12.5, 'c5' => 2]),
+            new Entry(Entry::TYPE_EXCEPTION, 'App\\Boom', 1000.5, 0.0, ['n' => 1]),
+        ]), $entry);
+    }
+
     public function testALineWrittenByTheFirstFormatStillReads(): void
     {
         $entry = Entry::fromLine('{"t":"request","k":"GET app_home","s":1000.5,"d":12.5,"a":{"status":200,"memory":2097152}}');

@@ -102,8 +102,8 @@ final class Unit
 
         foreach ($this->measures as $type => $keys) {
             foreach ($keys as $key => [$occurrences, $ms, $max, $counters]) {
-                $attributes = ['n' => $occurrences] + ($max > 0.0 ? ['m' => $max] : []) + $counters;
-                $children[] = new Entry((string) $type, (string) $key, $this->startedAt, $ms, $attributes);
+                $attributes = ['n' => $occurrences] + ($max > 0.0 ? ['m' => round($max, 3)] : []) + $counters;
+                $children[] = new Entry((string) $type, (string) $key, $this->startedAt, round($ms, 3), $attributes);
             }
         }
 

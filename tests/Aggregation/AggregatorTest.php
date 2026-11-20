@@ -381,6 +381,24 @@ class AggregatorTest extends TestCase
         static::assertSame(Family::ExceptionWhere, Family::ofMetric($boom->type));
     }
 
+    public function testAnExceptionReadFromALineIsLastSeenAtTheStartOfItsUnit(): void
+    {
+        $line = (new Entry(Entry::TYPE_REQUEST, 'GET app_boom', 1700000045.5, 50.0, ['status' => 500], [
+            new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, 1700000045.5, 0.0, ['n' => 1]),
+        ]))->toLine();
+        $entry = Entry::fromLine($line);
+        static::assertNotNull($entry);
+
+        $aggregates = (new Aggregator(1000))->aggregate([$entry]);
+
+        $count = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class);
+        $where = $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_WHERE_COUNT, "request\x1fGET app_boom\x1f" . \RuntimeException::class);
+        static::assertNotNull($count);
+        static::assertNotNull($where);
+        static::assertSame([1, 0.0, 1700000045.5], [$count->count, $count->sum, $count->max]);
+        static::assertSame([1, 0.0, 1700000045.5], [$where->count, $where->sum, $where->max]);
+    }
+
     public function testAnExceptionWeighsTenWhenSampled(): void
     {
         $aggregates = (new Aggregator(1000))->aggregate([

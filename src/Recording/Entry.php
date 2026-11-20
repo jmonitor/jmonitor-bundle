@@ -80,7 +80,13 @@ final class Entry
             || \count($attributes) !== ($hasSlow ? 3 : 2)
             || $needsTail && !$hasSlow
         ) {
-            return $this->toArray();
+            $data = $this->toArray();
+            // SQL children keep the start they always wrote, so that a line without any other child stays the same.
+            if (!$differentStart && $this->type !== self::TYPE_QUERY && $this->type !== self::TYPE_NPLUS1) {
+                unset($data['s']);
+            }
+
+            return $data;
         }
 
         $row = [$this->key, round($this->durationMs, 2), $attributes['n'], round((float) $attributes['m'], 2)];
