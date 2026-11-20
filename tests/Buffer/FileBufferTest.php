@@ -620,31 +620,38 @@ final class FileBufferTest extends TestCase
         $writers = 4;
         $lines = 2000;
         $buffer = new FileBuffer(new BufferDirectory($this->dir, 'app'), self::RACE_SLOT_SECONDS, new NativeClock());
-
-        $processes = [];
-        for ($n = 0; $n < $writers; ++$n) {
-            $process = proc_open(
-                [\PHP_BINARY, \dirname(__DIR__) . '/Fixtures/Buffer/append_lines.php', $this->dir, (string) self::RACE_SLOT_SECONDS, 'w' . $n, (string) $lines],
-                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-                $pipes,
-            );
-            static::assertIsResource($process);
-            $processes[] = [$process, $pipes];
-        }
-
         $seen = [];
         $consumer = static function (iterable $entries) use (&$seen): void {
             foreach ($entries as $entry) {
                 $seen[$entry->key] = ($seen[$entry->key] ?? 0) + 1;
             }
         };
+        $exposed = [];
 
-        $running = $processes;
-        while ($running !== []) {
+        $umask = umask(0o022);
+        try {
+            $processes = [];
+            for ($n = 0; $n < $writers; ++$n) {
+                $process = proc_open(
+                    [\PHP_BINARY, \dirname(__DIR__) . '/Fixtures/Buffer/append_lines.php', $this->dir, (string) self::RACE_SLOT_SECONDS, 'w' . $n, (string) $lines],
+                    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                    $pipes,
+                );
+                static::assertIsResource($process);
+                $processes[] = [$process, $pipes];
+            }
+
+            $running = $processes;
+            while ($running !== []) {
+                $buffer->drain($consumer, true);
+                $exposed = array_merge($exposed, $this->slotsWithLinesOpenToOthers());
+                $running = array_filter($running, static fn(array $process): bool => proc_get_status($process[0])['running']);
+            }
             $buffer->drain($consumer, true);
-            $running = array_filter($running, static fn(array $process): bool => proc_get_status($process[0])['running']);
+            $exposed = array_merge($exposed, $this->slotsWithLinesOpenToOthers());
+        } finally {
+            umask($umask);
         }
-        $buffer->drain($consumer, true);
 
         foreach ($processes as [$process, $pipes]) {
             static::assertSame('', stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]));
@@ -664,6 +671,38 @@ final class FileBufferTest extends TestCase
         static::assertSame(0, \count($lost), 'Lost lines, starting with ' . implode(', ', \array_slice($lost, 0, 10)));
         static::assertSame(0, \count($twice), 'Lines read twice, starting with ' . implode(', ', \array_slice($twice, 0, 10)));
         static::assertCount($writers * $lines, $seen);
+        static::assertSame([], $exposed, 'Slots holding lines were readable by group or others');
+    }
+
+    public function testTheSlotBeingWrittenIsMadePrivateWhenFoundOpenToOthers(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        mkdir($this->private, 0o700);
+        touch($this->private . '/1000.ndjson');
+        chmod($this->private . '/1000.ndjson', 0o644);
+
+        $buffer->append($this->entry('a'));
+
+        clearstatcache();
+        static::assertSame(0o600, fileperms($this->private . '/1000.ndjson') & 0o777);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function slotsWithLinesOpenToOthers(): array
+    {
+        $exposed = [];
+        clearstatcache();
+        foreach (glob($this->private . '/*.ndjson') ?: [] as $file) {
+            $stat = BufferDirectory::quietly(static fn(): array|false => stat($file));
+            if ($stat !== false && $stat['size'] > 0 && ($stat['mode'] & 0o077) !== 0) {
+                $exposed[] = basename($file) . sprintf(' %o', $stat['mode'] & 0o777);
+            }
+        }
+
+        return $exposed;
     }
 
     /**

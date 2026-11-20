@@ -122,8 +122,7 @@ final class FileBuffer implements BufferInterface
     {
         for ($attempt = 0; $attempt < 100; ++$attempt) {
             clearstatcache(true, $path);
-            $exists = is_file($path);
-            if ($exists && (filesize($path) ?: 0) >= $this->maxSlotBytes) {
+            if (is_file($path) && (filesize($path) ?: 0) >= $this->maxSlotBytes) {
                 return;
             }
 
@@ -132,10 +131,6 @@ final class FileBuffer implements BufferInterface
                 $this->directory->invalidate();
 
                 return;
-            }
-
-            if (!$exists) {
-                chmod($path, 0o600);
             }
 
             try {
@@ -147,6 +142,9 @@ final class FileBuffer implements BufferInterface
                 $current = stat($path);
                 $opened = fstat($handle);
                 if ($current !== false && $opened !== false && $current['ino'] === $opened['ino']) {
+                    if (($opened['mode'] & 0o077) !== 0) {
+                        chmod($path, 0o600);
+                    }
                     fwrite($handle, $line);
 
                     return;
