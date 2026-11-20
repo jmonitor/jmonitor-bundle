@@ -203,11 +203,24 @@ final class DbalStorageTest extends TestCase
         $this->reset($connection);
         $now = 1700700000;
         $storage = $this->storage($connection, 604800);
-        $aggregates = [];
+        $types = [
+            Metric::EXCEPTION_COUNT,
+            Metric::EXCEPTION_WHERE_COUNT,
+            Metric::REQUEST_DURATION,
+            Metric::REQUEST_DURATION_LE_PREFIX . '10',
+            Metric::REQUEST_DURATION_LE_PREFIX . Metric::DURATION_OVERFLOW,
+            Metric::REQUEST_SQL_TIME,
+            Metric::HTTP_FAILED,
+            Metric::NPLUS1_CALLS,
+        ];
         for ($status = 100; $status < 350; ++$status) {
+            $types[] = Metric::REQUEST_STATUS_PREFIX . $status;
+        }
+        $aggregates = [];
+        foreach ($types as $type) {
             foreach ([Period::OneHour, Period::OneDay] as $period) {
-                $aggregates[] = new Aggregate($period, $now - 2 * $period->value, Metric::REQUEST_STATUS_PREFIX . $status, 'GET app_home', 1, 1.0, 1.0);
-                $aggregates[] = new Aggregate($period, $period->bucketFor($now), Metric::REQUEST_STATUS_PREFIX . $status, 'GET app_home', 1, 1.0, 1.0);
+                $aggregates[] = new Aggregate($period, $now - 2 * $period->value, $type, 'GET app_home', 1, 1.0, 1.0);
+                $aggregates[] = new Aggregate($period, $period->bucketFor($now), $type, 'GET app_home', 1, 1.0, 1.0);
             }
         }
         $storage->store($aggregates, $now);
@@ -215,7 +228,7 @@ final class DbalStorageTest extends TestCase
         $storage->purge($now);
 
         static::assertSame(
-            [[3600, 250, Period::OneHour->bucketFor($now)], [86400, 250, Period::OneDay->bucketFor($now)]],
+            [[3600, \count($types), Period::OneHour->bucketFor($now)], [86400, \count($types), Period::OneDay->bucketFor($now)]],
             array_map(
                 static fn(array $row): array => array_map('intval', $row),
                 $connection->fetchAllNumeric('SELECT period, COUNT(DISTINCT metric_type), MIN(bucket) FROM jmonitor_aggregates GROUP BY period ORDER BY period'),
@@ -303,6 +316,23 @@ final class DbalStorageTest extends TestCase
 
         static::assertSame(1, preg_match('/PRIMARY KEY\s*\(([^)]*)\)/i', $sql, $matches));
         static::assertSame('period,metric_type,bucket,key_hash', str_replace([' ', '"', '`'], '', $matches[1]));
+    }
+
+    public function testMySqlOrdersMetricTypesAsAFlushSortsThem(): void
+    {
+        $connection = ConnectionProvider::all()['mysql'][0] ?? null;
+        if ($connection === null) {
+            static::markTestSkipped('JMONITOR_TEST_MYSQL_URL is not set');
+        }
+        $this->reset($connection);
+        $types = [Metric::EXCEPTION_WHERE_COUNT, Metric::EXCEPTION_COUNT];
+        $this->storage($connection)->store(
+            array_map(static fn(string $type): Aggregate => new Aggregate(Period::OneHour, 1700000040, $type, 'GET app_home', 1, 1.0, 1.0), $types),
+            1700000100,
+        );
+
+        sort($types, \SORT_STRING);
+        static::assertSame($types, $connection->fetchFirstColumn('SELECT metric_type FROM jmonitor_aggregates ORDER BY metric_type'));
     }
 
     public function testRowsAreSentInPrimaryKeyOrder(): void

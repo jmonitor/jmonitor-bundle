@@ -397,7 +397,7 @@ function fillPeriods(Connection $connection, int $now, array $dataSet): int
     foreach (Period::cases() as $period) {
         $aggregates = [];
         foreach ($hour as $aggregate) {
-            $age = intdiv($now - $aggregate->bucket, Period::OneHour->bucketSeconds());
+            $age = intdiv(Period::OneHour->bucketFor($now) - $aggregate->bucket, Period::OneHour->bucketSeconds());
             $aggregates[] = new Aggregate($period, $period->bucketFor($now) - $age * $period->bucketSeconds(), $aggregate->type, $aggregate->key, $aggregate->count, $aggregate->sum, $aggregate->max);
         }
         $storage->store($aggregates, $now, $labels);
@@ -435,7 +435,6 @@ function purgeMillis(Connection $connection, int $now): array
 
     return [$elapsed, $before - $count()];
 }
-
 
 /**
  * @return array{float, int} median milliseconds of the builds of the screen on its default sort, rows shown
