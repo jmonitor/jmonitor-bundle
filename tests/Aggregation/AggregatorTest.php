@@ -20,6 +20,8 @@ use Symfony\Component\Filesystem\Filesystem;
 
 class AggregatorTest extends TestCase
 {
+    private const CHILD_FAMILIES = ['query', 'nplus1', 'exception', 'exception_where', 'http', 'cache', 'message'];
+
     public function testOneRequestFeedsEveryPeriod(): void
     {
         $entry = new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1700000045.0, 84.0, ['status' => 200, 'memory' => 1000]);
@@ -928,6 +930,129 @@ class AggregatorTest extends TestCase
 
         static::assertSame(2, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_SENT, 'App\Message\Sent')?->count);
         static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_DURATION, Aggregator::OTHER)?->count);
+    }
+
+    public function testALongCommandIsFiledAtItsEndWithItsChildren(): void
+    {
+        $startedAt = 1700000045.25;
+        $end = $startedAt + 4500;
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_COMMAND, 'app:import', $startedAt, 4_500_000.0, ['exit' => 0], self::children($startedAt)),
+        ]);
+
+        foreach (Period::cases() as $period) {
+            static::assertSame([$period->bucketFor($end)], $this->bucketsOf($aggregates, $period), $period->label());
+        }
+        static::assertEqualsCanonicalizing(['command', ...self::CHILD_FAMILIES], $this->familiesOf($aggregates));
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::COMMAND_LAST_RUN, 'app:import')?->max);
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class)?->max);
+    }
+
+    public function testALongMessageIsFiledAtItsEndWithItsChildren(): void
+    {
+        $startedAt = 1700000045.25;
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_MESSAGE, 'App\Message\Import', $startedAt, 4_500_000.0, [], self::children($startedAt)),
+        ]);
+
+        foreach (Period::cases() as $period) {
+            static::assertSame([$period->bucketFor($startedAt + 4500)], $this->bucketsOf($aggregates, $period), $period->label());
+        }
+        static::assertEqualsCanonicalizing(self::CHILD_FAMILIES, $this->familiesOf($aggregates));
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class)?->max);
+    }
+
+    public function testALongTaskIsFiledAtItsEndWithItsChildren(): void
+    {
+        $key = (new TaskKey('default', 'ab12', 'app:import', 'every 1 day'))->toString();
+        $startedAt = 1700000045.25;
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_TASK, $key, $startedAt, 4_500_000.0, ['failed' => 1], self::children($startedAt)),
+        ]);
+
+        foreach (Period::cases() as $period) {
+            static::assertSame([$period->bucketFor($startedAt + 4500)], $this->bucketsOf($aggregates, $period), $period->label());
+        }
+        static::assertEqualsCanonicalizing(['task', ...self::CHILD_FAMILIES], $this->familiesOf($aggregates));
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::TASK_LAST_RUN, $key)?->max);
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::TASK_FAILED, $key)?->max);
+    }
+
+    public function testALongRequestIsFiledAtItsStartWithItsChildren(): void
+    {
+        $startedAt = 1700000045.25;
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET app_export', $startedAt, 90_000.0, ['status' => 200], self::children($startedAt)),
+        ]);
+
+        static::assertSame([1700000040], $this->bucketsOf($aggregates, Period::OneHour));
+        static::assertEqualsCanonicalizing(['request', ...self::CHILD_FAMILIES], $this->familiesOf($aggregates));
+    }
+
+    public function testAUnitWithAnImplausibleDurationIsFiledAtItsStart(): void
+    {
+        $startedAt = 1700000045.25;
+        $sevenDays = 7 * 86_400_000.0;
+
+        foreach ([-90_000.0, $sevenDays + 1.0] as $duration) {
+            $aggregates = (new Aggregator(1000))->aggregate([
+                new Entry(Entry::TYPE_COMMAND, 'app:import', $startedAt, $duration, ['exit' => 0], self::children($startedAt)),
+                new Entry(Entry::TYPE_MESSAGE, 'App\Message\Import', $startedAt, $duration),
+                new Entry(Entry::TYPE_TASK, (new TaskKey('default', 'ab12', 'app:import', 'every 1 day'))->toString(), $startedAt, $duration),
+            ]);
+
+            foreach (Period::cases() as $period) {
+                static::assertSame([$period->bucketFor($startedAt)], $this->bucketsOf($aggregates, $period), $period->label() . ' ' . $duration);
+            }
+        }
+
+        $aggregates = (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_COMMAND, 'app:import', $startedAt, $sevenDays, ['exit' => 0])]);
+
+        static::assertSame([Period::OneHour->bucketFor($startedAt + 7 * 86_400)], $this->bucketsOf($aggregates, Period::OneHour));
+    }
+
+    /** @return list<Entry> one child of each kind a unit can carry, the user aside */
+    private static function children(float $at): array
+    {
+        return [
+            new Entry(Entry::TYPE_QUERY, 'a1b2c3d4e5f6a7b8', $at, 4.0, ['n' => 2, 'm' => 3.0]),
+            new Entry(Entry::TYPE_NPLUS1, 'a1b2c3d4e5f6a7b8', $at, 4.0, ['n' => 12]),
+            new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $at, 0.0, ['n' => 1]),
+            new Entry(Entry::TYPE_HTTP, 'api.example.com', $at, 30.0, ['n' => 1, 'm' => 30.0]),
+            new Entry(Entry::TYPE_CACHE, 'cache.app', $at, 0.0, ['n' => 1, 'h' => 1]),
+            new Entry(Entry::TYPE_SENT, 'App\Message\SendInvoice', $at, 0.0, ['n' => 1]),
+        ];
+    }
+
+    /**
+     * @param list<Aggregate> $aggregates
+     *
+     * @return list<int>
+     */
+    private function bucketsOf(array $aggregates, Period $period): array
+    {
+        $buckets = [];
+        foreach ($aggregates as $aggregate) {
+            if ($aggregate->period === $period) {
+                $buckets[$aggregate->bucket] = $aggregate->bucket;
+            }
+        }
+
+        return array_values($buckets);
+    }
+
+    /**
+     * @param list<Aggregate> $aggregates
+     *
+     * @return list<string>
+     */
+    private function familiesOf(array $aggregates): array
+    {
+        return array_values(array_unique(array_map(static fn(Aggregate $aggregate): string => Family::ofMetric($aggregate->type)->value ?? $aggregate->type, $aggregates)));
     }
 
     /**

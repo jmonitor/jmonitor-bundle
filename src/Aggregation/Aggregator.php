@@ -12,6 +12,7 @@ final class Aggregator
 
     private const MAX_OCCURRENCES = 1e9;
     private const MAX_WEIGHT = 1e6;
+    private const MAX_UNIT_DURATION_MS = 7 * 86_400_000;
     private const CACHE_COUNTERS = ['h' => Metric::CACHE_HIT, 'mi' => Metric::CACHE_MISS, 'w' => Metric::CACHE_WRITE, 'de' => Metric::CACHE_DELETE];
 
     public function __construct(
@@ -34,7 +35,7 @@ final class Aggregator
                 continue;
             }
 
-            $minute = Period::OneHour->bucketFor($entry->startedAt);
+            $minute = Period::OneHour->bucketFor($entry->type === Entry::TYPE_REQUEST ? $entry->startedAt : self::endOf($entry));
             match ($entry->type) {
                 Entry::TYPE_REQUEST => $this->addRequest($groups, $minute, $entry),
                 Entry::TYPE_COMMAND => $this->addCommand($groups, $minute, $entry),
@@ -431,6 +432,14 @@ final class Aggregator
         }
 
         return $result;
+    }
+
+    /**
+     * A duration beyond the plausible, from a clock that jumped, would file the unit in a future bucket.
+     */
+    private static function endOf(Entry $unit): float
+    {
+        return $unit->durationMs >= 0 && $unit->durationMs <= self::MAX_UNIT_DURATION_MS ? $unit->startedAt + $unit->durationMs / 1000 : $unit->startedAt;
     }
 
     private static function saturatingSum(int $a, int $b): int
