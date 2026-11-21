@@ -136,8 +136,8 @@ final class SchedulerScreen implements ScreenInterface
         }
 
         return [
-            new Card('Tasks', Format::number(\count($declared)), 'Declared in a schedule'),
             new Card('Runs', Format::number($runs), Format::period($period), series: $series, wide: true),
+            new Card('Tasks', Format::number(\count($declared)), 'Declared in a schedule'),
             new Card('Failed runs', Format::number($failed), 'Ended with an exception', $failed > 0 ? 'bad' : null),
             $next === null
                 ? new Card('Next run', self::NONE, 'No upcoming run')

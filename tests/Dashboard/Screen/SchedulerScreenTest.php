@@ -260,7 +260,8 @@ final class SchedulerScreenTest extends TestCase
         );
 
         static::assertSame(['app:work'], $this->labels($view));
-        static::assertSame('0', $view->cards[0]->value);
+        static::assertSame('Tasks', $view->cards[1]->label);
+        static::assertSame('0', $view->cards[1]->value);
     }
 
     public function testTheCards(): void
@@ -272,11 +273,11 @@ final class SchedulerScreenTest extends TestCase
             self::task('h1', new TaskKey('default', $hourly->getId(), 'app:hourly', 'every 1 hour'), runs: 4, last: self::NOW - 600, failed: 1, lastFailed: self::NOW - 600),
         ], ['default' => [$hourly], 'reports' => [$minutely]], other: self::task('ho', null, runs: 3, failed: 2, last: self::NOW - 30), period: Period::SixHours, series: [2, 0, 1]);
 
-        static::assertSame(['Tasks', 'Runs', 'Failed runs', 'Next run'], array_map(static fn(Card $card): string => $card->label, $view->cards));
-        static::assertSame(['2', '7', '3', 'in 30 s'], array_map(static fn(Card $card): string => $card->value, $view->cards));
-        static::assertSame(['Declared in a schedule', 'Last 6 hours', 'Ended with an exception', Ping::class], array_map(static fn(Card $card): string => $card->hint, $view->cards));
-        static::assertSame([2, 0, 1], $view->cards[1]->series);
-        static::assertSame([false, true, false, false], array_map(static fn(Card $card): bool => $card->wide, $view->cards));
+        static::assertSame(['Runs', 'Tasks', 'Failed runs', 'Next run'], array_map(static fn(Card $card): string => $card->label, $view->cards));
+        static::assertSame(['7', '2', '3', 'in 30 s'], array_map(static fn(Card $card): string => $card->value, $view->cards));
+        static::assertSame(['Last 6 hours', 'Declared in a schedule', 'Ended with an exception', Ping::class], array_map(static fn(Card $card): string => $card->hint, $view->cards));
+        static::assertSame([2, 0, 1], $view->cards[0]->series);
+        static::assertSame([true, false, false, false], array_map(static fn(Card $card): bool => $card->wide, $view->cards));
         static::assertSame([null, null, 'bad', null], array_map(static fn(Card $card): ?string => $card->tone, $view->cards));
     }
 
@@ -284,7 +285,7 @@ final class SchedulerScreenTest extends TestCase
     {
         $view = $this->build([self::task('h1', new TaskKey('default', 'a', 'app:work', 'every 1 hour'), runs: 1, last: self::NOW - 60)]);
 
-        static::assertSame(['0', '1', '0', '—'], array_map(static fn(Card $card): string => $card->value, $view->cards));
+        static::assertSame(['1', '0', '0', '—'], array_map(static fn(Card $card): string => $card->value, $view->cards));
         static::assertSame('No upcoming run', $view->cards[3]->hint);
         static::assertSame([null, null, null, null], array_map(static fn(Card $card): ?string => $card->tone, $view->cards));
     }
