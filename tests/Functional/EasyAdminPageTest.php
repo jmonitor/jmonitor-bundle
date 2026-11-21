@@ -124,7 +124,7 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertSame('noindex', $response->headers->get('X-Robots-Tag'));
     }
 
-    public function testTheMenuLinkOfVersionOneStillOpensThePage(): void
+    public function testAMenuLinkWrittenForJmonitorEasyadminBundleStillOpensThePage(): void
     {
         $client = $this->client();
 
@@ -241,6 +241,32 @@ final class EasyAdminPageTest extends WebTestCase
 
         $client->request('GET', '/staff/jmonitor', server: self::USER);
 
+        static::assertResponseStatusCodeSame(200);
+    }
+
+    public function testWithoutAPathRuleThePermissionIsTheOnlyGuard(): void
+    {
+        $client = $this->client(['jmonitor' => ['easyadmin' => ['permission' => 'ROLE_ADMIN']], 'open' => true]);
+        $client->setServerParameters([]);
+
+        foreach ([[], self::USER] as $user) {
+            $status = $user === [] ? 401 : 403;
+            $client->request('GET', '/admin/jmonitor', server: $user);
+            static::assertResponseStatusCodeSame($status);
+            $client->request('GET', '/admin/jmonitor/_fragment/probe', server: $user);
+            static::assertResponseStatusCodeSame($status);
+            $client->request('POST', '/admin/jmonitor/_action/probe', ['action' => 'ping'], server: $user + self::SAME_ORIGIN);
+            static::assertResponseStatusCodeSame($status);
+        }
+
+        $client->request('GET', '/admin/jmonitor', server: self::ADMIN);
+        static::assertResponseStatusCodeSame(200);
+
+        self::ensureKernelShutdown();
+        $client = $this->client(['open' => true]);
+        $client->setServerParameters([]);
+
+        $client->request('GET', '/admin/jmonitor');
         static::assertResponseStatusCodeSame(200);
     }
 
@@ -373,7 +399,7 @@ final class EasyAdminPageTest extends WebTestCase
     }
 
     /**
-     * @param array{jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool} $options
+     * @param array{jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool} $options
      */
     private function client(array $options = []): KernelBrowser
     {
@@ -388,7 +414,7 @@ final class EasyAdminPageTest extends WebTestCase
     }
 
     /**
-     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool} $options
+     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -402,6 +428,7 @@ final class EasyAdminPageTest extends WebTestCase
             withCsrf: $options['csrf'] ?? false,
             withEasyAdmin: true,
             withCspNonce: $options['nonce'] ?? false,
+            withOpenBackOffice: $options['open'] ?? false,
         );
         self::$varDirs[] = $kernel->getVarDir();
 

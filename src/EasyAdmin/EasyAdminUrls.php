@@ -47,6 +47,8 @@ final class EasyAdminUrls implements HostUrlsInterface
      */
     private function generate(string $route, string $path, array $query): string
     {
+        unset($query['path']);
+
         return $this->router->generate($this->prefix . $route, ($path !== '' ? ['path' => $path] : []) + $query);
     }
 }

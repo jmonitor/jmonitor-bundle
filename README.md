@@ -375,7 +375,9 @@ public function configureMenuItems(): iterable
 }
 ```
 
-The pages live under the path of each dashboard: `/admin/jmonitor`, `/admin/jmonitor/queries`… for a dashboard at `/admin`. Their route is named after the route of the dashboard followed by `_jmonitor_index`: `admin_jmonitor_index` for a dashboard whose route is `admin`. The screens follow the light or dark theme of the back office, even when it is switched.
+When you turn the option off, remove the link too: EasyAdmin fails on a link to a route that no longer exists.
+
+The pages live under the path of each dashboard: `/admin/jmonitor`, `/admin/jmonitor/queries`… for a dashboard at `/admin`. Their route is named after the route of the dashboard followed by `_jmonitor_index`: `admin_jmonitor_index` for a dashboard whose route is `admin`. A dashboard at `/` puts these pages at `/jmonitor`, the address of the standalone page: the first of the two declared wins, so give the `/jmonitor` route import another prefix, or leave it out. The screens follow the light or dark theme of the back office, even when it is switched.
 
 Turned on without EasyAdmin, or with an older version, the option stops the container build with a message that says why. The option cannot be read from an environment variable, since its routes are fixed when the container is built; `permission` can.
 

@@ -18,10 +18,10 @@ final class EasyAdminUrlsTest extends TestCase
     protected function setUp(): void
     {
         $routes = new RouteCollection();
-        foreach (['admin', 'staff'] as $dashboard) {
+        foreach (['admin' => '/admin', 'staff' => '/staff', 'my_jmonitor_admin' => '/my-admin'] as $dashboard => $prefix) {
             foreach (['index' => '', 'fragment' => '/_fragment', 'action' => '/_action'] as $name => $path) {
                 $routes->add($dashboard . '_jmonitor_' . $name, new Route(
-                    '/' . $dashboard . '/jmonitor' . $path . '/{path}',
+                    $prefix . '/jmonitor' . $path . '/{path}',
                     ['path' => ''],
                     ['path' => '[a-z][a-z-]*(/[a-z][a-z-]*)*'],
                 ));
@@ -45,6 +45,19 @@ final class EasyAdminUrlsTest extends TestCase
     public function testTheDashboardIsReadFromTheRouteOfTheRequest(): void
     {
         static::assertSame('/staff/jmonitor', EasyAdminUrls::fromRoute($this->router, 'staff_jmonitor_action')->page(''));
+    }
+
+    public function testAPathInTheQueryNeverBecomesTheRouteParameter(): void
+    {
+        $urls = new EasyAdminUrls($this->router, 'admin_jmonitor_');
+
+        static::assertSame('/admin/jmonitor?period=6h', $urls->page('', ['path' => 'queries', 'period' => '6h']));
+        static::assertSame('/admin/jmonitor/cache', $urls->page('cache', ['path' => 'queries']));
+    }
+
+    public function testADashboardWhoseRouteNameHoldsTheMarkerKeepsItsOwnRoutes(): void
+    {
+        static::assertSame('/my-admin/jmonitor', EasyAdminUrls::fromRoute($this->router, 'my_jmonitor_admin_jmonitor_fragment')->page(''));
     }
 
     public function testARouteOutsideJmonitorIsRefused(): void

@@ -73,6 +73,7 @@ final class TestKernel extends Kernel
         private readonly bool $withCsrf = false,
         private readonly bool $withEasyAdmin = false,
         private readonly bool $withCspNonce = false,
+        private readonly bool $withOpenBackOffice = false,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
@@ -86,7 +87,7 @@ final class TestKernel extends Kernel
         $this->withSecurity = $withSecurity || $withEasyAdmin;
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice]));
     }
 
     public static function fromEnvironment(): self
@@ -289,7 +290,7 @@ final class TestKernel extends Kernel
                 'access_control' => [
                     ['path' => '^/lazy/me$', 'roles' => 'IS_AUTHENTICATED_FULLY'],
                     ...$this->withEmbedHost ? [['path' => '^/back-office/locked', 'roles' => 'ROLE_ADMIN']] : [],
-                    ...$this->withEasyAdmin ? [
+                    ...$this->withEasyAdmin && !$this->withOpenBackOffice ? [
                         ['path' => '^/admin', 'roles' => 'ROLE_ADMIN'],
                         ['path' => '^/staff', 'roles' => 'ROLE_USER'],
                     ] : [],
