@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\PurgeTask;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
@@ -19,6 +20,7 @@ use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\KernelInterface;
+use Symfony\Component\Scheduler\Messenger\ServiceCallMessage;
 
 final class DashboardTest extends WebTestCase
 {
@@ -465,12 +467,13 @@ final class DashboardTest extends WebTestCase
         );
         static::assertSame('Scheduler', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
         static::assertSame(
-            ['app:work --times=2', Ping::class, 'app:work'],
+            ['app:work --times=2', '@' . PurgeTask::class . '::purge', Ping::class, 'app:work'],
             $crawler->filter('tr[data-jm-task]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-task')),
         );
         $nextRuns = $crawler->filter('tr[data-jm-task]')->each(static fn(Crawler $row): string => $row->filter('td')->eq(2)->text());
         static::assertMatchesRegularExpression('/^in \d+ d$/', $nextRuns[0]);
-        static::assertSame(['—', '—'], \array_slice($nextRuns, 1));
+        static::assertMatchesRegularExpression('/^in \d+ d$/', $nextRuns[1]);
+        static::assertSame(['—', '—'], \array_slice($nextRuns, 2));
         static::assertSame('0', $crawler->filter('tr[data-jm-task="app:work"]')->attr('data-jm-runs'));
         static::assertStringContainsString('every 1 second', $crawler->filter('tr[data-jm-task="app:work"]')->text());
     }
@@ -489,9 +492,23 @@ final class DashboardTest extends WebTestCase
 
         static::assertSame('1', $crawler->filter('tr[data-jm-task="app:work"]')->attr('data-jm-runs'));
         static::assertSame(
-            ['app:work --times=2', Ping::class, 'app:work'],
+            ['app:work --times=2', '@' . PurgeTask::class . '::purge', Ping::class, 'app:work'],
             $crawler->filter('tr[data-jm-task]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-task')),
         );
+    }
+
+    public function testATaskDeclaredByAnAttributeIsLabelledByTheServiceMethodItCalls(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording(), 'scheduler' => true]);
+
+        $crawler = $client->request('GET', '/jmonitor/scheduler');
+
+        static::assertResponseIsSuccessful();
+        $schedules = array_column($crawler->filter('tr[data-jm-task]')->each(
+            static fn(Crawler $row): array => [(string) $row->attr('data-jm-task'), $row->filter('td')->eq(0)->text()],
+        ), 1, 0);
+        static::assertSame('maintenance', $schedules['@' . PurgeTask::class . '::purge'] ?? null);
+        static::assertArrayNotHasKey(ServiceCallMessage::class, $schedules);
     }
 
     public function testTheSchedulerScreenIsNotFoundWithoutTheScheduler(): void

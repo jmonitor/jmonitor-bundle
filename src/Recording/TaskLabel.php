@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Recording;
 use Symfony\Component\Console\Messenger\RunCommandMessage;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Message\RedispatchMessage;
+use Symfony\Component\Scheduler\Messenger\ServiceCallMessage;
 
 final class TaskLabel
 {
@@ -14,6 +15,10 @@ final class TaskLabel
     {
         if ($message instanceof RunCommandMessage) {
             return $message->input;
+        }
+
+        if ($message instanceof ServiceCallMessage) {
+            return (string) $message;
         }
 
         if ($message instanceof RedispatchMessage) {

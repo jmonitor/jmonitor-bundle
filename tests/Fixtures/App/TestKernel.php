@@ -252,6 +252,8 @@ final class TestKernel extends Kernel
         if ($this->withScheduler) {
             $services->set(DemoSchedule::class)
                 ->tag('scheduler.schedule_provider', ['name' => 'default']);
+            $services->set(PurgeTask::class)
+                ->autoconfigure();
         }
         $services->set(CacheConsumer::class)
             ->autowire()
