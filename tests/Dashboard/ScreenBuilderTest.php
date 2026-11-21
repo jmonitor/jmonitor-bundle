@@ -112,7 +112,9 @@ final class ScreenBuilderTest extends TestCase
         $file = $this->path();
         touch($file);
         $unusable = new BufferDirectory($file, 'test');
-        $usable = new BufferDirectory($this->path(), 'test');
+        $directory = $this->path();
+        mkdir($directory);
+        $usable = new BufferDirectory($directory, 'test');
 
         static::assertSame(ScreenState::BufferUnavailable, $this->builder(bufferDirectory: $unusable)->create($this->screen(rows: 0), null, null, null)->state);
         static::assertSame(ScreenState::Ready, $this->builder(bufferDirectory: $unusable)->create($this->screen(rows: 1), null, null, null)->state);

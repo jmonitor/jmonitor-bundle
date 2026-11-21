@@ -14,16 +14,19 @@ class FamilyTest extends TestCase
         static::assertSame(Family::Request, Family::ofMetric('request.status.5xx'));
         static::assertSame(Family::Query, Family::ofMetric('query.slow'));
         static::assertSame(Family::NPlusOne, Family::ofMetric('nplus1.calls'));
+        static::assertSame(Family::Command, Family::ofMetric('command.last_run'));
+        static::assertSame(Family::Message, Family::ofMetric('message.duration_le.50'));
+        static::assertSame(Family::Task, Family::ofMetric('task.failed'));
         static::assertNull(Family::ofMetric('weird'));
         static::assertNull(Family::ofMetric('weird.thing'));
     }
 
     public function testCapsAndOpenness(): void
     {
-        static::assertSame([300, 200, 100, 50, 100, 200, 50, 20], array_map(static fn(Family $f): int => $f->cap(), Family::cases()));
-        static::assertSame([false, true, true, false, false, true, true, false], array_map(static fn(Family $f): bool => $f->isOpen(), Family::cases()));
+        static::assertSame([300, 200, 100, 50, 100, 200, 50, 20, 100, 100, 100], array_map(static fn(Family $f): int => $f->cap(), Family::cases()));
+        static::assertSame([false, true, true, false, false, true, true, false, false, false, false], array_map(static fn(Family $f): bool => $f->isOpen(), Family::cases()));
         static::assertSame(
-            ['request.duration', 'query.duration', 'nplus1.duration', 'exception.count', 'exception_where.count', 'user.duration', 'http.duration', 'cache.hit'],
+            ['request.duration', 'query.duration', 'nplus1.duration', 'exception.count', 'exception_where.count', 'user.duration', 'http.duration', 'cache.hit', 'command.duration', 'message.duration', 'task.duration'],
             array_map(static fn(Family $f): string => $f->weightMetric(), Family::cases()),
         );
     }
@@ -52,6 +55,20 @@ class FamilyTest extends TestCase
         ]));
         static::assertSame(2.0, Family::Cache->weight(['cache.delete' => [2, 0.0, 0.0]]));
         static::assertSame(0.0, Family::Cache->weight([]));
+    }
+
+    public function testCommandsAndTasksWeighTheirRuns(): void
+    {
+        static::assertSame(3.0, Family::Command->weight(['command.duration' => [3, 900.0, 500.0], 'command.failed' => [2, 2.0, 1.0]]));
+        static::assertSame(2.0, Family::Task->weight(['task.duration' => [2, 40.0, 30.0], 'task.failed' => [1, 0.0, 1700000045.0]]));
+    }
+
+    public function testAMessageWeighsItsHandlingsAndItsSendings(): void
+    {
+        static::assertSame(7.0, Family::Message->weight(['message.duration' => [3, 90.0, 50.0], 'message.sent' => [4, 0.0, 0.0]]));
+        static::assertSame(4.0, Family::Message->weight(['message.sent' => [4, 0.0, 0.0]]));
+        static::assertSame(3.0, Family::Message->weight(['message.duration' => [3, 90.0, 50.0], 'message.failed' => [2, 2.0, 1.0]]));
+        static::assertSame(0.0, Family::Message->weight([]));
     }
 
     public function testAUserWithErrorsOutweighsABusierOne(): void

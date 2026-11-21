@@ -732,6 +732,21 @@ body.jm {
         --jm-gutter: 16px;
     }
 
+    .jm-nav {
+        flex: none;
+        flex-wrap: nowrap;
+        width: calc(100% + 2 * var(--jm-gutter));
+        margin: -4px calc(-1 * var(--jm-gutter));
+        padding: 4px var(--jm-gutter);
+        overflow-x: auto;
+        scroll-padding-inline: var(--jm-gutter);
+        scrollbar-width: none;
+    }
+
+    .jm-nav::-webkit-scrollbar {
+        display: none;
+    }
+
     .jm-toolbar {
         width: 100%;
         justify-content: space-between;

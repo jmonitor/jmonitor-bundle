@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -32,11 +33,11 @@ final class ExceptionsScreenTest extends TestCase
 
         static::assertSame('exceptions', $screen->id());
         static::assertSame('Exceptions', $screen->label());
-        static::assertSame('Server errors per exception class', $screen->heading());
+        static::assertSame('Errors per exception class', $screen->heading());
         static::assertTrue($screen->isAvailable());
         static::assertSame(['count' => 'desc', 'last' => 'desc', 'class' => 'asc'], $screen->sorts());
         static::assertSame(
-            ['title' => 'No exceptions recorded', 'text' => 'An exception that ends in a 5xx response shows up here within a few seconds.'],
+            ['title' => 'No exceptions recorded', 'text' => 'An exception behind a 5xx response, a failed command or a failed message shows up here within a few seconds.'],
             $screen->emptyState(),
         );
     }
@@ -156,6 +157,23 @@ final class ExceptionsScreenTest extends TestCase
         static::assertSame(['method' => 'GET'], $row->cells['where']->data);
     }
 
+    public function testAnExceptionMayBeThrownByACommandAMessageOrATask(): void
+    {
+        $task = (new TaskKey('default', '28af6db0', 'app:cleanup', 'every 1 hour'))->toString();
+        $table = $this->build([self::exception('h1', \RuntimeException::class, 3)], where: [
+            self::where('w1', 'app:work', \RuntimeException::class, 3, unitType: Entry::TYPE_COMMAND),
+            self::where('w2', 'App\Message\SendInvoice', \RuntimeException::class, 2, unitType: Entry::TYPE_MESSAGE),
+            self::where('w3', $task, \RuntimeException::class, 1, unitType: Entry::TYPE_TASK),
+        ])->tables[1];
+        $where = static fn(Row $row): array => [$row->cells['where']->text, $row->cells['where']->kind, $row->cells['where']->data];
+
+        static::assertSame(['w1', 'w2', 'w3'], array_map(static fn(Row $row): string => $row->key, $table->rows));
+        static::assertSame(['app:work', 'route', ['method' => 'CLI']], $where($table->rows[0]));
+        static::assertSame(['App\Message\SendInvoice', 'route', ['method' => 'MSG']], $where($table->rows[1]));
+        static::assertSame(['app:cleanup', 'route', ['method' => 'TASK']], $where($table->rows[2]));
+        static::assertSame(['data-jm-exception' => \RuntimeException::class, 'data-jm-count' => '3'], $table->rows[0]->attributes);
+    }
+
     public function testEntryPointsFoldedIntoOtherComeLast(): void
     {
         $rows = [];
@@ -198,6 +216,7 @@ final class ExceptionsScreenTest extends TestCase
         static::assertSame([1, 0, 4], $view->cards[0]->series);
         static::assertTrue($view->cards[0]->wide);
         static::assertSame(\LogicException::class, $view->cards[2]->hint);
+        static::assertSame('Where an exception was thrown', $view->cards[3]->hint);
         static::assertSame([null, null, null, 'bad'], array_map(static fn(Card $card): ?string => $card->tone, $view->cards));
     }
 
@@ -258,9 +277,9 @@ final class ExceptionsScreenTest extends TestCase
         return new ReportRow($hash, $class, $class, [Metric::EXCEPTION_COUNT => new MetricValue($count, 0.0, (float) $last)]);
     }
 
-    private static function where(string $hash, string $entryPoint, string $class, int $count = 1, int $last = self::NOW): ReportRow
+    private static function where(string $hash, string $entryPoint, string $class, int $count = 1, int $last = self::NOW, string $unitType = Entry::TYPE_REQUEST): ReportRow
     {
-        $key = 'request' . Entry::KEY_SEPARATOR . $entryPoint . Entry::KEY_SEPARATOR . $class;
+        $key = $unitType . Entry::KEY_SEPARATOR . $entryPoint . Entry::KEY_SEPARATOR . $class;
 
         return new ReportRow($hash, $key, $key, [Metric::EXCEPTION_WHERE_COUNT => new MetricValue($count, 0.0, (float) $last)]);
     }

@@ -15,6 +15,8 @@ use Psr\Log\LoggerInterface;
 
 final class Flusher
 {
+    public const EXIT_FLOOR_SECONDS = 1;
+
     private ?\Throwable $lastFailure = null;
     private bool $labelsConfirmed = false;
     private bool $bookkeepingFailureLogged = false;
@@ -46,12 +48,27 @@ final class Flusher
         return $this->run();
     }
 
+    public function flushOnExit(): bool
+    {
+        if ($this->recorder !== null && !$this->recorder->hasWritten()) {
+            return false;
+        }
+
+        try {
+            $due = $this->lock->isDue(self::EXIT_FLOOR_SECONDS);
+        } catch (\Throwable $e) {
+            return $this->fail($e);
+        }
+
+        return $due && $this->run(includeCurrent: true);
+    }
+
     public function lastFailure(): ?\Throwable
     {
         return $this->lastFailure;
     }
 
-    private function run(): bool
+    private function run(bool $includeCurrent = false): bool
     {
         $this->lastFailure = null;
         $this->labelsConfirmed = false;
@@ -65,7 +82,7 @@ final class Flusher
                     return false;
                 }
 
-                $this->buffer->drain(fn(iterable $entries) => $this->store($entries));
+                $this->buffer->drain(fn(iterable $entries) => $this->store($entries), $includeCurrent);
                 $this->purgeIfDue();
             } finally {
                 if ($acquired && !$this->labelsConfirmed) {
@@ -77,13 +94,18 @@ final class Flusher
 
             return true;
         } catch (\Throwable $e) {
-            $this->lastFailure = $e;
-            $this->logger?->error('JMonitor could not flush its buffer: ' . $e->getMessage(), ['exception' => $e]);
-
-            return false;
+            return $this->fail($e);
         } finally {
             $this->recorder?->resume();
         }
+    }
+
+    private function fail(\Throwable $e): bool
+    {
+        $this->lastFailure = $e;
+        $this->logger?->error('JMonitor could not flush its buffer: ' . $e->getMessage(), ['exception' => $e]);
+
+        return false;
     }
 
     /**

@@ -6,10 +6,12 @@ namespace Jmonitor\JmonitorBundle\Tests\Aggregation;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\EntryPointKey;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use PHPUnit\Framework\TestCase;
@@ -18,6 +20,8 @@ use Symfony\Component\Filesystem\Filesystem;
 
 class AggregatorTest extends TestCase
 {
+    private const CHILD_FAMILIES = ['query', 'nplus1', 'exception', 'exception_where', 'http', 'cache', 'message'];
+
     public function testOneRequestFeedsEveryPeriod(): void
     {
         $entry = new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1700000045.0, 84.0, ['status' => 200, 'memory' => 1000]);
@@ -111,9 +115,9 @@ class AggregatorTest extends TestCase
         static::assertNotNull($this->find($aggregates, Period::OneHour, 'request.duration_le.inf', 'GET app_home'));
     }
 
-    public function testNonRequestEntriesAreIgnored(): void
+    public function testEntriesOfAnUnknownTypeAreIgnored(): void
     {
-        $entry = new Entry('command', 'app:foo', 1700000045.0, 50.0, ['status' => 200, 'memory' => 1]);
+        $entry = new Entry('zz', 'app:foo', 1700000045.0, 50.0, ['status' => 200, 'memory' => 1]);
 
         static::assertSame([], (new Aggregator(1000))->aggregate([$entry]));
     }
@@ -201,7 +205,7 @@ class AggregatorTest extends TestCase
                 }
             }
         }
-        $entries[] = new Entry('command', 'app:import', 1700000045.0, 50.0, ['status' => 200, 'memory' => 1]);
+        $entries[] = new Entry('zz', 'app:import', 1700000045.0, 50.0, ['status' => 200, 'memory' => 1]);
 
         $actual = self::canonical((new Aggregator(1000))->aggregate($entries));
         $expected = self::canonical(self::referenceAggregate($entries, 1000));
@@ -712,6 +716,343 @@ class AggregatorTest extends TestCase
             static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, 'q001'), $name);
             static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, Aggregator::OTHER)?->count, $name);
         }
+    }
+
+    public function testACommandIsMeasuredPerName(): void
+    {
+        $t = 1700000045.25;
+        $command = static fn(array $attributes): Entry => new Entry(Entry::TYPE_COMMAND, 'app:import', $t, 2500.0, $attributes);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            $command(['exit' => 0, 'memory' => 8_388_608, 'sql_ms' => 40.0, 'sql_n' => 3]),
+        ]);
+
+        $duration = $this->find($aggregates, Period::OneHour, Metric::COMMAND_DURATION, 'app:import');
+        $memory = $this->find($aggregates, Period::OneHour, Metric::COMMAND_MEMORY, 'app:import');
+        $lastRun = $this->find($aggregates, Period::OneHour, Metric::COMMAND_LAST_RUN, 'app:import');
+        $sqlTime = $this->find($aggregates, Period::OneHour, Metric::COMMAND_SQL_TIME, 'app:import');
+        $sqlCount = $this->find($aggregates, Period::OneHour, Metric::COMMAND_SQL_COUNT, 'app:import');
+        static::assertNotNull($duration);
+        static::assertNotNull($memory);
+        static::assertNotNull($lastRun);
+        static::assertNotNull($sqlTime);
+        static::assertNotNull($sqlCount);
+        static::assertSame([1, 2500.0, 2500.0], [$duration->count, $duration->sum, $duration->max]);
+        static::assertSame(8_388_608.0, $memory->max);
+        static::assertSame([1, 0.0, $t], [$lastRun->count, $lastRun->sum, $lastRun->max]);
+        static::assertSame(40.0, $sqlTime->sum);
+        static::assertSame(3.0, $sqlCount->sum);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::COMMAND_FAILED, 'app:import'));
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::COMMAND_HTTP_TIME, 'app:import'));
+        static::assertSame(Family::Command, Family::ofMetric($duration->type));
+
+        $aggregates = (new Aggregator(1000))->aggregate([$command(['exit' => 3])]);
+
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::COMMAND_FAILED, 'app:import')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::COMMAND_MEMORY, 'app:import'));
+    }
+
+    public function testOnlyAnIntegerNonZeroExitFailsACommand(): void
+    {
+        foreach ([[], ['exit' => 0], ['exit' => '3'], ['exit' => 3.0]] as $attributes) {
+            $aggregates = (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_COMMAND, 'app:import', 1700000045.0, 10.0, $attributes)]);
+
+            static::assertNull($this->find($aggregates, Period::OneHour, Metric::COMMAND_FAILED, 'app:import'), json_encode($attributes, \JSON_THROW_ON_ERROR));
+            static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::COMMAND_DURATION, 'app:import'));
+        }
+
+        $aggregates = (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_COMMAND, 'app:import', 1700000045.0, 10.0, ['exit' => -1])]);
+
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::COMMAND_FAILED, 'app:import')?->count);
+    }
+
+    public function testTheOutgoingCallsOfACommandAreItsOwnMetric(): void
+    {
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_COMMAND, 'app:sync', 1700000045.0, 300.0, ['exit' => 0, 'http_ms' => 120.0, 'http_n' => 2]),
+        ]);
+
+        static::assertSame(120.0, $this->find($aggregates, Period::OneHour, Metric::COMMAND_HTTP_TIME, 'app:sync')?->sum);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::COMMAND_SQL_TIME, 'app:sync'));
+    }
+
+    public function testAMessageIsMeasuredPerClass(): void
+    {
+        $message = static fn(array $attributes = []): Entry => new Entry(Entry::TYPE_MESSAGE, 'App\Message\Ping', 1700000045.0, 30.0, $attributes);
+
+        $aggregates = (new Aggregator(1000))->aggregate([$message()]);
+
+        $duration = $this->find($aggregates, Period::OneHour, Metric::MESSAGE_DURATION, 'App\Message\Ping');
+        static::assertNotNull($duration);
+        static::assertSame([1, 30.0, 30.0], [$duration->count, $duration->sum, $duration->max]);
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_DURATION_LE_PREFIX . '50', 'App\Message\Ping')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::MESSAGE_FAILED, 'App\Message\Ping'));
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::MESSAGE_RETRIED, 'App\Message\Ping'));
+        static::assertSame(Family::Message, Family::ofMetric($duration->type));
+
+        $aggregates = (new Aggregator(1000))->aggregate([$message(['retried' => 1]), $message(['failed' => 1, 'memory' => 2048, 'http_ms' => 12.5, 'http_n' => 1])]);
+
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_RETRIED, 'App\Message\Ping')?->count);
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_FAILED, 'App\Message\Ping')?->count);
+        static::assertSame(2048.0, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_MEMORY, 'App\Message\Ping')?->max);
+        static::assertSame(12.5, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_HTTP_TIME, 'App\Message\Ping')?->sum);
+        static::assertSame(2, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_DURATION, 'App\Message\Ping')?->count);
+    }
+
+    public function testASentMessageIsCountedOnItsClassWhateverItsUnit(): void
+    {
+        $sent = new Entry(Entry::TYPE_SENT, 'App\Message\Ping', 1700000045.0, 0.0, ['n' => 4]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_REQUEST, 'POST app_ping', 1700000045.0, 20.0, [], [$sent])]);
+
+        static::assertSame(4, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_SENT, 'App\Message\Ping')?->count);
+        static::assertNull($this->find($aggregates, Period::OneHour, Metric::MESSAGE_DURATION, 'App\Message\Ping'));
+
+        $aggregates = (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_REQUEST, 'POST app_ping', 1700000045.0, 20.0, ['cw' => 10], [$sent])]);
+
+        static::assertSame(40, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_SENT, 'App\Message\Ping')?->count);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_COMMAND, 'app:import', 1700000045.0, 20.0, [], [$sent]),
+            new Entry(Entry::TYPE_MESSAGE, 'App\Message\Batch', 1700000045.0, 20.0, [], [$sent]),
+            new Entry(Entry::TYPE_TASK, (new TaskKey('default', 'ab12', 'app:work', 'every 10 seconds'))->toString(), 1700000045.0, 20.0, [], [$sent]),
+        ]);
+
+        static::assertSame(12, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_SENT, 'App\Message\Ping')?->count);
+    }
+
+    public function testATaskCountsItsRunsAndItsLastFailure(): void
+    {
+        $key = (new TaskKey('default', 'ab12', 'app:work', 'every 10 seconds'))->toString();
+        $t1 = 1700000045.5;
+        $t2 = 1700000055.75;
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_TASK, $key, $t1, 12.0),
+            new Entry(Entry::TYPE_TASK, $key, $t2, 30.0, ['failed' => 1]),
+        ]);
+
+        $duration = $this->find($aggregates, Period::OneHour, Metric::TASK_DURATION, $key);
+        $lastRun = $this->find($aggregates, Period::OneHour, Metric::TASK_LAST_RUN, $key);
+        $failed = $this->find($aggregates, Period::OneHour, Metric::TASK_FAILED, $key);
+        static::assertNotNull($duration);
+        static::assertNotNull($lastRun);
+        static::assertNotNull($failed);
+        static::assertSame([2, 42.0, 30.0], [$duration->count, $duration->sum, $duration->max]);
+        static::assertSame([2, 0.0, $t2], [$lastRun->count, $lastRun->sum, $lastRun->max]);
+        static::assertSame([1, 0.0, $t2], [$failed->count, $failed->sum, $failed->max]);
+        static::assertSame(Family::Task, Family::ofMetric($duration->type));
+    }
+
+    public function testATaskHasNoTimeSplit(): void
+    {
+        $key = (new TaskKey('default', 'ab12', 'app:work', 'every 10 seconds'))->toString();
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_TASK, $key, 1700000045.0, 12.0, ['sql_ms' => 4.0, 'sql_n' => 1, 'http_ms' => 3.0, 'http_n' => 1, 'memory' => 10]),
+        ]);
+
+        $types = array_values(array_unique(array_map(static fn(Aggregate $a): string => $a->type, $aggregates)));
+        sort($types);
+        static::assertSame([Metric::TASK_DURATION, Metric::TASK_LAST_RUN], $types);
+    }
+
+    public function testTheChildrenOfACommandOrAMessageAreKeyedByTheirUnit(): void
+    {
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_COMMAND, 'app:import', 1700000045.0, 50.0, ['exit' => 1], [
+                new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, 1700000045.0, 0.0, ['n' => 1]),
+                new Entry(Entry::TYPE_QUERY, 'abc', 1700000045.0, 12.0, ['n' => 3, 'm' => 5.0]),
+            ]),
+            new Entry(Entry::TYPE_MESSAGE, 'App\Message\Ping', 1700000045.0, 50.0, [], [
+                new Entry(Entry::TYPE_NPLUS1, 'abc', 1700000045.0, 40.0, ['n' => 12]),
+                new Entry(Entry::TYPE_CACHE, 'cache.app', 1700000045.0, 0.0, ['n' => 1, 'h' => 2]),
+            ]),
+        ]);
+
+        $where = (new EntryPointKey(Entry::TYPE_COMMAND, 'app:import', \RuntimeException::class))->toString();
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_WHERE_COUNT, $where)?->count);
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class)?->count);
+        static::assertSame(3, $this->find($aggregates, Period::OneHour, Metric::QUERY_DURATION, 'abc')?->count);
+        static::assertSame(2, $this->find($aggregates, Period::OneHour, Metric::CACHE_HIT, 'cache.app')?->count);
+
+        $nPlusOne = array_values(array_unique(array_map(
+            static fn(Aggregate $a): string => $a->key,
+            array_filter($aggregates, static fn(Aggregate $a): bool => $a->type === Metric::NPLUS1_CALLS),
+        )));
+        static::assertCount(1, $nPlusOne);
+        static::assertSame(Entry::TYPE_MESSAGE, EntryPointKey::parse($nPlusOne[0])?->unitType);
+        static::assertSame('App\Message\Ping', EntryPointKey::parse($nPlusOne[0])?->unitKey);
+    }
+
+    public function testAUserIsOnlyCountedForARequest(): void
+    {
+        $user = new Entry(Entry::TYPE_USER, 'alice', 1700000045.0, 0.0, ['n' => 1]);
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_COMMAND, 'app:import', 1700000045.0, 50.0, [], [$user]),
+            new Entry(Entry::TYPE_MESSAGE, 'App\Message\Ping', 1700000045.0, 50.0, [], [$user]),
+        ]);
+
+        static::assertSame([], array_filter($aggregates, static fn(Aggregate $a): bool => Family::ofMetric($a->type) === Family::User));
+        static::assertNotNull($this->find($aggregates, Period::OneHour, Metric::COMMAND_DURATION, 'app:import'));
+    }
+
+    public function testCommandsBeyondTheCapFoldIntoOther(): void
+    {
+        $entries = [];
+        for ($i = 1; $i <= 150; ++$i) {
+            $entries[] = new Entry(Entry::TYPE_COMMAND, sprintf('app:c%03d', $i), 1700000045.0, 10.0, ['exit' => 0]);
+        }
+
+        $aggregates = (new Aggregator(1000))->aggregate($entries);
+
+        $durations = array_filter(
+            $aggregates,
+            static fn(Aggregate $a): bool => $a->period === Period::OneHour && $a->type === Metric::COMMAND_DURATION,
+        );
+        static::assertCount(101, $durations);
+        static::assertSame(50, $this->find($aggregates, Period::OneHour, Metric::COMMAND_DURATION, Aggregator::OTHER)?->count);
+        static::assertSame(50, $this->find($aggregates, Period::OneHour, Metric::COMMAND_LAST_RUN, Aggregator::OTHER)?->count);
+    }
+
+    public function testAMessageOnlySentWeighsAgainstTheCap(): void
+    {
+        $entries = [];
+        for ($i = 1; $i <= 100; ++$i) {
+            $entries[] = new Entry(Entry::TYPE_MESSAGE, sprintf('App\Message\M%03d', $i), 1700000045.0, 10.0);
+        }
+        $entries[] = new Entry(Entry::TYPE_REQUEST, 'POST app_ping', 1700000045.0, 20.0, [], [
+            new Entry(Entry::TYPE_SENT, 'App\Message\Sent', 1700000045.0, 0.0, ['n' => 2]),
+        ]);
+
+        $aggregates = (new Aggregator(1000))->aggregate($entries);
+
+        static::assertSame(2, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_SENT, 'App\Message\Sent')?->count);
+        static::assertSame(1, $this->find($aggregates, Period::OneHour, Metric::MESSAGE_DURATION, Aggregator::OTHER)?->count);
+    }
+
+    public function testALongCommandIsFiledAtItsEndWithItsChildren(): void
+    {
+        $startedAt = 1700000045.25;
+        $end = $startedAt + 4500;
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_COMMAND, 'app:import', $startedAt, 4_500_000.0, ['exit' => 0], self::children($startedAt)),
+        ]);
+
+        foreach (Period::cases() as $period) {
+            static::assertSame([$period->bucketFor($end)], $this->bucketsOf($aggregates, $period), $period->label());
+        }
+        static::assertEqualsCanonicalizing(['command', ...self::CHILD_FAMILIES], $this->familiesOf($aggregates));
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::COMMAND_LAST_RUN, 'app:import')?->max);
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class)?->max);
+    }
+
+    public function testALongMessageIsFiledAtItsEndWithItsChildren(): void
+    {
+        $startedAt = 1700000045.25;
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_MESSAGE, 'App\Message\Import', $startedAt, 4_500_000.0, [], self::children($startedAt)),
+        ]);
+
+        foreach (Period::cases() as $period) {
+            static::assertSame([$period->bucketFor($startedAt + 4500)], $this->bucketsOf($aggregates, $period), $period->label());
+        }
+        static::assertEqualsCanonicalizing(self::CHILD_FAMILIES, $this->familiesOf($aggregates));
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::EXCEPTION_COUNT, \RuntimeException::class)?->max);
+    }
+
+    public function testALongTaskIsFiledAtItsEndWithItsChildren(): void
+    {
+        $key = (new TaskKey('default', 'ab12', 'app:import', 'every 1 day'))->toString();
+        $startedAt = 1700000045.25;
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_TASK, $key, $startedAt, 4_500_000.0, ['failed' => 1], self::children($startedAt)),
+        ]);
+
+        foreach (Period::cases() as $period) {
+            static::assertSame([$period->bucketFor($startedAt + 4500)], $this->bucketsOf($aggregates, $period), $period->label());
+        }
+        static::assertEqualsCanonicalizing(['task', ...self::CHILD_FAMILIES], $this->familiesOf($aggregates));
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::TASK_LAST_RUN, $key)?->max);
+        static::assertSame($startedAt, $this->find($aggregates, Period::OneHour, Metric::TASK_FAILED, $key)?->max);
+    }
+
+    public function testALongRequestIsFiledAtItsStartWithItsChildren(): void
+    {
+        $startedAt = 1700000045.25;
+
+        $aggregates = (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_REQUEST, 'GET app_export', $startedAt, 90_000.0, ['status' => 200], self::children($startedAt)),
+        ]);
+
+        static::assertSame([1700000040], $this->bucketsOf($aggregates, Period::OneHour));
+        static::assertEqualsCanonicalizing(['request', ...self::CHILD_FAMILIES], $this->familiesOf($aggregates));
+    }
+
+    public function testAUnitWithAnImplausibleDurationIsFiledAtItsStart(): void
+    {
+        $startedAt = 1700000045.25;
+        $sevenDays = 7 * 86_400_000.0;
+
+        foreach ([-90_000.0, $sevenDays + 1.0] as $duration) {
+            $aggregates = (new Aggregator(1000))->aggregate([
+                new Entry(Entry::TYPE_COMMAND, 'app:import', $startedAt, $duration, ['exit' => 0], self::children($startedAt)),
+                new Entry(Entry::TYPE_MESSAGE, 'App\Message\Import', $startedAt, $duration),
+                new Entry(Entry::TYPE_TASK, (new TaskKey('default', 'ab12', 'app:import', 'every 1 day'))->toString(), $startedAt, $duration),
+            ]);
+
+            foreach (Period::cases() as $period) {
+                static::assertSame([$period->bucketFor($startedAt)], $this->bucketsOf($aggregates, $period), $period->label() . ' ' . $duration);
+            }
+        }
+
+        $aggregates = (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_COMMAND, 'app:import', $startedAt, $sevenDays, ['exit' => 0])]);
+
+        static::assertSame([Period::OneHour->bucketFor($startedAt + 7 * 86_400)], $this->bucketsOf($aggregates, Period::OneHour));
+    }
+
+    /** @return list<Entry> one child of each kind a unit can carry, the user aside */
+    private static function children(float $at): array
+    {
+        return [
+            new Entry(Entry::TYPE_QUERY, 'a1b2c3d4e5f6a7b8', $at, 4.0, ['n' => 2, 'm' => 3.0]),
+            new Entry(Entry::TYPE_NPLUS1, 'a1b2c3d4e5f6a7b8', $at, 4.0, ['n' => 12]),
+            new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $at, 0.0, ['n' => 1]),
+            new Entry(Entry::TYPE_HTTP, 'api.example.com', $at, 30.0, ['n' => 1, 'm' => 30.0]),
+            new Entry(Entry::TYPE_CACHE, 'cache.app', $at, 0.0, ['n' => 1, 'h' => 1]),
+            new Entry(Entry::TYPE_SENT, 'App\Message\SendInvoice', $at, 0.0, ['n' => 1]),
+        ];
+    }
+
+    /**
+     * @param list<Aggregate> $aggregates
+     *
+     * @return list<int>
+     */
+    private function bucketsOf(array $aggregates, Period $period): array
+    {
+        $buckets = [];
+        foreach ($aggregates as $aggregate) {
+            if ($aggregate->period === $period) {
+                $buckets[$aggregate->bucket] = $aggregate->bucket;
+            }
+        }
+
+        return array_values($buckets);
+    }
+
+    /**
+     * @param list<Aggregate> $aggregates
+     *
+     * @return list<string>
+     */
+    private function familiesOf(array $aggregates): array
+    {
+        return array_values(array_unique(array_map(static fn(Aggregate $aggregate): string => Family::ofMetric($aggregate->type)->value ?? $aggregate->type, $aggregates)));
     }
 
     /**

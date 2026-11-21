@@ -13,8 +13,6 @@ use Symfony\Contracts\Service\ResetInterface;
 
 final class ExceptionRecorder implements EventSubscriberInterface, ResetInterface
 {
-    private const ANONYMOUS = 'class@anonymous';
-
     private ?string $class = null;
 
     public function __construct(private readonly Recorder $recorder) {}
@@ -37,8 +35,7 @@ final class ExceptionRecorder implements EventSubscriberInterface, ResetInterfac
 
     public function onException(ExceptionEvent $event): void
     {
-        $class = $event->getThrowable()::class;
-        $this->class = str_contains($class, '@anonymous') ? self::ANONYMOUS : $class;
+        $this->class = ClassName::of($event->getThrowable());
     }
 
     public function onTerminate(TerminateEvent $event): void

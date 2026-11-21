@@ -7,7 +7,7 @@ use Symfony\Component\HttpFoundation\Request;
 
 require dirname(__DIR__, 3) . '/vendor/autoload.php';
 
-$kernel = new TestKernel('dev', true);
+$kernel = TestKernel::fromEnvironment();
 $kernel->boot();
 
 $handled = 0;

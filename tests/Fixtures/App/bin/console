@@ -1,0 +1,12 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Input\ArgvInput;
+
+require dirname(__DIR__, 4) . '/vendor/autoload.php';
+
+exit((new Application(TestKernel::fromEnvironment()))->run(new ArgvInput()));

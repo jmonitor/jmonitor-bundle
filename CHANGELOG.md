@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Requests screen: `HTTP out` column with the time spent in outgoing HTTP calls.
 - `recording.exceptions`, `recording.users`, `recording.http_client` and `recording.cache` options: each turns its recording off.
 - The `/jmonitor` page says when its buffer directory is unusable.
+- `/jmonitor` Commands screen: runs, duration, failures, peak memory and SQL time per console command.
+- `/jmonitor` Messages screen: messages sent and handled per class, with duration, failures and retries.
+- `/jmonitor` Scheduler screen: scheduled tasks with their trigger, next run, last run and failures.
+- Exceptions screen: exceptions thrown by console commands and message handlers.
+- `recording.commands`, `recording.messenger` and `recording.scheduler` options: each turns its recording off, and `recording.commands.ignore` lists commands that are not recorded.
 
 ### Changed
 - Requires PHP 8.2.

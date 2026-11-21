@@ -25,9 +25,11 @@ use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
 use Jmonitor\JmonitorBundle\Recording\Cache\RecordingAdapter;
+use Jmonitor\JmonitorBundle\Recording\CommandRecorder;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Recording\HttpClient\CallRecorder;
 use Jmonitor\JmonitorBundle\Recording\HttpClient\RecordingHttpClient;
+use Jmonitor\JmonitorBundle\Recording\MessengerRecorder;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
@@ -42,6 +44,11 @@ use Psr\Clock\ClockInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Clock\NativeClock;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Event\ConsoleCommandEvent;
+use Symfony\Component\Console\Event\ConsoleTerminateEvent;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
@@ -50,6 +57,9 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\TerminateEvent;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Symfony\Component\Messenger\Envelope;
+use Symfony\Component\Messenger\Event\WorkerMessageHandledEvent;
+use Symfony\Component\Messenger\Event\WorkerMessageReceivedEvent;
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -260,10 +270,11 @@ function fillSlot(BufferDirectory $directory, ClockInterface $clock, array $data
 
 /**
  * @param callable(BufferDirectory, ClockInterface, FileBuffer): void $fill
+ * @param bool $onExit the flush that ends a command or a worker, current slot included
  *
  * @return array{float, int} milliseconds, rows written
  */
-function flushMillis(Connection $connection, callable $fill): array
+function flushMillis(Connection $connection, callable $fill, bool $onExit = false): array
 {
     $dir = workDir();
     $clock = new MockClock('@1000');
@@ -291,10 +302,12 @@ function flushMillis(Connection $connection, callable $fill): array
     $lock->markPurged();
 
     $fill($directory, $clock, $buffer);
-    $clock->sleep(11);
+    if (!$onExit) {
+        $clock->sleep(11);
+    }
 
     $start = hrtime(true);
-    $flushed = $flusher->flush();
+    $flushed = $onExit ? $flusher->flushOnExit() : $flusher->flush();
     $elapsed = (hrtime(true) - $start) / 1_000_000;
     $failure = $flusher->lastFailure();
     removeDir($dir);
@@ -311,6 +324,11 @@ function requestsOnly(BufferDirectory $directory, ClockInterface $clock, FileBuf
     for ($i = 0; $i < FLUSH_ENTRIES; ++$i) {
         $buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET route_' . ($i % FLUSH_ROUTES), 1000.0 + $i % 10, 20.0 + $i % 200, ['status' => 200, 'memory' => 2_097_152]));
     }
+}
+
+function oneCommand(BufferDirectory $directory, ClockInterface $clock, FileBuffer $buffer): void
+{
+    $buffer->append(new Entry(Entry::TYPE_COMMAND, 'app:import', (float) $clock->now()->getTimestamp(), 35.0, ['exit' => 0, 'memory' => 8_388_608]));
 }
 
 /**
@@ -552,6 +570,28 @@ report('cache read, recording overhead', microsPerCall($recordedRead) - $bareMic
 $cacheRecorder->reset();
 removeDir($dir);
 
+$dir = workDir();
+$commandRecorder = new CommandRecorder(new Recorder(new FileBuffer(new BufferDirectory($dir, 'bench'), 10, $clock)), null);
+$command = new Command('app:import');
+$commandEvent = new ConsoleCommandEvent($command, new ArrayInput([]), new NullOutput());
+$commandTerminateEvent = new ConsoleTerminateEvent($command, new ArrayInput([]), new NullOutput(), 0);
+report('empty command unit, COMMAND to TERMINATE, no flush', microsPerCall(static function () use ($commandRecorder, $commandEvent, $commandTerminateEvent): void {
+    $commandRecorder->onCommand($commandEvent);
+    $commandRecorder->onTerminate($commandTerminateEvent);
+}), 'µs', null);
+removeDir($dir);
+
+$dir = workDir();
+$messengerRecorder = new MessengerRecorder(new Recorder(new FileBuffer(new BufferDirectory($dir, 'bench'), 10, $clock)), null);
+$envelope = new Envelope(new stdClass());
+$receivedEvent = new WorkerMessageReceivedEvent($envelope, 'async');
+$handledEvent = new WorkerMessageHandledEvent($envelope, 'async');
+report('message unit, received to handled, no flush', microsPerCall(static function () use ($messengerRecorder, $receivedEvent, $handledEvent): void {
+    $messengerRecorder->onReceived($receivedEvent);
+    $messengerRecorder->onHandled($handledEvent);
+}), 'µs', null);
+removeDir($dir);
+
 [$aggregateMs, $sampled] = aggregateMillis();
 report(sprintf('read and aggregate %d units, no database', LOADED[2]), $aggregateMs, 'ms', 300, sprintf('(%d kept their queries under sampling)', $sampled));
 
@@ -577,6 +617,8 @@ foreach (['mysql' => 'JMONITOR_TEST_MYSQL_URL', 'pgsql' => 'JMONITOR_TEST_PGSQL_
 
 if (isset($bases['mysql'])) {
     report('flush 10k requests, no SQL (mysql)', flushMillis($bases['mysql'], 'requestsOnly')[0], 'ms', 50);
+    [$milliseconds, $rows] = flushMillis($bases['mysql'], 'oneCommand', true);
+    report('exit flush, one command line (mysql)', $milliseconds, 'ms', null, sprintf('(%d rows written)', $rows));
     foreach (['typical' => [TYPICAL, 100], 'loaded' => [LOADED, 500]] as $name => [$dataSet, $target]) {
         $sampled = 0;
         [$milliseconds, $rows] = flushMillis($bases['mysql'], static function (BufferDirectory $directory, ClockInterface $clock) use ($dataSet, &$sampled): void {

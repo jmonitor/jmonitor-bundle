@@ -10,10 +10,13 @@ use Jmonitor\JmonitorBundle\Recording\Entry;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\Filesystem\Filesystem;
 
 final class FileBufferTest extends TestCase
 {
+    private const RACE_SLOT_SECONDS = 3600;
+
     private string $dir;
     private string $private;
 
@@ -345,7 +348,7 @@ final class FileBufferTest extends TestCase
 
     public function testUnwritableDirectoryIsSilent(): void
     {
-        $buffer = new FileBuffer(new BufferDirectory('/proc/jmonitor-nope', 'app'), 10, new MockClock('@1000'));
+        $buffer = new FileBuffer(new BufferDirectory('/proc', 'app'), 10, new MockClock('@1000'));
         $errors = [];
         set_error_handler(static function (int $no, string $message) use (&$errors): bool {
             $errors[] = $message;
@@ -466,7 +469,7 @@ final class FileBufferTest extends TestCase
         static::assertSame([], glob($target . '/*'));
     }
 
-    public function testWithoutPosixTheOwnerIsNotComparedWithTheScriptOwner(): void
+    public function testWithoutPosixTheDirectoryIsNamedAfterTheUserRunningPhp(): void
     {
         if (posix_geteuid() === 0 || fileowner('/etc/passwd') !== 0) {
             static::markTestSkipped('Needs a non-root process and a root-owned /etc/passwd.');
@@ -485,8 +488,233 @@ final class FileBufferTest extends TestCase
         proc_close($process);
 
         static::assertSame('', $errors);
-        static::assertSame($this->dir . '/jmonitor-app-u0', $output);
+        static::assertSame($this->dir . '/jmonitor-app-u' . posix_geteuid(), $output);
         static::assertSame(0o700, fileperms($output) & 0o777);
+    }
+
+    public function testTheSlotBeingWrittenIsDrainedWhenAsked(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        $buffer->append($this->entry('a'));
+
+        static::assertSame(0, $buffer->drain($this->consumer()));
+        static::assertSame(1, $buffer->drain($this->consumer(), true));
+        static::assertSame([], glob($this->private . '/*.ndjson'));
+    }
+
+    public function testATakenSlotLeftBehindIsDrainedOnceByTheNextDrain(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        mkdir($this->private, 0o700);
+        file_put_contents($this->private . '/100-deadbeef.ndjson', $this->entry('a')->toLine() . "\n" . $this->entry('b')->toLine() . "\n");
+
+        $keys = [];
+        static::assertSame(2, $buffer->drain($this->consumer($keys)));
+        static::assertSame(['a', 'b'], $keys);
+        static::assertSame(0, $buffer->drain($this->consumer()));
+    }
+
+    public function testATakenSlotIsDrainedEvenWhenItsStartIsStillRunning(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        $buffer->append($this->entry('current'));
+        file_put_contents($this->private . '/1000-deadbeef.ndjson', $this->entry('taken')->toLine() . "\n");
+
+        $keys = [];
+        static::assertSame(1, $buffer->drain($this->consumer($keys)));
+        static::assertSame(['taken'], $keys);
+        static::assertSame(['1000.ndjson'], array_map('basename', glob($this->private . '/*') ?: []));
+    }
+
+    public function testTakenSlotsCountTowardsTheSlotsDrainedAtOnce(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = new FileBuffer(new BufferDirectory($this->dir, 'app'), 10, $clock, maxSlotsPerDrain: 2);
+        mkdir($this->private, 0o700);
+        foreach ([100, 200, 300] as $start) {
+            file_put_contents(sprintf('%s/%d-deadbeef.ndjson', $this->private, $start), $this->entry('k' . $start)->toLine() . "\n");
+        }
+
+        $keys = [];
+        static::assertSame(2, $buffer->drain($this->consumer($keys)));
+        static::assertSame(['k100', 'k200'], $keys);
+        static::assertSame(1, $buffer->drain($this->consumer($keys)));
+    }
+
+    public function testATakenSlotIsKeptWhenTheConsumerThrows(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        $buffer->append($this->entry('a'));
+
+        try {
+            $buffer->drain(static function (iterable $entries): void {
+                throw new \RuntimeException('boom');
+            }, true);
+            static::fail('The exception should propagate.');
+        } catch (\RuntimeException $e) {
+            static::assertSame('boom', $e->getMessage());
+        }
+
+        static::assertCount(1, glob($this->private . '/1000-*.ndjson') ?: []);
+
+        $keys = [];
+        static::assertSame(1, $buffer->drain($this->consumer($keys)));
+        static::assertSame(['a'], $keys);
+        static::assertSame(0, $buffer->drain($this->consumer(), true));
+    }
+
+    public function testATakenSlotOlderThanMaxAgeIsDeletedWhenTheConsumerThrows(): void
+    {
+        $clock = new MockClock('@10000');
+        $buffer = $this->buffer($clock);
+        mkdir($this->private, 0o700);
+        file_put_contents($this->private . '/100-deadbeef.ndjson', $this->entry('old')->toLine() . "\n");
+
+        $this->drainWithFailure($buffer);
+
+        static::assertSame([], glob($this->private . '/*'));
+    }
+
+    public function testATakenSlotThatCannotBeDeletedIsNotIngestedTwice(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        $buffer->append($this->entry('current'));
+        file_put_contents($this->private . '/100-deadbeef.ndjson', $this->entry('a')->toLine() . "\n");
+
+        $keys = [];
+        chmod($this->private, 0o500);
+        try {
+            $first = $buffer->drain($this->consumer($keys), true);
+        } finally {
+            chmod($this->private, 0o700);
+        }
+
+        static::assertSame(1, $first);
+        static::assertSame(0, $buffer->drain($this->consumer()));
+        static::assertSame(1, $buffer->drain($this->consumer($keys), true));
+        static::assertSame(['a', 'current'], $keys);
+    }
+
+    public function testAppendsGoOnInAFreshFileOnceTheSlotWasTaken(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        $buffer->append($this->entry('a'));
+
+        $keys = [];
+        static::assertSame(1, $buffer->drain($this->consumer($keys), true));
+
+        $buffer->append($this->entry('b'));
+
+        static::assertSame(1, $buffer->drain($this->consumer($keys), true));
+        static::assertSame(['a', 'b'], $keys);
+    }
+
+    public function testNoLineIsLostNorCountedTwiceWhileWritersAndClosingDrainsRace(): void
+    {
+        $writers = 4;
+        $lines = 2000;
+        $buffer = new FileBuffer(new BufferDirectory($this->dir, 'app'), self::RACE_SLOT_SECONDS, new NativeClock());
+        $seen = [];
+        $consumer = static function (iterable $entries) use (&$seen): void {
+            foreach ($entries as $entry) {
+                $seen[$entry->key] = ($seen[$entry->key] ?? 0) + 1;
+            }
+        };
+        $exposed = [];
+
+        $umask = umask(0o022);
+        try {
+            $processes = [];
+            for ($n = 0; $n < $writers; ++$n) {
+                $process = proc_open(
+                    [\PHP_BINARY, \dirname(__DIR__) . '/Fixtures/Buffer/append_lines.php', $this->dir, (string) self::RACE_SLOT_SECONDS, 'w' . $n, (string) $lines],
+                    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                    $pipes,
+                );
+                static::assertIsResource($process);
+                $processes[] = [$process, $pipes];
+            }
+
+            $running = $processes;
+            while ($running !== []) {
+                $buffer->drain($consumer, true);
+                $exposed = array_merge($exposed, $this->slotsWithLinesOpenToOthers());
+                $running = array_filter($running, static fn(array $process): bool => proc_get_status($process[0])['running']);
+            }
+            $buffer->drain($consumer, true);
+            $exposed = array_merge($exposed, $this->slotsWithLinesOpenToOthers());
+        } finally {
+            umask($umask);
+        }
+
+        foreach ($processes as [$process, $pipes]) {
+            static::assertSame('', stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]));
+            proc_close($process);
+        }
+
+        $expected = [];
+        for ($n = 0; $n < $writers; ++$n) {
+            for ($i = 0; $i < $lines; ++$i) {
+                $expected[] = sprintf('w%d-%d', $n, $i);
+            }
+        }
+
+        $lost = array_values(array_diff($expected, array_keys($seen)));
+        $twice = array_keys(array_filter($seen, static fn(int $times): bool => $times > 1));
+
+        static::assertSame(0, \count($lost), 'Lost lines, starting with ' . implode(', ', \array_slice($lost, 0, 10)));
+        static::assertSame(0, \count($twice), 'Lines read twice, starting with ' . implode(', ', \array_slice($twice, 0, 10)));
+        static::assertCount($writers * $lines, $seen);
+        static::assertSame([], $exposed, 'Slots holding lines were readable by group or others');
+    }
+
+    public function testTheSlotBeingWrittenIsMadePrivateWhenFoundOpenToOthers(): void
+    {
+        $clock = new MockClock('@1000');
+        $buffer = $this->buffer($clock);
+        mkdir($this->private, 0o700);
+        touch($this->private . '/1000.ndjson');
+        chmod($this->private . '/1000.ndjson', 0o644);
+
+        $buffer->append($this->entry('a'));
+
+        clearstatcache();
+        static::assertSame(0o600, fileperms($this->private . '/1000.ndjson') & 0o777);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function slotsWithLinesOpenToOthers(): array
+    {
+        $exposed = [];
+        clearstatcache();
+        foreach (glob($this->private . '/*.ndjson') ?: [] as $file) {
+            $stat = BufferDirectory::quietly(static fn(): array|false => stat($file));
+            if ($stat !== false && $stat['size'] > 0 && ($stat['mode'] & 0o077) !== 0) {
+                $exposed[] = basename($file) . sprintf(' %o', $stat['mode'] & 0o777);
+            }
+        }
+
+        return $exposed;
+    }
+
+    /**
+     * @param list<string> $keys
+     */
+    private function consumer(array &$keys = []): \Closure
+    {
+        return static function (iterable $entries) use (&$keys): void {
+            foreach ($entries as $entry) {
+                $keys[] = $entry->key;
+            }
+        };
     }
 
     private function drainWithFailure(FileBuffer $buffer): void

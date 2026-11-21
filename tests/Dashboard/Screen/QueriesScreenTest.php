@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -239,6 +240,34 @@ final class QueriesScreenTest extends TestCase
         static::assertSame('2', $view->cards[3]->value);
     }
 
+    public function testRepeatedQueriesOfACommandShowTheCommand(): void
+    {
+        $view = $this->build([$this->query('h1', 'SELECT 1')], nPlusOne: [
+            $this->nPlusOne('n1', 'app:work', self::QUERY_ID, unitType: Entry::TYPE_COMMAND),
+            $this->nPlusOne('n2', 'GET app_n_plus_one', self::QUERY_ID),
+        ]);
+        [$command, $request] = $view->tables[1]->rows;
+
+        static::assertSame(['data-jm-nplus1' => 'app:work', 'data-jm-repeats-max' => '12'], $command->attributes);
+        static::assertSame(['app:work', 'route', ['method' => 'CLI']], [$command->cells['where']->text, $command->cells['where']->kind, $command->cells['where']->data]);
+        static::assertSame(['data-jm-nplus1' => 'GET app_n_plus_one', 'data-jm-repeats-max' => '12'], $request->attributes);
+        static::assertSame(['app_n_plus_one', ['method' => 'GET']], [$request->cells['where']->text, $request->cells['where']->data]);
+    }
+
+    public function testRepeatedQueriesOfATaskAreMarkedWithItsLabel(): void
+    {
+        $task = (new TaskKey('default', '28af6db0', 'app:work', 'every 1 hour'))->toString();
+        $view = $this->build([$this->query('h1', 'SELECT 1')], nPlusOne: [
+            $this->nPlusOne('n1', $task, self::QUERY_ID, unitType: Entry::TYPE_TASK),
+            $this->nPlusOne('n2', 'not a task key', self::QUERY_ID, unitType: Entry::TYPE_TASK),
+        ]);
+        [$parsed, $raw] = $view->tables[1]->rows;
+
+        static::assertSame(['data-jm-nplus1' => 'app:work', 'data-jm-repeats-max' => '12'], $parsed->attributes);
+        static::assertSame(['app:work', ['method' => 'TASK']], [$parsed->cells['where']->text, $parsed->cells['where']->data]);
+        static::assertSame(['data-jm-nplus1' => 'not a task key', 'data-jm-repeats-max' => '12'], $raw->attributes);
+    }
+
     public function testRepeatedQueriesFoldedIntoOtherComeLast(): void
     {
         $other = new ReportRow('no', Aggregator::OTHER, null, [
@@ -379,9 +408,9 @@ final class QueriesScreenTest extends TestCase
         return new ReportRow($hash, $sql ?? $hash, $sql, $metrics);
     }
 
-    private function nPlusOne(string $hash, string $entryPoint, string $queryId, int $requests = 1, float $repeats = 12.0, float $maxRepeats = 12.0, float $durationMs = 24.0): ReportRow
+    private function nPlusOne(string $hash, string $entryPoint, string $queryId, int $requests = 1, float $repeats = 12.0, float $maxRepeats = 12.0, float $durationMs = 24.0, string $unitType = Entry::TYPE_REQUEST): ReportRow
     {
-        $key = 'request' . Entry::KEY_SEPARATOR . $entryPoint . Entry::KEY_SEPARATOR . $queryId;
+        $key = $unitType . Entry::KEY_SEPARATOR . $entryPoint . Entry::KEY_SEPARATOR . $queryId;
 
         return new ReportRow($hash, $key, $key, [
             Metric::NPLUS1_CALLS => new MetricValue($requests, $repeats, $maxRepeats),

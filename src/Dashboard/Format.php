@@ -61,6 +61,11 @@ final class Format
         return self::trimZero(number_format($percent, $percent < 10 ? 1 : 0)) . ' %';
     }
 
+    public static function sql(float $msPerUnit, float $queriesPerUnit): string
+    {
+        return self::duration($msPerUnit) . ' · ' . ($queriesPerUnit < 10 ? number_format($queriesPerUnit, 1) : number_format($queriesPerUnit)) . ' q';
+    }
+
     public static function ago(int $timestamp, int $now): string
     {
         $seconds = $now - $timestamp;
@@ -71,6 +76,19 @@ final class Format
             $seconds < 3600 => intdiv($seconds, 60) . ' min ago',
             $seconds < 86400 => intdiv($seconds, 3600) . ' h ago',
             default => intdiv($seconds, 86400) . ' d ago',
+        };
+    }
+
+    public static function in(int $timestamp, int $now): string
+    {
+        $seconds = $timestamp - $now;
+
+        return match (true) {
+            $seconds < 5 => 'now',
+            $seconds < 60 => 'in ' . $seconds . ' s',
+            $seconds < 3600 => 'in ' . intdiv($seconds, 60) . ' min',
+            $seconds < 86400 => 'in ' . intdiv($seconds, 3600) . ' h',
+            default => 'in ' . intdiv($seconds, 86400) . ' d',
         };
     }
 

@@ -122,7 +122,7 @@ final class FlusherTest extends TestCase
 
             public function append(Entry $entry): void {}
 
-            public function drain(callable $consumer): int
+            public function drain(callable $consumer, bool $includeCurrent = false): int
             {
                 $consumer((function (): \Generator {
                     ++$this->consumed;
@@ -247,6 +247,113 @@ final class FlusherTest extends TestCase
         static::assertFalse($flusher->flushIfDue());
         static::assertTrue($flusher->flush());
         static::assertSame(5, $this->storedRequests());
+    }
+
+    public function testFlushOnExitStoresTheSlotBeingWritten(): void
+    {
+        $flusher = $this->flusher($this->dbalStorage());
+        $this->record(1);
+
+        static::assertTrue($flusher->flushOnExit());
+
+        static::assertSame(1, $this->storedRequests());
+        static::assertSame([], glob($this->dir . '/*/*.ndjson'));
+    }
+
+    public function testFlushOnExitWritesAtMostOncePerSecond(): void
+    {
+        $storage = $this->spyStorage($this->dbalStorage());
+        $recorder = new Recorder($this->buffer);
+        $flusher = $this->flusher($storage, recorder: $recorder);
+
+        for ($i = 0; $i < 1000; ++$i) {
+            $this->recordUnit($recorder);
+            $flusher->flushOnExit();
+        }
+
+        static::assertSame(1, $storage->stores);
+        static::assertSame(1, $this->storedRequests());
+
+        $this->clock->sleep(Flusher::EXIT_FLOOR_SECONDS);
+
+        static::assertTrue($flusher->flushOnExit());
+        static::assertSame(2, $storage->stores);
+        static::assertSame(1000, $this->storedRequests());
+    }
+
+    public function testFlushOnExitDoesNothingWhenThisProcessRecordedNothing(): void
+    {
+        $storage = $this->spyStorage();
+        $this->record(1);
+        $this->clock->sleep(11);
+
+        static::assertFalse($this->flusher($storage, recorder: new Recorder($this->buffer))->flushOnExit());
+
+        static::assertSame([0, 0, 0], [$storage->prepares, $storage->stores, $storage->purges]);
+        static::assertCount(1, glob($this->dir . '/*/*.ndjson') ?: []);
+    }
+
+    public function testFlushOnExitNeverThrowsAndLogsOnce(): void
+    {
+        $logger = $this->memoryLogger();
+        $failing = new class implements StorageInterface {
+            public function prepare(): bool
+            {
+                return false;
+            }
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                throw new \RuntimeException('database down');
+            }
+
+            public function purge(int $now): void {}
+        };
+        $recorder = new Recorder($this->buffer);
+        $this->recordUnit($recorder);
+
+        $flusher = $this->flusher($failing, $logger, $recorder);
+        static::assertFalse($flusher->flushOnExit());
+
+        static::assertInstanceOf(\RuntimeException::class, $flusher->lastFailure());
+        static::assertSame(['error JMonitor could not flush its buffer: database down'], $logger->records);
+        static::assertMatchesRegularExpression('/^1000-[0-9a-f]{8}\.ndjson$/', implode(',', array_map('basename', glob($this->dir . '/*/*.ndjson') ?: [])));
+
+        static::assertTrue($this->flusher($this->dbalStorage())->flush());
+        static::assertSame(1, $this->storedRequests());
+        static::assertSame([], glob($this->dir . '/*/*.ndjson'));
+    }
+
+    public function testFlushOnExitNeverThrowsWhenTheClockFails(): void
+    {
+        $directory = new BufferDirectory($this->dir, 'app');
+        $lock = new FlushLock($directory, 10, $this->clock);
+        static::assertTrue($lock->acquire());
+        $lock->release();
+        $broken = new class implements ClockInterface {
+            public function now(): \DateTimeImmutable
+            {
+                throw new \RuntimeException('clock stopped');
+            }
+        };
+        $logger = $this->memoryLogger();
+        $flusher = new Flusher($this->buffer, new Aggregator(500), $this->dbalStorage(), new FlushLock($directory, 10, $broken), $broken, $logger);
+
+        static::assertFalse($flusher->flushOnExit());
+
+        static::assertInstanceOf(\RuntimeException::class, $flusher->lastFailure());
+        static::assertSame(['error JMonitor could not flush its buffer: clock stopped'], $logger->records);
+    }
+
+    public function testFlushIfDueStillLeavesTheSlotBeingWritten(): void
+    {
+        $storage = $this->spyStorage();
+        $this->record(1);
+
+        static::assertTrue($this->flusher($storage)->flushIfDue());
+
+        static::assertSame(0, $storage->stores);
+        static::assertSame(['1000.ndjson'], array_map('basename', glob($this->dir . '/*/*.ndjson') ?: []));
     }
 
     public function testStoreReceivesTheTimeOfTheFlush(): void
@@ -707,7 +814,7 @@ final class FlusherTest extends TestCase
         };
     }
 
-    private function flusher(StorageInterface $storage, ?AbstractLogger $logger = null): Flusher
+    private function flusher(StorageInterface $storage, ?AbstractLogger $logger = null, ?Recorder $recorder = null): Flusher
     {
         return new Flusher(
             $this->buffer,
@@ -717,7 +824,44 @@ final class FlusherTest extends TestCase
             $this->clock,
             $logger,
             300,
+            recorder: $recorder,
         );
+    }
+
+    private function spyStorage(?StorageInterface $inner = null): StorageInterface
+    {
+        return new class ($inner) implements StorageInterface {
+            public int $prepares = 0;
+            public int $stores = 0;
+            public int $purges = 0;
+
+            public function __construct(private readonly ?StorageInterface $inner) {}
+
+            public function prepare(): bool
+            {
+                ++$this->prepares;
+
+                return $this->inner?->prepare() ?? false;
+            }
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                ++$this->stores;
+                $this->inner?->store($aggregates, $now, $labels);
+            }
+
+            public function purge(int $now): void
+            {
+                ++$this->purges;
+                $this->inner?->purge($now);
+            }
+        };
+    }
+
+    private function recordUnit(Recorder $recorder): void
+    {
+        $now = (float) $this->clock->now()->getTimestamp();
+        $recorder->end($recorder->begin(Entry::TYPE_REQUEST, $now), 'GET app_home', 20.0, ['status' => 200]);
     }
 
     private function dbalStorage(): DbalStorage

@@ -44,7 +44,7 @@ final class RecorderTest extends TestCase
                 $this->entries[] = $entry;
             }
 
-            public function drain(callable $consumer): int
+            public function drain(callable $consumer, bool $includeCurrent = false): int
             {
                 return 0;
             }
@@ -260,7 +260,9 @@ final class RecorderTest extends TestCase
         $recorder->end($outer, 'GET app_home', 3.0);
 
         static::assertSame(['sql_ms' => 1.0, 'sql_n' => 1], $this->buffer->entries[0]->attributes);
-        static::assertSame([], $this->buffer->entries[1]->attributes);
+        static::assertCount(1, $this->buffer->entries[0]->children);
+        static::assertSame(['sql_ms' => 1.0, 'sql_n' => 1], $this->buffer->entries[1]->attributes);
+        static::assertSame([], $this->buffer->entries[1]->children);
     }
 
     public function testResetForgetsTheSqlOfOpenUnits(): void
@@ -657,15 +659,296 @@ final class RecorderTest extends TestCase
         );
     }
 
+    public function testAMeasureWithANonFiniteDurationIsCountedWithoutDuration(): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', \NAN);
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', \INF);
+        $recorder->end($token, 'GET app_home', 5.0);
+
+        static::assertCount(1, $this->buffer->entries);
+        $entry = $this->buffer->entries[0];
+        static::assertSame(['http_ms' => 0.0, 'http_n' => 2], $entry->attributes);
+        static::assertCount(1, $entry->children);
+        static::assertSame(0.0, $entry->children[0]->durationMs);
+        static::assertSame(['n' => 2], $entry->children[0]->attributes);
+        static::assertNotNull(Entry::fromLine($entry->toLine()));
+    }
+
+    public function testAMeasureAddedWhilePausedIsDropped(): void
+    {
+        $recorder = $this->recorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->pause();
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', 3.0, ['c2' => 1]);
+        $recorder->resume();
+        $recorder->end($token, 'GET app_home', 5.0);
+
+        static::assertSame([], $this->buffer->entries[0]->attributes);
+        static::assertSame([], $this->buffer->entries[0]->children);
+    }
+
+    public function testAMutedUnitRecordsNothingAndWritesNothingWhenDiscarded(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $token = $recorder->begin(Entry::TYPE_COMMAND, 1000.0, true);
+        $recorder->add($token, Entry::TYPE_HTTP, 'api.example.com', 3.0);
+        $recorder->addSql('SELECT 1', 1.0, SqlDialect::Sqlite);
+
+        static::assertSame([], self::retainedTexts($recorder, $token));
+        static::assertTrue(self::openUnit($recorder, $token)->isEmpty());
+
+        $recorder->discard($token);
+
+        static::assertSame([], $this->buffer->entries);
+        static::assertSame(0, $recorder->openUnits());
+    }
+
+    public function testAMutedUnitHidesItsParent(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $muted = $recorder->begin(Entry::TYPE_COMMAND, 1001.0, true);
+        $recorder->addSql('SELECT 1', 1.0, SqlDialect::Sqlite);
+        $recorder->add($recorder->current(), Entry::TYPE_HTTP, 'api.example.com', 3.0);
+        $recorder->discard($muted);
+        $recorder->end($request, 'GET app_home', 5.0);
+
+        static::assertCount(1, $this->buffer->entries);
+        static::assertSame([], $this->buffer->entries[0]->attributes);
+        static::assertSame([], $this->buffer->entries[0]->children);
+    }
+
+    public function testNothingIsRecordingWhileTheInnermostUnitIsMuted(): void
+    {
+        $recorder = $this->recorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $muted = $recorder->begin(Entry::TYPE_COMMAND, 1001.0, true);
+
+        static::assertFalse($recorder->isRecording());
+
+        $command = $recorder->begin(Entry::TYPE_COMMAND, 1002.0);
+
+        static::assertTrue($recorder->isRecording());
+
+        $recorder->discard($command);
+
+        static::assertFalse($recorder->isRecording());
+
+        $recorder->discard($muted);
+
+        static::assertTrue($recorder->isRecording());
+
+        $recorder->discard($request);
+    }
+
+    public function testEndingAMutedUnitWritesNothing(): void
+    {
+        $recorder = $this->recorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $muted = $recorder->begin(Entry::TYPE_COMMAND, 1001.0, true);
+        $recorder->end($muted, 'cache:clear', 5.0, ['exit' => 0]);
+
+        static::assertSame([], $this->buffer->entries);
+        static::assertFalse($recorder->hasWritten());
+        static::assertSame(1, $recorder->openUnits());
+        static::assertSame($request, $recorder->current());
+    }
+
+    public function testAnInnerUnitCarriesItsTotalsToItsParent(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $command = $this->runCommandWithQueriesAndCalls($recorder);
+        $recorder->end($command, 'app:import', 60.0);
+        $recorder->end($request, 'GET app_home', 80.0);
+
+        [$commandEntry, $requestEntry] = $this->buffer->entries;
+        $totals = ['sql_ms' => 12.0, 'sql_n' => 3, 'http_ms' => 40.0, 'http_n' => 2];
+        static::assertSame(Entry::TYPE_COMMAND, $commandEntry->type);
+        static::assertSame($totals, $commandEntry->attributes);
+        static::assertSame([Entry::TYPE_QUERY, Entry::TYPE_QUERY, Entry::TYPE_HTTP], array_map(static fn(Entry $child): string => $child->type, $commandEntry->children));
+        static::assertSame($totals, $requestEntry->attributes);
+        static::assertSame([], $requestEntry->children);
+    }
+
+    public function testCarriedTotalsAddToTheOwnTotalsOfTheParent(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $recorder->addSql('SELECT * FROM v', 5.0, SqlDialect::Sqlite);
+        $command = $this->runCommandWithQueriesAndCalls($recorder);
+        $recorder->end($command, 'app:import', 60.0, ['exit' => 0]);
+        $recorder->end($request, 'GET app_home', 80.0, ['status' => 200]);
+
+        $requestEntry = $this->buffer->entries[1];
+        static::assertSame(['status' => 200, 'sql_ms' => 17.0, 'sql_n' => 4, 'http_ms' => 40.0, 'http_n' => 2], $requestEntry->attributes);
+        static::assertCount(1, $requestEntry->children);
+        static::assertSame(Entry::TYPE_QUERY, $requestEntry->children[0]->type);
+        static::assertSame(['n' => 1, 'm' => 5.0], $requestEntry->children[0]->attributes);
+    }
+
+    public function testCarriedTotalsReachTheOutermostUnitThroughEveryLevel(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $message = $recorder->begin(Entry::TYPE_MESSAGE, 1001.0);
+        $recorder->add($message, Entry::TYPE_HTTP, 'api.example.com', 7.0);
+        $command = $this->runCommandWithQueriesAndCalls($recorder);
+        $recorder->end($command, 'app:import', 60.0);
+        $recorder->end($message, 'App\\Message\\Import', 70.0);
+        $recorder->end($request, 'GET app_home', 80.0);
+
+        [, $messageEntry, $requestEntry] = $this->buffer->entries;
+        $totals = ['sql_ms' => 12.0, 'sql_n' => 3, 'http_ms' => 47.0, 'http_n' => 3];
+        static::assertSame($totals, $messageEntry->attributes);
+        static::assertCount(1, $messageEntry->children);
+        static::assertSame($totals, $requestEntry->attributes);
+        static::assertSame([], $requestEntry->children);
+    }
+
+    public function testAnInnerUnitCarriesNothingToAMutedParent(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $muted = $recorder->begin(Entry::TYPE_COMMAND, 1001.0, true);
+        $command = $this->runCommandWithQueriesAndCalls($recorder);
+        $recorder->end($command, 'app:import', 60.0);
+        $recorder->discard($muted);
+        $recorder->end($request, 'GET app_home', 80.0);
+
+        [$commandEntry, $requestEntry] = $this->buffer->entries;
+        static::assertSame(['sql_ms' => 12.0, 'sql_n' => 3, 'http_ms' => 40.0, 'http_n' => 2], $commandEntry->attributes);
+        static::assertSame([], $requestEntry->attributes);
+    }
+
+    public function testADiscardedUnitCarriesNothing(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $request = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $command = $this->runCommandWithQueriesAndCalls($recorder);
+        $recorder->discard($command);
+        $recorder->end($request, 'GET app_home', 80.0, ['status' => 200]);
+
+        static::assertCount(1, $this->buffer->entries);
+        static::assertSame(['status' => 200], $this->buffer->entries[0]->attributes);
+        static::assertSame([], $this->buffer->entries[0]->children);
+    }
+
+    public function testSqlTextsPastOneMebibyteAreFoldedUnderOther(): void
+    {
+        $recorder = $this->sqlRecorder();
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        for ($i = 1; $i <= 40; ++$i) {
+            $sql = str_pad('SELECT * FROM table_' . $i . " WHERE name = '", 59_999, 'a') . "'";
+            static::assertSame(60_000, \strlen($sql));
+            $recorder->addSql($sql, 1.0, SqlDialect::Sqlite);
+        }
+
+        $retained = self::retainedTexts($recorder, $token);
+        $named = array_values(array_filter($retained, static fn(array $text): bool => $text[1] !== QueryDigester::OTHER));
+        static::assertLessThanOrEqual(Recorder::MAX_SQL_TEXT_BYTES, array_sum(array_map(static fn(array $text): int => \strlen($text[1]), $named)));
+        static::assertCount(17, $named);
+        static::assertSame([SqlDialect::Unknown->value, QueryDigester::OTHER], $retained[\count($retained) - 1]);
+
+        $recorder->end($token, 'GET app_home', 100.0);
+
+        $entry = $this->buffer->entries[0];
+        static::assertSame(40, $entry->attributes['sql_n']);
+        $other = $entry->children[\count($entry->children) - 1];
+        static::assertSame(QueryDigester::OTHER, $other->key);
+        static::assertSame(23, $other->attributes['n']);
+    }
+
+    public function testOpenUnitsAndHasWritten(): void
+    {
+        $recorder = $this->recorder();
+
+        static::assertSame(0, $recorder->openUnits());
+        static::assertFalse($recorder->hasWritten());
+
+        $outer = $recorder->begin(Entry::TYPE_REQUEST, 1000.0);
+        $inner = $recorder->begin(Entry::TYPE_COMMAND, 1001.0);
+
+        static::assertSame(2, $recorder->openUnits());
+
+        $recorder->discard($inner);
+
+        static::assertSame(1, $recorder->openUnits());
+        static::assertFalse($recorder->hasWritten());
+
+        $recorder->end($outer, 'GET app_home', 5.0);
+
+        static::assertSame(0, $recorder->openUnits());
+        static::assertTrue($recorder->hasWritten());
+
+        $recorder->begin(Entry::TYPE_REQUEST, 1002.0);
+        $recorder->reset();
+
+        static::assertSame(0, $recorder->openUnits());
+        static::assertTrue($recorder->hasWritten());
+    }
+
+    #[DataProvider('cuts')]
+    public function testACutKeepsEveryWholeCharacterWithinTheGivenBytes(string $key, int $maxBytes, string $expected): void
+    {
+        static::assertSame($expected, Unit::cut($key, $maxBytes));
+    }
+
+    /**
+     * @return iterable<string, array{string, int, string}>
+     */
+    public static function cuts(): iterable
+    {
+        yield 'shorter than the limit' => ['abc', 10, 'abc'];
+        yield 'ASCII' => [str_repeat('a', 20), 10, str_repeat('a', 10)];
+        yield '2-byte character across the limit' => ['aé', 2, 'a'];
+        yield '3-byte character ending on the limit' => ['a€', 4, 'a€'];
+        yield '4-byte character across the limit' => ['a😀b', 4, 'a'];
+        yield 'a limit smaller than the first character' => ['😀', 2, ''];
+        yield 'no room at all' => ['abc', 0, ''];
+    }
+
+    private function runCommandWithQueriesAndCalls(Recorder $recorder): int
+    {
+        $command = $recorder->begin(Entry::TYPE_COMMAND, 1010.0);
+        $recorder->addSql('SELECT * FROM t WHERE id = 1', 2.0, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT * FROM t WHERE id = 2', 4.0, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT * FROM u', 6.0, SqlDialect::Sqlite);
+        $recorder->add($command, Entry::TYPE_HTTP, 'api.example.com', 15.0);
+        $recorder->add($command, Entry::TYPE_HTTP, 'api.example.com', 25.0);
+
+        return $command;
+    }
+
+    private static function openUnit(Recorder $recorder, int $token): Unit
+    {
+        /** @var array<int, Unit> $units */
+        $units = (new \ReflectionProperty(Recorder::class, 'units'))->getValue($recorder);
+
+        return $units[$token];
+    }
+
     /**
      * @return list<array{string, string}> [dialect value, text] of each SQL entry the open unit holds
      */
     private static function retainedTexts(Recorder $recorder, int $token): array
     {
-        /** @var array<int, Unit> $units */
-        $units = (new \ReflectionProperty(Recorder::class, 'units'))->getValue($recorder);
         $texts = [];
-        foreach ($units[$token]->sql as $bucket => $entries) {
+        foreach (self::openUnit($recorder, $token)->sql as $bucket => $entries) {
             foreach (array_keys($entries) as $text) {
                 $texts[] = [(string) $bucket, (string) $text];
             }

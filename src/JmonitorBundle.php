@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle;
 
 use Jmonitor\JmonitorBundle\DependencyInjection\CachePoolPass;
+use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\HttpClientPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -21,6 +22,7 @@ final class JmonitorBundle extends AbstractBundle
     public function build(ContainerBuilder $container): void
     {
         $container->addCompilerPass(new StorageConnectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+        $container->addCompilerPass(new ComponentAvailabilityPass());
         $container->addCompilerPass(new HttpClientPass());
         // After the CacheCollectorPass of debug mode: the profiler keeps tracing the pools from inside the wrappers.
         $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
@@ -66,6 +68,10 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.recording.users', $config['recording']['users']);
         $builder->setParameter('jmonitor.recording.http_client', $config['recording']['http_client']);
         $builder->setParameter('jmonitor.recording.cache', $config['recording']['cache']);
+        $builder->setParameter('jmonitor.recording.commands.enabled', $config['recording']['commands']['enabled']);
+        $builder->setParameter('jmonitor.recording.commands.ignore', $config['recording']['commands']['ignore']);
+        $builder->setParameter('jmonitor.recording.messenger', $config['recording']['messenger']);
+        $builder->setParameter('jmonitor.recording.scheduler', $config['recording']['scheduler']);
         $builder->setParameter('jmonitor.recording.app_id', substr(hash('xxh128', $projectDir . '|' . $environment), 0, 12));
         $builder->setParameter('jmonitor.storage.connection', $config['storage']['connection']);
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
@@ -311,7 +317,7 @@ final class JmonitorBundle extends AbstractBundle
                 ->arrayNode('recording')
                     ->addDefaultsIfNotSet()
                     ->children()
-                        ->booleanNode('enabled')->defaultNull()->info('Record HTTP requests. Defaults to true, except in the "test" environment.')->end()
+                        ->booleanNode('enabled')->defaultNull()->info('Record HTTP requests, console commands, messages and scheduled tasks. Defaults to true, except in the "test" environment.')->end()
                         ->integerNode('flush_interval')->defaultValue(10)->min(1)->max(3600)->info('Seconds between two flushes of the buffer to the storage.')->end()
                         ->integerNode('slow_threshold')->defaultValue(1000)->min(1)->info('Duration in ms above which a request counts as slow.')->end()
                         ->arrayNode('ignore_routes')
@@ -319,19 +325,32 @@ final class JmonitorBundle extends AbstractBundle
                             ->defaultValue([])
                             ->info('Route names that are not recorded.')
                         ->end()
-                        ->scalarNode('buffer_dir')->defaultNull()->info('Directory in which the recording buffer gets its private subdirectory. Defaults to the system temporary directory.')->end()
+                        ->scalarNode('buffer_dir')->defaultNull()->info('Existing directory, writable by every user that runs PHP, in which the recording buffer gets its private subdirectory. Defaults to the system temporary directory, also used while the directory is missing: it is never created.')->end()
                         ->arrayNode('sql')
                             ->canBeDisabled()
-                            ->info('Record the SQL queries run through Doctrine DBAL during a request.')
+                            ->info('Record the SQL queries run through Doctrine DBAL during a recorded request, command, message or task.')
                             ->children()
                                 ->integerNode('slow_threshold')->defaultValue(100)->min(1)->info('Duration in ms from which a query counts as slow.')->end()
-                                ->integerNode('n_plus_one_threshold')->defaultValue(10)->min(1)->info('Executions of the same SELECT within one request from which it counts as an N+1.')->end()
+                                ->integerNode('n_plus_one_threshold')->defaultValue(10)->min(1)->info('Executions of the same SELECT within one request, command, message or task from which it counts as an N+1.')->end()
                             ->end()
                         ->end()
-                        ->booleanNode('exceptions')->defaultTrue()->info('Count the exceptions behind the 5xx responses.')->end()
+                        ->booleanNode('exceptions')->defaultTrue()->info('Count the exceptions behind the 5xx responses and those thrown by console commands, message handlers and scheduled tasks.')->end()
                         ->booleanNode('users')->defaultTrue()->info('Record the requests of each signed-in user. Requires the SecurityBundle.')->end()
                         ->booleanNode('http_client')->defaultTrue()->info('Record the outgoing calls made through the http_client service and its scoped clients, per host.')->end()
                         ->booleanNode('cache')->defaultTrue()->info('Count the reads, writes and deletes of cache.app and of the pools declared under framework.cache.pools.')->end()
+                        ->arrayNode('commands')
+                            ->canBeDisabled()
+                            ->info('Record the console commands.')
+                            ->children()
+                                ->arrayNode('ignore')
+                                    ->scalarPrototype()->end()
+                                    ->defaultValue([])
+                                    ->info('Command names that are not recorded, on top of the default ones. fnmatch patterns allowed.')
+                                ->end()
+                            ->end()
+                        ->end()
+                        ->booleanNode('messenger')->defaultTrue()->info('Record the messages handled by the Messenger workers, and the messages sent. Requires Messenger.')->end()
+                        ->booleanNode('scheduler')->defaultTrue()->info('Record the tasks of the Scheduler run by the Messenger workers. Requires the Scheduler.')->end()
                     ->end()
                 ->end()
                 ->arrayNode('storage')

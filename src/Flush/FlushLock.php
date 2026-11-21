@@ -21,9 +21,9 @@ final class FlushLock
         private readonly ClockInterface $clock,
     ) {}
 
-    public function isDue(): bool
+    public function isDue(?int $intervalSeconds = null): bool
     {
-        return $this->isOlderThan(self::FLUSH_MARKER, $this->intervalSeconds);
+        return $this->isOlderThan(self::FLUSH_MARKER, $intervalSeconds ?? $this->intervalSeconds);
     }
 
     public function acquire(): bool

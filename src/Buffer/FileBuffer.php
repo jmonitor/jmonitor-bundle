@@ -48,7 +48,7 @@ final class FileBuffer implements BufferInterface
         }) >= intdiv($this->maxSlotBytes, 4);
     }
 
-    public function drain(callable $consumer): int
+    public function drain(callable $consumer, bool $includeCurrent = false): int
     {
         $directory = $this->directory->path();
         if ($directory === null) {
@@ -59,13 +59,24 @@ final class FileBuffer implements BufferInterface
         $slots = $this->slotFiles($directory);
 
         $files = [];
-        foreach ($slots as $start => $file) {
-            // An append that resolved its path just before the slot ended may still be writing.
-            if ($start + $this->slotSeconds + $this->graceSeconds > $now || \count($files) === $this->maxSlotsPerDrain) {
+        foreach ($slots as ['start' => $start, 'path' => $path, 'taken' => $taken]) {
+            if (\count($files) === $this->maxSlotsPerDrain) {
                 break;
             }
 
-            $files[] = $file;
+            // An append that resolved its path just before the slot ended may still be writing.
+            if ($taken || $start + $this->slotSeconds + $this->graceSeconds <= $now) {
+                $files[] = $path;
+
+                continue;
+            }
+
+            if ($includeCurrent) {
+                $path = $this->take($directory, $start, $path);
+                if ($path !== null) {
+                    $files[] = $path;
+                }
+            }
         }
 
         if ($files === []) {
@@ -77,9 +88,9 @@ final class FileBuffer implements BufferInterface
         try {
             $consumer($this->read($files, $count));
         } catch (\Throwable $e) {
-            foreach ($slots as $start => $file) {
+            foreach ($slots as ['start' => $start, 'path' => $path]) {
                 if ($now - $start - $this->slotSeconds > $this->maxSlotAge) {
-                    self::discard($file);
+                    self::discard($path);
                 }
             }
 
@@ -103,49 +114,69 @@ final class FileBuffer implements BufferInterface
         BufferDirectory::quietly(static fn(): bool => unlink($file) || file_put_contents($file, '') === 0);
     }
 
+    /**
+     * A drain takes a slot by renaming it: a writer that opened it before then finds, once it holds the lock,
+     * that its path leads to another file, and starts over on the one replacing it.
+     */
     private function write(string $path, string $line): void
     {
-        clearstatcache(true, $path);
-        $exists = is_file($path);
-        if ($exists && (filesize($path) ?: 0) >= $this->maxSlotBytes) {
-            return;
-        }
-
-        $handle = fopen($path, 'a');
-        if ($handle === false) {
-            $this->directory->invalidate();
-
-            return;
-        }
-
-        if (!$exists) {
-            chmod($path, 0o600);
-        }
-
-        try {
-            if (flock($handle, \LOCK_EX)) {
-                fwrite($handle, $line);
-                flock($handle, \LOCK_UN);
+        for ($attempt = 0; $attempt < 100; ++$attempt) {
+            clearstatcache(true, $path);
+            if (is_file($path) && (filesize($path) ?: 0) >= $this->maxSlotBytes) {
+                return;
             }
-        } finally {
-            fclose($handle);
+
+            $handle = fopen($path, 'a');
+            if ($handle === false) {
+                $this->directory->invalidate();
+
+                return;
+            }
+
+            try {
+                if (!flock($handle, \LOCK_EX)) {
+                    return;
+                }
+
+                clearstatcache(true, $path);
+                $current = stat($path);
+                $opened = fstat($handle);
+                if ($current !== false && $opened !== false && $current['ino'] === $opened['ino']) {
+                    if (($opened['mode'] & 0o077) !== 0) {
+                        chmod($path, 0o600);
+                    }
+                    fwrite($handle, $line);
+
+                    return;
+                }
+            } finally {
+                flock($handle, \LOCK_UN);
+                fclose($handle);
+            }
         }
     }
 
+    private function take(string $directory, int $start, string $path): ?string
+    {
+        $taken = sprintf('%s/%d-%s.ndjson', $directory, $start, bin2hex(random_bytes(4)));
+
+        return BufferDirectory::quietly(static fn(): bool => rename($path, $taken)) ? $taken : null;
+    }
+
     /**
-     * @return array<int, string> slot start => path, ascending
+     * @return list<array{start: int, path: string, taken: bool}> oldest first, taken slots before the one of the same start
      */
     private function slotFiles(string $directory): array
     {
         $files = [];
 
         foreach (new \DirectoryIterator($directory) as $item) {
-            if ($item->isFile() && preg_match('/^(\d+)\.ndjson$/', $item->getFilename(), $matches) === 1) {
-                $files[(int) $matches[1]] = $item->getPathname();
+            if ($item->isFile() && preg_match('/^(\d+)(-[0-9a-f]{8})?\.ndjson$/', $item->getFilename(), $matches) === 1) {
+                $files[] = ['start' => (int) $matches[1], 'path' => $item->getPathname(), 'taken' => isset($matches[2])];
             }
         }
 
-        ksort($files);
+        usort($files, static fn(array $a, array $b): int => [$a['start'], $a['path']] <=> [$b['start'], $b['path']]);
 
         return $files;
     }
@@ -164,6 +195,7 @@ final class FileBuffer implements BufferInterface
             }
 
             try {
+                flock($handle, \LOCK_SH);
                 while (($line = fgets($handle)) !== false) {
                     $entry = Entry::fromLine(rtrim($line, "\r\n"));
                     if ($entry !== null) {

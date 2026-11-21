@@ -45,7 +45,7 @@ final class RequestRecorderTest extends TestCase
                 $this->entries[] = $entry;
             }
 
-            public function drain(callable $consumer): int
+            public function drain(callable $consumer, bool $includeCurrent = false): int
             {
                 return 0;
             }
@@ -181,7 +181,7 @@ final class RequestRecorderTest extends TestCase
                 throw new \RuntimeException('disk on fire');
             }
 
-            public function drain(callable $consumer): int
+            public function drain(callable $consumer, bool $includeCurrent = false): int
             {
                 return 0;
             }

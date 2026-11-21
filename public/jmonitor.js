@@ -5,6 +5,17 @@
     var INTERVAL = 10000;
     var root = document.querySelector('[data-jm-live]');
 
+    revealCurrentScreen();
+
+    function revealCurrentScreen() {
+        var nav = document.querySelector('.jm-nav');
+        var current = nav ? nav.querySelector('[aria-current="page"]') : null;
+
+        if (current && nav.scrollWidth > nav.clientWidth) {
+            current.scrollIntoView({ inline: 'center', block: 'nearest' });
+        }
+    }
+
     if (!root) {
         return;
     }

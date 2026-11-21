@@ -12,10 +12,11 @@ interface BufferInterface
 
     /**
      * @param callable(iterable<Entry>): void $consumer
+     * @param bool $includeCurrent also drain the slot still being written
      *
      * @return int number of entries handed to the consumer
      */
-    public function drain(callable $consumer): int;
+    public function drain(callable $consumer, bool $includeCurrent = false): int;
 
     /**
      * Whether the slot being written is filling up fast enough that recorders should shed detail.

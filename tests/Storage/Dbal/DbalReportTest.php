@@ -10,6 +10,8 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
@@ -345,6 +347,44 @@ final class DbalReportTest extends TestCase
         static::assertEquals(new Report(), $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Request)));
         static::assertSame([], $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_DURATION))->totals);
         static::assertSame([], $reader->labels(['abc']));
+    }
+
+    #[DataProvider('connections')]
+    public function testCommandMessageAndTaskFamiliesAreReadBack(Connection $connection): void
+    {
+        $task = new TaskKey('default', 'ab12', 'app:work', 'every 10 seconds');
+        $at = self::NOW - 10.5;
+        $this->seed($connection, (new Aggregator(1000))->aggregate([
+            new Entry(Entry::TYPE_COMMAND, 'app:import', $at, 2500.0, ['exit' => 3, 'memory' => 8_388_608]),
+            new Entry(Entry::TYPE_MESSAGE, 'App\Message\Ping', $at, 30.0, ['failed' => 1], [
+                new Entry(Entry::TYPE_SENT, 'App\Message\Pong', $at, 0.0, ['n' => 4]),
+            ]),
+            new Entry(Entry::TYPE_TASK, $task->toString(), $at, 12.0, ['failed' => 1]),
+        ]));
+        $reader = new DbalReader($connection);
+
+        $commands = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Command));
+        $messages = $this->indexByKey($reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Message))->rows);
+        $tasks = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Task));
+
+        static::assertCount(1, $commands->rows);
+        static::assertSame('app:import', $commands->rows[0]->label);
+        static::assertSame(2500.0, $commands->rows[0]->max(Metric::COMMAND_DURATION));
+        static::assertSame(1, $commands->rows[0]->count(Metric::COMMAND_FAILED));
+        static::assertSame(8_388_608.0, $commands->rows[0]->max(Metric::COMMAND_MEMORY));
+        static::assertSame($at, $commands->rows[0]->max(Metric::COMMAND_LAST_RUN));
+
+        static::assertSame(['App\Message\Ping', 'App\Message\Pong'], array_keys($messages));
+        static::assertSame(1, $messages['App\Message\Ping']->count(Metric::MESSAGE_FAILED));
+        static::assertSame(['50' => 1], $messages['App\Message\Ping']->countsByPrefix(Metric::MESSAGE_DURATION_LE_PREFIX));
+        static::assertSame(4, $messages['App\Message\Pong']->count(Metric::MESSAGE_SENT));
+        static::assertSame(0, $messages['App\Message\Pong']->count(Metric::MESSAGE_DURATION));
+
+        static::assertCount(1, $tasks->rows);
+        static::assertSame($task->toString(), $tasks->rows[0]->label);
+        static::assertEquals($task, TaskKey::parse((string) $tasks->rows[0]->label));
+        static::assertSame([1, $at], [$tasks->rows[0]->count(Metric::TASK_FAILED), $tasks->rows[0]->max(Metric::TASK_FAILED)]);
+        static::assertSame($at, $tasks->rows[0]->max(Metric::TASK_LAST_RUN));
     }
 
     public function testAnOpenFamilyNeedsASortMetric(): void

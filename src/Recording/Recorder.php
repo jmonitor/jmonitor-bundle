@@ -16,12 +16,14 @@ final class Recorder implements ResetInterface
     public const MAX_DEPTH = 8;
     public const MAX_SQL_PER_UNIT = 200;
     public const MAX_SQL_BYTES = 65_536;
+    public const MAX_SQL_TEXT_BYTES = 1_048_576;
     public const MAX_KEYS_PER_TYPE = 50;
 
     /** @var array<int, Unit> token => unit, in opening order */
     private array $units = [];
     private int $lastToken = 0;
     private bool $paused = false;
+    private bool $written = false;
     private bool $failureLogged = false;
     private readonly \Closure $sampler;
 
@@ -40,13 +42,16 @@ final class Recorder implements ResetInterface
         $this->sampler = $sampler ?? static fn(): bool => mt_rand(1, self::SAMPLE_WEIGHT) === 1;
     }
 
-    public function begin(string $type, float $startedAt): int
+    /**
+     * @param bool $muted a muted unit records nothing and hides the units it runs in
+     */
+    public function begin(string $type, float $startedAt, bool $muted = false): int
     {
         if (\count($this->units) >= self::MAX_DEPTH) {
             $this->units = [];
         }
 
-        $this->units[++$this->lastToken] = new Unit($type, $startedAt);
+        $this->units[++$this->lastToken] = new Unit($type, $startedAt, $muted);
 
         return $this->lastToken;
     }
@@ -62,7 +67,7 @@ final class Recorder implements ResetInterface
      */
     public function add(?int $unit, string $type, string $key, float $durationMs = 0.0, array $counters = []): void
     {
-        if ($unit !== null && isset($this->units[$unit])) {
+        if ($unit !== null && !$this->paused && isset($this->units[$unit]) && !$this->units[$unit]->muted) {
             $this->units[$unit]->add($type, $key, $durationMs, $counters);
         }
     }
@@ -73,14 +78,19 @@ final class Recorder implements ResetInterface
     public function end(int $token, string $key, float $durationMs, array $attributes = []): void
     {
         $unit = $this->close($token);
-        if ($unit === null) {
+        if ($unit === null || $unit->muted) {
             return;
+        }
+
+        $totals = $unit->totals();
+        $attributes = array_replace($attributes, $totals);
+        $parent = $this->units === [] ? null : $this->units[array_key_last($this->units)];
+        if ($totals !== [] && $parent !== null && !$parent->muted) {
+            $parent->carry($totals);
         }
 
         $children = [];
         if (!$unit->isEmpty()) {
-            $attributes = array_replace($attributes, $unit->totals());
-
             try {
                 $pressure = $this->buffer->isUnderPressure();
                 if ($pressure === false || ($pressure === true && ($this->sampler)())) {
@@ -96,6 +106,7 @@ final class Recorder implements ResetInterface
 
         try {
             $this->buffer->append(new Entry($unit->type, $key, $unit->startedAt, $durationMs, $attributes, $children));
+            $this->written = true;
         } catch (\Throwable $e) {
             $this->logFailure($e);
         }
@@ -108,13 +119,17 @@ final class Recorder implements ResetInterface
         }
 
         $unit = $this->units[array_key_last($this->units)];
+        if ($unit->muted) {
+            return;
+        }
+
         $bucket = $dialect->value;
         if ($dialect === SqlDialect::Unknown || \strlen($sql) > self::MAX_SQL_BYTES) {
             $bucket = SqlDialect::Unknown->value;
             $sql = QueryDigester::OTHER;
         }
         if (!isset($unit->sql[$bucket][$sql])) {
-            if ($unit->sqlTexts() >= self::MAX_SQL_PER_UNIT) {
+            if (!$unit->retainSqlText($sql)) {
                 $bucket = SqlDialect::Unknown->value;
                 $sql = QueryDigester::OTHER;
             }
@@ -133,9 +148,20 @@ final class Recorder implements ResetInterface
         $this->close($token);
     }
 
+    public function openUnits(): int
+    {
+        return \count($this->units);
+    }
+
+    /** Whether this process has handed a unit to the buffer, kept across resets. */
+    public function hasWritten(): bool
+    {
+        return $this->written;
+    }
+
     public function isRecording(): bool
     {
-        return $this->units !== [] && !$this->paused;
+        return $this->units !== [] && !$this->paused && !$this->units[array_key_last($this->units)]->muted;
     }
 
     public function pause(): void
