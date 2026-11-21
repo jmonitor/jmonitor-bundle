@@ -3,6 +3,7 @@
 
     var STORAGE_KEY = 'jmonitor.live';
     var INTERVAL = 10000;
+    var PAGE_PARAMETERS = ['period', 'sort', 'dir'];
     var root = document.querySelector('[data-jm-live]');
 
     revealCurrentScreen();
@@ -90,14 +91,75 @@
         }
     }
 
+    function fragmentUrl() {
+        var fragment = new URL(url, window.location.href);
+        var page = new URL(window.location.href).searchParams;
+
+        for (var i = 0; i < PAGE_PARAMETERS.length; i++) {
+            if (page.has(PAGE_PARAMETERS[i])) {
+                fragment.searchParams.set(PAGE_PARAMETERS[i], page.get(PAGE_PARAMETERS[i]));
+            }
+        }
+
+        return fragment.toString();
+    }
+
+    function findInContent(selector, attribute, value) {
+        var candidates = content.querySelectorAll(selector);
+
+        for (var i = 0; i < candidates.length; i++) {
+            if (candidates[i].getAttribute(attribute) === value) {
+                return candidates[i];
+            }
+        }
+
+        return null;
+    }
+
+    function focusedIdentity() {
+        var active = document.activeElement;
+
+        if (!active || !content.contains(active)) {
+            return null;
+        }
+
+        var details = active.tagName === 'SUMMARY' ? active.parentNode : null;
+
+        return {
+            id: active.id || null,
+            key: details && details.tagName === 'DETAILS' ? details.getAttribute('data-jm-key') : null,
+            href: active.getAttribute('href'),
+        };
+    }
+
+    function restoreFocus(identity) {
+        if (!identity) {
+            return;
+        }
+
+        var element = identity.id ? findInContent('[id]', 'id', identity.id) : null;
+
+        if (!element && identity.key) {
+            var details = findInContent('details[data-jm-key]', 'data-jm-key', identity.key);
+            element = details ? details.querySelector('summary') : null;
+        }
+
+        if (!element && identity.href) {
+            element = findInContent('a[href]', 'href', identity.href);
+        }
+
+        if (element) {
+            element.focus({ preventScroll: true });
+        }
+    }
+
     function replaceContent(html) {
         var wraps = content.querySelectorAll('.jm-table-wrap');
         var scrollLefts = [];
         for (var w = 0; w < wraps.length; w++) {
             scrollLefts.push(wraps[w].scrollLeft);
         }
-        var active = document.activeElement;
-        var focusedHref = active && content.contains(active) ? active.getAttribute('href') : null;
+        var focused = focusedIdentity();
         var opened = openKeys();
 
         content.innerHTML = html;
@@ -108,16 +170,7 @@
             wraps[w].scrollLeft = scrollLefts[w];
         }
 
-        if (focusedHref) {
-            var links = content.querySelectorAll('a[href]');
-
-            for (var i = 0; i < links.length; i++) {
-                if (links[i].getAttribute('href') === focusedHref) {
-                    links[i].focus({ preventScroll: true });
-                    break;
-                }
-            }
-        }
+        restoreFocus(focused);
     }
 
     function refresh() {
@@ -127,7 +180,7 @@
 
         inFlight = true;
 
-        fetch(url + window.location.search, {
+        fetch(fragmentUrl(), {
             credentials: 'same-origin',
             cache: 'no-store',
             redirect: 'manual',

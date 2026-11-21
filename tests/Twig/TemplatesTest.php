@@ -211,6 +211,19 @@ final class TemplatesTest extends TestCase
         static::assertStringNotContainsString('<b>', $html);
     }
 
+    public function testAScrollableTableRegionHasAStableId(): void
+    {
+        $table = $this->table([new Row('k1', ['name' => new Cell('a')])]);
+        $hostile = new Table('"><i>', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])]);
+
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]);
+        $escaped = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$hostile])), 'block' => Block::table($hostile)]);
+
+        static::assertStringContainsString('<div class="jm-table-wrap" id="jm-stubs-wrap" role="region"', $html);
+        static::assertStringContainsString('id="jm-&quot;&gt;&lt;i&gt;-wrap"', $escaped);
+        static::assertStringNotContainsString('"><i>', $escaped);
+    }
+
     public function testTheErrorStateHasItsOwnText(): void
     {
         $page = new Page(new StubBlockScreen(), [Block::unavailable(Block::TABLE, BlockState::Error)], null, '', '', []);
