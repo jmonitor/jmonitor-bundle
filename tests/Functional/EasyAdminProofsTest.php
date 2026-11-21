@@ -32,6 +32,7 @@ final class EasyAdminProofsTest extends WebTestCase
     private const USER = ['PHP_AUTH_USER' => 'user', 'PHP_AUTH_PW' => 'test'];
     private const SUPER = ['PHP_AUTH_USER' => 'super', 'PHP_AUTH_PW' => 'test'];
     private const SAME_ORIGIN = ['HTTP_SEC_FETCH_SITE' => 'same-origin'];
+    private const TEMPLATE = '@JmonitorEasyAdmin/page.html.twig';
 
     private const ROUTES = [
         'admin_jmonitor_index', 'admin_jmonitor_fragment', 'admin_jmonitor_action',
@@ -65,7 +66,7 @@ final class EasyAdminProofsTest extends WebTestCase
         self::$varDirs = [];
     }
 
-    public function testLoadingTheRoutesBuildsNoConnectionNoReaderNoTwig(): void
+    public function testLoadingTheRoutesBuildsNoConnectionNoReaderAndNoMoreThanEasyAdminDoes(): void
     {
         $withoutTheOption = $this->bootedTwice(false)->getContainer();
         $this->routesOf($withoutTheOption);
@@ -87,6 +88,10 @@ final class EasyAdminProofsTest extends WebTestCase
 
         static::assertSame(200, $response->getStatusCode());
         static::assertTrue($container->initialized(PageRenderer::class));
+
+        $twig = $container->get('twig');
+        static::assertInstanceOf(Environment::class, $twig);
+        static::assertTrue($twig->getLoader()->exists(self::TEMPLATE));
     }
 
     public function testTheRoutesCarryTheMark(): void
@@ -182,7 +187,7 @@ final class EasyAdminProofsTest extends WebTestCase
 
         $twig = $container->get('twig');
         static::assertInstanceOf(Environment::class, $twig);
-        static::assertFalse($twig->getLoader()->exists('@JmonitorEasyAdmin/page.html.twig'));
+        static::assertFalse($twig->getLoader()->exists(self::TEMPLATE));
 
         $crawler = $client->request('GET', '/jmonitor/');
         static::assertResponseIsSuccessful();
