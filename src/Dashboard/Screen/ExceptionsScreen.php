@@ -40,7 +40,7 @@ final class ExceptionsScreen implements ScreenInterface
 
     public function heading(): string
     {
-        return 'Server errors per exception class';
+        return 'Errors per exception class';
     }
 
     public function isAvailable(): bool
@@ -57,7 +57,7 @@ final class ExceptionsScreen implements ScreenInterface
     {
         return [
             'title' => 'No exceptions recorded',
-            'text' => 'An exception that ends in a 5xx response shows up here within a few seconds.',
+            'text' => 'An exception behind a 5xx response, a failed command or a failed message shows up here within a few seconds.',
         ];
     }
 
@@ -107,7 +107,7 @@ final class ExceptionsScreen implements ScreenInterface
                 $last === null ? '—' : Format::ago((int) $last->max(Metric::EXCEPTION_COUNT), $now),
                 $last === null ? '' : ($last === $report->other ? self::OTHER_EXCEPTIONS : $last->key),
             ),
-            new Card('Entry points', Format::number($where->keyCount), 'Where an exception ended in a 5xx', $where->keyCount > 0 ? 'bad' : null),
+            new Card('Entry points', Format::number($where->keyCount), 'Where an exception was thrown', $where->keyCount > 0 ? 'bad' : null),
         ];
     }
 
@@ -125,7 +125,7 @@ final class ExceptionsScreen implements ScreenInterface
         foreach (\array_slice($pairs, 0, self::LIMIT) as [$row, $key]) {
             $rows[] = self::row($row, Metric::EXCEPTION_WHERE_COUNT, $now, [
                 'exception' => new Cell($key->subject, kind: 'code'),
-                'where' => Cell::route($key->unitKey),
+                'where' => Cell::entryPoint($key->unitType, $key->unitKey),
             ], $key->subject);
         }
         if ($report->other !== null) {

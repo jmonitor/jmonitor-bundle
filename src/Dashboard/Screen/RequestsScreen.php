@@ -186,7 +186,7 @@ final class RequestsScreen implements ScreenInterface
             'p95' => new Cell(Format::duration($route['p95']), $route['slow'] * 20 > $route['requests'] ? 'warn' : null),
             'max' => new Cell(Format::duration($route['max']), $route['slow'] > 0 ? 'warn' : null),
             'sql' => $route['hasSql']
-                ? new Cell(Format::duration($route['sql']) . ' · ' . self::queries($route['queries']) . ' q')
+                ? new Cell(Format::sql($route['sql'], $route['queries']))
                 : new Cell('—', 'zero'),
             'http' => $route['hasHttp'] ? new Cell(Format::duration($route['http'])) : new Cell('—', 'zero'),
             'errors' => new Cell(Format::number($route['errors']), $route['errors'] > 0 ? 'bad' : 'zero'),
@@ -224,10 +224,5 @@ final class RequestsScreen implements ScreenInterface
             'requests', 'avg', 'p95', 'max', 'sql', 'http', 'errors', 'slow', 'memory' => $a[$sort] <=> $b[$sort],
             default => $a['total'] <=> $b['total'],
         };
-    }
-
-    private static function queries(float $perRequest): string
-    {
-        return $perRequest < 10 ? number_format($perRequest, 1) : number_format($perRequest);
     }
 }

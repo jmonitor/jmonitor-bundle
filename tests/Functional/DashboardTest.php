@@ -11,7 +11,10 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
+use Symfony\Component\Console\Tester\ApplicationTester;
+use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\KernelInterface;
@@ -377,8 +380,79 @@ final class DashboardTest extends WebTestCase
         static::assertResponseStatusCodeSame(404);
     }
 
+    public function testTheNavigationListsTheScreensInOrder(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $crawler = $client->request('GET', '/jmonitor/');
+
+        static::assertSame(
+            ['Requests', 'Queries', 'Commands', 'HTTP client', 'Cache', 'Exceptions'],
+            $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()),
+        );
+    }
+
+    public function testTheCommandsScreenListsARunCommand(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+        $application = new Application($client->getKernel());
+        $application->setAutoExit(false);
+
+        static::assertSame(0, (new ApplicationTester($application))->run(['command' => 'app:work']));
+        $crawler = self::requestUntil($client, '/jmonitor/commands', 'tr[data-jm-command="app:work"]');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('1', $crawler->filter('tr[data-jm-command="app:work"]')->attr('data-jm-runs'));
+        static::assertStringContainsString('app:work', $crawler->filter('tr[data-jm-command="app:work"]')->text());
+        static::assertSame('Commands', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+    }
+
+    public function testTheCommandsScreenIsAbsentWithoutCommandRecording(): void
+    {
+        $client = static::createClient(['jmonitor' => ['recording' => ['commands' => ['enabled' => false]] + $this->recording()['recording']]]);
+
+        $crawler = $client->request('GET', '/jmonitor/');
+        static::assertNotContains('Commands', $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+
+        $client->request('GET', '/jmonitor/commands');
+        static::assertResponseStatusCodeSame(404);
+    }
+
+    public function testTheMessagesScreenIsNotFoundWithoutMessenger(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/jmonitor/messages');
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('GET', '/jmonitor/_fragment/messages');
+        static::assertResponseStatusCodeSame(404);
+    }
+
+    public function testTheMessagesScreenFollowsMessenger(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording(), 'messenger' => true]);
+
+        $crawler = $client->request('GET', '/jmonitor/messages');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame(
+            ['Requests', 'Queries', 'Commands', 'Messages', 'HTTP client', 'Cache', 'Exceptions'],
+            $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()),
+        );
+        static::assertSame('Messages', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+    }
+
+    public function testTheMessagesScreenIsAbsentWithoutMessageRecording(): void
+    {
+        $client = static::createClient(['jmonitor' => ['recording' => ['messenger' => false] + $this->recording()['recording']], 'messenger' => true]);
+
+        $client->request('GET', '/jmonitor/messages');
+        static::assertResponseStatusCodeSame(404);
+    }
+
     /**
-     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool} $options
+     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool, messenger?: bool} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -389,6 +463,7 @@ final class DashboardTest extends WebTestCase
             $options['doctrine'] ?? true,
             $options['security'] ?? false,
             $options['twig'] ?? true,
+            withMessenger: $options['messenger'] ?? false,
         );
         self::$varDirs[] = $kernel->getVarDir();
 

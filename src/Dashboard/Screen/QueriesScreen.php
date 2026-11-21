@@ -148,16 +148,16 @@ final class QueriesScreen implements ScreenInterface
         foreach ($report->rows as $row) {
             $key = EntryPointKey::parse($row->key);
             if ($key !== null) {
-                $entries[] = [$row, $key->unitKey, $key->subject];
+                $entries[] = [$row, $key, $key->subject];
             }
         }
 
         $labels = $entries === [] ? [] : $reader->labels(array_values(array_unique(array_column($entries, 2))));
 
         $rows = [];
-        foreach ($entries as [$row, $entryPoint, $queryId]) {
-            $rows[] = self::repeatedRow($row, $entryPoint, [
-                'where' => Cell::route($entryPoint),
+        foreach ($entries as [$row, $key, $queryId]) {
+            $rows[] = self::repeatedRow($row, $key->unitKey, [
+                'where' => Cell::entryPoint($key->unitType, $key->unitKey),
                 'query' => self::sqlCell($labels[$queryId] ?? null),
             ]);
         }

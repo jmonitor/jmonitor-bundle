@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Twig;
 
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\CommandsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -13,6 +16,10 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Column;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
+use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
+use Jmonitor\JmonitorBundle\Storage\Read\Report;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
+use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\StubScreen;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\TestCase;
@@ -51,6 +58,30 @@ final class TemplatesTest extends TestCase
             static::assertStringNotContainsString('"><i>', $html);
         }
         static::assertStringContainsString('<script src="/bundles/jmonitor/jmonitor.js?v=', $outputs[1]);
+    }
+
+    public function testTheCommandsAndMessagesScreensEscapeTheirKeys(): void
+    {
+        $hostile = new ReportRow('"><i>', self::HOSTILE_SQL, self::HOSTILE_SQL, [
+            Metric::COMMAND_DURATION => new MetricValue(1, 10.0, 10.0),
+            Metric::MESSAGE_DURATION => new MetricValue(1, 10.0, 10.0),
+            Metric::MESSAGE_SENT => new MetricValue(1, 0.0, 0.0),
+        ]);
+        $reader = new FixedReader(new Report([$hostile], keyCount: 1));
+
+        foreach ([new CommandsScreen(true), new MessagesScreen(true)] as $screen) {
+            $view = $screen->build($reader, Period::OneHour, 1800000000, (string) array_key_first($screen->sorts()), 'desc');
+            $page = new Page($screen, ScreenState::Ready, Period::OneHour, (string) array_key_first($screen->sorts()), 'desc', $view);
+
+            foreach ([
+                $this->render('_table.html.twig', ['page' => $page, 'table' => $view->tables[0]]),
+                $this->render('screen.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
+            ] as $html) {
+                static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html, $screen->id());
+                static::assertStringNotContainsString(self::HOSTILE_SQL, $html, $screen->id());
+                static::assertStringNotContainsString('"><i>', $html, $screen->id());
+            }
+        }
     }
 
     public function testALongQueryIsFoldedAndAShortOneIsNot(): void

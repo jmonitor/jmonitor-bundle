@@ -61,6 +61,11 @@ final class Format
         return self::trimZero(number_format($percent, $percent < 10 ? 1 : 0)) . ' %';
     }
 
+    public static function sql(float $msPerUnit, float $queriesPerUnit): string
+    {
+        return self::duration($msPerUnit) . ' · ' . ($queriesPerUnit < 10 ? number_format($queriesPerUnit, 1) : number_format($queriesPerUnit)) . ' q';
+    }
+
     public static function ago(int $timestamp, int $now): string
     {
         $seconds = $now - $timestamp;
