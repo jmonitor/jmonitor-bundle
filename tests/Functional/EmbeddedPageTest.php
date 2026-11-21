@@ -216,8 +216,31 @@ final class EmbeddedPageTest extends WebTestCase
         $client->request('POST', '/back-office/monitoring-action/probe', ['action' => 'ping'], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
         static::assertResponseStatusCodeSame(403);
 
-        $client->request('POST', '/back-office/monitoring-action/probe', ['action' => 'ping', 'token' => (string) $token->attr('value')]);
+        $client->request('POST', '/back-office/monitoring-action/probe', ['action' => 'ping', 'token' => (string) $token->attr('value')], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
         static::assertResponseStatusCodeSame(303);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/probe');
+        static::assertCount(1, $crawler->filter('tr[data-jm-probe-runs="1"]'));
+    }
+
+    public function testOnARouteDeclaredStatelessTheActionNeedsNoTokenButTheSameOrigin(): void
+    {
+        $client = static::createClient(['csrf' => true]);
+
+        $crawler = $client->request('GET', '/back-office/stateless/probe');
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('.jm form input[name="action"][value="ping"]'));
+        static::assertCount(0, $crawler->filter('.jm form input[name="token"]'));
+
+        $client->request('POST', '/back-office/stateless-action/probe', ['action' => 'ping'], server: ['HTTP_SEC_FETCH_SITE' => 'cross-site']);
+        static::assertResponseStatusCodeSame(403);
+        $crawler = $client->request('GET', '/back-office/stateless/probe');
+        static::assertSame('0', $crawler->filter('.jm-card__value')->text());
+
+        $client->request('POST', '/back-office/stateless-action/probe', ['action' => 'ping'], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
+        static::assertResponseStatusCodeSame(303);
+        $crawler = $client->request('GET', '/back-office/stateless/probe');
+        static::assertCount(1, $crawler->filter('tr[data-jm-probe-runs="1"]'));
     }
 
     public function testAScreenShowsBlocksInDifferentStates(): void

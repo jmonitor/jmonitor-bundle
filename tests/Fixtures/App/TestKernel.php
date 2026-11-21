@@ -32,6 +32,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\HttpKernel\Log\Logger;
+use Symfony\Component\Routing\Loader\Configurator\RouteConfigurator;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 use Symfony\Component\Security\Core\User\InMemoryUser;
 
@@ -351,15 +352,17 @@ final class TestKernel extends Kernel
             $this->addBackOfficeRoute($routes, 'back_office_monitoring_action', '/back-office/monitoring-action/{path}', 'action', 'POST', $marked);
             $this->addBackOfficeRoute($routes, 'back_office_locked', '/back-office/locked/{path}', 'page', 'GET', $marked);
             $this->addBackOfficeRoute($routes, 'back_office_unmarked', '/back-office/unmarked/{path}', 'page', 'GET', []);
+            $this->addBackOfficeRoute($routes, 'back_office_stateless', '/back-office/stateless/{path}', 'page', 'GET', $marked)->stateless();
+            $this->addBackOfficeRoute($routes, 'back_office_stateless_action', '/back-office/stateless-action/{path}', 'action', 'POST', $marked)->stateless();
         }
     }
 
     /**
      * @param array<string, mixed> $defaults
      */
-    private function addBackOfficeRoute(RoutingConfigurator $routes, string $name, string $path, string $method, string $httpMethod, array $defaults): void
+    private function addBackOfficeRoute(RoutingConfigurator $routes, string $name, string $path, string $method, string $httpMethod, array $defaults): RouteConfigurator
     {
-        $routes->add($name, $path)
+        return $routes->add($name, $path)
             ->controller([BackOfficeController::class, $method])
             ->requirements(['path' => '.*'])
             ->defaults(['path' => ''] + $defaults)
