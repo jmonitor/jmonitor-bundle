@@ -1,0 +1,57 @@
+{% autoescape 'html' %}
+{% set header = standalone ? 'header' : 'div' %}
+{% set main = standalone ? 'main' : 'div' %}
+<{{ header }} class="jm-header">
+    <div class="jm-header__inner">
+        {% if standalone %}
+            <span class="jm-brand">
+                <svg class="jm-brand__mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <defs>
+                        <linearGradient id="jm-brand-gradient" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0" stop-color="#2fceeb"/>
+                            <stop offset="1" stop-color="#809dff"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="24" height="24" rx="6" fill="url(#jm-brand-gradient)"/>
+                    <polyline points="4,13 8,13 10,8 14,17 16,11 20,11" fill="none" stroke="#14171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="jm-brand__name">JMonitor</span>
+            </span>
+        {% endif %}
+        <nav class="jm-nav" aria-label="Screens">
+            {% for screen in screens %}
+                <a class="jm-nav__item" href="{{ urls.page(screen.id, page.period ? {period: page.period.label} : {}) }}"{% if screen.id == page.screen.id %} aria-current="page"{% endif %}>{{ screen.label }}</a>
+            {% endfor %}
+        </nav>
+        <div class="jm-toolbar">
+            {% if page.period %}
+                <nav class="jm-period" aria-label="Period">
+                    <span class="jm-period__label" aria-hidden="true">Period</span>
+                    <ul class="jm-segmented">
+                        {% for period in periods %}
+                            <li>
+                                <a class="jm-segmented__item{{ period == page.period ? ' is-active' }}"
+                                   href="{{ urls.page(page.screen.id, {period: period.label, sort: page.sort, dir: page.direction}) }}"
+                                   {% if period == page.period %}aria-current="true"{% endif %}>{{ period.label }}</a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </nav>
+            {% endif %}
+            <label class="jm-live" data-jm-live-toggle hidden>
+                <input class="jm-live__switch" type="checkbox" role="switch" checked>
+                <span class="jm-live__label">Live</span>
+            </label>
+        </div>
+    </div>
+</{{ header }}>
+<{{ main }} id="jm-main" class="jm-main" data-jm-live data-jm-fragment-url="{{ urls.fragment(page.screen.id) }}">
+    <div class="jm-heading">
+        <h1 class="jm-heading__title">{{ page.screen.label }}</h1>
+        <p class="jm-heading__text">{{ page.screen.heading }}{% if page.period %}, {{ page.period|jmonitor_period|lower }}{% endif %}.</p>
+    </div>
+    <div data-jm-content>
+        {{ include('@Jmonitor/dashboard/_screen.html.twig') }}
+    </div>
+</{{ main }}>
+{% endautoescape %}

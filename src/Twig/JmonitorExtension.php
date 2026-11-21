@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Twig;
 
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Symfony\Component\HttpFoundation\RequestStack;
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFilter;
 use Twig\TwigFunction;
@@ -15,12 +14,6 @@ final class JmonitorExtension extends AbstractExtension
     private const SPARKLINE_WIDTH = 120;
     private const SPARKLINE_HEIGHT = 32;
     private const SPARKLINE_PADDING = 2;
-    private const PUBLIC_DIR = __DIR__ . '/../../public/';
-
-    /** @var array<string, string> file => version */
-    private array $versions = [];
-
-    public function __construct(private readonly ?RequestStack $requestStack = null) {}
 
     public function getFilters(): array
     {
@@ -37,16 +30,7 @@ final class JmonitorExtension extends AbstractExtension
     {
         return [
             new TwigFunction('jmonitor_sparkline', $this->sparkline(...), ['is_safe' => ['html']]),
-            new TwigFunction('jmonitor_asset', $this->asset(...)),
         ];
-    }
-
-    public function asset(string $file): string
-    {
-        $basePath = $this->requestStack?->getCurrentRequest()?->getBasePath() ?? '';
-        $this->versions[$file] ??= substr((string) hash_file('xxh3', self::PUBLIC_DIR . basename($file)), 0, 8);
-
-        return $basePath . '/bundles/jmonitor/' . basename($file) . '?v=' . $this->versions[$file];
     }
 
     /**

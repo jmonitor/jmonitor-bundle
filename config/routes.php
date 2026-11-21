@@ -19,13 +19,13 @@ return static function (RoutingConfigurator $routes): void {
 
     $routes->add('jmonitor_screen_fragment', '/_fragment/{screen}')
         ->controller([DashboardController::class, 'screenFragment'])
-        ->requirements(['screen' => '[a-z][a-z-]*'])
+        ->requirements(['screen' => '[a-z][a-z-]*(/[a-z][a-z-]*)*'])
         ->defaults([RequestRecorder::NOT_RECORDED => true])
         ->methods(['GET']);
 
     $routes->add('jmonitor_screen', '/{screen}')
         ->controller([DashboardController::class, 'screen'])
-        ->requirements(['screen' => '[a-z][a-z-]*'])
+        ->requirements(['screen' => '[a-z][a-z-]*(/[a-z][a-z-]*)*'])
         ->defaults([RequestRecorder::NOT_RECORDED => true])
         ->methods(['GET']);
 };

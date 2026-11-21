@@ -20,9 +20,11 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Column;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
+use Jmonitor\JmonitorBundle\Embed\PageContent;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
+use Jmonitor\JmonitorBundle\Tests\Dashboard\FakeHostUrls;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedSchedules;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\StubBlockScreen;
@@ -34,7 +36,6 @@ use Symfony\Component\Scheduler\RecurringMessage;
 use Symfony\Component\Scheduler\Schedule;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 final class TemplatesTest extends TestCase
 {
@@ -56,7 +57,8 @@ final class TemplatesTest extends TestCase
 
         $outputs = [
             $this->render('block/table.html.twig', ['page' => $this->page($view), 'block' => Block::table($table)]),
-            $this->render('screen.html.twig', ['page' => $this->page($view), 'screens' => [new StubScreen('<b>')], 'periods' => Period::cases()]),
+            $this->render('page.html.twig', ['page' => $this->page($view), 'screens' => [new StubScreen('<b>')], 'periods' => Period::cases()]),
+            $this->render('page.html.twig', ['page' => $this->page($view), 'screens' => [new StubScreen('<b>')], 'periods' => Period::cases(), 'standalone' => true]),
         ];
 
         foreach ($outputs as $html) {
@@ -66,7 +68,26 @@ final class TemplatesTest extends TestCase
             static::assertStringNotContainsString('<b>', $html);
             static::assertStringNotContainsString('"><i>', $html);
         }
-        static::assertStringContainsString('<script src="/bundles/jmonitor/jmonitor.js?v=', $outputs[1]);
+    }
+
+    public function testTheStandaloneLayoutEscapesTheTitleAndTheAssetsAndKeepsTheContent(): void
+    {
+        $html = $this->render('layout.html.twig', ['content' => new PageContent(
+            '<div class="jm-header"></div>',
+            'JMonitor — <b>',
+            ['/bundles/jmonitor/jmonitor.css?v="><i>'],
+            ['/bundles/jmonitor/jmonitor.js?v=0123abcd'],
+            [],
+        )]);
+
+        static::assertStringContainsString('<title>JMonitor — &lt;b&gt;</title>', $html);
+        static::assertStringContainsString('<link rel="stylesheet" href="/bundles/jmonitor/jmonitor.css?v=&quot;&gt;&lt;i&gt;">', $html);
+        static::assertStringContainsString('<script src="/bundles/jmonitor/jmonitor.js?v=0123abcd" defer></script>', $html);
+        static::assertStringContainsString('<body class="jm">', $html);
+        static::assertStringContainsString('<a class="jm-skip" href="#jm-main">', $html);
+        static::assertStringContainsString('<div class="jm-header"></div>', $html);
+        static::assertStringNotContainsString('<b>', $html);
+        static::assertStringNotContainsString('"><i>', $html);
     }
 
     public function testTheCommandsAndMessagesScreensEscapeTheirKeys(): void
@@ -84,7 +105,7 @@ final class TemplatesTest extends TestCase
 
             foreach ([
                 $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
-                $this->render('screen.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
+                $this->render('page.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
             ] as $html) {
                 static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html, $screen->id());
                 static::assertStringNotContainsString(self::HOSTILE_SQL, $html, $screen->id());
@@ -110,7 +131,7 @@ final class TemplatesTest extends TestCase
         static::assertCount(2, $view->tables[0]->rows);
         foreach ([
             $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
-            $this->render('screen.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
+            $this->render('page.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
         ] as $html) {
             static::assertStringContainsString('app:work --note=&quot;&lt;script&gt;alert(1)&lt;/script&gt;&quot;', $html);
             static::assertStringNotContainsString(self::HOSTILE_SQL, $html);
@@ -169,7 +190,7 @@ final class TemplatesTest extends TestCase
     {
         $page = new Page(new StubScreen(), [], Period::SevenDays, 'name', 'asc', (new StubScreen())->sorts());
 
-        $html = $this->render('screen.html.twig', ['page' => $page, 'screens' => [new StubScreen()], 'periods' => Period::cases()]);
+        $html = $this->render('page.html.twig', ['page' => $page, 'screens' => [new StubScreen()], 'periods' => Period::cases()]);
 
         static::assertStringContainsString('Stub heading, last 7 days.', $html);
     }
@@ -211,9 +232,8 @@ final class TemplatesTest extends TestCase
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');
         $twig = new Environment($loader, ['autoescape' => false, 'strict_variables' => true]);
         $twig->addExtension(new JmonitorExtension());
-        $twig->addFunction(new TwigFunction('path', static fn(string $name, array $parameters = []): string => '/' . $name . '?' . http_build_query($parameters)));
 
-        return $twig->render('@Jmonitor/dashboard/' . $template, $context);
+        return $twig->render('@Jmonitor/dashboard/' . $template, $context + ['urls' => new FakeHostUrls(), 'standalone' => false]);
     }
 
     private function page(ScreenView $view): Page

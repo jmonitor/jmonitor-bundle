@@ -5,7 +5,12 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App;
 
 use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
+use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
+use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Command\WorkCommand;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller\DemoController;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPing;
@@ -49,11 +54,12 @@ final class TestKernel extends Kernel
         private readonly bool $withProfiler = false,
         private readonly bool $withMessenger = false,
         private readonly bool $withScheduler = false,
+        private readonly bool $withPublicInternals = false,
     ) {
         parent::__construct($environment, $debug);
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals]));
     }
 
     public static function fromEnvironment(): self
@@ -142,6 +148,20 @@ final class TestKernel extends Kernel
                 }
             }
         });
+
+        if ($this->withPublicInternals) {
+            $container->addCompilerPass(new class implements CompilerPassInterface {
+                public function process(ContainerBuilder $container): void
+                {
+                    foreach ([PageRenderer::class, ScreenRegistry::class, ScreenBuilder::class, DbalReader::class, Flusher::class, 'twig'] as $id) {
+                        if ($container->hasAlias($id)) {
+                            $container->getAlias($id)->setPublic(true);
+                        }
+                        $container->findDefinition($id)->setPublic(true);
+                    }
+                }
+            });
+        }
     }
 
     protected function configureContainer(ContainerConfigurator $container): void
