@@ -22,6 +22,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\BreakingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Cache\RecordingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
@@ -910,6 +911,51 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(['a' => 1], $snapshot->data('php'));
         self::assertCount(1, $logs);
         self::assertSame('error', $logs[0][0]);
+    }
+
+    public function testACommitThatFailsStillLiftsTheWitnesses(): void
+    {
+        $logger = new BufferingLogger();
+        $pool = new RefusingCachePool(refusesSave: false);
+        $main = new FakeCollector('symfony', ['env' => 'prod']);
+        $legacy = new FakeCollector('symfony', ['env' => 'prod']);
+        $instances = [
+            self::instance([self::spec($main)], 'main', Component::Symfony),
+            self::instance([self::spec($legacy)], 'legacy', Component::Symfony),
+        ];
+        $provider = $this->provider(logger: $logger, cache: $pool);
+
+        for ($i = 0; $i < 3; ++$i) {
+            $snapshots = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+            self::assertSame(ResultState::Fresh, $snapshots['symfony.main']->result('symfony')?->state);
+            self::assertSame(ResultState::Fresh, $snapshots['symfony.legacy']->result('symfony')?->state);
+            self::assertFalse($pool->inner->hasItem('jmonitor.stack.collecting.%node.web-1.symfony.main'), 'the witness of the first instance is lifted');
+            self::assertFalse($pool->inner->hasItem('jmonitor.stack.collecting.%node.web-1.symfony.legacy'), 'and so is the one of the next instance');
+            self::assertCount(1, $logger->cleanLogs(), 'once per read');
+            $this->clock->sleep(1);
+        }
+
+        self::assertSame([3, 3], [$main->collects, $legacy->collects]);
+    }
+
+    public function testAPoolThatBreaksAfterTheWitnessIsTakenStillLosesIt(): void
+    {
+        $logger = new BufferingLogger();
+        $instance = self::instance([self::spec(new FakeCollector('php', ['a' => 1]), trackDelta: true)]);
+        $pool = new BreakingCachePool(static fn(string $method): bool => $method === 'commit');
+
+        $snapshot = $this->read($this->provider(logger: $logger, cache: $pool), $instance);
+
+        self::assertSame(['a' => 1], $snapshot->data('php'));
+        self::assertFalse($pool->inner->hasItem('jmonitor.stack.collecting.%node.web-1.php'), 'the witness is lifted after the cache failed');
+        self::assertCount(1, $logger->cleanLogs());
+
+        $broken = new BreakingCachePool(static fn(string $method, int $call): bool => $call > 2);
+        $snapshot = $this->read($this->provider(logger: $logger, cache: $broken), $instance);
+
+        self::assertSame(['a' => 1], $snapshot->data('php'), 'nothing gets out, even when the witness cannot be lifted');
+        self::assertCount(1, $logger->cleanLogs());
     }
 
     public function testTheReasonOfAnUnavailableInstanceCarriesNoCredentials(): void

@@ -281,7 +281,7 @@ final readonly class SnapshotProvider
         }, null);
 
         if ($token === null) {
-            $guard->refused('the witness');
+            $guard->refused('the witness', true);
         }
 
         $read->token = $token;
@@ -302,15 +302,12 @@ final readonly class SnapshotProvider
             }, false);
 
             if (!$committed) {
-                $guard->refused('the values of ' . $read->instance->key());
+                $guard->refused('the values of ' . $read->instance->key(), false);
             }
         }
 
-        $token = $read->token;
-
-        if ($token !== null) {
-            $witness = $this->keys->witness($read->instance);
-            $guard->attempt(fn(): bool => $this->cache->getItem($witness)->get() === $token && $this->cache->deleteItem($witness), false);
+        if ($read->token !== null) {
+            $this->liftWitness($read->instance, $read->token);
         }
 
         if ($read->ran) {
@@ -323,6 +320,22 @@ final readonly class SnapshotProvider
                     'exception' => $e,
                 ]);
             }
+        }
+    }
+
+    /**
+     * Whatever happened to the cache since it was taken: a witness left behind holds every reader off.
+     */
+    private function liftWitness(Instance $instance, string $token): void
+    {
+        $witness = $this->keys->witness($instance);
+
+        try {
+            if ($this->cache->getItem($witness)->get() === $token) {
+                $this->cache->deleteItem($witness);
+            }
+        } catch (\Throwable) {
+            // it expires on its own
         }
     }
 

@@ -15,6 +15,8 @@ use Psr\Log\LoggerInterface;
  */
 final class CacheGuard
 {
+    private bool $refusalLogged = false;
+
     public function __construct(
         private readonly LoggerInterface $logger,
         private bool $works,
@@ -53,15 +55,20 @@ final class CacheGuard
     }
 
     /**
-     * A write reported as failed without an exception: the cache keeps nothing, it is left aside as well.
+     * A write reported as failed without an exception, logged once per read. A refused witness leaves the cache
+     * aside as well: without it, every request would collect.
      */
-    public function refused(string $what): void
+    public function refused(string $what, bool $leaveAside): void
     {
         if (!$this->works) {
             return;
         }
 
-        $this->works = false;
-        $this->logger->error('The cache of the live stack refused to save {what}, it is left aside.', ['what' => $what]);
+        $this->works = !$leaveAside;
+
+        if (!$this->refusalLogged) {
+            $this->refusalLogged = true;
+            $this->logger->error('The cache of the live stack refused to save {what}.', ['what' => $what]);
+        }
     }
 }

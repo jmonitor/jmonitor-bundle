@@ -16,7 +16,7 @@ final class RefusingCachePool implements CacheItemPoolInterface
 {
     public function __construct(
         private readonly bool $refusesSave = true,
-        private readonly CacheItemPoolInterface $inner = new ArrayAdapter(),
+        public readonly CacheItemPoolInterface $inner = new ArrayAdapter(),
     ) {}
 
     public function getItem(string $key): CacheItemInterface
