@@ -359,7 +359,7 @@ The `Jmonitor\JmonitorBundle\Embed\JmonitorPage` service offers four calls. `pag
 
 - `page()` returns a `PageContent`: the `html` to show (the navigation between the screens and the current screen), its `title`, the `stylesheets` and `scripts` to load and the `headers` to put on your response;
 - `fragment()` returns the `Response` the page fetches to refresh itself;
-- `action()` runs an action of a screen, posted from the page, and returns a `303` redirect to that screen, or answers 403 when the request fails the check described below;
+- `action()` runs an action of a screen, posted from the page, and returns a `303` redirect to that screen; it answers 404 when the screen has no such action, and 403 when the request fails the check described below;
 - `doNotRecord()` marks the request as not recorded; the three calls above do it too.
 
 An unknown path answers 404. Without the TwigBundle, `page()` and `fragment()` answer 404.
@@ -374,7 +374,7 @@ Access control is entirely yours: `dashboard.enabled` and `dashboard.permission`
 
 The screens are dark by default; `data-jm-theme="light"` on the `jm` element gives the light theme.
 
-Actions: when your application has CSRF protection and a session, an action needs the CSRF token the page puts in its form; otherwise it must come from the same origin (`Sec-Fetch-Site`, else `Origin`). Behind a reverse proxy, your application must therefore know its public scheme and host (`trusted_proxies`). Declare the page and action routes the same way: both stateless, or neither.
+Actions: when your application has CSRF protection and a session and the action route is not stateless, an action needs the CSRF token the page puts in its form; otherwise it must come from the same origin (`Sec-Fetch-Site`, else `Origin`). Behind a reverse proxy, your application must therefore know its public scheme and host (`trusted_proxies`). Declare the page and action routes the same way: both stateless, or neither.
 
 ```php
 // src/Controller/Admin/MonitoringController.php
