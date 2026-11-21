@@ -31,6 +31,7 @@ use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
+use Jmonitor\JmonitorBundle\EasyAdmin\Access;
 use Jmonitor\JmonitorBundle\EasyAdmin\JmonitorController;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -134,6 +135,7 @@ class JmonitorBundleTest extends TestCase
 
         static::assertFalse($container->getParameter('jmonitor.easyadmin.enabled'));
         static::assertNull($container->getParameter('jmonitor.easyadmin.permission'));
+        static::assertFalse($container->getParameter('jmonitor.easyadmin.permission_required'));
         static::assertSame([], $container->findTaggedServiceIds('ea.admin_route_controller'));
 
         $prefix = 'Jmonitor\\JmonitorBundle\\EasyAdmin\\';
@@ -144,13 +146,14 @@ class JmonitorBundleTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{bool|array<string, mixed>, string|null}>
+     * @return iterable<string, array{bool|array<string, mixed>, string|null, bool}>
      */
     public static function easyAdminActivationProvider(): iterable
     {
-        yield 'true' => [true, null];
-        yield 'enabled' => [['enabled' => true], null];
-        yield 'a permission' => [['permission' => 'ROLE_X'], 'ROLE_X'];
+        yield 'true' => [true, null, false];
+        yield 'enabled' => [['enabled' => true], null, false];
+        yield 'a permission' => [['permission' => 'ROLE_X'], 'ROLE_X', true];
+        yield 'a permission read from the environment' => [['permission' => '%env(default::JMONITOR_PERMISSION)%'], '%env(default::JMONITOR_PERMISSION)%', true];
     }
 
     /**
@@ -158,11 +161,12 @@ class JmonitorBundleTest extends TestCase
      */
     #[Group('easyadmin')]
     #[DataProvider('easyAdminActivationProvider')]
-    public function testTheEasyAdminOptionIsTurnedOnByTrueOrByAPermission(bool|array $easyadmin, ?string $permission): void
+    public function testTheEasyAdminOptionIsTurnedOnByTrueOrByAPermission(bool|array $easyadmin, ?string $permission, bool $required): void
     {
         $container = $this->loadBundle(['easyadmin' => $easyadmin], bundles: $this->easyAdminBundles());
 
         static::assertTrue($container->getParameter('jmonitor.easyadmin.enabled'));
+        static::assertSame($required, $container->getParameter('jmonitor.easyadmin.permission_required'));
         static::assertSame($permission, $container->getParameter('jmonitor.easyadmin.permission'));
     }
 
@@ -204,18 +208,18 @@ class JmonitorBundleTest extends TestCase
         static::assertFalse($definition->isPublic());
 
         $arguments = array_values($definition->getArguments());
-        static::assertCount(3, $arguments);
+        static::assertCount(2, $arguments);
         static::assertInstanceOf(Reference::class, $arguments[0]);
         static::assertSame(JmonitorPage::class, (string) $arguments[0]);
         static::assertInstanceOf(ServiceLocatorArgument::class, $arguments[1]);
-        static::assertSame('%jmonitor.easyadmin.permission%', $arguments[2]);
+        $locator = $arguments[1]->getValues();
+        static::assertEqualsCanonicalizing(['twig', 'router', Access::class], array_keys($locator));
+        static::assertSame(Access::class, (string) $locator[Access::class]);
 
-        foreach ($arguments as $argument) {
-            if ($argument instanceof Reference) {
-                static::assertNotContains((string) $argument, ['twig', 'router']);
-                static::assertStringNotContainsString('connection', (string) $argument);
-            }
-        }
+        $access = $container->getDefinition(Access::class);
+        static::assertFalse($access->isPublic());
+        static::assertSame(['%jmonitor.easyadmin.permission_required%', '%jmonitor.easyadmin.permission%'], \array_slice($access->getArguments(), 0, 2));
+        static::assertSame('security.authorization_checker', (string) $access->getArgument(2));
     }
 
     public function testAPermissionIsIgnoredWhileTheOptionIsOff(): void
@@ -224,6 +228,7 @@ class JmonitorBundleTest extends TestCase
 
         static::assertFalse($container->getParameter('jmonitor.easyadmin.enabled'));
         static::assertNull($container->getParameter('jmonitor.easyadmin.permission'));
+        static::assertFalse($container->getParameter('jmonitor.easyadmin.permission_required'));
     }
 
     /**

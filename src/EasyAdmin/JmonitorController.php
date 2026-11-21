@@ -9,10 +9,7 @@ use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Psr\Container\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
-use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
-use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Twig\Environment;
 
 #[AdminRoute('/jmonitor', name: 'jmonitor')]
@@ -24,7 +21,6 @@ final class JmonitorController
     public function __construct(
         private readonly JmonitorPage $jmonitor,
         private readonly ContainerInterface $services,
-        private readonly ?string $permission,
     ) {}
 
     #[AdminRoute(path: '/{path}', name: 'index', options: self::ROUTE + ['methods' => ['GET']])]
@@ -60,21 +56,10 @@ final class JmonitorController
 
     private function denyUnlessGranted(): void
     {
-        if ($this->permission === null) {
-            return;
-        }
+        $access = $this->services->get(Access::class);
+        \assert($access instanceof Access);
 
-        $checker = $this->services->has('security.authorization_checker') ? $this->services->get('security.authorization_checker') : null;
-
-        if ($this->permission !== '' && $checker instanceof AuthorizationCheckerInterface && $checker->isGranted($this->permission)) {
-            return;
-        }
-
-        $message = \sprintf('JMonitor needs the "%s" permission.', $this->permission);
-        $denied = new AccessDeniedException($message);
-        $denied->setAttributes([$this->permission]);
-
-        throw new AccessDeniedHttpException($message, $denied);
+        $access->assertGranted();
     }
 
     private function urls(Request $request): EasyAdminUrls

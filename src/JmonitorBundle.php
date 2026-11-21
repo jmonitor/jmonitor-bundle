@@ -101,6 +101,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.dashboard.permission', $permission);
         $builder->setParameter('jmonitor.easyadmin.enabled', $easyAdminEnabled);
         $builder->setParameter('jmonitor.easyadmin.permission', $easyAdminPermission);
+        $builder->setParameter('jmonitor.easyadmin.permission_required', $easyAdminPermission !== null);
         $builder->setParameter('jmonitor.logger', $config['logger'] ?: null);
 
         $container->import('../config/recording.php');

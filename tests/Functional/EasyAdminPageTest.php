@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
@@ -22,13 +23,22 @@ final class EasyAdminPageTest extends WebTestCase
     private const SUPER = ['PHP_AUTH_USER' => 'super', 'PHP_AUTH_PW' => 'test'];
     private const SAME_ORIGIN = ['HTTP_SEC_FETCH_SITE' => 'same-origin'];
 
+    private const VARIABLES = ['JMONITOR_TEST_PERMISSION', 'JMONITOR_TEST_ABSENT'];
+
     private string $bufferDir;
+
+    /** @var array<string, array{mixed, mixed, string|false}> */
+    private static array $savedVariables = [];
 
     /** @var list<string> */
     private static array $varDirs = [];
 
     protected function setUp(): void
     {
+        foreach (self::VARIABLES as $name) {
+            self::$savedVariables[$name] = [$_ENV[$name] ?? null, $_SERVER[$name] ?? null, getenv($name)];
+            self::unsetVariable($name);
+        }
         $this->bufferDir = sys_get_temp_dir() . '/jmonitor-easyadmin-' . bin2hex(random_bytes(6));
         mkdir($this->bufferDir);
     }
@@ -37,7 +47,19 @@ final class EasyAdminPageTest extends WebTestCase
     {
         parent::tearDown();
 
-        unset($_ENV['JMONITOR_TEST_PERMISSION'], $_SERVER['JMONITOR_TEST_PERMISSION']);
+        foreach (self::$savedVariables as $name => [$env, $server, $process]) {
+            self::unsetVariable($name);
+            if ($env !== null) {
+                $_ENV[$name] = $env;
+            }
+            if ($server !== null) {
+                $_SERVER[$name] = $server;
+            }
+            if ($process !== false) {
+                putenv($name . '=' . $process);
+            }
+        }
+        self::$savedVariables = [];
         (new Filesystem())->remove([$this->bufferDir, ...self::$varDirs]);
         self::$varDirs = [];
     }
@@ -242,17 +264,46 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertCount(0, $crawler->filter('tr[data-jm-probe-runs]'));
     }
 
-    public function testAnEmptyPermissionAtRuntimeOpensNothing(): void
+    /**
+     * @return iterable<string, array{string, ?string}>
+     */
+    public static function emptyPermissions(): iterable
     {
-        $_ENV['JMONITOR_TEST_PERMISSION'] = $_SERVER['JMONITOR_TEST_PERMISSION'] = '';
-        $client = $this->client(['jmonitor' => ['easyadmin' => ['permission' => '%env(JMONITOR_TEST_PERMISSION)%']]]);
+        yield 'variable empty' => ['%env(JMONITOR_TEST_PERMISSION)%', ''];
+        yield 'variable empty, with a default' => ['%env(default::JMONITOR_TEST_PERMISSION)%', ''];
+        yield 'variable absent, with a default' => ['%env(default::JMONITOR_TEST_PERMISSION)%', null];
+    }
 
-        $client->request('GET', '/admin/jmonitor', server: self::SUPER);
+    #[DataProvider('emptyPermissions')]
+    public function testAnEmptyPermissionAtRuntimeOpensNothing(string $permission, ?string $variable): void
+    {
+        if ($variable !== null) {
+            self::setVariable('JMONITOR_TEST_PERMISSION', $variable);
+        }
+        $client = $this->client(['jmonitor' => ['easyadmin' => ['permission' => $permission]]]);
+        $client->setServerParameters(self::SUPER);
 
+        $client->request('GET', '/admin/jmonitor');
+        static::assertResponseStatusCodeSame(403);
+        $client->request('GET', '/admin/jmonitor/_fragment/probe');
+        static::assertResponseStatusCodeSame(403);
+        $client->request('POST', '/admin/jmonitor/_action/probe', ['action' => 'ping'], server: self::SAME_ORIGIN);
         static::assertResponseStatusCodeSame(403);
     }
 
-    public function testTheScriptCarriesTheNonceOfTheApplication(): void
+    public function testAMissingPermissionVariableOnlyBreaksThePageOfJmonitor(): void
+    {
+        $client = $this->client(['jmonitor' => ['easyadmin' => ['permission' => '%env(JMONITOR_TEST_ABSENT)%']]]);
+
+        $client->request('GET', '/hello/world');
+        static::assertResponseStatusCodeSame(200);
+        $client->request('GET', '/admin');
+        static::assertResponseStatusCodeSame(200);
+        $client->request('GET', '/admin/jmonitor');
+        static::assertResponseStatusCodeSame(500);
+    }
+
+    public function testTheAssetsCarryTheNonceOfTheApplication(): void
     {
         $client = $this->client(['nonce' => true]);
 
@@ -260,6 +311,7 @@ final class EasyAdminPageTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertCount(1, $crawler->filter('script[src*="/bundles/jmonitor/"][nonce="n0nce"]'));
+        static::assertCount(1, $crawler->filter('link[rel="stylesheet"][href*="/bundles/jmonitor/"][nonce="n0nce"]'));
 
         self::ensureKernelShutdown();
         $client = $this->client();
@@ -268,7 +320,9 @@ final class EasyAdminPageTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertCount(1, $crawler->filter('script[src*="/bundles/jmonitor/"]'));
+        static::assertCount(1, $crawler->filter('link[rel="stylesheet"][href*="/bundles/jmonitor/"]'));
         static::assertCount(0, $crawler->filter('script[src*="/bundles/jmonitor/"][nonce]'));
+        static::assertCount(0, $crawler->filter('link[href*="/bundles/jmonitor/"][nonce]'));
     }
 
     public function testAnOldTabAddressIsNotFound(): void
@@ -293,6 +347,18 @@ final class EasyAdminPageTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertSame('recording_disabled', $crawler->filter('.jm-screen')->attr('data-jm-state'));
+    }
+
+    private static function setVariable(string $name, string $value): void
+    {
+        $_ENV[$name] = $_SERVER[$name] = $value;
+        putenv($name . '=' . $value);
+    }
+
+    private static function unsetVariable(string $name): void
+    {
+        unset($_ENV[$name], $_SERVER[$name]);
+        putenv($name);
     }
 
     /**
