@@ -131,4 +131,7 @@ captures_round 1
 start 1
 captures_round 2
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads and exceptions"
+$COMPOSE exec -T app php tests/Fixtures/App/bin/console app:work || fail "app:work failed"
+expect_page /jmonitor/commands 'data-jm-command="app:work" data-jm-runs="1"' 'the Commands screen did not list 1 run of app:work'
+
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command"

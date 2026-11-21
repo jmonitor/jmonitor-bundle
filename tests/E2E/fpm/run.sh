@@ -91,4 +91,7 @@ expect_page() {
 expect_page /jmonitor/cache 'data-jm-pool="cache.app" data-jm-reads="3"' 'the Cache screen did not list 3 reads of cache.app'
 expect_page /jmonitor/exceptions 'data-jm-exception="RuntimeException" data-jm-count="2"' 'the Exceptions screen did not list 2 RuntimeException'
 
-echo "OK: 30 requests, an N+1, cache reads and exceptions recorded under PHP-FPM"
+$COMPOSE exec -T -u www-data php php tests/Fixtures/App/bin/console app:work || fail "app:work failed as the PHP-FPM pool user"
+expect_page /jmonitor/commands 'data-jm-command="app:work" data-jm-runs="1"' 'the Commands screen did not list 1 run of app:work'
+
+echo "OK: 30 requests, an N+1, cache reads, exceptions and a console command recorded under PHP-FPM"
