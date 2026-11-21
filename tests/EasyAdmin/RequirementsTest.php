@@ -54,4 +54,12 @@ final class RequirementsTest extends TestCase
 
         Requirements::assertMet([]);
     }
+
+    public function testJmonitorEasyadminBundleIsRefusedFirst(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin" option cannot be used together with jmonitor/easyadmin-bundle, which declares the same routes: remove that package, or turn the option off.');
+
+        Requirements::assertMet(['JmonitorEasyAdminBundle' => 'Jmonitor\\EasyAdminBundle\\JmonitorEasyAdminBundle']);
+    }
 }

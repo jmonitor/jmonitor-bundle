@@ -377,7 +377,7 @@ public function configureMenuItems(): iterable
 
 The pages live under the path of each dashboard: `/admin/jmonitor`, `/admin/jmonitor/queries`… for a dashboard at `/admin`. Their route is named after the route of the dashboard followed by `_jmonitor_index`: `admin_jmonitor_index` for a dashboard whose route is `admin`. The screens follow the light or dark theme of the back office, even when it is switched.
 
-Turned on without EasyAdmin, or with an older version, the option stops the container build with a message that says why.
+Turned on without EasyAdmin, or with an older version, the option stops the container build with a message that says why. The option cannot be read from an environment variable, since its routes are fixed when the container is built; `permission` can.
 
 Access: the pages sit under the path of the dashboard, so the `access_control` rule that protects your back office, such as one on `^/admin`, covers them. A protection that does not depend on the path, such as an `#[IsGranted]` attribute on the dashboard controller, does not: set `permission`, or add an `access_control` rule on `^/admin/jmonitor`.
 
@@ -403,7 +403,7 @@ These pages are not recorded, even when access is refused. When your application
 
 #### Coming from jmonitor/easyadmin-bundle
 
-To show these screens in a back office that uses `jmonitor/easyadmin-bundle`, delete the `jmonitor_easyadmin` configuration first, since Symfony refuses to boot with a configuration no bundle reads, then swap the packages, update EasyAdmin to 5.10.2 or later if needed, and turn `jmonitor.easyadmin` on as above:
+To show these screens in a back office that uses `jmonitor/easyadmin-bundle`, delete the `jmonitor_easyadmin` configuration first, since Symfony refuses to boot with a configuration no bundle reads, then swap the packages, update EasyAdmin to 5.10.2 or later if needed, and turn `jmonitor.easyadmin` on as above. The option refuses to work while `jmonitor/easyadmin-bundle` is installed, since both declare the same routes:
 
 ```bash
 composer remove jmonitor/easyadmin-bundle

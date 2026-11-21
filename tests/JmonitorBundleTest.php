@@ -47,6 +47,8 @@ use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\UserRecorder;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -176,6 +178,56 @@ class JmonitorBundleTest extends TestCase
         $this->expectExceptionMessage('The "jmonitor.easyadmin" option requires the EasyAdminBundle: install easycorp/easyadmin-bundle 5.10.2 or later, or turn the option off.');
 
         $this->loadBundle(['easyadmin' => true]);
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function easyAdminOptionsFromTheEnvironment(): iterable
+    {
+        yield 'enabled' => [['enabled' => '%env(bool:JMONITOR_EASYADMIN)%']];
+        yield 'the option itself' => ['%env(bool:JMONITOR_EASYADMIN)%'];
+    }
+
+    #[DataProvider('easyAdminOptionsFromTheEnvironment')]
+    public function testTheEasyAdminOptionCannotBeReadFromTheEnvironment(mixed $easyadmin): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin" option cannot be read from an environment variable: its routes are fixed when the container is built.');
+
+        $this->loadBundle(['easyadmin' => $easyadmin], bundles: $this->easyAdminBundles());
+    }
+
+    #[DataProvider('easyAdminOptionsFromTheEnvironment')]
+    public function testAKernelRefusesTheEasyAdminOptionReadFromTheEnvironment(mixed $easyadmin): void
+    {
+        $kernel = new TestKernel('test', true, ['easyadmin' => $easyadmin], withDoctrine: false, withHttpClient: false);
+
+        try {
+            $kernel->boot();
+            static::fail('The kernel booted.');
+        } catch (\LogicException $exception) {
+            static::assertSame('The "jmonitor.easyadmin" option cannot be read from an environment variable: its routes are fixed when the container is built.', $exception->getMessage());
+        } finally {
+            (new Filesystem())->remove($kernel->getVarDir());
+        }
+    }
+
+    #[Group('easyadmin')]
+    public function testAPermissionReadFromTheEnvironmentIsAccepted(): void
+    {
+        $container = $this->loadBundle(['easyadmin' => ['enabled' => true, 'permission' => '%env(JMONITOR_PERMISSION)%']], bundles: $this->easyAdminBundles());
+
+        static::assertTrue($container->getParameter('jmonitor.easyadmin.enabled'));
+        static::assertTrue($container->getParameter('jmonitor.easyadmin.permission_required'));
+    }
+
+    public function testTheEasyAdminOptionCannotBeUsedWithJmonitorEasyadminBundle(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin" option cannot be used together with jmonitor/easyadmin-bundle, which declares the same routes: remove that package, or turn the option off.');
+
+        $this->loadBundle(['easyadmin' => true], bundles: ['JmonitorEasyAdminBundle' => 'Jmonitor\\EasyAdminBundle\\JmonitorEasyAdminBundle', ...$this->easyAdminBundles()]);
     }
 
     #[Group('easyadmin')]
