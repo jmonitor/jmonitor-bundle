@@ -9,6 +9,8 @@ use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
+use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
+use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
@@ -78,4 +80,21 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(ComponentRegistry::class)
         ->args([tagged_locator('jmonitor.stack.detector', 'index'), param('jmonitor.stack.components')])
         ->tag('kernel.reset', ['method' => 'reset']);
+
+    $reader = $services->set(LocalStackReader::class)
+        ->args([
+            service(ComponentRegistry::class),
+            service(SnapshotProvider::class),
+            service(CacheProbe::class),
+            service('jmonitor.stack.cache'),
+            service('jmonitor.clock'),
+            service(WebNode::class),
+            $logger,
+        ]);
+
+    if ($customLogger === null) {
+        $reader->tag('monolog.logger', ['channel' => 'jmonitor']);
+    }
+
+    $services->alias(StackReaderInterface::class, LocalStackReader::class);
 };

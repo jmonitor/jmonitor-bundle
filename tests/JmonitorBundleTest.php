@@ -50,6 +50,11 @@ use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
+use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
+use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
+use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Symfony\Component\Filesystem\Filesystem;
@@ -1555,5 +1560,24 @@ class JmonitorBundleTest extends TestCase
         static::assertSame('index', $locator->getTaggedIteratorArgument()->getIndexAttribute());
         static::assertSame('%jmonitor.stack.components%', $registry->getArgument(1));
         static::assertSame([['method' => 'reset']], $registry->getTag('kernel.reset'));
+    }
+
+    public function testTheStackIsReadThroughOnePrivateReader(): void
+    {
+        $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        $reader = $container->getDefinition(LocalStackReader::class);
+        static::assertFalse($reader->isPublic());
+        static::assertSame(
+            [ComponentRegistry::class, SnapshotProvider::class, CacheProbe::class, 'jmonitor.stack.cache', 'jmonitor.clock', WebNode::class],
+            array_map(strval(...), \array_slice($reader->getArguments(), 0, 6)),
+        );
+        static::assertSame(LocalStackReader::class, (string) $container->getAlias(StackReaderInterface::class));
+        static::assertFalse($container->getAlias(StackReaderInterface::class)->isPublic());
+
+        $off = $this->loadBundle(['stack' => false], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        static::assertFalse($off->hasDefinition(LocalStackReader::class));
+        static::assertFalse($off->hasAlias(StackReaderInterface::class));
     }
 }
