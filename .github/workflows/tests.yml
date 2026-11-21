@@ -25,12 +25,12 @@ jobs:
                 # (every release is blocked by security advisories), so the 7.x line
                 # is covered by 7.4 (the lowest maintained 7.x) and the 8.x line by 8.1.
                 include:
-                    - { php: '8.2', symfony: '6.4.*', dbal: '^3.8' }   # bundle PHP floor + Symfony LTS floor
-                    - { php: '8.4', symfony: '6.4.*', dbal: '^4.0' }   # LTS on the newest PHP (catches deprecations)
-                    - { php: '8.3', symfony: '7.4.*', dbal: '^3.8' }   # lowest maintained 7.x on a recent PHP
-                    - { php: '8.5', symfony: '7.4.*', dbal: '^4.0' }
-                    - { php: '8.4', symfony: '8.1.*', dbal: '^4.0' }
-                    - { php: '8.5', symfony: '8.1.*', dbal: '^4.0' }
+                    - { php: '8.2', symfony: '6.4.*', dbal: '^3.8', easyadmin: '5.10.2' }    # bundle PHP floor + Symfony LTS floor + EasyAdmin floor
+                    - { php: '8.4', symfony: '6.4.*', dbal: '^4.0', easyadmin: '^5.10.2' }   # LTS on the newest PHP (catches deprecations)
+                    - { php: '8.3', symfony: '7.4.*', dbal: '^3.8', easyadmin: '^5.10.2' }   # lowest maintained 7.x on a recent PHP
+                    - { php: '8.5', symfony: '7.4.*', dbal: '^4.0', easyadmin: '^5.10.2' }
+                    - { php: '8.4', symfony: '8.1.*', dbal: '^4.0', easyadmin: '^5.10.2' }
+                    - { php: '8.5', symfony: '8.1.*', dbal: '^4.0', easyadmin: '^5.10.2' }
 
         services:
             mysql:
@@ -98,6 +98,9 @@ jobs:
             - name: Pin doctrine/dbal
               run: composer require --dev --no-update "doctrine/dbal:${{ matrix.dbal }}"
 
+            - name: Pin easycorp/easyadmin-bundle
+              run: composer require --dev --no-update "easycorp/easyadmin-bundle:${{ matrix.easyadmin }}"
+
             - name: Install dependencies (Symfony ${{ matrix.symfony }})
               env:
                   SYMFONY_REQUIRE: ${{ matrix.symfony }}
@@ -111,6 +114,30 @@ jobs:
 
             - name: phpunit
               run: composer run-script phpunit
+
+    without-easyadmin:
+        name: PHP 8.4 without EasyAdmin
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup PHP 8.4
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.4'
+                  coverage: none
+                  tools: composer:v2
+
+            - name: Remove easycorp/easyadmin-bundle
+              run: composer remove --dev --no-update easycorp/easyadmin-bundle
+
+            - name: Install dependencies
+              run: composer update --prefer-dist --no-progress
+
+            # No lint nor phpstan here: src/EasyAdmin names classes that are not installed.
+            - name: phpunit
+              run: ./vendor/bin/phpunit tests --exclude-group easyadmin
 
     e2e-fpm:
         name: End-to-end under PHP-FPM
