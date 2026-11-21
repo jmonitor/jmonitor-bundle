@@ -465,9 +465,12 @@ final class DashboardTest extends WebTestCase
         );
         static::assertSame('Scheduler', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
         static::assertSame(
-            ['app:work', Ping::class],
+            ['app:work --times=2', Ping::class, 'app:work'],
             $crawler->filter('tr[data-jm-task]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-task')),
         );
+        $nextRuns = $crawler->filter('tr[data-jm-task]')->each(static fn(Crawler $row): string => $row->filter('td')->eq(2)->text());
+        static::assertMatchesRegularExpression('/^in \d+ d$/', $nextRuns[0]);
+        static::assertSame(['—', '—'], \array_slice($nextRuns, 1));
         static::assertSame('0', $crawler->filter('tr[data-jm-task="app:work"]')->attr('data-jm-runs'));
         static::assertStringContainsString('every 1 second', $crawler->filter('tr[data-jm-task="app:work"]')->text());
     }
@@ -486,7 +489,7 @@ final class DashboardTest extends WebTestCase
 
         static::assertSame('1', $crawler->filter('tr[data-jm-task="app:work"]')->attr('data-jm-runs'));
         static::assertSame(
-            ['app:work', Ping::class],
+            ['app:work --times=2', Ping::class, 'app:work'],
             $crawler->filter('tr[data-jm-task]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-task')),
         );
     }

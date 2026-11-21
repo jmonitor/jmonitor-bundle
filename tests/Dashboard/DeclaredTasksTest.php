@@ -14,7 +14,9 @@ use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Scheduler\Generator\MessageContext;
 use Symfony\Component\Scheduler\RecurringMessage;
 use Symfony\Component\Scheduler\Schedule;
+use Symfony\Component\Scheduler\Trigger\JitterTrigger;
 use Symfony\Component\Scheduler\Trigger\MessageProviderInterface;
+use Symfony\Component\Scheduler\Trigger\PeriodicalTrigger;
 use Symfony\Component\Scheduler\Trigger\TriggerInterface;
 
 final class DeclaredTasksTest extends TestCase
@@ -122,20 +124,9 @@ final class DeclaredTasksTest extends TestCase
     public function testAScheduleWhoseTriggerFailsIsSkippedWhole(): void
     {
         $logger = self::logger();
-        $failing = new class implements TriggerInterface {
-            public function __toString(): string
-            {
-                return 'never';
-            }
-
-            public function getNextRunDate(\DateTimeImmutable $run): ?\DateTimeImmutable
-            {
-                throw new \LogicException('Broken trigger');
-            }
-        };
         $broken = (new Schedule())->add(
             RecurringMessage::every('1 hour', new Ping(), '@' . self::NOW),
-            RecurringMessage::trigger($failing, new Ping('other')),
+            RecurringMessage::trigger(new FailingTrigger(), new Ping('other')),
         );
         $ping = RecurringMessage::every('1 hour', new RunCommandMessage('app:work'), '@' . self::NOW);
 
@@ -146,6 +137,69 @@ final class DeclaredTasksTest extends TestCase
 
         static::assertSame(['app:work'], array_map(static fn(DeclaredTask $task): string => $task->label, $tasks));
         static::assertSame(['error JMonitor could not read the "broken" schedule: Broken trigger'], $logger->messages);
+    }
+
+    public function testATriggerThatFollowsTheTimeOfTheQuestionHasNoKnownNextRun(): void
+    {
+        $unanchored = RecurringMessage::every('1 hour', new Ping());
+        $anchored = RecurringMessage::every('1 hour', new RunCommandMessage('app:work'), '@' . (self::NOW - 600));
+
+        $tasks = (new DeclaredTasks(FixedSchedules::locator(['default' => static fn(): Schedule => (new Schedule())->add($unanchored, $anchored)])))->all(self::NOW);
+
+        static::assertSame([null, self::NOW + 3000], array_map(static fn(DeclaredTask $task): ?int => $task->nextRun, $tasks));
+    }
+
+    public function testATriggerThatCannotBeCopiedHasNoKnownNextRunAndTheScheduleIsStillListed(): void
+    {
+        $logger = self::logger();
+        $closure = static fn(): int => 1;
+        $uncopyable = new class ($closure) implements TriggerInterface {
+            public function __construct(private readonly \Closure $closure) {}
+
+            public function __toString(): string
+            {
+                return 'custom ' . ($this->closure)();
+            }
+
+            public function getNextRunDate(\DateTimeImmutable $run): ?\DateTimeImmutable
+            {
+                return new \DateTimeImmutable('@1900000000');
+            }
+        };
+        $schedule = (new Schedule())->add(
+            RecurringMessage::trigger($uncopyable, new Ping()),
+            RecurringMessage::every('1 hour', new RunCommandMessage('app:work'), '@' . (self::NOW - 600)),
+        );
+
+        $tasks = (new DeclaredTasks(FixedSchedules::locator(['default' => static fn(): Schedule => $schedule]), $logger))->all(self::NOW);
+
+        static::assertSame(
+            [[Ping::class, 'custom 1', null], ['app:work', 'every 1 hour', self::NOW + 3000]],
+            array_map(static fn(DeclaredTask $task): array => [$task->label, $task->trigger, $task->nextRun], $tasks),
+        );
+        static::assertSame([], $logger->messages);
+    }
+
+    public function testReadingASharedScheduleLeavesItsTriggerUntouched(): void
+    {
+        $periodical = new PeriodicalTrigger('1 hour');
+        $shared = (new Schedule())->add(RecurringMessage::trigger($periodical, new Ping()));
+
+        (new DeclaredTasks(FixedSchedules::locator(['default' => static fn(): Schedule => $shared])))->all(self::NOW);
+
+        $later = new \DateTimeImmutable('@' . (self::NOW + 100));
+        static::assertEquals((new PeriodicalTrigger('1 hour'))->getNextRunDate($later), $periodical->getNextRunDate($later));
+    }
+
+    public function testReadingASharedScheduleLeavesTheTriggerUnderAJitterUntouched(): void
+    {
+        $inner = new PeriodicalTrigger('1 day');
+        $shared = (new Schedule())->add(RecurringMessage::trigger(new JitterTrigger($inner, 60), new Ping()));
+
+        (new DeclaredTasks(FixedSchedules::locator(['default' => static fn(): Schedule => $shared])))->all(self::NOW);
+
+        $later = new \DateTimeImmutable('@' . (self::NOW + 100));
+        static::assertEquals((new PeriodicalTrigger('1 day'))->getNextRunDate($later), $inner->getNextRunDate($later));
     }
 
     public function testWithoutSchedulesThereIsNoTask(): void

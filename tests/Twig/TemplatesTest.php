@@ -95,7 +95,7 @@ final class TemplatesTest extends TestCase
     {
         $label = 'app:work --note="<script>alert(1)</script>"';
         $declared = new DeclaredTasks(FixedSchedules::locator([
-            'default' => static fn(): Schedule => (new Schedule())->add(RecurringMessage::every('1 hour', new RunCommandMessage($label))),
+            'default' => static fn(): Schedule => (new Schedule())->add(RecurringMessage::every('1 hour', new RunCommandMessage($label), '@1799999000')),
         ]));
         $stored = new ReportRow('"><i>', (new TaskKey('"><i>', 'gone', $label, '"><i>'))->toString(), null, [
             Metric::TASK_DURATION => new MetricValue(1, 10.0, 10.0),

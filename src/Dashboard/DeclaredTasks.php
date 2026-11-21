@@ -10,6 +10,7 @@ use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Scheduler\Generator\MessageContext;
 use Symfony\Component\Scheduler\RecurringMessage;
 use Symfony\Component\Scheduler\Trigger\StaticMessageProvider;
+use Symfony\Component\Scheduler\Trigger\TriggerInterface;
 use Symfony\Contracts\Service\ServiceProviderInterface;
 
 final class DeclaredTasks
@@ -43,15 +44,51 @@ final class DeclaredTasks
     /** @return list<DeclaredTask> */
     private function read(ServiceProviderInterface $schedules, string $name, int $now): array
     {
-        $at = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+        $at = self::instant($now);
 
         $tasks = [];
         foreach ($schedules->get($name)->getSchedule()->getRecurringMessages() as $message) {
             $trigger = $message->getTrigger();
-            $tasks[] = new DeclaredTask($name, $message->getId(), self::label($name, $message, $at), (string) $trigger, $trigger->getNextRunDate($at)?->getTimestamp());
+            $tasks[] = new DeclaredTask($name, $message->getId(), self::label($name, $message, $at), (string) $trigger, self::nextRun($trigger, $now));
         }
 
         return $tasks;
+    }
+
+    /**
+     * Asked on copies, since asking a trigger can set its starting point. A trigger that is not anchored answers
+     * relative to the instant of the question: its next run depends on when the worker started, unknown here.
+     */
+    private static function nextRun(TriggerInterface $trigger, int $now): ?int
+    {
+        $copy = self::copy($trigger);
+        $later = self::copy($trigger);
+        if ($copy === null || $later === null) {
+            return null;
+        }
+
+        $next = $copy->getNextRunDate(self::instant($now))?->getTimestamp();
+        if ($next !== null && $later->getNextRunDate(self::instant($now + 1))?->getTimestamp() === $next + 1) {
+            return null;
+        }
+
+        return $next;
+    }
+
+    private static function copy(TriggerInterface $trigger): ?TriggerInterface
+    {
+        try {
+            $copy = unserialize(serialize($trigger));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $copy instanceof TriggerInterface ? $copy : null;
+    }
+
+    private static function instant(int $timestamp): \DateTimeImmutable
+    {
+        return (new \DateTimeImmutable('@' . $timestamp))->setTimezone(new \DateTimeZone(date_default_timezone_get()));
     }
 
     private static function label(string $schedule, RecurringMessage $message, \DateTimeImmutable $at): string
