@@ -47,7 +47,8 @@
     color-scheme: dark;
 }
 
-.jm[data-jm-theme="light"] {
+.jm[data-jm-theme="light"],
+[data-bs-theme="light"] .jm[data-jm-theme="auto"] {
     --jm-bg: #f5f7fa;
     --jm-bg-gradient: linear-gradient(119deg, #f5f7fa, #eef2f7 52%, #f4f6fa);
     --jm-header-bg: rgba(245, 247, 250, .86);

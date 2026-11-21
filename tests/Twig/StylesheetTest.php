@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Twig;
 
+use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 
 final class StylesheetTest extends TestCase
 {
-    private const DARK = '.jm';
-    private const LIGHT = '.jm[data-jm-theme="light"]';
+    private const DARK = ['.jm'];
+    private const LIGHT = ['.jm[data-jm-theme="light"]', '[data-bs-theme="light"] .jm[data-jm-theme="auto"]'];
+    private const HOST_ANCESTORS = ['[data-bs-theme="light"] '];
+    private const UNDER_JM = '/^(?:body)?\.jm(?![a-z0-9_])/i';
+    private const ON_JM = '/^(?:\.jm|\.jm\[[^\]]+\]|body\.jm)$/';
     private const COLOUR = '/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i';
 
     public function testTheParserReadsTopLevelMediaAndKeyframeRules(): void
@@ -32,8 +36,28 @@ final class StylesheetTest extends TestCase
 
         static::assertNotEmpty($selectors);
         foreach ($selectors as $selector) {
-            static::assertMatchesRegularExpression('/^(?:body)?\.jm(?![a-z0-9_])/i', $selector);
+            static::assertMatchesRegularExpression(self::UNDER_JM, self::withoutHostAncestor($selector));
         }
+    }
+
+    #[TestWith(['[data-bs-theme="light"] .jm[data-jm-theme="auto"]', true])]
+    #[TestWith(['[data-bs-theme="dark"] .jm[data-jm-theme="auto"]', false])]
+    #[TestWith(['.sidebar .jm', false])]
+    #[TestWith(['.sidebar .jm[data-jm-theme="auto"]', false])]
+    #[TestWith(['[data-bs-theme="light"] .sidebar .jm', false])]
+    public function testOnlyTheBootstrapLightModeMayBeAnAncestorOfJm(string $selector, bool $accepted): void
+    {
+        $selector = self::withoutHostAncestor($selector);
+
+        static::assertSame($accepted, preg_match(self::UNDER_JM, $selector) === 1);
+        static::assertSame($accepted, preg_match(self::ON_JM, $selector) === 1);
+    }
+
+    public function testTheLightThemeAlsoAppliesWhenTheHostIsInLightMode(): void
+    {
+        $rules = array_filter(self::rules(), static fn(array $rule): bool => \in_array(['color-scheme', 'light'], $rule['declarations'], true));
+
+        static::assertSame([self::LIGHT], array_column(array_values($rules), 'selectors'));
     }
 
     public function testCustomPropertiesAreOnlySetOnJm(): void
@@ -47,7 +71,7 @@ final class StylesheetTest extends TestCase
 
                 ++$count;
                 foreach ($rule['selectors'] as $selector) {
-                    static::assertMatchesRegularExpression('/^(?:\.jm|\.jm\[[^\]]+\]|body\.jm)$/', $selector, $property);
+                    static::assertMatchesRegularExpression(self::ON_JM, self::withoutHostAncestor($selector), $property);
                 }
             }
         }
@@ -58,7 +82,7 @@ final class StylesheetTest extends TestCase
     public function testNoColourIsWrittenOutsideTheTwoThemes(): void
     {
         foreach (self::rules() as $rule) {
-            $theme = $rule['at'] === null && \in_array($rule['selectors'], [[self::DARK], [self::LIGHT]], true);
+            $theme = $rule['at'] === null && \in_array($rule['selectors'], [self::DARK, self::LIGHT], true);
 
             foreach ($rule['declarations'] as [$property, $value]) {
                 if ($theme && str_starts_with($property, '--jm-')) {
@@ -100,6 +124,17 @@ final class StylesheetTest extends TestCase
         static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => str_contains($selector, '.jm-live__switch')));
     }
 
+    private static function withoutHostAncestor(string $selector): string
+    {
+        foreach (self::HOST_ANCESTORS as $ancestor) {
+            if (str_starts_with($selector, $ancestor)) {
+                return substr($selector, \strlen($ancestor));
+            }
+        }
+
+        return $selector;
+    }
+
     /**
      * @param list<array{at: string|null, keyframes: bool, selectors: list<string>, declarations: list<array{string, string}>}> $rules
      *
@@ -118,13 +153,15 @@ final class StylesheetTest extends TestCase
     }
 
     /**
+     * @param list<string> $selectors
+     *
      * @return array<string, string>
      */
-    private static function theme(string $selector): array
+    private static function theme(array $selectors): array
     {
         $variables = [];
         foreach (self::rules() as $rule) {
-            if ($rule['at'] === null && $rule['selectors'] === [$selector]) {
+            if ($rule['at'] === null && $rule['selectors'] === $selectors) {
                 foreach ($rule['declarations'] as [$property, $value]) {
                     if (str_starts_with($property, '--jm-')) {
                         $variables[$property] = $value;
