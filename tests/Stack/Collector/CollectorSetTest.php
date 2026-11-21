@@ -76,4 +76,29 @@ final class CollectorSetTest extends TestCase
         $set->release();
         self::assertSame(1, $releases);
     }
+
+    public function testASetIsLazyUntilItIsBuilt(): void
+    {
+        $eager = new CollectorSet(Component::Symfony, []);
+        $lazy = CollectorSet::lazy(Component::Symfony, static fn(): CollectorSet => new CollectorSet(Component::Symfony, []));
+
+        self::assertFalse($eager->isLazy());
+        self::assertTrue($lazy->isLazy());
+
+        $lazy->specs();
+
+        self::assertFalse($lazy->isLazy());
+    }
+
+    public function testASetWhoseBuildFailsStaysLazy(): void
+    {
+        $set = CollectorSet::lazy(Component::Symfony, static fn(): CollectorSet => throw new \RuntimeException('Connection refused'));
+
+        try {
+            $set->specs();
+        } catch (\RuntimeException) {
+        }
+
+        self::assertTrue($set->isLazy());
+    }
 }

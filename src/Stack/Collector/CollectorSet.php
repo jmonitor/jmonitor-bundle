@@ -35,6 +35,14 @@ final class CollectorSet
     }
 
     /**
+     * True until specs() has built the set.
+     */
+    public function isLazy(): bool
+    {
+        return $this->build !== null;
+    }
+
+    /**
      * @return list<CollectorSpec>
      */
     public function specs(): array
