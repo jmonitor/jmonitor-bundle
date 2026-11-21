@@ -19,6 +19,7 @@ final class CommandRecorder implements EventSubscriberInterface, ResetInterface
     public const DEFAULT_IGNORED = [
         'messenger:consume',
         'messenger:failed:*',
+        'messenger:stats',
         'jmonitor:*',
         'cache:*',
         'assets:*',

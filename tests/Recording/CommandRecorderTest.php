@@ -152,7 +152,7 @@ final class CommandRecorderTest extends TestCase
      */
     public static function defaultIgnoredCommands(): iterable
     {
-        foreach (['messenger:consume', 'messenger:failed:retry', 'jmonitor:collect', 'cache:clear', 'assets:install', 'list', 'help', '_complete', 'completion', 'debug:router', 'lint:twig', 'server:dump', 'doctrine:database:create'] as $name) {
+        foreach (['messenger:consume', 'messenger:failed:retry', 'messenger:stats', 'jmonitor:collect', 'cache:clear', 'assets:install', 'list', 'help', '_complete', 'completion', 'debug:router', 'lint:twig', 'server:dump', 'doctrine:database:create'] as $name) {
             yield $name => [$name];
         }
     }
@@ -174,7 +174,7 @@ final class CommandRecorderTest extends TestCase
      */
     public static function commandsCloseToIgnoredNames(): iterable
     {
-        foreach (['app:cache:warm', 'doctrine:migrations:migrate', 'messenger:stats'] as $name) {
+        foreach (['app:cache:warm', 'doctrine:migrations:migrate', 'messenger:setup-transports'] as $name) {
             yield $name => [$name];
         }
     }
