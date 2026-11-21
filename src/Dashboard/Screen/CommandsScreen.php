@@ -8,7 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -23,7 +23,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 /**
  * @phpstan-type Command array{row: ReportRow, runs: int, avg: float, max: float, failed: int, memory: int, last: int, sql: float, queries: float, hasSql: bool}
  */
-final class CommandsScreen implements ScreenInterface
+final class CommandsScreen implements StorageScreenInterface
 {
     private const LIMIT = 100;
 

@@ -11,7 +11,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -24,7 +24,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 
-final class QueriesScreen implements ScreenInterface
+final class QueriesScreen implements StorageScreenInterface
 {
     private const LIMIT = 100;
     private const UNAVAILABLE_TEXT = '(query text unavailable)';

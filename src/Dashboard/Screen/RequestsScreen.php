@@ -9,7 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Percentile;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -23,7 +23,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 /**
  * @phpstan-type Route array{row: ReportRow, cell: Cell, requests: int, total: float, avg: float, p95: float, max: float, sql: float, queries: float, hasSql: bool, http: float, hasHttp: bool, errors: int, slow: int, memory: int}
  */
-final class RequestsScreen implements ScreenInterface
+final class RequestsScreen implements StorageScreenInterface
 {
     private const LIMIT = 100;
 

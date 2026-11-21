@@ -9,7 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Percentile;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -26,7 +26,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
  *
  * @phpstan-type Message array{row: ReportRow, sent: int, handled: int, avg: float, p95: float, max: float, failed: int, retried: int, sql: float, queries: float, hasSql: bool}
  */
-final class MessagesScreen implements ScreenInterface
+final class MessagesScreen implements StorageScreenInterface
 {
     private const LIMIT = 100;
     private const NONE = '—';

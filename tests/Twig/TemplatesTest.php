@@ -12,7 +12,8 @@ use Jmonitor\JmonitorBundle\Dashboard\Page;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\CommandsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
-use Jmonitor\JmonitorBundle\Dashboard\ScreenState;
+use Jmonitor\JmonitorBundle\Dashboard\View\Block;
+use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -24,6 +25,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedSchedules;
+use Jmonitor\JmonitorBundle\Tests\Dashboard\StubBlockScreen;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\StubScreen;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\TestCase;
@@ -53,7 +55,7 @@ final class TemplatesTest extends TestCase
         $view = new ScreenView([new Card('<b>', '<b>', self::HOSTILE_SQL, series: [1, 2])], [$table]);
 
         $outputs = [
-            $this->render('_table.html.twig', ['page' => $this->page($view), 'table' => $table]),
+            $this->render('block/table.html.twig', ['page' => $this->page($view), 'block' => Block::table($table)]),
             $this->render('screen.html.twig', ['page' => $this->page($view), 'screens' => [new StubScreen('<b>')], 'periods' => Period::cases()]),
         ];
 
@@ -78,10 +80,10 @@ final class TemplatesTest extends TestCase
 
         foreach ([new CommandsScreen(true), new MessagesScreen(true)] as $screen) {
             $view = $screen->build($reader, Period::OneHour, 1800000000, (string) array_key_first($screen->sorts()), 'desc');
-            $page = new Page($screen, ScreenState::Ready, Period::OneHour, (string) array_key_first($screen->sorts()), 'desc', $view);
+            $page = new Page($screen, $this->blocks($view), Period::OneHour, (string) array_key_first($screen->sorts()), 'desc', $screen->sorts());
 
             foreach ([
-                $this->render('_table.html.twig', ['page' => $page, 'table' => $view->tables[0]]),
+                $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
                 $this->render('screen.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
             ] as $html) {
                 static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html, $screen->id());
@@ -103,11 +105,11 @@ final class TemplatesTest extends TestCase
         ]);
         $screen = new SchedulerScreen(true, $declared);
         $view = $screen->build(new FixedReader(new Report([$stored], keyCount: 1)), Period::OneHour, 1800000000, 'next', 'asc');
-        $page = new Page($screen, ScreenState::Ready, Period::OneHour, 'next', 'asc', $view);
+        $page = new Page($screen, $this->blocks($view), Period::OneHour, 'next', 'asc', $screen->sorts());
 
         static::assertCount(2, $view->tables[0]->rows);
         foreach ([
-            $this->render('_table.html.twig', ['page' => $page, 'table' => $view->tables[0]]),
+            $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
             $this->render('screen.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
         ] as $html) {
             static::assertStringContainsString('app:work --note=&quot;&lt;script&gt;alert(1)&lt;/script&gt;&quot;', $html);
@@ -124,7 +126,7 @@ final class TemplatesTest extends TestCase
             new Row('hash-short', ['query' => new Cell('SELECT 1', kind: 'sql')]),
         ]);
 
-        $html = $this->render('_table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'table' => $table]);
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]);
 
         static::assertGreaterThan(120, \strlen($long));
         static::assertStringContainsString(
@@ -142,7 +144,7 @@ final class TemplatesTest extends TestCase
             new Row('k2', ['name' => new Cell('b')]),
         ], 7, 'stub');
 
-        $html = $this->render('_table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'table' => $table]);
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]);
 
         static::assertSame(1, substr_count($html, 'class="jm-sort"'));
         static::assertStringContainsString('9 stubs', $html);
@@ -154,22 +156,50 @@ final class TemplatesTest extends TestCase
         $one = new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])], 1, 'query', 'queries');
         $many = new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])], 2, 'query', 'queries');
 
-        $html = $this->render('_table.html.twig', ['page' => $this->page(new ScreenView([], [$one])), 'table' => $one]);
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$one])), 'block' => Block::table($one)]);
         static::assertStringContainsString('2 queries', $html);
         static::assertStringContainsString('1 more query not shown', $html);
 
-        $html = $this->render('_table.html.twig', ['page' => $this->page(new ScreenView([], [$many])), 'table' => $many]);
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$many])), 'block' => Block::table($many)]);
         static::assertStringContainsString('3 queries', $html);
         static::assertStringContainsString('2 more queries not shown', $html);
     }
 
     public function testTheHeadingNamesThePeriod(): void
     {
-        $page = new Page(new StubScreen(), ScreenState::Ready, Period::SevenDays, 'name', 'asc', new ScreenView());
+        $page = new Page(new StubScreen(), [], Period::SevenDays, 'name', 'asc', (new StubScreen())->sorts());
 
         $html = $this->render('screen.html.twig', ['page' => $page, 'screens' => [new StubScreen()], 'periods' => Period::cases()]);
 
         static::assertStringContainsString('Stub heading, last 7 days.', $html);
+    }
+
+    public function testABlockThatIsNotReadyShowsItsPanelNextToTheOthers(): void
+    {
+        $page = new Page(new StubBlockScreen(), [
+            Block::cards([new Card('Hits', '12')]),
+            Block::unavailable(Block::TABLE, BlockState::Empty, '<b>', '<b>'),
+        ], null, '', '', []);
+
+        $html = $this->render('_screen.html.twig', ['page' => $page]);
+
+        static::assertStringContainsString('<div class="jm-screen" data-jm-state="mixed">', $html);
+        static::assertStringContainsString('<p class="jm-card__value">12</p>', $html);
+        static::assertStringContainsString('<h2 class="jm-state__title">&lt;b&gt;</h2>', $html);
+        static::assertStringContainsString('<p class="jm-state__text">&lt;b&gt;</p>', $html);
+        static::assertStringNotContainsString('<b>', $html);
+    }
+
+    public function testTheErrorStateHasItsOwnText(): void
+    {
+        $page = new Page(new StubBlockScreen(), [Block::unavailable(Block::TABLE, BlockState::Error)], null, '', '', []);
+
+        $html = $this->render('_screen.html.twig', ['page' => $page]);
+
+        static::assertStringContainsString('<div class="jm-screen" data-jm-state="error">', $html);
+        static::assertStringContainsString('<div class="jm-state jm-state--bad">', $html);
+        static::assertStringContainsString('<h2 class="jm-state__title">Section unavailable</h2>', $html);
+        static::assertStringContainsString('<p class="jm-state__text">JMonitor could not display this section. Check the application logs.</p>', $html);
     }
 
     /**
@@ -188,7 +218,13 @@ final class TemplatesTest extends TestCase
 
     private function page(ScreenView $view): Page
     {
-        return new Page(new StubScreen(), ScreenState::Ready, Period::OneHour, 'name', 'asc', $view);
+        return new Page(new StubScreen(), $this->blocks($view), Period::OneHour, 'name', 'asc', (new StubScreen())->sorts());
+    }
+
+    /** @return list<Block> */
+    private function blocks(ScreenView $view): array
+    {
+        return [Block::cards($view->cards), ...array_map(Block::table(...), $view->tables)];
     }
 
     /**

@@ -1,4 +1,5 @@
 {% autoescape 'html' %}
+{% set table = block.content %}
 {% set title_id = 'jm-' ~ table.id ~ '-title' %}
 {% set shown = table.rows|filter(row => not row.muted)|length + table.remaining %}
 <section class="jm-panel" aria-labelledby="{{ title_id }}">

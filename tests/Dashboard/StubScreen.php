@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
-use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 
-final class StubScreen implements ScreenInterface
+final class StubScreen implements StorageScreenInterface
 {
     /** @var list<array{Period, int, string, string}> */
     public array $builds = [];
