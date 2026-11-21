@@ -6,7 +6,11 @@
     {{ parent() }}
     {% autoescape 'html' %}
     {% for stylesheet in content.stylesheets %}
+    {% guard function csp_nonce %}
+    <link rel="stylesheet" href="{{ stylesheet }}" nonce="{{ csp_nonce('style') }}">
+    {% else %}
     <link rel="stylesheet" href="{{ stylesheet }}">
+    {% endguard %}
     {% endfor %}
     {% endautoescape %}
 {% endblock %}
