@@ -48,6 +48,16 @@ final class ProcSystemAdapter extends LinuxAdapter
         return $usage === null ? null : max(0, $limit - $usage);
     }
 
+    public function getDiskTotalSpace(string $path): int
+    {
+        return (int) self::silently(static fn(): float|false => disk_total_space($path));
+    }
+
+    public function getDiskFreeSpace(string $path): int
+    {
+        return (int) self::silently(static fn(): float|false => disk_free_space($path));
+    }
+
     public function getCoreCount(): ?int
     {
         return $this->remember('cores', function (): ?int {
@@ -156,20 +166,31 @@ final class ProcSystemAdapter extends LinuxAdapter
         return $this->values[$key];
     }
 
+    private function read(string $path): ?string
+    {
+        $content = self::silently(static fn(): string|false => file_get_contents($path));
+
+        return $content === false ? null : $content;
+    }
+
     /**
      * Swallows the warnings of a missing file, a permission or open_basedir, even under a handler that throws.
+     *
+     * @template T
+     *
+     * @param \Closure(): T $call
+     *
+     * @return T
      */
-    private function read(string $path): ?string
+    private static function silently(\Closure $call): mixed
     {
         set_error_handler(static fn(): bool => true);
 
         try {
-            $content = file_get_contents($path);
+            return $call();
         } finally {
             restore_error_handler();
         }
-
-        return $content === false ? null : $content;
     }
 
     /**

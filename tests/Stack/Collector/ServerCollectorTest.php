@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\ProcSystemAdapter;
 use Jmonitor\JmonitorBundle\Stack\Collector\ServerCollector;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Process\Process;
 
 final class ServerCollectorTest extends TestCase
 {
@@ -49,5 +50,33 @@ final class ServerCollectorTest extends TestCase
 
         $collector->reset();
         self::assertSame(256 * 1024 * 1024, $collector->collect()['cgroup']['memory_limit']);
+    }
+
+    public function testOpenBasedirGivesNullsWithoutWarning(): void
+    {
+        $root = \dirname(__DIR__, 3);
+        $code = sprintf(<<<'PHP'
+            require %s;
+            // Like the error handler of Symfony in debug mode, a warning silenced with @ is not thrown.
+            set_error_handler(static function (int $type, string $message): bool {
+                if ((error_reporting() & $type) === 0) {
+                    return true;
+                }
+                throw new \ErrorException($message, 0, $type);
+            });
+            echo json_encode((new Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner())->run(new Jmonitor\JmonitorBundle\Stack\Collector\ServerCollector()), \JSON_THROW_ON_ERROR);
+            PHP, var_export($root . '/vendor/autoload.php', true));
+
+        $process = new Process([\PHP_BINARY, '-d', 'open_basedir=' . $root, '-d', 'display_errors=stderr', '-r', $code]);
+        $process->run();
+
+        self::assertSame(0, $process->getExitCode(), $process->getErrorOutput() . $process->getOutput());
+        self::assertSame('', $process->getErrorOutput());
+        $data = json_decode($process->getOutput(), true, flags: \JSON_THROW_ON_ERROR);
+        self::assertSame(['total' => 0, 'free' => 0], $data['disk']);
+        self::assertSame(['total' => null, 'available' => null], $data['ram']);
+        self::assertNull($data['cpu']['cores']);
+        self::assertNull($data['os']['uptime']);
+        self::assertSame(['memory_limit' => null, 'cpu_quota' => null], $data['cgroup']);
     }
 }

@@ -65,6 +65,8 @@ final class ProcSystemAdapterTest extends TestCase
             self::assertNull($adapter->getCoreCount());
             self::assertNull($adapter->memoryLimit());
             self::assertNull($adapter->cpuQuota());
+            self::assertSame(0, $adapter->getDiskTotalSpace('/jmonitor-no-such-dir'));
+            self::assertSame(0, $adapter->getDiskFreeSpace('/jmonitor-no-such-dir'));
         } finally {
             restore_error_handler();
         }
