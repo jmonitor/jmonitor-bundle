@@ -174,13 +174,29 @@
     }
 
     function refresh() {
+        if (!root.isConnected) {
+            stop();
+
+            return;
+        }
+
         if (!enabled || inFlight || document.hidden || hasSelectionInside(content)) {
+            return;
+        }
+
+        var target;
+
+        try {
+            target = fragmentUrl();
+        } catch (e) {
+            markFailed(true);
+
             return;
         }
 
         inFlight = true;
 
-        fetch(fragmentUrl(), {
+        fetch(target, {
             credentials: 'same-origin',
             cache: 'no-store',
             redirect: 'manual',
