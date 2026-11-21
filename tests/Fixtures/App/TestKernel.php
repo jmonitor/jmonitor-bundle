@@ -9,6 +9,7 @@ use EasyCorp\Bundle\EasyAdminBundle\EasyAdminBundle;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\EasyAdmin\JmonitorController;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
@@ -192,6 +193,9 @@ final class TestKernel extends Kernel
                             $container->getAlias($id)->setPublic(true);
                         }
                         $container->findDefinition($id)->setPublic(true);
+                    }
+                    if ($container->hasDefinition(JmonitorController::class)) {
+                        $container->getDefinition(JmonitorController::class)->setPublic(true);
                     }
                 }
             });
