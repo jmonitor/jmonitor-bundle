@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Recording\Entry;
@@ -31,6 +32,7 @@ final class ReadCostTest extends KernelTestCase
         'cache' => 2,
         'commands' => 3,
         'messages' => 3,
+        'scheduler' => 3,
     ];
 
     private const QUERY_ID = 'a1b2c3d4e5f6a7b8';
@@ -99,13 +101,14 @@ final class ReadCostTest extends KernelTestCase
             ]),
             new Entry(Entry::TYPE_COMMAND, 'app:work', $startedAt, 120.0, ['exit' => 0, 'memory' => 4096, 'sql_n' => 2, 'sql_ms' => 1.5]),
             new Entry(Entry::TYPE_MESSAGE, 'App\\Message\\SendInvoice', $startedAt, 15.0, ['memory' => 4096, 'sql_n' => 1, 'sql_ms' => 0.5]),
+            new Entry(Entry::TYPE_TASK, (new TaskKey('default', '28af6db0', 'app:work', 'every 1 second'))->toString(), $startedAt, 12.0, ['failed' => 1]),
         ];
     }
 
     /** @param array<string, mixed> $options */
     protected static function createKernel(array $options = []): KernelInterface
     {
-        $kernel = new TestKernel('test', true, withSecurity: true, withMessenger: true);
+        $kernel = new TestKernel('test', true, withSecurity: true, withScheduler: true);
         self::$varDirs[] = $kernel->getVarDir();
 
         return $kernel;

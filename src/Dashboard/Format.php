@@ -79,6 +79,19 @@ final class Format
         };
     }
 
+    public static function in(int $timestamp, int $now): string
+    {
+        $seconds = $timestamp - $now;
+
+        return match (true) {
+            $seconds < 5 => 'now',
+            $seconds < 60 => 'in ' . $seconds . ' s',
+            $seconds < 3600 => 'in ' . intdiv($seconds, 60) . ' min',
+            $seconds < 86400 => 'in ' . intdiv($seconds, 3600) . ' h',
+            default => 'in ' . intdiv($seconds, 86400) . ' d',
+        };
+    }
+
     public static function period(Period $period): string
     {
         return match ($period) {

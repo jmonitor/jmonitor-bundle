@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\DependencyInjection;
 
 use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
 use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
 use Jmonitor\JmonitorBundle\Recording\MessengerRecorder;
 use PHPUnit\Framework\TestCase;
@@ -49,6 +50,27 @@ final class ComponentAvailabilityPassTest extends TestCase
         (new ComponentAvailabilityPass())->process($container);
 
         static::assertFalse($container->getDefinition(MessagesScreen::class)->getArgument(0));
+    }
+
+    public function testKeepsTheSchedulerScreenOptionWhenTheSchedulerIsEnabled(): void
+    {
+        $container = $this->container(['messenger.receiver_locator', 'scheduler.messenger_transport_factory']);
+        $container->setDefinition(SchedulerScreen::class, new Definition(SchedulerScreen::class, ['%jmonitor.recording.scheduler%']));
+
+        (new ComponentAvailabilityPass())->process($container);
+
+        static::assertSame('%jmonitor.recording.scheduler%', $container->getDefinition(SchedulerScreen::class)->getArgument(0));
+    }
+
+    public function testTheSchedulerScreenIsUnavailableWhenTheSchedulerIsNotEnabled(): void
+    {
+        $container = $this->container(['messenger.receiver_locator']);
+        $container->setDefinition(SchedulerScreen::class, new Definition(SchedulerScreen::class, ['%jmonitor.recording.scheduler%']));
+
+        (new ComponentAvailabilityPass())->process($container);
+
+        static::assertFalse($container->getDefinition(SchedulerScreen::class)->getArgument(0));
+        static::assertTrue($container->hasDefinition(MessengerRecorder::class));
     }
 
     public function testDoesNothingWithoutTheMessengerRecorder(): void

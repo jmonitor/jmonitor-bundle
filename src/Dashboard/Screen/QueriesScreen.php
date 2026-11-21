@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\EntryPointKey;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -17,6 +18,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Column;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
+use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
@@ -156,7 +158,7 @@ final class QueriesScreen implements ScreenInterface
 
         $rows = [];
         foreach ($entries as [$row, $key, $queryId]) {
-            $rows[] = self::repeatedRow($row, $key->unitKey, [
+            $rows[] = self::repeatedRow($row, $key->unitType === Entry::TYPE_TASK ? (TaskKey::parse($key->unitKey)->label ?? $key->unitKey) : $key->unitKey, [
                 'where' => Cell::entryPoint($key->unitType, $key->unitKey),
                 'query' => self::sqlCell($labels[$queryId] ?? null),
             ]);

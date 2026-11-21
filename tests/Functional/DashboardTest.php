@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
@@ -451,8 +452,69 @@ final class DashboardTest extends WebTestCase
         static::assertResponseStatusCodeSame(404);
     }
 
+    public function testTheSchedulerScreenListsTheDeclaredTasksBeforeAnyRun(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording(), 'scheduler' => true]);
+
+        $crawler = $client->request('GET', '/jmonitor/scheduler');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame(
+            ['Requests', 'Queries', 'Commands', 'Messages', 'Scheduler', 'HTTP client', 'Cache', 'Exceptions'],
+            $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()),
+        );
+        static::assertSame('Scheduler', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame(
+            ['app:work', Ping::class],
+            $crawler->filter('tr[data-jm-task]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-task')),
+        );
+        static::assertSame('0', $crawler->filter('tr[data-jm-task="app:work"]')->attr('data-jm-runs'));
+        static::assertStringContainsString('every 1 second', $crawler->filter('tr[data-jm-task="app:work"]')->text());
+    }
+
+    public function testARunOfADeclaredTaskLandsOnItsRow(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording(), 'scheduler' => true]);
+        $application = new Application($client->getKernel());
+        $application->setAutoExit(false);
+
+        static::assertSame(0, (new ApplicationTester($application))->run(
+            ['command' => 'messenger:consume', 'receivers' => ['scheduler_default'], '--limit' => '1', '--time-limit' => '10'],
+            ['interactive' => false],
+        ));
+        $crawler = self::requestUntil($client, '/jmonitor/scheduler', 'tr[data-jm-task="app:work"][data-jm-runs="1"]');
+
+        static::assertSame('1', $crawler->filter('tr[data-jm-task="app:work"]')->attr('data-jm-runs'));
+        static::assertSame(
+            ['app:work', Ping::class],
+            $crawler->filter('tr[data-jm-task]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-task')),
+        );
+    }
+
+    public function testTheSchedulerScreenIsNotFoundWithoutTheScheduler(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording(), 'messenger' => true]);
+
+        $crawler = $client->request('GET', '/jmonitor/');
+        static::assertNotContains('Scheduler', $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+
+        $client->request('GET', '/jmonitor/scheduler');
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('GET', '/jmonitor/_fragment/scheduler');
+        static::assertResponseStatusCodeSame(404);
+    }
+
+    public function testTheSchedulerScreenIsAbsentWithoutTaskRecording(): void
+    {
+        $client = static::createClient(['jmonitor' => ['recording' => ['scheduler' => false] + $this->recording()['recording']], 'scheduler' => true]);
+
+        $client->request('GET', '/jmonitor/scheduler');
+        static::assertResponseStatusCodeSame(404);
+    }
+
     /**
-     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool, messenger?: bool} $options
+     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool, messenger?: bool, scheduler?: bool} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -464,6 +526,7 @@ final class DashboardTest extends WebTestCase
             $options['security'] ?? false,
             $options['twig'] ?? true,
             withMessenger: $options['messenger'] ?? false,
+            withScheduler: $options['scheduler'] ?? false,
         );
         self::$varDirs[] = $kernel->getVarDir();
 

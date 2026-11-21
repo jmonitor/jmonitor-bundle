@@ -65,4 +65,19 @@ final class FormatTest extends TestCase
         static::assertSame('3 h ago', Format::ago($now - 3 * 3600 - 3599, $now));
         static::assertSame('2 d ago', Format::ago($now - 2 * 86400 - 5, $now));
     }
+
+    public function testIn(): void
+    {
+        $now = 1800000000;
+
+        static::assertSame('now', Format::in($now, $now));
+        static::assertSame('now', Format::in($now + 4, $now));
+        static::assertSame('now', Format::in($now - 30, $now));
+        static::assertSame('in 5 s', Format::in($now + 5, $now));
+        static::assertSame('in 12 s', Format::in($now + 12, $now));
+        static::assertSame('in 1 min', Format::in($now + 60, $now));
+        static::assertSame('in 5 min', Format::in($now + 5 * 60 + 59, $now));
+        static::assertSame('in 3 h', Format::in($now + 3 * 3600 + 3599, $now));
+        static::assertSame('in 2 d', Format::in($now + 2 * 86400 + 5, $now));
+    }
 }
