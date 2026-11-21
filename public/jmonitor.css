@@ -104,8 +104,12 @@
     color: var(--jm-text);
     font-family: var(--jm-font);
     font-size: 15px;
+    font-size-adjust: none;
+    font-weight: 400;
     line-height: 1.5;
+    overflow-wrap: normal;
     -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: initial;
 }
 
 body.jm {
@@ -133,6 +137,80 @@ body.jm {
 .jm code {
     font-family: var(--jm-font-mono);
     font-size: .92em;
+}
+
+/* Browser defaults, restated for host pages that style bare elements. */
+.jm :where(div, li, svg, table) {
+    margin: 0;
+}
+
+.jm :where(p, ul, pre) {
+    font-size: inherit;
+}
+
+.jm :where(p, ul, h1, h2, table, pre) {
+    line-height: inherit;
+}
+
+.jm :where(p, ul, h1, h2, table, th, td, code) {
+    overflow-wrap: inherit;
+}
+
+.jm :where(h1, h2) {
+    letter-spacing: inherit;
+}
+
+.jm :where([id]) {
+    scroll-margin-top: 0;
+}
+
+.jm :where(a) {
+    font-weight: inherit;
+    text-underline-offset: auto;
+}
+
+.jm :where(li) {
+    padding: 0;
+}
+
+.jm :where(svg) {
+    vertical-align: baseline;
+}
+
+.jm :where(table) {
+    border-spacing: 2px;
+    caption-side: inherit;
+    font-variant-numeric: inherit;
+}
+
+.jm :where(table, thead, tbody, tr, th, td) {
+    border: none;
+}
+
+.jm :where(code, pre) {
+    padding: 0;
+    border-radius: 0;
+    background-color: transparent;
+    color: inherit;
+    font-variant-ligatures: inherit;
+}
+
+.jm :where(pre) {
+    overflow: visible;
+    font-family: monospace;
+    tab-size: 8;
+}
+
+.jm :where(summary) {
+    font-weight: inherit;
+}
+
+.jm :where(input) {
+    font: revert;
+}
+
+.jm :where(button) {
+    appearance: auto;
 }
 
 .jm :focus-visible {
