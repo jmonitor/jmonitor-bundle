@@ -156,7 +156,7 @@ final class ComponentRegistryTest extends TestCase
                 return new StaticDetector($component, $this->found($component));
             };
         };
-        $registry = Detectors::registry(['php' => $detector(Component::Php), 'php' => $detector(Component::Php)], $this->config());
+        $registry = Detectors::registry(['php' => $detector(Component::Php), 'symfony' => $detector(Component::Symfony)], $this->config());
 
         self::assertTrue($registry->isAvailable(Component::Php));
         self::assertSame(['php'], $built);
