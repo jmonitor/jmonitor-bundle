@@ -89,6 +89,25 @@ final class DashboardTest extends WebTestCase
         static::assertCount(0, $crawler->filter('tr[data-jm-route^="GET jmonitor_"]'));
     }
 
+    public function testTheDashboardRoutesCarryTheMark(): void
+    {
+        static::createClient(['jmonitor' => $this->recording()]);
+
+        $routes = [];
+        foreach (static::getContainer()->get('router')->getRouteCollection() as $name => $route) {
+            if (str_starts_with($name, 'jmonitor_')) {
+                $routes[$name] = $route->getDefault('_jmonitor');
+            }
+        }
+
+        static::assertSame([
+            'jmonitor_dashboard' => true,
+            'jmonitor_dashboard_fragment' => true,
+            'jmonitor_screen_fragment' => true,
+            'jmonitor_screen' => true,
+        ], $routes);
+    }
+
     public function testFragmentReturnsOnlyTheContent(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
