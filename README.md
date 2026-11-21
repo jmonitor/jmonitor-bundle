@@ -367,12 +367,14 @@ An unknown path answers 404. Without the TwigBundle, `page()` and `fragment()` a
 Your application provides:
 
 - three routes with a free path parameter: one for the page, one for the fragment and one for the actions, which accepts `POST`;
-- an implementation of `Jmonitor\JmonitorBundle\Embed\HostUrlsInterface` that generates their URLs;
-- its own layout, with the `html` inside an element of class `jm`, the stylesheets and scripts of the `PageContent` loaded in its `<head>`, and the headers of the `PageContent` on its response.
+- an implementation of `Jmonitor\JmonitorBundle\Embed\HostUrlsInterface` that generates their URLs, with the entries of `$query` (`period`, `sort`, `dir`) as query-string parameters of the same names, since the screens read them from the query string of your request;
+- its own layout, with the `html` inside an element of class `jm`, the stylesheets and scripts of the `PageContent` loaded in its `<head>`, the scripts with `defer` since they read the page as soon as they run, and the headers of the `PageContent` on its response.
 
 Access control is entirely yours: `dashboard.enabled` and `dashboard.permission` only apply to the `/jmonitor` page. Call `doNotRecord()` before your own access check, so that a refused request is not recorded, and give your routes the default `_jmonitor: true` (the constant `JmonitorPage::NOT_RECORDED`), so that a request your firewall refuses before it reaches the controller is not recorded either.
 
 The screens are dark by default; `data-jm-theme="light"` on the `jm` element gives the light theme.
+
+If your application uses Turbo Drive, put `data-turbo="false"` on the `jm` element, so that every link of the screens loads a full page.
 
 Actions: when your application has CSRF protection and a session and the action route is not stateless, an action needs the CSRF token the page puts in its form; otherwise it must come from the same origin (`Sec-Fetch-Site`, else `Origin`). Behind a reverse proxy, your application must therefore know its public scheme and host (`trusted_proxies`). Declare the page and action routes the same way: both stateless, or neither.
 
