@@ -22,13 +22,17 @@ use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\SchedulerCollector;
 use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
+use EasyCorp\Bundle\EasyAdminBundle\EasyAdminBundle;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
+use Jmonitor\JmonitorBundle\EasyAdmin\Access;
+use Jmonitor\JmonitorBundle\EasyAdmin\JmonitorController;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
@@ -43,7 +47,10 @@ use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\UserRecorder;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
+use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
@@ -122,6 +129,166 @@ class JmonitorBundleTest extends TestCase
     {
         $this->expectException(\LogicException::class);
         $this->loadBundle(['dashboard' => ['permission' => '']], environment: 'prod');
+    }
+
+    public function testTheEasyAdminOptionIsOffByDefault(): void
+    {
+        $container = $this->loadBundle(['project_api_key' => 'key'], environment: 'prod');
+
+        static::assertFalse($container->getParameter('jmonitor.easyadmin.enabled'));
+        static::assertNull($container->getParameter('jmonitor.easyadmin.permission'));
+        static::assertFalse($container->getParameter('jmonitor.easyadmin.permission_required'));
+        static::assertSame([], $container->findTaggedServiceIds('ea.admin_route_controller'));
+
+        $prefix = 'Jmonitor\\JmonitorBundle\\EasyAdmin\\';
+        foreach ($container->getDefinitions() as $id => $definition) {
+            static::assertStringStartsNotWith($prefix, $id);
+            static::assertStringStartsNotWith($prefix, (string) $definition->getClass());
+        }
+    }
+
+    /**
+     * @return iterable<string, array{bool|array<string, mixed>, string|null, bool}>
+     */
+    public static function easyAdminActivationProvider(): iterable
+    {
+        yield 'true' => [true, null, false];
+        yield 'enabled' => [['enabled' => true], null, false];
+        yield 'a permission' => [['permission' => 'ROLE_X'], 'ROLE_X', true];
+        yield 'a permission read from the environment' => [['permission' => '%env(default::JMONITOR_PERMISSION)%'], '%env(default::JMONITOR_PERMISSION)%', true];
+    }
+
+    /**
+     * @param bool|array<string, mixed> $easyadmin
+     */
+    #[Group('easyadmin')]
+    #[DataProvider('easyAdminActivationProvider')]
+    public function testTheEasyAdminOptionIsTurnedOnByTrueOrByAPermission(bool|array $easyadmin, ?string $permission, bool $required): void
+    {
+        $container = $this->loadBundle(['easyadmin' => $easyadmin], bundles: $this->easyAdminBundles());
+
+        static::assertTrue($container->getParameter('jmonitor.easyadmin.enabled'));
+        static::assertSame($required, $container->getParameter('jmonitor.easyadmin.permission_required'));
+        static::assertSame($permission, $container->getParameter('jmonitor.easyadmin.permission'));
+    }
+
+    public function testTheEasyAdminOptionWithoutEasyAdminIsRefused(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin" option requires the EasyAdminBundle: install easycorp/easyadmin-bundle 5.10.2 or later, or turn the option off.');
+
+        $this->loadBundle(['easyadmin' => true], bundles: []);
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function easyAdminOptionsFromTheEnvironment(): iterable
+    {
+        yield 'enabled' => [['enabled' => '%env(bool:JMONITOR_EASYADMIN)%']];
+        yield 'the option itself' => ['%env(bool:JMONITOR_EASYADMIN)%'];
+    }
+
+    #[DataProvider('easyAdminOptionsFromTheEnvironment')]
+    public function testTheEasyAdminOptionCannotBeReadFromTheEnvironment(mixed $easyadmin): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin" option cannot be read from an environment variable: its routes are fixed when the container is built.');
+
+        $this->loadBundle(['easyadmin' => $easyadmin], bundles: $this->easyAdminBundles());
+    }
+
+    #[DataProvider('easyAdminOptionsFromTheEnvironment')]
+    public function testAKernelRefusesTheEasyAdminOptionReadFromTheEnvironment(mixed $easyadmin): void
+    {
+        $kernel = new TestKernel('test', true, ['easyadmin' => $easyadmin], withDoctrine: false, withHttpClient: false);
+
+        try {
+            $kernel->boot();
+            static::fail('The kernel booted.');
+        } catch (\LogicException $exception) {
+            static::assertSame('The "jmonitor.easyadmin" option cannot be read from an environment variable: its routes are fixed when the container is built.', $exception->getMessage());
+        } finally {
+            (new Filesystem())->remove($kernel->getVarDir());
+        }
+    }
+
+    #[Group('easyadmin')]
+    public function testAPermissionReadFromTheEnvironmentIsAccepted(): void
+    {
+        $container = $this->loadBundle(['easyadmin' => ['enabled' => true, 'permission' => '%env(JMONITOR_PERMISSION)%']], bundles: $this->easyAdminBundles());
+
+        static::assertTrue($container->getParameter('jmonitor.easyadmin.enabled'));
+        static::assertTrue($container->getParameter('jmonitor.easyadmin.permission_required'));
+    }
+
+    public function testTheEasyAdminOptionCannotBeUsedWithJmonitorEasyadminBundle(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin" option cannot be used together with jmonitor/easyadmin-bundle, which declares the same routes: remove that package, or turn the option off.');
+
+        $this->loadBundle(['easyadmin' => true], bundles: ['JmonitorEasyAdminBundle' => 'Jmonitor\\EasyAdminBundle\\JmonitorEasyAdminBundle', ...$this->easyAdminBundles()]);
+    }
+
+    #[Group('easyadmin')]
+    public function testAnEmptyEasyAdminPermissionIsRefused(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin.permission" option must not be empty.');
+
+        $this->loadBundle(['easyadmin' => ['permission' => '']], bundles: $this->easyAdminBundles());
+    }
+
+    #[Group('easyadmin')]
+    public function testAnEasyAdminPermissionWithoutSecurityBundleIsRefused(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin.permission" option requires the SecurityBundle.');
+
+        $this->loadBundle(['easyadmin' => ['permission' => 'ROLE_X']], bundles: ['EasyAdminBundle' => EasyAdminBundle::class]);
+    }
+
+    #[Group('easyadmin')]
+    public function testTheEasyAdminOptionRegistersALazyController(): void
+    {
+        $container = $this->loadBundle(['easyadmin' => ['permission' => 'ROLE_X']], bundles: $this->easyAdminBundles());
+
+        static::assertTrue($container->hasDefinition(JmonitorController::class));
+        $definition = $container->getDefinition(JmonitorController::class);
+        static::assertTrue($definition->hasTag('controller.service_arguments'));
+        static::assertTrue($definition->hasTag('ea.admin_route_controller'));
+        static::assertFalse($definition->isPublic());
+
+        $arguments = array_values($definition->getArguments());
+        static::assertCount(2, $arguments);
+        static::assertInstanceOf(Reference::class, $arguments[0]);
+        static::assertSame(JmonitorPage::class, (string) $arguments[0]);
+        static::assertInstanceOf(ServiceLocatorArgument::class, $arguments[1]);
+        $locator = $arguments[1]->getValues();
+        static::assertEqualsCanonicalizing(['twig', 'router', Access::class], array_keys($locator));
+        static::assertSame(Access::class, (string) $locator[Access::class]);
+
+        $access = $container->getDefinition(Access::class);
+        static::assertFalse($access->isPublic());
+        static::assertSame(['%jmonitor.easyadmin.permission_required%', '%jmonitor.easyadmin.permission%'], \array_slice($access->getArguments(), 0, 2));
+        static::assertSame('security.authorization_checker', (string) $access->getArgument(2));
+    }
+
+    public function testAPermissionIsIgnoredWhileTheOptionIsOff(): void
+    {
+        $container = $this->loadBundle(['easyadmin' => ['enabled' => false, 'permission' => '']], bundles: []);
+
+        static::assertFalse($container->getParameter('jmonitor.easyadmin.enabled'));
+        static::assertNull($container->getParameter('jmonitor.easyadmin.permission'));
+        static::assertFalse($container->getParameter('jmonitor.easyadmin.permission_required'));
+    }
+
+    /**
+     * @return array<string, class-string>
+     */
+    private function easyAdminBundles(): array
+    {
+        return ['SecurityBundle' => SecurityBundle::class, 'EasyAdminBundle' => EasyAdminBundle::class];
     }
 
     public function testFlushIntervalIsAtMostOneHour(): void

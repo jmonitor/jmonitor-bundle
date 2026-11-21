@@ -5,15 +5,20 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App;
 
 use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
+use EasyCorp\Bundle\EasyAdminBundle\EasyAdminBundle;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\EasyAdmin\JmonitorController;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Command\WorkCommand;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller\DemoController;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\AdminDashboard;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\NonceExtension;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\StaffDashboard;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeController;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeUrls;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\ProbeScreen;
@@ -35,6 +40,8 @@ use Symfony\Component\HttpKernel\Log\Logger;
 use Symfony\Component\Routing\Loader\Configurator\RouteConfigurator;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 use Symfony\Component\Security\Core\User\InMemoryUser;
+use Symfony\UX\TwigComponent\TwigComponentBundle;
+use Twig\Extra\TwigExtraBundle\TwigExtraBundle;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
@@ -44,6 +51,8 @@ final class TestKernel extends Kernel
 
     private readonly string $varDir;
 
+    private readonly bool $withSecurity;
+
     /**
      * @param array<string, mixed> $jmonitorConfig
      */
@@ -52,7 +61,7 @@ final class TestKernel extends Kernel
         bool $debug,
         private readonly array $jmonitorConfig = [],
         private readonly bool $withDoctrine = true,
-        private readonly bool $withSecurity = false,
+        bool $withSecurity = false,
         private readonly bool $withTwig = true,
         private readonly bool $withConnectionLogger = false,
         private readonly bool $withHttpClient = true,
@@ -62,11 +71,23 @@ final class TestKernel extends Kernel
         private readonly bool $withPublicInternals = false,
         private readonly bool $withEmbedHost = false,
         private readonly bool $withCsrf = false,
+        private readonly bool $withEasyAdmin = false,
+        private readonly bool $withCspNonce = false,
+        private readonly bool $withOpenBackOffice = false,
     ) {
+        if ($withEasyAdmin && !$withDoctrine) {
+            throw new \LogicException('The EasyAdmin back office needs Doctrine.');
+        }
+        if ($withEasyAdmin && !$withTwig) {
+            throw new \LogicException('The EasyAdmin back office needs Twig.');
+        }
+
         parent::__construct($environment, $debug);
 
+        $this->withSecurity = $withSecurity || $withEasyAdmin;
+
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice]));
     }
 
     public static function fromEnvironment(): self
@@ -75,7 +96,7 @@ final class TestKernel extends Kernel
         $debug = self::environmentValue('APP_DEBUG');
         $features = array_filter(array_map(trim(...), explode(',', self::environmentValue('JMONITOR_FIXTURE_FEATURES'))));
 
-        $unknown = array_diff($features, ['embed', 'messenger', 'scheduler', 'security']);
+        $unknown = array_diff($features, ['easyadmin', 'embed', 'messenger', 'scheduler', 'security']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
         }
@@ -87,6 +108,7 @@ final class TestKernel extends Kernel
             withMessenger: \in_array('messenger', $features, true),
             withScheduler: \in_array('scheduler', $features, true),
             withEmbedHost: \in_array('embed', $features, true),
+            withEasyAdmin: \in_array('easyadmin', $features, true),
         );
     }
 
@@ -111,6 +133,12 @@ final class TestKernel extends Kernel
 
         if ($this->withSecurity) {
             yield new SecurityBundle();
+        }
+
+        if ($this->withEasyAdmin) {
+            yield new TwigExtraBundle();
+            yield new TwigComponentBundle();
+            yield new EasyAdminBundle();
         }
 
         yield new JmonitorBundle();
@@ -167,6 +195,9 @@ final class TestKernel extends Kernel
                         }
                         $container->findDefinition($id)->setPublic(true);
                     }
+                    if ($container->hasDefinition(JmonitorController::class)) {
+                        $container->getDefinition(JmonitorController::class)->setPublic(true);
+                    }
                 }
             });
         }
@@ -222,6 +253,21 @@ final class TestKernel extends Kernel
             ]);
         }
 
+        if ($this->withEasyAdmin) {
+            $container->extension('framework', [
+                'assets' => [],
+                'translator' => ['fallbacks' => ['en']],
+                'property_access' => true,
+                'form' => true,
+            ]);
+            $container->import('@TwigBundle/Resources/config/form.php');
+            $container->extension('twig_component', [
+                'anonymous_template_directory' => 'components/',
+                'defaults' => [],
+            ]);
+            $container->extension('doctrine', ['orm' => ['auto_mapping' => true]]);
+        }
+
         if ($this->withSecurity) {
             $container->extension('security', [
                 'password_hashers' => [InMemoryUser::class => 'plaintext'],
@@ -229,15 +275,25 @@ final class TestKernel extends Kernel
                     'users' => ['memory' => ['users' => [
                         'admin' => ['password' => 'test', 'roles' => ['ROLE_ADMIN', 'ROLE_ALLOWED_TO_SWITCH']],
                         'user' => ['password' => 'test', 'roles' => ['ROLE_USER']],
+                        ...$this->withEasyAdmin ? ['super' => ['password' => 'test', 'roles' => ['ROLE_ADMIN', 'ROLE_SUPER_ADMIN']]] : [],
                     ]]],
                 ],
                 'firewalls' => [
                     'lazy' => ['pattern' => '^/lazy/', 'lazy' => true, 'http_basic' => ['realm' => 'JMonitor test']],
-                    'main' => ['stateless' => true, 'http_basic' => ['realm' => 'JMonitor test'], 'switch_user' => true],
+                    'main' => [
+                        'stateless' => true,
+                        'http_basic' => ['realm' => 'JMonitor test'],
+                        'switch_user' => true,
+                        ...$this->withEasyAdmin ? ['logout' => ['path' => '/logout']] : [],
+                    ],
                 ],
                 'access_control' => [
                     ['path' => '^/lazy/me$', 'roles' => 'IS_AUTHENTICATED_FULLY'],
                     ...$this->withEmbedHost ? [['path' => '^/back-office/locked', 'roles' => 'ROLE_ADMIN']] : [],
+                    ...$this->withEasyAdmin && !$this->withOpenBackOffice ? [
+                        ['path' => '^/admin', 'roles' => 'ROLE_ADMIN'],
+                        ['path' => '^/staff', 'roles' => 'ROLE_USER'],
+                    ] : [],
                 ],
             ]);
             $container->extension('framework', ['session' => ['storage_factory_id' => 'session.storage.factory.mock_file']]);
@@ -313,6 +369,18 @@ final class TestKernel extends Kernel
                 ->args([$this->varDir . '/probe-runs'])
                 ->tag('jmonitor.screen', ['priority' => 10]);
         }
+        if ($this->withEasyAdmin) {
+            foreach ([AdminDashboard::class, StaffDashboard::class] as $dashboard) {
+                $services->set($dashboard)
+                    ->autowire()
+                    ->autoconfigure()
+                    ->tag('controller.service_arguments');
+            }
+        }
+        if ($this->withCspNonce) {
+            $services->set(NonceExtension::class)
+                ->tag('twig.extension');
+        }
     }
 
     /**
@@ -321,8 +389,9 @@ final class TestKernel extends Kernel
     private function environmentConfig(): array
     {
         $interval = getenv('JMONITOR_FLUSH_INTERVAL');
+        $config = \is_string($interval) && $interval !== '' ? ['recording' => ['flush_interval' => (int) $interval]] : [];
 
-        return \is_string($interval) && $interval !== '' ? ['recording' => ['flush_interval' => (int) $interval]] : [];
+        return $this->withEasyAdmin ? $config + ['easyadmin' => true] : $config;
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void
@@ -354,6 +423,10 @@ final class TestKernel extends Kernel
             $this->addBackOfficeRoute($routes, 'back_office_unmarked', '/back-office/unmarked/{path}', 'page', 'GET', []);
             $this->addBackOfficeRoute($routes, 'back_office_stateless', '/back-office/stateless/{path}', 'page', 'GET', $marked)->stateless();
             $this->addBackOfficeRoute($routes, 'back_office_stateless_action', '/back-office/stateless-action/{path}', 'action', 'POST', $marked)->stateless();
+        }
+
+        if ($this->withEasyAdmin) {
+            $routes->import('.', 'easyadmin.routes');
         }
     }
 

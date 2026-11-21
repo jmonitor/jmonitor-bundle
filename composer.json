@@ -27,6 +27,7 @@
     "require-dev": {
         "doctrine/dbal": "^3.8|^4.0",
         "doctrine/doctrine-bundle": "^2.13|^3.0",
+        "easycorp/easyadmin-bundle": "^5.10.2",
         "friendsofphp/php-cs-fixer": "^3.86",
         "monolog/monolog": "^3.0",
         "phpstan/phpstan": "^2.1",
@@ -44,6 +45,7 @@
     },
     "suggest": {
         "doctrine/doctrine-bundle": "Stores the application metrics shown on the /jmonitor page",
+        "easycorp/easyadmin-bundle": "Shows the /jmonitor screens inside an EasyAdmin back office",
         "symfony/security-csrf": "Protects the actions of the screens with a CSRF token"
     },
     "autoload": {

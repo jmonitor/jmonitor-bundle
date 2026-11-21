@@ -309,6 +309,9 @@ jmonitor:
     dashboard:
         enabled: true         # false: the /jmonitor page answers 404
         permission: ~         # role or voter attribute required to see the page
+    easyadmin:
+        enabled: false        # show the screens inside EasyAdmin
+        permission: ~         # role or voter attribute required to see them there
 ```
 
 `recording.enabled` can come from an environment variable, read at runtime, to switch recording off without a new deployment:
@@ -327,7 +330,7 @@ jmonitor:
 
 ### What is recorded
 
-Requests: main requests only. Not recorded: any route whose name starts with `jmonitor_`, any JMonitor page shown by another host, the web debug toolbar and profiler, sub-requests, and the routes matching `ignore_routes`. A request that matches no route is recorded as `(unmatched)`. Methods other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are grouped under `OTHER`.
+Requests: main requests only. Not recorded: any route whose name starts with `jmonitor_`, any JMonitor page shown by another host (the EasyAdmin pages among them), the web debug toolbar and profiler, sub-requests, and the routes matching `ignore_routes`. A request that matches no route is recorded as `(unmatched)`. Methods other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are grouped under `OTHER`.
 
 Commands: a command is recorded from its start, the boot of the kernel excluded, to its end, and fails when its exit code is not 0. Not recorded by default: `messenger:consume`, `messenger:failed:*`, `messenger:stats`, `jmonitor:*`, `cache:*`, `assets:*`, `importmap:*`, `asset-map:*`, `secrets:*`, `tailwind:*`, `sass:*`, `list`, `help`, `_complete`, `completion`, `debug:*`, `lint:*`, `server:*` and `doctrine:database:*`; `recording.commands.ignore` adds to this list. A command your build runs without a database is worth adding to it: otherwise its write fails when it ends and is logged as an error. A command that recorded something is written to the database as soon as it ends, at most once per second for each user that runs PHP.
 
@@ -351,6 +354,75 @@ What is recorded is buffered in files, in a subdirectory of the system temporary
 
 Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
 
+### Showing the screens inside EasyAdmin
+
+If your application has EasyAdmin 5.10.2 or later, the screens can be shown inside its back office. Nothing else to install, and the `/jmonitor` route import is not needed for these pages. Turn the option on:
+
+```yaml
+# config/packages/jmonitor.yaml
+jmonitor:
+    easyadmin: true
+```
+
+Then add a link to the menu of your dashboard:
+
+```php
+// src/Controller/Admin/DashboardController.php
+public function configureMenuItems(): iterable
+{
+    // ...
+    yield MenuItem::linkToRoute('JMonitor', 'internal:desktop', 'admin_jmonitor_index');
+}
+```
+
+When you turn the option off, remove the link too: EasyAdmin fails on a link to a route that no longer exists.
+
+The pages live under the path of each dashboard: `/admin/jmonitor`, `/admin/jmonitor/queries`… for a dashboard at `/admin`. Their route is named after the route of the dashboard followed by `_jmonitor_index`: `admin_jmonitor_index` for a dashboard whose route is `admin`. A dashboard at `/` puts these pages at `/jmonitor`, the address of the standalone page: the first of the two declared wins, so give the `/jmonitor` route import another prefix, or leave it out. The screens follow the light or dark theme of the back office, even when it is switched.
+
+Turned on without EasyAdmin, or with an older version, the option stops the container build with a message that says why. The option cannot be read from an environment variable, since its routes are fixed when the container is built; `permission` can.
+
+Access: the pages sit under the path of the dashboard, so the `access_control` rule that protects your back office, such as one on `^/admin`, covers them. A protection that does not depend on the path, such as an `#[IsGranted]` attribute on the dashboard controller, does not: set `permission`, or add an `access_control` rule on `^/admin/jmonitor`.
+
+`permission` is checked on top of it, on every page, refresh and action. It needs the SecurityBundle. Write the block below instead of `easyadmin: true`, and give the menu link the same permission to hide it from the others:
+
+```yaml
+# config/packages/jmonitor.yaml
+jmonitor:
+    easyadmin:
+        permission: ROLE_ADMIN
+```
+
+```php
+yield MenuItem::linkToRoute('JMonitor', 'internal:desktop', 'admin_jmonitor_index')
+    ->setPermission('ROLE_ADMIN');
+```
+
+**Without `permission`, every user of the back office sees the SQL queries of your application and the identifiers of its users.** The pages exist under every dashboard of your application, including one opened to less trusted users: set `permission`, or add an `access_control` rule on `^/<dashboard path>/jmonitor`. A `permission` read from an environment variable that turns out empty refuses the pages to everyone.
+
+`dashboard.enabled` and `dashboard.permission` only apply to the `/jmonitor` page.
+
+These pages are not recorded, even when access is refused. When your application has a `csp_nonce` Twig function, the stylesheet and the script of the screens carry its nonce. With the option off, the bundle adds nothing to EasyAdmin.
+
+#### Coming from jmonitor/easyadmin-bundle
+
+To show these screens in a back office that uses `jmonitor/easyadmin-bundle`, delete the `jmonitor_easyadmin` configuration first, since Symfony refuses to boot with a configuration no bundle reads, then swap the packages, update EasyAdmin to 5.10.2 or later if needed, and turn `jmonitor.easyadmin` on as above. The option refuses to work while `jmonitor/easyadmin-bundle` is installed, since both declare the same routes:
+
+```bash
+composer remove jmonitor/easyadmin-bundle
+composer require jmonitor/jmonitor-bundle
+```
+
+| `jmonitor_easyadmin` | Here |
+|---|---|
+| `permission` | `jmonitor.easyadmin.permission` |
+| `cache_pool`, `polling_interval`, `static_ttl`, `exclude_connections`, `components.*` | no equivalent |
+
+The menu link and its route name, `admin_jmonitor_index` for a dashboard whose route is `admin`, do not change. The addresses of the former tabs, such as `/admin/jmonitor/mysql`, answer 404.
+
+The pages show the screens of your application listed above: requests, queries, commands, messages, scheduler, HTTP client, cache, exceptions and users. They have no equivalent of the server tabs of `jmonitor/easyadmin-bundle` 1.x (System, PHP, FrankenPHP, Apache, Nginx, MySQL, PostgreSQL, Redis, Symfony), nor of its Cloudflare tab.
+
+Recording starts by default and creates the `jmonitor_aggregates` and `jmonitor_keys` tables in the default Doctrine connection; `recording.enabled: false` prevents it.
+
 ### Showing the screens inside another page
 
 The screens can also be shown inside a page of your own, such as a back office, with its routes, layout and access control. This interface may still change before 3.0.
@@ -372,7 +444,7 @@ Your application provides:
 
 Access control is entirely yours: `dashboard.enabled` and `dashboard.permission` only apply to the `/jmonitor` page. Call `doNotRecord()` before your own access check, so that a refused request is not recorded, and give your routes the default `_jmonitor: true` (the constant `JmonitorPage::NOT_RECORDED`), so that a request your firewall refuses before it reaches the controller is not recorded either.
 
-The screens are dark by default; `data-jm-theme="light"` on the `jm` element gives the light theme.
+The screens are dark by default; `data-jm-theme="light"` on the `jm` element gives the light theme. With `data-jm-theme="auto"`, they follow a Bootstrap colour mode set on an ancestor: light under `data-bs-theme="light"`, dark otherwise.
 
 If your application uses Turbo Drive, put `data-turbo="false"` on the `jm` element, so that every link of the screens loads a full page.
 
