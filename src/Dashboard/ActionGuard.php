@@ -16,7 +16,7 @@ final class ActionGuard
 
     public function token(Request $request): ?string
     {
-        if ($this->tokens === null || !$request->hasSession()) {
+        if ($this->tokens === null || !$request->hasSession() || $request->attributes->getBoolean('_stateless')) {
             return null;
         }
 
@@ -25,7 +25,7 @@ final class ActionGuard
 
     public function allows(Request $request): bool
     {
-        if ($this->tokens !== null && $request->hasSession()) {
+        if ($this->tokens !== null && $request->hasSession() && !$request->attributes->getBoolean('_stateless')) {
             $token = $request->request->all()['token'] ?? null;
 
             return \is_string($token) && $this->tokens->isTokenValid(new CsrfToken(self::TOKEN_ID, $token));

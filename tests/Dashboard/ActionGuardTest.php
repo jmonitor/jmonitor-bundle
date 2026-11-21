@@ -12,6 +12,7 @@ use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 use Symfony\Component\Security\Csrf\CsrfTokenManager;
+use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
 use Symfony\Component\Security\Csrf\TokenStorage\SessionTokenStorage;
 
 final class ActionGuardTest extends TestCase
@@ -103,6 +104,40 @@ final class ActionGuardTest extends TestCase
         static::assertNull((new ActionGuard($this->tokens()))->token($this->request()));
     }
 
+    public function testARequestDeclaredStatelessGetsNoToken(): void
+    {
+        static::assertNull((new ActionGuard($this->untouchedTokens()))->token($this->request(session: true, stateless: true)));
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
+    #[DataProvider('headers')]
+    public function testOnARequestDeclaredStatelessTheHeadersDecide(array $headers, bool $allowed): void
+    {
+        static::assertSame($allowed, (new ActionGuard($this->untouchedTokens()))->allows($this->request($headers, session: true, stateless: true)));
+    }
+
+    public function testATokenDoesNotLetACrossSiteRequestDeclaredStatelessThrough(): void
+    {
+        $guard = new ActionGuard($this->tokens());
+        $page = $this->request(session: true);
+        $token = $guard->token($page);
+        static::assertNotNull($token);
+        $action = $this->request(['Sec-Fetch-Site' => 'cross-site'], ['token' => $token], true, true);
+        $action->setSession($page->getSession());
+
+        static::assertFalse($guard->allows($action));
+    }
+
+    private function untouchedTokens(): CsrfTokenManagerInterface
+    {
+        $tokens = $this->createMock(CsrfTokenManagerInterface::class);
+        $tokens->expects(static::never())->method(static::anything());
+
+        return $tokens;
+    }
+
     private function tokens(): CsrfTokenManager
     {
         return new CsrfTokenManager(storage: new SessionTokenStorage($this->stack));
@@ -112,7 +147,7 @@ final class ActionGuardTest extends TestCase
      * @param array<string, string> $headers
      * @param array<string, mixed>  $fields
      */
-    private function request(array $headers = [], array $fields = [], bool $session = false): Request
+    private function request(array $headers = [], array $fields = [], bool $session = false, bool $stateless = false): Request
     {
         $server = [];
         foreach ($headers as $name => $value) {
@@ -120,6 +155,7 @@ final class ActionGuardTest extends TestCase
         }
 
         $request = Request::create('https://app.example/jmonitor/_action/stub', 'POST', $fields, server: $server);
+        $request->attributes->set('_stateless', $stateless);
 
         if ($session) {
             $request->setSession(new Session(new MockArraySessionStorage()));
