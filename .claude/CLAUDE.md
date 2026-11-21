@@ -29,7 +29,7 @@ The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboar
 
 - Every class or service that names an EasyAdmin type lives in `src/EasyAdmin/` and `config/easyadmin.php`, and its template in `templates-easyadmin/` (registered as `@JmonitorEasyAdmin` by `EasyAdminTemplatesPass`, only when the option is on). Nothing elsewhere: `tests/EasyAdmin/IsolationTest.php` enforces it.
 - A test that loads an EasyAdmin class, even through a container built with the option on, carries `#[Group('easyadmin')]`, and no test class extends or implements an EasyAdmin type. The CI runs the suite once without EasyAdmin, with `--exclude-group easyadmin`.
-- `JmonitorController` is instantiated by EasyAdmin while the routes load: it only receives the `JmonitorPage` service and a service locator, and the permission is checked when a page is asked, by `Access`.
+- `JmonitorController` is instantiated by EasyAdmin while the routes load: it only receives the `JmonitorPage` service and a service locator, and any new dependency goes through that locator, never into its constructor. The permission is checked by `Access` on the page, on its refresh and on the actions, at request time.
 
 ## CHANGELOG
 

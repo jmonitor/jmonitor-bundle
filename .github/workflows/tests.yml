@@ -135,7 +135,7 @@ jobs:
             - name: Install dependencies
               run: composer update --prefer-dist --no-progress
 
-            # No lint nor phpstan here: src/EasyAdmin names classes that are not installed.
+            # phpstan needs the EasyAdmin classes that src/EasyAdmin names; lint runs in the build job.
             - name: phpunit
               run: ./vendor/bin/phpunit tests --exclude-group easyadmin
 

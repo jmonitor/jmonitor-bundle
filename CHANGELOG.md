@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `recording.commands`, `recording.messenger` and `recording.scheduler` options: each turns its recording off, and `recording.commands.ignore` lists commands that are not recorded.
 - `JmonitorPage` service: shows the `/jmonitor` screens inside another page, with the routes, frame and access control of that page.
 - Light theme for the screens shown inside another page.
-- `easyadmin` option: shows the screens inside an EasyAdmin back office, under every dashboard, with its access control and its light or dark theme.
+- `easyadmin` option: shows the screens inside an EasyAdmin back office, under every dashboard, with its light or dark theme.
 - `data-jm-theme="auto"`: the screens shown inside another page follow the Bootstrap colour mode of that page.
 
 ### Changed

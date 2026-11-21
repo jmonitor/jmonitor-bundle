@@ -356,7 +356,7 @@ Recording is off by default in the `test` environment. Forcing it on with a test
 
 ### Showing the screens inside EasyAdmin
 
-If your application has EasyAdmin 5.10.2 or later, the screens can be shown inside its back office. Nothing else to install. Turn the option on:
+If your application has EasyAdmin 5.10.2 or later, the screens can be shown inside its back office. Nothing else to install, and the `/jmonitor` route import is not needed for these pages. Turn the option on:
 
 ```yaml
 # config/packages/jmonitor.yaml
@@ -381,9 +381,10 @@ Turned on without EasyAdmin, or with an older version, the option stops the cont
 
 Access: the pages sit under the path of the dashboard, so the `access_control` rule that protects your back office, such as one on `^/admin`, covers them. A protection that does not depend on the path, such as an `#[IsGranted]` attribute on the dashboard controller, does not: set `permission`, or add an `access_control` rule on `^/admin/jmonitor`.
 
-`permission` is checked on top of it, on every page, refresh and action. It needs the SecurityBundle. Give the menu link the same permission to hide it from the others:
+`permission` is checked on top of it, on every page, refresh and action. It needs the SecurityBundle. Write the block below instead of `easyadmin: true`, and give the menu link the same permission to hide it from the others:
 
 ```yaml
+# config/packages/jmonitor.yaml
 jmonitor:
     easyadmin:
         permission: ROLE_ADMIN
@@ -394,15 +395,15 @@ yield MenuItem::linkToRoute('JMonitor', 'internal:desktop', 'admin_jmonitor_inde
     ->setPermission('ROLE_ADMIN');
 ```
 
-**Without `permission`, every user of the back office sees the SQL queries of your application and the identifiers of its users.** A `permission` read from an environment variable that turns out empty refuses the pages to everyone.
+**Without `permission`, every user of the back office sees the SQL queries of your application and the identifiers of its users.** The pages exist under every dashboard of your application, including one opened to less trusted users: set `permission`, or add an `access_control` rule on `^/<dashboard path>/jmonitor`. A `permission` read from an environment variable that turns out empty refuses the pages to everyone.
 
-The pages exist under every dashboard of your application. `dashboard.enabled` and `dashboard.permission` only apply to the `/jmonitor` page.
+`dashboard.enabled` and `dashboard.permission` only apply to the `/jmonitor` page.
 
 These pages are not recorded, even when access is refused. When your application has a `csp_nonce` Twig function, the stylesheet and the script of the screens carry its nonce. With the option off, the bundle adds nothing to EasyAdmin.
 
 #### Coming from jmonitor/easyadmin-bundle
 
-This bundle replaces `jmonitor/easyadmin-bundle`. Delete the `jmonitor_easyadmin` configuration first, since Symfony refuses to boot with a configuration no bundle reads, then replace the package and turn `jmonitor.easyadmin` on as above:
+To show these screens in a back office that uses `jmonitor/easyadmin-bundle`, delete the `jmonitor_easyadmin` configuration first, since Symfony refuses to boot with a configuration no bundle reads, then swap the packages, update EasyAdmin to 5.10.2 or later if needed, and turn `jmonitor.easyadmin` on as above:
 
 ```bash
 composer remove jmonitor/easyadmin-bundle
