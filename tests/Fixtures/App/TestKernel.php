@@ -56,6 +56,33 @@ final class TestKernel extends Kernel
             . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler]));
     }
 
+    public static function fromEnvironment(): self
+    {
+        $environment = self::environmentValue('APP_ENV');
+        $debug = self::environmentValue('APP_DEBUG');
+        $features = array_filter(array_map(trim(...), explode(',', self::environmentValue('JMONITOR_FIXTURE_FEATURES'))));
+
+        $unknown = array_diff($features, ['messenger', 'scheduler', 'security']);
+        if ($unknown !== []) {
+            throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
+        }
+
+        return new self(
+            $environment !== '' ? $environment : 'dev',
+            $debug !== '' ? filter_var($debug, \FILTER_VALIDATE_BOOL) : true,
+            withSecurity: \in_array('security', $features, true),
+            withMessenger: \in_array('messenger', $features, true),
+            withScheduler: \in_array('scheduler', $features, true),
+        );
+    }
+
+    private static function environmentValue(string $name): string
+    {
+        $value = $_SERVER[$name] ?? getenv($name);
+
+        return \is_string($value) ? $value : '';
+    }
+
     public function registerBundles(): iterable
     {
         yield new FrameworkBundle();

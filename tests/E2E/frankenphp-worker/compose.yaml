@@ -8,6 +8,7 @@ services:
       APP_ENV: dev
       APP_DEBUG: "1"
       JMONITOR_FLUSH_INTERVAL: "${JMONITOR_FLUSH_INTERVAL:-1}"
+      JMONITOR_FIXTURE_FEATURES: "${JMONITOR_FIXTURE_FEATURES:-}"
     ports:
       - "${JMONITOR_E2E_PORT:-8090}:80"
     volumes:
