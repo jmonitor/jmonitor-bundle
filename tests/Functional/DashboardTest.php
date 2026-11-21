@@ -104,8 +104,27 @@ final class DashboardTest extends WebTestCase
             'jmonitor_dashboard' => true,
             'jmonitor_dashboard_fragment' => true,
             'jmonitor_screen_fragment' => true,
+            'jmonitor_action' => true,
             'jmonitor_screen' => true,
         ], $routes);
+    }
+
+    public function testTheActionRouteOnlyAcceptsPost(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/jmonitor/_action/requests');
+
+        static::assertResponseStatusCodeSame(405);
+    }
+
+    public function testAnActionOnAScreenWithoutOneIsNotFound(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('POST', '/jmonitor/_action/requests', ['action' => 'refresh'], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
+
+        static::assertResponseStatusCodeSame(404);
     }
 
     public function testFragmentReturnsOnlyTheContent(): void

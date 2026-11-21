@@ -233,7 +233,7 @@ final class TemplatesTest extends TestCase
         $twig = new Environment($loader, ['autoescape' => false, 'strict_variables' => true]);
         $twig->addExtension(new JmonitorExtension());
 
-        return $twig->render('@Jmonitor/dashboard/' . $template, $context + ['urls' => new FakeHostUrls(), 'standalone' => false]);
+        return $twig->render('@Jmonitor/dashboard/' . $template, $context + ['urls' => new FakeHostUrls(), 'standalone' => false, 'actions' => [], 'token' => null]);
     }
 
     private function page(ScreenView $view): Page

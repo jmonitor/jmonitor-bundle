@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Controller\DashboardController;
 use Jmonitor\JmonitorBundle\Controller\StandaloneUrls;
+use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
@@ -62,16 +63,25 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
     $services->set(Assets::class);
 
-    $services->set(PageRenderer::class)
+    $services->set(ActionGuard::class)
+        ->args([service('security.csrf.token_manager')->nullOnInvalid()]);
+
+    $customLogger = $builder->getParameter('jmonitor.logger');
+    $pageRenderer = $services->set(PageRenderer::class)
         ->args([
             service(ScreenRegistry::class),
             service(ScreenBuilder::class),
             service(Flusher::class)->nullOnInvalid(),
             service('twig')->nullOnInvalid(),
             service(Assets::class),
+            service(ActionGuard::class),
+            \is_string($customLogger) ? service($customLogger) : service('logger')->nullOnInvalid(),
         ]);
 
-    $customLogger = $builder->getParameter('jmonitor.logger');
+    if ($customLogger === null) {
+        $pageRenderer->tag('monolog.logger', ['channel' => 'jmonitor']);
+    }
+
     $screenBuilder = $services->set(ScreenBuilder::class)
         ->args([
             service(ReaderInterface::class)->nullOnInvalid(),

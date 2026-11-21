@@ -40,6 +40,14 @@ final class DashboardController
         return $this->fragmentOf($request, $screen);
     }
 
+    public function action(Request $request, string $screen): Response
+    {
+        $this->jmonitor->doNotRecord($request);
+        $this->access->assertGranted();
+
+        return $this->jmonitor->action($request, $screen, $this->urls);
+    }
+
     private function page(Request $request, string $path): Response
     {
         $this->jmonitor->doNotRecord($request);

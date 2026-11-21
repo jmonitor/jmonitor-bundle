@@ -38,6 +38,15 @@
                     </ul>
                 </nav>
             {% endif %}
+            {% for name, label in actions %}
+                <form method="post" action="{{ urls.action(page.screen.id) }}">
+                    <input type="hidden" name="action" value="{{ name }}">
+                    {% if token is not null %}
+                        <input type="hidden" name="token" value="{{ token }}">
+                    {% endif %}
+                    <button type="submit" class="jm-button">{{ label }}</button>
+                </form>
+            {% endfor %}
             <label class="jm-live" data-jm-live-toggle hidden>
                 <input class="jm-live__switch" type="checkbox" role="switch" checked>
                 <span class="jm-live__label">Live</span>

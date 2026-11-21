@@ -272,6 +272,25 @@ body.jm {
     animation: none;
 }
 
+.jm-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border: 1px solid var(--jm-border);
+    border-radius: var(--jm-radius-sm);
+    background: var(--jm-surface);
+    color: var(--jm-muted);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.jm-button:hover {
+    background: var(--jm-surface-strong);
+    color: var(--jm-text-strong);
+}
+
 @keyframes jm-pulse {
     0% {
         box-shadow: 0 0 0 0 rgba(23, 227, 220, .55);

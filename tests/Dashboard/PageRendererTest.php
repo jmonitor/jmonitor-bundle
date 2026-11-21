@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
+use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
@@ -27,11 +28,22 @@ use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\AbstractLogger;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Security\Csrf\CsrfToken;
+use Symfony\Component\Security\Csrf\CsrfTokenManager;
+use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
+use Symfony\Component\Security\Csrf\TokenStorage\SessionTokenStorage;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
@@ -205,10 +217,194 @@ final class PageRendererTest extends TestCase
         static::assertSame('noindex', $response->headers->get('X-Robots-Tag'));
     }
 
+    public function testAnActionRunsThenRedirectsToThePageOfTheHost(): void
+    {
+        $screen = new StubActionScreen();
+
+        $response = $this->renderer([$screen])->action($this->post(['action' => 'ping']), 'stub', new FakeHostUrls());
+
+        static::assertSame(303, $response->getStatusCode());
+        static::assertSame('/host/page/stub?menu=3', $response->headers->get('Location'));
+        static::assertSame(['ping'], $screen->ran);
+        static::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+        static::assertSame('noindex', $response->headers->get('X-Robots-Tag'));
+    }
+
+    public function testARefusedActionRunsNothing(): void
+    {
+        $screen = new StubActionScreen();
+
+        try {
+            $this->renderer([$screen])->action($this->post(['action' => 'ping'], 'cross-site'), 'stub', new FakeHostUrls());
+            static::fail('The action was not refused.');
+        } catch (AccessDeniedHttpException $e) {
+            static::assertSame(403, $e->getStatusCode());
+        }
+
+        static::assertSame([], $screen->ran);
+    }
+
+    public function testAnActionMustBePosted(): void
+    {
+        $screen = new StubActionScreen();
+        $request = Request::create('/', 'GET', ['action' => 'ping'], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
+
+        try {
+            $this->renderer([$screen])->action($request, 'stub', new FakeHostUrls());
+            static::fail('A GET request ran the action.');
+        } catch (MethodNotAllowedHttpException $e) {
+            static::assertSame(405, $e->getStatusCode());
+            static::assertSame('POST', $e->getHeaders()['Allow'] ?? null);
+        }
+
+        static::assertSame([], $screen->ran);
+    }
+
+    /**
+     * @return iterable<string, array{string, array<string, mixed>}>
+     */
+    public static function unknownActions(): iterable
+    {
+        yield 'missing field' => ['stub', []];
+        yield 'undeclared name' => ['stub', ['action' => 'pong']];
+        yield 'array field' => ['stub', ['action' => ['ping']]];
+        yield 'screen without action' => ['plain', ['action' => 'ping']];
+        yield 'unknown path' => ['nope', ['action' => 'ping']];
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     */
+    #[DataProvider('unknownActions')]
+    public function testAnUnknownActionIsNotFound(string $path, array $fields): void
+    {
+        $screen = new StubActionScreen();
+
+        try {
+            $this->renderer([$screen, new StubBlockScreen('plain')])->action($this->post($fields), $path, new FakeHostUrls());
+            static::fail('The action was found.');
+        } catch (NotFoundHttpException) {
+            $this->addToAssertionCount(1);
+        }
+
+        static::assertSame([], $screen->ran);
+    }
+
+    public function testAnActionThatThrowsStillRedirectsAndIsLogged(): void
+    {
+        $screen = new StubActionScreen(failure: new \RuntimeException('Ping failed'));
+        $logger = $this->logger();
+
+        $response = $this->renderer([$screen], logger: $logger)->action($this->post(['action' => 'ping']), 'stub', new FakeHostUrls());
+
+        static::assertSame(303, $response->getStatusCode());
+        static::assertSame('/host/page/stub?menu=3', $response->headers->get('Location'));
+        static::assertSame(['error JMonitor could not run the "ping" action of the "stub" screen: Ping failed'], $logger->messages);
+    }
+
+    public function testTheToolbarShowsOneFormPerAction(): void
+    {
+        $screen = new StubActionScreen(actions: ['ping' => '<b>Ping</b>', 'purge-all' => 'Purge']);
+
+        $html = $this->renderer([$screen])->page(Request::create('/'), 'stub', new FakeHostUrls())->html;
+        $forms = (new Crawler($html))->filter('.jm-toolbar form');
+
+        static::assertCount(2, $forms);
+        static::assertSame('/host/action/stub?menu=3', $forms->attr('action'));
+        static::assertSame('post', $forms->attr('method'));
+        static::assertSame('ping', $forms->filter('input[type="hidden"][name="action"]')->attr('value'));
+        static::assertSame('purge-all', $forms->eq(1)->filter('input[type="hidden"][name="action"]')->attr('value'));
+        static::assertSame('<b>Ping</b>', $forms->filter('button[type="submit"].jm-button')->text());
+        static::assertStringContainsString('&lt;b&gt;Ping&lt;/b&gt;', $html);
+        static::assertCount(0, $forms->filter('input[name="token"]'));
+
+        $stack = new RequestStack();
+        $request = Request::create('/');
+        $request->setSession(new Session(new MockArraySessionStorage()));
+        $stack->push($request);
+        $tokens = new CsrfTokenManager(storage: new SessionTokenStorage($stack));
+
+        $forms = (new Crawler($this->renderer([$screen], guard: new ActionGuard($tokens))->page($request, 'stub', new FakeHostUrls())->html))->filter('.jm-toolbar form');
+
+        static::assertCount(2, $forms->filter('input[type="hidden"][name="token"]'));
+        static::assertTrue($tokens->isTokenValid(new CsrfToken('jmonitor', (string) $forms->filter('input[name="token"]')->attr('value'))));
+    }
+
+    public function testAScreenWithoutActionAsksForNoToken(): void
+    {
+        $tokens = new class implements CsrfTokenManagerInterface {
+            public int $calls = 0;
+
+            public function getToken(string $tokenId): CsrfToken
+            {
+                ++$this->calls;
+
+                return new CsrfToken($tokenId, 'spy');
+            }
+
+            public function refreshToken(string $tokenId): CsrfToken
+            {
+                ++$this->calls;
+
+                return new CsrfToken($tokenId, 'spy');
+            }
+
+            public function removeToken(string $tokenId): ?string
+            {
+                ++$this->calls;
+
+                return null;
+            }
+
+            public function isTokenValid(CsrfToken $token): bool
+            {
+                ++$this->calls;
+
+                return false;
+            }
+        };
+        $renderer = $this->renderer([$this->screenWithATable(), new StubBlockScreen(), new StubActionScreen('idle', [])], guard: new ActionGuard($tokens));
+
+        foreach (['stub', 'probe', 'idle'] as $path) {
+            $request = Request::create('/');
+            $request->setSession(new Session(new MockArraySessionStorage()));
+
+            $html = $renderer->page($request, $path, new FakeHostUrls())->html;
+            $renderer->fragment($request, $path, new FakeHostUrls());
+
+            static::assertStringNotContainsString('<form', $html);
+            static::assertFalse($request->getSession()->isStarted());
+        }
+
+        static::assertSame(0, $tokens->calls);
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     */
+    private function post(array $fields, string $site = 'same-origin'): Request
+    {
+        return Request::create('https://app.example/host/action/stub', 'POST', $fields, server: ['HTTP_SEC_FETCH_SITE' => $site]);
+    }
+
+    /** @return AbstractLogger&object{messages: list<string>} */
+    private function logger(): AbstractLogger
+    {
+        return new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $messages = [];
+
+            public function log($level, \Stringable|string $message, array $context = []): void
+            {
+                $this->messages[] = $level . ' ' . $message;
+            }
+        };
+    }
+
     /**
      * @param list<ScreenInterface>|null $screens
      */
-    private function renderer(?array $screens = null, ?Flusher $flusher = null, ?ReaderInterface $reader = new FixedReader()): PageRenderer
+    private function renderer(?array $screens = null, ?Flusher $flusher = null, ?ReaderInterface $reader = new FixedReader(), ?ActionGuard $guard = null, ?LoggerInterface $logger = null): PageRenderer
     {
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');
@@ -221,6 +417,8 @@ final class PageRendererTest extends TestCase
             $flusher,
             $twig,
             new Assets(),
+            $guard ?? new ActionGuard(),
+            $logger,
         );
     }
 

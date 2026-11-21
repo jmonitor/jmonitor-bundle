@@ -23,6 +23,12 @@ return static function (RoutingConfigurator $routes): void {
         ->defaults([RequestRecorder::NOT_RECORDED => true])
         ->methods(['GET']);
 
+    $routes->add('jmonitor_action', '/_action/{screen}')
+        ->controller([DashboardController::class, 'action'])
+        ->requirements(['screen' => '[a-z][a-z-]*(/[a-z][a-z-]*)*'])
+        ->defaults([RequestRecorder::NOT_RECORDED => true])
+        ->methods(['POST']);
+
     $routes->add('jmonitor_screen', '/{screen}')
         ->controller([DashboardController::class, 'screen'])
         ->requirements(['screen' => '[a-z][a-z-]*(/[a-z][a-z-]*)*'])

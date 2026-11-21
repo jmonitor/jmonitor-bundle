@@ -35,6 +35,13 @@ final class JmonitorPage
         return $this->renderer()->fragment($request, $path, $urls);
     }
 
+    public function action(Request $request, string $path, HostUrlsInterface $urls): Response
+    {
+        $this->doNotRecord($request);
+
+        return $this->renderer()->action($request, $path, $urls);
+    }
+
     private function renderer(): PageRenderer
     {
         $renderer = $this->services->get(PageRenderer::class);

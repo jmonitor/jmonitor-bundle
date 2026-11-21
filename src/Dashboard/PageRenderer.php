@@ -8,8 +8,12 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Embed\HostUrlsInterface;
 use Jmonitor\JmonitorBundle\Embed\PageContent;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Twig\Environment;
 
@@ -23,12 +27,15 @@ final class PageRenderer
         private readonly ?Flusher $flusher,
         private readonly ?Environment $twig,
         private readonly Assets $assets,
+        private readonly ActionGuard $guard = new ActionGuard(),
+        private readonly ?LoggerInterface $logger = null,
     ) {}
 
     public function page(Request $request, string $path, HostUrlsInterface $urls, bool $standalone = false): PageContent
     {
         $twig = $this->twig();
         $page = $this->build($request, $this->screen($path));
+        $actions = $page->screen instanceof ActionScreenInterface ? $page->screen->actions() : [];
 
         return new PageContent(
             $twig->render('@Jmonitor/dashboard/page.html.twig', [
@@ -37,6 +44,8 @@ final class PageRenderer
                 'periods' => Period::cases(),
                 'urls' => $urls,
                 'standalone' => $standalone,
+                'actions' => $actions,
+                'token' => $actions === [] ? null : $this->guard->token($request),
             ]),
             'JMonitor — ' . $page->screen->label(),
             $this->assets->stylesheets($request),
@@ -51,6 +60,32 @@ final class PageRenderer
         $page = $this->build($request, $this->screen($path));
 
         return new Response($twig->render('@Jmonitor/dashboard/_screen.html.twig', ['page' => $page, 'urls' => $urls]), Response::HTTP_OK, self::HEADERS);
+    }
+
+    public function action(Request $request, string $path, HostUrlsInterface $urls): Response
+    {
+        if (!$request->isMethod('POST')) {
+            throw new MethodNotAllowedHttpException(['POST']);
+        }
+
+        $screen = $this->screen($path);
+        $action = $request->request->all()['action'] ?? null;
+
+        if (!$screen instanceof ActionScreenInterface || !\is_string($action) || !\array_key_exists($action, $screen->actions())) {
+            throw new NotFoundHttpException();
+        }
+
+        if (!$this->guard->allows($request)) {
+            throw new AccessDeniedHttpException();
+        }
+
+        try {
+            $screen->run($action);
+        } catch (\Throwable $e) {
+            $this->logger?->error(sprintf('JMonitor could not run the "%s" action of the "%s" screen: %s', $action, $screen->id(), $e->getMessage()), ['exception' => $e]);
+        }
+
+        return new RedirectResponse($urls->page($path), Response::HTTP_SEE_OTHER, self::HEADERS);
     }
 
     private function twig(): Environment
