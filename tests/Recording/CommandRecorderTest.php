@@ -152,7 +152,7 @@ final class CommandRecorderTest extends TestCase
      */
     public static function defaultIgnoredCommands(): iterable
     {
-        foreach (['messenger:consume', 'messenger:failed:retry', 'messenger:stats', 'jmonitor:collect', 'cache:clear', 'assets:install', 'list', 'help', '_complete', 'completion', 'debug:router', 'lint:twig', 'server:dump', 'doctrine:database:create'] as $name) {
+        foreach (['messenger:consume', 'messenger:failed:retry', 'messenger:stats', 'jmonitor:collect', 'cache:clear', 'assets:install', 'importmap:install', 'asset-map:compile', 'secrets:decrypt-to-local', 'tailwind:build', 'sass:build', 'list', 'help', '_complete', 'completion', 'debug:router', 'lint:twig', 'server:dump', 'doctrine:database:create'] as $name) {
             yield $name => [$name];
         }
     }
