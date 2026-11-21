@@ -13,6 +13,14 @@ use Jmonitor\JmonitorBundle\EasyAdmin\JmonitorController;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
+use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
+use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
+use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Command\WorkCommand;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller\DemoController;
@@ -191,6 +199,9 @@ final class TestKernel extends Kernel
                 public function process(ContainerBuilder $container): void
                 {
                     foreach ([PageRenderer::class, ScreenRegistry::class, ScreenBuilder::class, DbalReader::class, Flusher::class, 'twig'] as $id) {
+                        if (!$container->has($id)) {
+                            continue;
+                        }
                         if ($container->hasAlias($id)) {
                             $container->getAlias($id)->setPublic(true);
                         }
@@ -199,8 +210,13 @@ final class TestKernel extends Kernel
                     if ($container->hasDefinition(JmonitorController::class)) {
                         $container->getDefinition(JmonitorController::class)->setPublic(true);
                     }
-                    if ($container->hasDefinition('jmonitor.stack.cache')) {
-                        $container->getDefinition('jmonitor.stack.cache')->setPublic(true);
+                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class] as $id) {
+                        if ($container->hasDefinition($id)) {
+                            $container->getDefinition($id)->setPublic(true);
+                        }
+                    }
+                    if ($container->hasAlias(StackReaderInterface::class)) {
+                        $container->getAlias(StackReaderInterface::class)->setPublic(true);
                     }
                 }
             });
