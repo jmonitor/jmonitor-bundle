@@ -1,0 +1,11 @@
+anon 157286400
+file 157286400
+kernel 5242880
+shmem 0
+file_mapped 20971520
+file_dirty 0
+active_anon 152043520
+inactive_anon 5242880
+active_file 52428800
+inactive_file 104857600
+unevictable 0

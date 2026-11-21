@@ -46,6 +46,10 @@ use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\UserRecorder;
+use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Symfony\Component\Filesystem\Filesystem;
@@ -1531,5 +1535,25 @@ class JmonitorBundleTest extends TestCase
         $this->expectExceptionMessage('The "jmonitor.stack" option cannot be read from an environment variable: its services are registered when the container is built.');
 
         $this->loadBundle(['stack' => $stack]);
+    }
+
+    public function testTheStackWiresItsDetectorsLazily(): void
+    {
+        $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        $detectors = $container->findTaggedServiceIds('jmonitor.stack.detector');
+        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class], array_keys($detectors));
+        static::assertSame([['index' => 'system']], $detectors[SystemDetector::class]);
+        static::assertSame([['index' => 'php']], $detectors[PhpDetector::class]);
+        static::assertSame([['index' => 'symfony']], $detectors[SymfonyDetector::class]);
+
+        $registry = $container->getDefinition(ComponentRegistry::class);
+        static::assertFalse($registry->isPublic());
+        $locator = $registry->getArgument(0);
+        static::assertInstanceOf(ServiceLocatorArgument::class, $locator);
+        static::assertSame('jmonitor.stack.detector', $locator->getTaggedIteratorArgument()?->getTag());
+        static::assertSame('index', $locator->getTaggedIteratorArgument()->getIndexAttribute());
+        static::assertSame('%jmonitor.stack.components%', $registry->getArgument(1));
+        static::assertSame([['method' => 'reset']], $registry->getTag('kernel.reset'));
     }
 }

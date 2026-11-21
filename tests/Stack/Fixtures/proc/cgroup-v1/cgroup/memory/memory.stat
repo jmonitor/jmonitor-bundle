@@ -1,0 +1,16 @@
+cache 157286400
+rss 152043520
+mapped_file 20971520
+active_anon 152043520
+inactive_anon 5242880
+active_file 52428800
+inactive_file 104857600
+unevictable 0
+hierarchical_memory_limit 536870912
+total_cache 157286400
+total_rss 152043520
+total_active_anon 152043520
+total_inactive_anon 5242880
+total_active_file 52428800
+total_inactive_file 104857600
+total_unevictable 0
