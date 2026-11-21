@@ -45,7 +45,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ]);
 
     $services->set(StandaloneUrls::class)
-        ->args([service('router')]);
+        ->args([service('router')->nullOnInvalid()]);
 
     $services->set(DashboardController::class)
         ->public()

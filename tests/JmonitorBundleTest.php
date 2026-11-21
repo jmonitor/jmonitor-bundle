@@ -192,6 +192,17 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->getDefinition(JmonitorPage::class)->isPublic());
     }
 
+    public function testTheContainerCompilesWithoutARouter(): void
+    {
+        $container = $this->loadBundle([], environment: 'prod', bundles: []);
+        (new JmonitorBundle())->build($container);
+
+        $container->compile();
+
+        static::assertFalse($container->has('router'));
+        static::assertInstanceOf(JmonitorPage::class, $container->get(JmonitorPage::class));
+    }
+
     public function testTheReaderAndTheClockExistWhileRecordingAndThePageAreOff(): void
     {
         $container = $this->loadBundle(['recording' => ['enabled' => false], 'dashboard' => ['enabled' => false]], environment: 'prod');
