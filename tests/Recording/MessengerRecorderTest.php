@@ -83,13 +83,17 @@ final class MessengerRecorderTest extends TestCase
             }
         };
         $this->storage = new class implements StorageInterface {
+            public int $prepares = 0;
             public int $stores = 0;
+            public int $purges = 0;
 
             /** @var list<Aggregate> */
             public array $aggregates = [];
 
             public function prepare(): bool
             {
+                ++$this->prepares;
+
                 return false;
             }
 
@@ -99,7 +103,10 @@ final class MessengerRecorderTest extends TestCase
                 array_push($this->aggregates, ...$aggregates);
             }
 
-            public function purge(int $now): void {}
+            public function purge(int $now): void
+            {
+                ++$this->purges;
+            }
         };
         $this->logger = new class extends AbstractLogger {
             /** @var list<string> */
@@ -474,6 +481,32 @@ final class MessengerRecorderTest extends TestCase
         static::assertSame(0, $this->recorder->openUnits());
     }
 
+    public function testWithRecordingOffAtRuntimeNothingIsOpenedWrittenOrFlushed(): void
+    {
+        $this->recorder->end($this->recorder->begin(Entry::TYPE_REQUEST, microtime(true)), 'GET app_hello', 1.0);
+        $messages = $this->messages(flusher: $this->flusher(), enabled: false);
+
+        $this->handle($messages, new Envelope(new Ping()), function (): void {
+            static::assertSame(0, $this->recorder->openUnits());
+        });
+        $failed = new Envelope(new Ping('fail'));
+        $this->failToHandle($messages, $failed, new HandlerFailedException($failed, [new \DomainException('boom')]), retry: true);
+        $this->failToHandle($messages, $failed, new HandlerFailedException($failed, [new \DomainException('boom')]), retry: false);
+        $this->handle($messages, $this->scheduled(new RunCommandMessage('app:work')));
+        $request = $this->recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        $messages->onSent(new SendMessageToTransportsEvent(new Envelope(new Ping()), []));
+        $this->recorder->end($request, 'GET app_dispatch', 1.0);
+        $this->clock->sleep(10);
+        $messages->onRunning(new WorkerRunningEvent($this->worker, false));
+        $messages->onStopped(new WorkerStoppedEvent($this->worker));
+
+        static::assertSame(0, $this->recorder->openUnits());
+        static::assertSame(['GET app_hello', 'GET app_dispatch'], array_map(static fn(Entry $entry): string => $entry->key, $this->buffer->entries));
+        static::assertSame([], $this->buffer->entries[1]->children);
+        static::assertSame([0, 0, 0], [$this->storage->prepares, $this->storage->stores, $this->storage->purges]);
+        static::assertSame([], $this->logger->records);
+    }
+
     public function testAFailingRecorderNeverReachesTheWorker(): void
     {
         $this->buffer->failure = new \RuntimeException('disk on fire');
@@ -539,9 +572,9 @@ final class MessengerRecorderTest extends TestCase
         ], MessengerRecorder::getSubscribedEvents());
     }
 
-    private function messages(?Flusher $flusher = null, bool $messages = true, bool $tasks = true, bool $exceptions = true): MessengerRecorder
+    private function messages(?Flusher $flusher = null, bool $messages = true, bool $tasks = true, bool $exceptions = true, bool $enabled = true): MessengerRecorder
     {
-        return new MessengerRecorder($this->recorder, $flusher, $messages, $tasks, $exceptions, $this->logger);
+        return new MessengerRecorder($this->recorder, $flusher, $messages, $tasks, $exceptions, $this->logger, $enabled);
     }
 
     private function flusher(?ClockInterface $clock = null): Flusher

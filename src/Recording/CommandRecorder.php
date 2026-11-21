@@ -51,6 +51,7 @@ final class CommandRecorder implements EventSubscriberInterface, ResetInterface
         private readonly array $ignore = [],
         private readonly bool $exceptions = true,
         private readonly ?LoggerInterface $logger = null,
+        private readonly bool $enabled = true,
     ) {
         $this->counted = new \WeakMap();
     }
@@ -66,6 +67,10 @@ final class CommandRecorder implements EventSubscriberInterface, ResetInterface
 
     public function onCommand(ConsoleCommandEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $command = $event->getCommand();
             $name = $command?->getName();
@@ -91,7 +96,7 @@ final class CommandRecorder implements EventSubscriberInterface, ResetInterface
 
     public function onError(ConsoleErrorEvent $event): void
     {
-        if (!$this->exceptions) {
+        if (!$this->enabled || !$this->exceptions) {
             return;
         }
 
@@ -111,6 +116,10 @@ final class CommandRecorder implements EventSubscriberInterface, ResetInterface
 
     public function onTerminate(ConsoleTerminateEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $now = microtime(true);
             $index = $this->frameOf($event->getCommand());

@@ -415,6 +415,25 @@ final class CommandRecorderTest extends TestCase
         static::assertSame(['app:work'], array_map(static fn(Entry $entry): string => $entry->key, $this->buffer->entries));
     }
 
+    public function testWithRecordingOffAtRuntimeNothingIsOpenedWrittenOrFlushed(): void
+    {
+        $this->recorder->end($this->recorder->begin(Entry::TYPE_REQUEST, microtime(true)), 'GET app_hello', 1.0);
+        $commands = $this->commands(flusher: $this->flusher(), enabled: false);
+
+        $event = $this->runCommand($commands, 'app:work', 1, function () use ($commands): void {
+            static::assertSame(0, $this->recorder->openUnits());
+            $this->runCommand($commands, 'app:inner', during: function (): void {
+                $this->recorder->addSql('SELECT 1', 2.0, SqlDialect::Sqlite);
+            });
+        }, new \RuntimeException('boom'));
+
+        static::assertSame(1, $event->getExitCode());
+        static::assertSame(0, $this->recorder->openUnits());
+        static::assertSame(['GET app_hello'], array_map(static fn(Entry $entry): string => $entry->key, $this->buffer->entries));
+        static::assertSame([0, 0, 0], [$this->storage->prepares, $this->storage->stores, $this->storage->purges]);
+        static::assertSame([], $this->logger->records);
+    }
+
     public function testAFailingRecorderNeverReachesTheCommand(): void
     {
         $this->buffer->failure = new \RuntimeException('disk on fire');
@@ -440,9 +459,9 @@ final class CommandRecorderTest extends TestCase
     /**
      * @param list<string> $ignore
      */
-    private function commands(?Flusher $flusher = null, array $ignore = [], bool $exceptions = true): CommandRecorder
+    private function commands(?Flusher $flusher = null, array $ignore = [], bool $exceptions = true, bool $enabled = true): CommandRecorder
     {
-        return new CommandRecorder($this->recorder, $flusher, $ignore, $exceptions, $this->logger);
+        return new CommandRecorder($this->recorder, $flusher, $ignore, $exceptions, $this->logger, $enabled);
     }
 
     private function flusher(): Flusher

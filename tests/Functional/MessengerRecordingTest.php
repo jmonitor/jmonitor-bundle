@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
+use Doctrine\DBAL\Connection;
 use Jmonitor\JmonitorBundle\Aggregation\EntryPointKey;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
@@ -167,6 +168,34 @@ final class MessengerRecordingTest extends WebTestCase
         static::assertSame(1, self::rowKeyed($this->read(Family::Command), 'app:work')->count(Metric::COMMAND_DURATION));
     }
 
+    public function testTheRecordingSwitchReadFromTheEnvironmentAtRuntimeCoversCommandsAndMessages(): void
+    {
+        $options = [
+            'jmonitor' => ['recording' => ['enabled' => '%env(bool:JMONITOR_TEST_RECORDING)%', 'flush_interval' => 1, 'buffer_dir' => $this->bufferDir]],
+            'messenger' => true,
+        ];
+
+        try {
+            self::setEnv('JMONITOR_TEST_RECORDING', '0');
+            $this->workAndConsumeAPing($options);
+
+            static::assertSame([], glob($this->bufferDir . '/*/*.ndjson') ?: []);
+            static::assertFalse($this->connection()->createSchemaManager()->tablesExist(['jmonitor_aggregates']));
+
+            self::ensureKernelShutdown();
+            self::setEnv('JMONITOR_TEST_RECORDING', '1');
+            $this->workAndConsumeAPing($options);
+
+            $this->flush();
+            static::assertSame(1, self::rowKeyed($this->read(Family::Command), 'app:work')->count(Metric::COMMAND_DURATION));
+            $ping = self::rowKeyed($this->read(Family::Message), Ping::class);
+            static::assertSame(1, $ping->count(Metric::MESSAGE_SENT));
+            static::assertSame(1, $ping->count(Metric::MESSAGE_DURATION));
+        } finally {
+            self::setEnv('JMONITOR_TEST_RECORDING', null);
+        }
+    }
+
     public function testWithoutMessengerEnabledNothingIsRegistered(): void
     {
         static::bootKernel($this->options());
@@ -209,15 +238,53 @@ final class MessengerRecordingTest extends WebTestCase
      */
     private function consume(array $input): int
     {
+        return $this->runConsole(['command' => 'messenger:consume', '--time-limit' => '10', ...$input]);
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     */
+    private function runConsole(array $input): int
+    {
         $kernel = static::$kernel;
         \assert($kernel instanceof KernelInterface);
         $application = new Application($kernel);
         $application->setAutoExit(false);
 
-        return (new ApplicationTester($application))->run(
-            ['command' => 'messenger:consume', '--time-limit' => '10', ...$input],
-            ['interactive' => false],
-        );
+        return (new ApplicationTester($application))->run($input, ['interactive' => false]);
+    }
+
+    /**
+     * @param array{jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool} $options
+     */
+    private function workAndConsumeAPing(array $options): void
+    {
+        $client = static::createClient($options);
+        $client->request('GET', '/dispatch', ['count' => '1']);
+        static::assertResponseIsSuccessful();
+        static::assertSame(0, $this->runConsole(['command' => 'app:work']));
+        static::assertSame(0, $this->consume(['receivers' => ['async'], '--limit' => '1']));
+    }
+
+    private static function setEnv(string $name, ?string $value): void
+    {
+        if ($value === null) {
+            unset($_ENV[$name], $_SERVER[$name]);
+            putenv($name);
+
+            return;
+        }
+
+        $_ENV[$name] = $_SERVER[$name] = $value;
+        putenv($name . '=' . $value);
+    }
+
+    private function connection(): Connection
+    {
+        $connection = static::getContainer()->get('doctrine.dbal.default_connection');
+        \assert($connection instanceof Connection);
+
+        return $connection;
     }
 
     private function sendToTheBatchTransport(object ...$messages): void

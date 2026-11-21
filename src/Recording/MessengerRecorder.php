@@ -33,6 +33,7 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
         private readonly bool $tasks = true,
         private readonly bool $exceptions = true,
         private readonly ?LoggerInterface $logger = null,
+        private readonly bool $enabled = true,
     ) {}
 
     public static function getSubscribedEvents(): array
@@ -49,6 +50,10 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
 
     public function onReceived(WorkerMessageReceivedEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $this->discardOpenUnit();
             if (!$event->shouldHandle()) {
@@ -91,6 +96,10 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
 
     public function onHandled(WorkerMessageHandledEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $now = microtime(true);
             $unit = $this->unitOf($event);
@@ -111,6 +120,10 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
      */
     public function stopOnFailure(WorkerMessageFailedEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $now = microtime(true);
             $unit = $this->unitOf($event);
@@ -137,6 +150,10 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
 
     public function closeOnFailure(WorkerMessageFailedEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $unit = $this->unit;
             if ($unit === null || $unit['stoppedAt'] === null || $unit['message'] !== $event->getEnvelope()->getMessage()) {
@@ -153,7 +170,7 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
 
     public function onSent(SendMessageToTransportsEvent $event): void
     {
-        if (!$this->messages) {
+        if (!$this->enabled || !$this->messages) {
             return;
         }
 
@@ -166,6 +183,10 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
 
     public function onRunning(WorkerRunningEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $this->discardOpenUnit();
             $this->flusher?->flushIfDue();
@@ -176,6 +197,10 @@ final class MessengerRecorder implements EventSubscriberInterface, ResetInterfac
 
     public function onStopped(WorkerStoppedEvent $event): void
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         try {
             $this->discardOpenUnit();
             $this->flusher?->flushOnExit();

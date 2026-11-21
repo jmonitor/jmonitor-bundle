@@ -178,6 +178,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                 param('jmonitor.recording.commands.ignore'),
                 param('jmonitor.recording.exceptions'),
                 $logger,
+                param('jmonitor.recording.enabled'),
             ])
             ->tag('kernel.event_subscriber')
             ->tag('kernel.reset', ['method' => 'reset']);
@@ -195,6 +196,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                 param('jmonitor.recording.scheduler'),
                 param('jmonitor.recording.exceptions'),
                 $logger,
+                param('jmonitor.recording.enabled'),
             ])
             ->tag('kernel.event_subscriber')
             ->tag('kernel.reset', ['method' => 'reset']);
