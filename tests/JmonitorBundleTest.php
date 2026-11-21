@@ -22,7 +22,9 @@ use Jmonitor\JmonitorBundle\Collector\Components\MessengerStatsCollector;
 use Jmonitor\JmonitorBundle\Collector\Components\SchedulerCollector;
 use Jmonitor\JmonitorBundle\Collector\SymfonyCollector;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
+use EasyCorp\Bundle\EasyAdminBundle\EasyAdminBundle;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
@@ -122,6 +124,86 @@ class JmonitorBundleTest extends TestCase
     {
         $this->expectException(\LogicException::class);
         $this->loadBundle(['dashboard' => ['permission' => '']], environment: 'prod');
+    }
+
+    public function testTheEasyAdminOptionIsOffByDefault(): void
+    {
+        $container = $this->loadBundle(['project_api_key' => 'key'], environment: 'prod');
+
+        static::assertFalse($container->getParameter('jmonitor.easyadmin.enabled'));
+        static::assertNull($container->getParameter('jmonitor.easyadmin.permission'));
+        static::assertSame([], $container->findTaggedServiceIds('ea.admin_route_controller'));
+
+        $prefix = 'Jmonitor\\JmonitorBundle\\EasyAdmin\\';
+        foreach ($container->getDefinitions() as $id => $definition) {
+            static::assertStringStartsNotWith($prefix, $id);
+            static::assertStringStartsNotWith($prefix, (string) $definition->getClass());
+        }
+    }
+
+    /**
+     * @return iterable<string, array{bool|array<string, mixed>, string|null}>
+     */
+    public static function easyAdminActivationProvider(): iterable
+    {
+        yield 'true' => [true, null];
+        yield 'enabled' => [['enabled' => true], null];
+        yield 'a permission' => [['permission' => 'ROLE_X'], 'ROLE_X'];
+    }
+
+    /**
+     * @param bool|array<string, mixed> $easyadmin
+     */
+    #[Group('easyadmin')]
+    #[DataProvider('easyAdminActivationProvider')]
+    public function testTheEasyAdminOptionIsTurnedOnByTrueOrByAPermission(bool|array $easyadmin, ?string $permission): void
+    {
+        $container = $this->loadBundle(['easyadmin' => $easyadmin], bundles: $this->easyAdminBundles());
+
+        static::assertTrue($container->getParameter('jmonitor.easyadmin.enabled'));
+        static::assertSame($permission, $container->getParameter('jmonitor.easyadmin.permission'));
+    }
+
+    public function testTheEasyAdminOptionWithoutEasyAdminIsRefused(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin" option requires the EasyAdminBundle: install easycorp/easyadmin-bundle 5.10.2 or later, or turn the option off.');
+
+        $this->loadBundle(['easyadmin' => true]);
+    }
+
+    #[Group('easyadmin')]
+    public function testAnEmptyEasyAdminPermissionIsRefused(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin.permission" option must not be empty.');
+
+        $this->loadBundle(['easyadmin' => ['permission' => '']], bundles: $this->easyAdminBundles());
+    }
+
+    #[Group('easyadmin')]
+    public function testAnEasyAdminPermissionWithoutSecurityBundleIsRefused(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.easyadmin.permission" option requires the SecurityBundle.');
+
+        $this->loadBundle(['easyadmin' => ['permission' => 'ROLE_X']], bundles: ['EasyAdminBundle' => EasyAdminBundle::class]);
+    }
+
+    public function testAPermissionIsIgnoredWhileTheOptionIsOff(): void
+    {
+        $container = $this->loadBundle(['easyadmin' => ['enabled' => false, 'permission' => '']], bundles: []);
+
+        static::assertFalse($container->getParameter('jmonitor.easyadmin.enabled'));
+        static::assertNull($container->getParameter('jmonitor.easyadmin.permission'));
+    }
+
+    /**
+     * @return array<string, class-string>
+     */
+    private function easyAdminBundles(): array
+    {
+        return ['SecurityBundle' => SecurityBundle::class, 'EasyAdminBundle' => EasyAdminBundle::class];
     }
 
     public function testFlushIntervalIsAtMostOneHour(): void

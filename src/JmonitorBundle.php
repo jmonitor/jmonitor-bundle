@@ -6,8 +6,10 @@ namespace Jmonitor\JmonitorBundle;
 
 use Jmonitor\JmonitorBundle\DependencyInjection\CachePoolPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
+use Jmonitor\JmonitorBundle\DependencyInjection\EasyAdminTemplatesPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\HttpClientPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
+use Jmonitor\JmonitorBundle\EasyAdmin\Requirements;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -24,6 +26,7 @@ final class JmonitorBundle extends AbstractBundle
         $container->addCompilerPass(new StorageConnectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
         $container->addCompilerPass(new ComponentAvailabilityPass());
         $container->addCompilerPass(new HttpClientPass());
+        $container->addCompilerPass(new EasyAdminTemplatesPass());
         // After the CacheCollectorPass of debug mode: the profiler keeps tracing the pools from inside the wrappers.
         $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
     }
@@ -50,8 +53,27 @@ final class JmonitorBundle extends AbstractBundle
             throw new \LogicException('The "jmonitor.dashboard.permission" option must not be empty.');
         }
 
-        if ($permission !== null && !isset($builder->getParameter('kernel.bundles')['SecurityBundle'])) {
+        $bundles = $builder->getParameter('kernel.bundles');
+
+        if ($permission !== null && !isset($bundles['SecurityBundle'])) {
             throw new \LogicException('The "jmonitor.dashboard.permission" option requires the SecurityBundle.');
+        }
+
+        $easyAdminEnabled = $config['easyadmin']['enabled'];
+        $easyAdminPermission = null;
+
+        if ($easyAdminEnabled) {
+            Requirements::assertMet($bundles);
+
+            $easyAdminPermission = $config['easyadmin']['permission'];
+
+            if ($easyAdminPermission === '') {
+                throw new \LogicException('The "jmonitor.easyadmin.permission" option must not be empty.');
+            }
+
+            if ($easyAdminPermission !== null && !isset($bundles['SecurityBundle'])) {
+                throw new \LogicException('The "jmonitor.easyadmin.permission" option requires the SecurityBundle.');
+            }
         }
 
         $recordingEnabled = $config['recording']['enabled'] ?? $environment !== 'test';
@@ -77,10 +99,16 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
         $builder->setParameter('jmonitor.dashboard.enabled', $config['dashboard']['enabled']);
         $builder->setParameter('jmonitor.dashboard.permission', $permission);
+        $builder->setParameter('jmonitor.easyadmin.enabled', $easyAdminEnabled);
+        $builder->setParameter('jmonitor.easyadmin.permission', $easyAdminPermission);
         $builder->setParameter('jmonitor.logger', $config['logger'] ?: null);
 
         $container->import('../config/recording.php');
         $container->import('../config/dashboard.php');
+
+        if ($easyAdminEnabled) {
+            $container->import('../config/easyadmin.php');
+        }
 
         if (!$config['project_api_key']) {
             return;
@@ -362,6 +390,13 @@ final class JmonitorBundle extends AbstractBundle
                     ->children()
                         ->booleanNode('enabled')->defaultTrue()->info('Serve the /jmonitor page.')->end()
                         ->scalarNode('permission')->defaultNull()->info('Role or attribute required to see the /jmonitor page. Requires the SecurityBundle.')->end()
+                    ->end()
+                ->end()
+                ->arrayNode('easyadmin')
+                    ->canBeEnabled()
+                    ->info('Show the screens inside an EasyAdmin back office. Requires easycorp/easyadmin-bundle.')
+                    ->children()
+                        ->scalarNode('permission')->defaultNull()->info('Role or attribute required to see the screens in EasyAdmin. Requires the SecurityBundle.')->end()
                     ->end()
                 ->end()
             ->end()
