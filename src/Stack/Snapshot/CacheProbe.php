@@ -25,17 +25,17 @@ final readonly class CacheProbe
 
     public function state(): CacheState
     {
-        $pool = $this->cache;
-
-        while ($pool instanceof TraceableAdapter) {
-            $pool = $pool->getPool();
-        }
-
-        if ($pool instanceof ArrayAdapter || $pool instanceof NullAdapter) {
-            return CacheState::OutOfOrder;
-        }
-
         try {
+            $pool = $this->cache;
+
+            while ($pool instanceof TraceableAdapter) {
+                $pool = $pool->getPool();
+            }
+
+            if ($pool instanceof ArrayAdapter || $pool instanceof NullAdapter) {
+                return CacheState::OutOfOrder;
+            }
+
             $mark = $this->cache->getItem(self::MARK);
 
             if ($mark->isHit()) {

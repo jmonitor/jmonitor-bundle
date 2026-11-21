@@ -13,11 +13,13 @@ final readonly class StoredValue
 {
     /**
      * @param array<string, mixed> $data
+     * @param ?string              $forgotten the forget marker in force when it was collected
      */
     public function __construct(
         public array $data,
         public int $collectedAt,
         public ?Delta $delta,
+        public ?string $forgotten,
     ) {}
 
     /**
@@ -29,21 +31,25 @@ final readonly class StoredValue
             return null;
         }
 
+        if (!array_key_exists('forgotten', $payload) || ($payload['forgotten'] !== null && !is_string($payload['forgotten']))) {
+            return null;
+        }
+
         $delta = $payload['delta'] ?? null;
 
         if ($delta !== null && !(is_array($delta) && is_array($delta['previous'] ?? null) && is_array($delta['current'] ?? null) && is_int($delta['elapsed'] ?? null))) {
             return null;
         }
 
-        return new self($payload['data'], $payload['collected_at'], $delta === null ? null : Delta::fromArray($delta));
+        return new self($payload['data'], $payload['collected_at'], $delta === null ? null : Delta::fromArray($delta), $payload['forgotten']);
     }
 
     /**
-     * @return array{data: array<string, mixed>, collected_at: int, delta: ?array{previous: array<string, mixed>, current: array<string, mixed>, elapsed: int}}
+     * @return array{data: array<string, mixed>, collected_at: int, delta: ?array{previous: array<string, mixed>, current: array<string, mixed>, elapsed: int}, forgotten: ?string}
      */
     public function toCache(): array
     {
-        return ['data' => $this->data, 'collected_at' => $this->collectedAt, 'delta' => $this->delta?->toArray()];
+        return ['data' => $this->data, 'collected_at' => $this->collectedAt, 'delta' => $this->delta?->toArray(), 'forgotten' => $this->forgotten];
     }
 
     public function isFresh(Lifetime $lifetime, int $now): bool

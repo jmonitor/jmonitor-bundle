@@ -25,11 +25,15 @@ use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Cache\RecordingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RefusingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ThrowingCachePool;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
+use Random\Engine;
+use Random\RandomException;
+use Random\Randomizer;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\ErrorHandler\BufferingLogger;
 
@@ -378,7 +382,7 @@ final class SnapshotProviderTest extends TestCase
 
         self::assertFalse($this->recording->hasItem('jmonitor.stack.result.%node.web-1.php.php'));
         self::assertFalse($this->recording->hasItem('jmonitor.stack.collecting.%node.web-1.php'));
-        self::assertSame(self::START + 5, $this->recording->getItem('jmonitor.stack.forgotten.php')->get());
+        self::assertIsString($this->recording->getItem('jmonitor.stack.forgotten.php')->get());
         self::assertSame(604800, $this->recording->ttls['jmonitor.stack.forgotten.php']);
         self::assertSame(['version' => '8.5'], $fromWeb2->data('php'), 'collected again, the value of web-2 predates the forget');
         self::assertSame(3, $php->collects, 'and kept once collected after it');
@@ -511,7 +515,7 @@ final class SnapshotProviderTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{CostClass, \Throwable, int}>
+     * @return iterable<string, array{0: CostClass, 1: \Throwable, 2: int, 3?: float}> the last one, how long the collector waits before it fails
      */
     public static function failures(): iterable
     {
@@ -521,12 +525,14 @@ final class SnapshotProviderTest extends TestCase
         yield 'slow' => [CostClass::Slow, new \RuntimeException('Timed out'), 600];
         yield 'missing prerequisite' => [CostClass::Network, new MissingPrerequisiteException('No status page here'), 3600];
         yield 'missing prerequisite behind an unreachable server' => [CostClass::Slow, new UnreachableServerException('Not readable', 0, new MissingPrerequisiteException('composer: not found')), 3600];
+        yield 'network that waits as long as it is kept' => [CostClass::Network, new \RuntimeException('Timed out'), 10, 10.0];
+        yield 'unreachable server after its timeout' => [CostClass::Network, new UnreachableServerException('Connection timed out'), 60, 60.0];
     }
 
     #[DataProvider('failures')]
-    public function testAFailureIsKeptAsLongAsRetryingCosts(CostClass $cost, \Throwable $failure, int $kept): void
+    public function testAFailureIsKeptAsLongAsRetryingCosts(CostClass $cost, \Throwable $failure, int $kept, float $duration = 0.0): void
     {
-        $collector = new FakeCollector('php.status', collectFailure: $failure);
+        $collector = new FakeCollector('php.status', collectFailure: $failure, clock: $this->clock, duration: $duration);
         $instance = self::instance([self::spec($collector, cost: $cost)]);
         $provider = $this->provider();
 
@@ -824,6 +830,120 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(['a' => 1], $snapshot->data('php'));
         self::assertCount(1, $logs);
         self::assertSame('error', $logs[0][0]);
+    }
+
+    public function testAValueIsDatedWhenItsCollectorReturns(): void
+    {
+        $status = new FakeCollector('php.status', ['requests' => 100], clock: $this->clock, duration: 3.0);
+        $instance = self::instance([self::spec($status)]);
+        $provider = $this->provider();
+
+        $first = $this->read($provider, $instance);
+        $this->clock->sleep(9);
+        $this->read($provider, $instance);
+
+        self::assertSame(self::START + 3, $first->result('php.status')?->collectedAt);
+        self::assertSame(1, $status->collects, 'fresh for its whole lifetime');
+
+        $this->clock->sleep(1);
+        $this->read($provider, $instance);
+
+        self::assertSame(2, $status->collects);
+    }
+
+    public function testAForgetByAServerWhoseClockIsAheadOutdatesTheValuesOnce(): void
+    {
+        $php = new FakeCollector('php', ['requests' => 100]);
+        $failing = new FakeCollector('php.opcache', collectFailure: new UnreachableServerException('Connection timed out'));
+        $instance = self::instance([self::spec($php), self::spec($failing)]);
+        $ahead = new MockClock('@' . (self::START + 30));
+        $web2 = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($this->cache, 10), $this->cache, $ahead, new WebNode('web-2'));
+        $web1 = $this->provider('web-1');
+
+        $web2->forget([$instance]);
+
+        for ($i = 0; $i < 5; ++$i) {
+            $this->read($web1, $instance);
+            $this->clock->sleep(1);
+        }
+
+        self::assertSame(1, $php->collects);
+        self::assertSame(1, $failing->collects, 'its failure is kept for a minute');
+    }
+
+    public function testACacheThatRefusesWritesOnlyRunsImmediateCollectors(): void
+    {
+        $logger = new BufferingLogger();
+        $immediate = new FakeCollector('php', ['requests' => 1]);
+        $network = new FakeCollector('php.network', ['a' => 1]);
+        $slow = new FakeCollector('eol.php', ['cycles' => []]);
+        $instance = self::instance([
+            self::spec($immediate),
+            self::spec($network, Lifetime::Static, CostClass::Network),
+            self::spec($slow, Lifetime::Day, CostClass::Slow),
+        ]);
+        $provider = $this->provider(logger: $logger, cache: new RefusingCachePool());
+
+        for ($i = 0; $i < 5; ++$i) {
+            $snapshot = $this->read($provider, $instance);
+            $logs = $logger->cleanLogs();
+
+            self::assertSame(ResultState::Fresh, $snapshot->result('php')?->state);
+            self::assertSame(ResultState::Pending, $snapshot->result('php.network')?->state);
+            self::assertCount(1, $logs);
+            self::assertSame('error', $logs[0][0]);
+            $this->clock->sleep(1);
+        }
+
+        self::assertSame(5, $immediate->collects);
+        self::assertSame(0, $network->collects);
+        self::assertSame(0, $slow->collects);
+    }
+
+    public function testACommitThatFailsIsLogged(): void
+    {
+        $logger = new BufferingLogger();
+
+        $snapshot = $this->read($this->provider(logger: $logger, cache: new RefusingCachePool(refusesSave: false)), self::instance([self::spec(new FakeCollector('php', ['a' => 1]))]));
+        $logs = $logger->cleanLogs();
+
+        self::assertSame(['a' => 1], $snapshot->data('php'));
+        self::assertCount(1, $logs);
+        self::assertSame('error', $logs[0][0]);
+    }
+
+    public function testTheReasonOfAnUnavailableInstanceCarriesNoCredentials(): void
+    {
+        $snapshot = $this->read($this->provider(), Instance::unavailable(Component::Php, 'Cannot reach redis://app:s3cret@cache'));
+
+        self::assertSame('Cannot reach redis://cache', $snapshot->error);
+    }
+
+    public function testAWitnessThatCannotBeDrawnLeavesTheCacheAside(): void
+    {
+        $logger = new BufferingLogger();
+        $immediate = new FakeCollector('php', ['a' => 1]);
+        $network = new FakeCollector('php.network', ['a' => 1]);
+        $instance = self::instance([self::spec($immediate), self::spec($network, cost: CostClass::Network)]);
+        $noEntropy = new class implements Engine {
+            public function generate(): string
+            {
+                throw new RandomException('Cannot gather sufficient random data');
+            }
+        };
+        $provider = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($this->cache, 10), $this->cache, $this->clock, new WebNode('web-1'), $logger, new Randomizer($noEntropy));
+
+        $snapshot = $this->read($provider, $instance);
+        $logs = $logger->cleanLogs();
+
+        self::assertSame(ResultState::Fresh, $snapshot->result('php')?->state);
+        self::assertSame(ResultState::Pending, $snapshot->result('php.network')?->state);
+        self::assertSame(0, $network->collects);
+        self::assertCount(1, $logs);
+
+        $provider->forget([$instance]);
+
+        self::assertNotSame([], $logger->cleanLogs());
     }
 
     /**

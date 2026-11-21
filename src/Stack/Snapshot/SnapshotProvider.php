@@ -19,6 +19,7 @@ use Psr\Cache\CacheItemPoolInterface;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Random\Randomizer;
 
 /**
  * Reads the collectors of instances behind the cache, within the budget of a display, one request at a time:
@@ -32,6 +33,7 @@ final readonly class SnapshotProvider
 
     private LoggerInterface $logger;
     private CacheKeys $keys;
+    private Randomizer $random;
 
     public function __construct(
         private CollectorRunner $runner,
@@ -40,9 +42,11 @@ final readonly class SnapshotProvider
         private ClockInterface $clock,
         private WebNode $node,
         ?LoggerInterface $logger = null,
+        ?Randomizer $random = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
         $this->keys = new CacheKeys($node);
+        $this->random = $random ?? new Randomizer();
     }
 
     /**
@@ -58,7 +62,7 @@ final readonly class SnapshotProvider
         $reads = [];
 
         foreach ($instances as $instance) {
-            $specs = $instance->isFound() ? $this->specs($instance->collectors, $instance, $guard, $now) : (string) $instance->error;
+            $specs = $instance->isFound() ? $this->specs($instance->collectors, $instance, $guard, $now) : ErrorMessage::clean((string) $instance->error);
 
             if (is_string($specs)) {
                 $errors[$instance->key()] = $specs;
@@ -98,7 +102,7 @@ final readonly class SnapshotProvider
 
     /**
      * Also lifts the witness of a request that died. The values of the other web servers cannot be listed:
-     * the time of the forget outdates them.
+     * a new forget marker outdates them.
      *
      * @param list<Instance> $instances
      */
@@ -122,7 +126,7 @@ final readonly class SnapshotProvider
             $forgotten = $this->keys->forgotten($instance);
 
             if ($forgotten !== null) {
-                $guard->attempt(fn(): bool => $this->cache->save($this->cache->getItem($forgotten)->set($now)->expiresAfter(self::FORGOTTEN_SECONDS)), false);
+                $guard->attempt(fn(): bool => $this->cache->save($this->cache->getItem($forgotten)->set($this->token())->expiresAfter(self::FORGOTTEN_SECONDS)), false);
             }
         }
     }
@@ -149,7 +153,7 @@ final readonly class SnapshotProvider
         try {
             return $set->specs();
         } catch (\Throwable $e) {
-            $failure = new StoredFailure(self::describe($e), $now, $now + self::BUILD_FAILURE_SECONDS);
+            $failure = new StoredFailure(self::describe($e), $now + self::BUILD_FAILURE_SECONDS, null);
             $guard->attempt(fn(): bool => $this->cache->save(($item ?? $this->cache->getItem($key))->set($failure->toCache())->expiresAfter(self::BUILD_FAILURE_SECONDS)), false);
 
             return $failure->error;
@@ -172,8 +176,8 @@ final readonly class SnapshotProvider
 
         /** @var array<string, CacheItemInterface> $items */
         $items = $guard->attempt(fn(): array => iterator_to_array($this->cache->getItems($keys)), []);
-        $forgottenAt = $forgotten === null ? null : ($items[$forgotten] ?? null)?->get();
-        $forgottenAt = is_int($forgottenAt) ? $forgottenAt : null;
+        $marker = $forgotten === null ? null : ($items[$forgotten] ?? null)?->get();
+        $marker = is_string($marker) ? $marker : null;
         $values = [];
         $failures = [];
 
@@ -181,16 +185,16 @@ final readonly class SnapshotProvider
             $value = StoredValue::fromCache(($items[$this->keys->result($instance, $spec)] ?? null)?->get());
             $failure = StoredFailure::fromCache(($items[$this->keys->failure($instance, $spec)] ?? null)?->get());
 
-            if ($value !== null && $value->isShown($spec->lifetime, $now) && !self::outdated($spec, $value->collectedAt, $forgottenAt)) {
+            if ($value !== null && $value->isShown($spec->lifetime, $now) && !self::outdated($spec, $value->forgotten, $marker)) {
                 $values[$spec->name] = $value;
             }
 
-            if ($failure !== null && $failure->isKept($now) && !self::outdated($spec, $failure->failedAt, $forgottenAt)) {
+            if ($failure !== null && $failure->isKept($now) && !self::outdated($spec, $failure->forgotten, $marker)) {
                 $failures[$spec->name] = $failure;
             }
         }
 
-        $read = new InstanceRead($instance, $specs, $items, ($items[$witness] ?? null)?->isHit() ?? false, $values, $failures);
+        $read = new InstanceRead($instance, $specs, $items, ($items[$witness] ?? null)?->isHit() ?? false, $marker, $values, $failures);
 
         foreach ($specs as $spec) {
             $value = $values[$spec->name] ?? null;
@@ -214,13 +218,16 @@ final readonly class SnapshotProvider
             return $this->shown($spec, $value, $now, ResultState::Busy);
         }
 
-        $cacheAllows = $spec->cost === CostClass::Immediate || ($cache === CacheState::Working && $guard->works());
-
-        if (!$cacheAllows || !$budget->allows($spec->cost)) {
+        if (!self::cacheAllows($spec, $cache, $guard) || !$budget->allows($spec->cost)) {
             return $this->shown($spec, $value, $now, ResultState::Pending);
         }
 
         $this->takeWitness($read, $guard);
+
+        if (!self::cacheAllows($spec, $cache, $guard)) {
+            return $this->shown($spec, $value, $now, ResultState::Pending);
+        }
+
         $startedAt = $this->seconds();
         $result = $this->collect($read, $spec, $guard);
         $budget->ran($spec->cost, $this->seconds() - $startedAt);
@@ -228,23 +235,32 @@ final readonly class SnapshotProvider
         return $result;
     }
 
+    /**
+     * Without a cache that keeps its values, a collector that costs a call would run at every display.
+     */
+    private static function cacheAllows(CollectorSpec $spec, CacheState $cache, CacheGuard $guard): bool
+    {
+        return $spec->cost === CostClass::Immediate || ($cache === CacheState::Working && $guard->works());
+    }
+
     private function collect(InstanceRead $read, CollectorSpec $spec, CacheGuard $guard): CollectorResult
     {
         $read->ran = true;
-        $now = $this->now();
 
         try {
             $data = $this->runner->run($spec->collector);
         } catch (\Throwable $e) {
+            $now = $this->now();
             $kept = self::keptFor($e, $spec->cost);
-            $failure = new StoredFailure(self::describe($e), $now, $now + $kept);
+            $failure = new StoredFailure(self::describe($e), $now + $kept, $read->forgotten);
             $read->write($this->keys->failure($read->instance, $spec), $failure->toCache(), $kept);
 
             return $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $failure->error, $failure->until);
         }
 
+        $now = $this->now();
         $delta = $spec->trackDelta ? $guard->attempt(fn(): ?Delta => $this->deltas->track($this->keys->suffix($read->instance, $spec), $data, $now), null) : null;
-        $value = new StoredValue($data, $now, $delta);
+        $value = new StoredValue($data, $now, $delta, $read->forgotten);
         $read->write($this->keys->result($read->instance, $spec), $value->toCache(), $spec->lifetime->keptFor());
 
         return $this->shown($spec, $value, $now);
@@ -258,9 +274,17 @@ final readonly class SnapshotProvider
             return;
         }
 
-        $token = bin2hex(random_bytes(8));
+        $token = $guard->attempt(function () use ($item): ?string {
+            $token = $this->token();
+
+            return $this->cache->save($item->set($token)->expiresAfter(self::WITNESS_SECONDS)) ? $token : null;
+        }, null);
+
+        if ($token === null) {
+            $guard->refused('the witness');
+        }
+
         $read->token = $token;
-        $guard->attempt(fn(): bool => $this->cache->save($item->set($token)->expiresAfter(self::WITNESS_SECONDS)), false);
     }
 
     /**
@@ -269,13 +293,17 @@ final readonly class SnapshotProvider
     private function finish(InstanceRead $read, CacheGuard $guard): void
     {
         if ($read->writes !== []) {
-            $guard->attempt(function () use ($read): bool {
+            $committed = $guard->attempt(function () use ($read): bool {
                 foreach ($read->writes as $item) {
                     $this->cache->saveDeferred($item);
                 }
 
                 return $this->cache->commit();
             }, false);
+
+            if (!$committed) {
+                $guard->refused('the values of ' . $read->instance->key());
+            }
         }
 
         $token = $read->token;
@@ -317,11 +345,12 @@ final readonly class SnapshotProvider
     }
 
     /**
+     * Compares forget markers, not times: the web servers sharing the cache may not share a clock.
      * A day-long value survives a forget: what it reads is not what one fixes and checks again.
      */
-    private static function outdated(CollectorSpec $spec, int $at, ?int $forgottenAt): bool
+    private static function outdated(CollectorSpec $spec, ?string $writtenUnder, ?string $marker): bool
     {
-        return $forgottenAt !== null && $at < $forgottenAt && $spec->lifetime !== Lifetime::Day;
+        return $writtenUnder !== $marker && $spec->lifetime !== Lifetime::Day;
     }
 
     /**
@@ -349,6 +378,11 @@ final readonly class SnapshotProvider
     private static function describe(\Throwable $e): string
     {
         return ErrorMessage::clean(ErrorMessage::of($e));
+    }
+
+    private function token(): string
+    {
+        return bin2hex($this->random->getBytes(8));
     }
 
     private function now(): int

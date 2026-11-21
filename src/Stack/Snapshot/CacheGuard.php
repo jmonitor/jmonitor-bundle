@@ -51,4 +51,17 @@ final class CacheGuard
             return $fallback;
         }
     }
+
+    /**
+     * A write reported as failed without an exception: the cache keeps nothing, it is left aside as well.
+     */
+    public function refused(string $what): void
+    {
+        if (!$this->works) {
+            return;
+        }
+
+        $this->works = false;
+        $this->logger->error('The cache of the live stack refused to save {what}, it is left aside.', ['what' => $what]);
+    }
 }

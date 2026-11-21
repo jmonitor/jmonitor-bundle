@@ -28,16 +28,18 @@ final class InstanceRead
 
     /**
      * @param list<CollectorSpec>               $specs
-     * @param array<string, CacheItemInterface> $items    keyed by cache key, none without a working cache
-     * @param bool                              $busy     another request holds the witness
-     * @param array<string, StoredValue>        $values   the values that may show, keyed by collector name
-     * @param array<string, StoredFailure>      $failures the kept failures, keyed by collector name
+     * @param array<string, CacheItemInterface> $items     keyed by cache key, none without a working cache
+     * @param bool                              $busy      another request holds the witness
+     * @param ?string                           $forgotten the forget marker in force, stored with what is written
+     * @param array<string, StoredValue>        $values    the values that may show, keyed by collector name
+     * @param array<string, StoredFailure>      $failures  the kept failures, keyed by collector name
      */
     public function __construct(
         public readonly Instance $instance,
         public readonly array $specs,
         public readonly array $items,
         public readonly bool $busy,
+        public readonly ?string $forgotten,
         public readonly array $values,
         public readonly array $failures,
     ) {}

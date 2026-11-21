@@ -42,6 +42,18 @@ final class CacheProbeTest extends TestCase
         self::assertSame([], $inner instanceof ArrayAdapter ? $inner->getValues() : [], 'nothing is written');
     }
 
+    public function testAPoolThatCannotBeUnwrappedIsOutOfOrder(): void
+    {
+        $traced = new class (new ArrayAdapter()) extends TraceableAdapter {
+            public function getPool(): AdapterInterface
+            {
+                throw new \Error('Call to undefined method getPool()');
+            }
+        };
+
+        self::assertSame(CacheState::OutOfOrder, (new CacheProbe($traced, new MockClock()))->state());
+    }
+
     public function testTheFirstCallOnAWorkingPoolIsColdAndTheNextOneWorks(): void
     {
         $probe = new CacheProbe(new CountingCachePool(), new MockClock());
