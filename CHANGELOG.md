@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` Scheduler screen: scheduled tasks with their trigger, next run, last run and failures.
 - Exceptions screen: exceptions thrown by console commands and message handlers.
 - `recording.commands`, `recording.messenger` and `recording.scheduler` options: each turns its recording off, and `recording.commands.ignore` lists commands that are not recorded.
+- `JmonitorPage` service: shows the `/jmonitor` screens inside another page, with the routes, frame and access control of that page.
+- Light theme for the screens shown inside another page.
 
 ### Changed
 - Requires PHP 8.2.

@@ -307,7 +307,7 @@ jmonitor:
         connection: 'default' # name of the Doctrine DBAL connection
         retention: 604800     # seconds the data is kept (7 days, 3600 minimum)
     dashboard:
-        enabled: true         # false: the page answers 404
+        enabled: true         # false: the /jmonitor page answers 404
         permission: ~         # role or voter attribute required to see the page
 ```
 
@@ -327,7 +327,7 @@ jmonitor:
 
 ### What is recorded
 
-Requests: main requests only. Not recorded: any route whose name starts with `jmonitor_`, the web debug toolbar and profiler, sub-requests, and the routes matching `ignore_routes`. A request that matches no route is recorded as `(unmatched)`. Methods other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are grouped under `OTHER`.
+Requests: main requests only. Not recorded: any route whose name starts with `jmonitor_`, any JMonitor page shown by another host, the web debug toolbar and profiler, sub-requests, and the routes matching `ignore_routes`. A request that matches no route is recorded as `(unmatched)`. Methods other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are grouped under `OTHER`.
 
 Commands: a command is recorded from its start, the boot of the kernel excluded, to its end, and fails when its exit code is not 0. Not recorded by default: `messenger:consume`, `messenger:failed:*`, `messenger:stats`, `jmonitor:*`, `cache:*`, `assets:*`, `importmap:*`, `asset-map:*`, `secrets:*`, `tailwind:*`, `sass:*`, `list`, `help`, `_complete`, `completion`, `debug:*`, `lint:*`, `server:*` and `doctrine:database:*`; `recording.commands.ignore` adds to this list. A command your build runs without a database is worth adding to it: otherwise its write fails when it ends and is logged as an error. A command that recorded something is written to the database as soon as it ends, at most once per second for each user that runs PHP.
 
@@ -350,6 +350,154 @@ Each flush keeps the 300 most requested routes (method and route) of its batch; 
 What is recorded is buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access; the text of the recorded queries and the identifiers of the signed-in users are kept there too. When the web server and the console run as different users, each keeps and flushes its own buffer. `buffer_dir` must exist and be writable by every user that runs PHP; give it the permissions of `/tmp` (mode `1777`, sticky) rather than a plain `0777`. JMonitor never creates it: while it is missing, the system temporary directory is used instead and a warning is logged once. When that subdirectory cannot be used, nothing is recorded and the page shows "Buffer directory unusable".
 
 Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
+
+### Showing the screens inside another page
+
+The screens can also be shown inside a page of your own, such as a back office, with its routes, layout and access control. This interface may still change before 3.0.
+
+The `Jmonitor\JmonitorBundle\Embed\JmonitorPage` service offers four calls. `page()`, `fragment()` and `action()` take the request, the path of a screen (`''` for the default screen, `queries`, `cache`…) and your URLs:
+
+- `page()` returns a `PageContent`: the `html` to show (the navigation between the screens and the current screen), its `title`, the `stylesheets` and `scripts` to load and the `headers` to put on your response;
+- `fragment()` returns the `Response` the page fetches to refresh itself;
+- `action()` runs an action of a screen, posted from the page, and returns a `303` redirect to that screen; it answers 404 when the screen has no such action, and 403 when the request fails the check described below;
+- `doNotRecord()` marks the request as not recorded; the three calls above do it too.
+
+An unknown path answers 404. Without the TwigBundle, `page()` and `fragment()` answer 404.
+
+Your application provides:
+
+- three routes with a free path parameter: one for the page, one for the fragment and one for the actions, which accepts `POST`;
+- an implementation of `Jmonitor\JmonitorBundle\Embed\HostUrlsInterface` that generates their URLs, with the entries of `$query` (`period`, `sort`, `dir`) as query-string parameters of the same names, since the screens read them from the query string of your request;
+- its own layout, with the `html` inside an element of class `jm`, the stylesheets and scripts of the `PageContent` loaded in its `<head>`, the scripts with `defer` since they read the page as soon as they run, and the headers of the `PageContent` on its response.
+
+Access control is entirely yours: `dashboard.enabled` and `dashboard.permission` only apply to the `/jmonitor` page. Call `doNotRecord()` before your own access check, so that a refused request is not recorded, and give your routes the default `_jmonitor: true` (the constant `JmonitorPage::NOT_RECORDED`), so that a request your firewall refuses before it reaches the controller is not recorded either.
+
+The screens are dark by default; `data-jm-theme="light"` on the `jm` element gives the light theme.
+
+If your application uses Turbo Drive, put `data-turbo="false"` on the `jm` element, so that every link of the screens loads a full page.
+
+Actions: when your application has CSRF protection and a session and the action route is not stateless, an action needs the CSRF token the page puts in its form; otherwise it must come from the same origin (`Sec-Fetch-Site`, else `Origin`). Behind a reverse proxy, your application must therefore know its public scheme and host (`trusted_proxies`). Declare the page and action routes the same way: both stateless, or neither.
+
+```php
+// src/Controller/Admin/MonitoringController.php
+namespace App\Controller\Admin;
+
+use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+final class MonitoringController extends AbstractController
+{
+    public function __construct(
+        private readonly JmonitorPage $jmonitor,
+        private readonly MonitoringUrls $urls,
+    ) {}
+
+    public function page(Request $request, string $path): Response
+    {
+        $this->jmonitor->doNotRecord($request);
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        $content = $this->jmonitor->page($request, $path, $this->urls);
+
+        return $this->render('admin/monitoring.html.twig', ['content' => $content], new Response(headers: $content->headers));
+    }
+
+    public function fragment(Request $request, string $path): Response
+    {
+        $this->jmonitor->doNotRecord($request);
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        return $this->jmonitor->fragment($request, $path, $this->urls);
+    }
+
+    public function action(Request $request, string $path): Response
+    {
+        $this->jmonitor->doNotRecord($request);
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        return $this->jmonitor->action($request, $path, $this->urls);
+    }
+}
+```
+
+```php
+// src/Controller/Admin/MonitoringUrls.php
+namespace App\Controller\Admin;
+
+use Jmonitor\JmonitorBundle\Embed\HostUrlsInterface;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+
+final class MonitoringUrls implements HostUrlsInterface
+{
+    public function __construct(private readonly UrlGeneratorInterface $router) {}
+
+    public function page(string $path, array $query = []): string
+    {
+        return $this->router->generate('admin_monitoring', ['path' => $path] + $query);
+    }
+
+    public function fragment(string $path, array $query = []): string
+    {
+        return $this->router->generate('admin_monitoring_fragment', ['path' => $path] + $query);
+    }
+
+    public function action(string $path): string
+    {
+        return $this->router->generate('admin_monitoring_action', ['path' => $path]);
+    }
+}
+```
+
+```yaml
+# config/routes/monitoring.yaml
+admin_monitoring:
+    path: /admin/monitoring/{path}
+    controller: App\Controller\Admin\MonitoringController::page
+    requirements: { path: '.*' }
+    defaults: { path: '', _jmonitor: true }
+    methods: [GET]
+
+admin_monitoring_fragment:
+    path: /admin/monitoring-fragment/{path}
+    controller: App\Controller\Admin\MonitoringController::fragment
+    requirements: { path: '.*' }
+    defaults: { path: '', _jmonitor: true }
+    methods: [GET]
+
+admin_monitoring_action:
+    path: /admin/monitoring-action/{path}
+    controller: App\Controller\Admin\MonitoringController::action
+    requirements: { path: '.*' }
+    defaults: { path: '', _jmonitor: true }
+    methods: [POST]
+```
+
+```twig
+{# templates/admin/monitoring.html.twig #}
+{% extends 'admin/base.html.twig' %}
+
+{% block title %}{{ content.title }}{% endblock %}
+
+{% block stylesheets %}
+    {{ parent() }}
+    {% for stylesheet in content.stylesheets %}
+        <link rel="stylesheet" href="{{ stylesheet }}">
+    {% endfor %}
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    {% for script in content.scripts %}
+        <script src="{{ script }}" defer></script>
+    {% endfor %}
+{% endblock %}
+
+{% block body %}
+    <div class="jm" data-jm-theme="light">{{ content.html|raw }}</div>
+{% endblock %}
+```
 
 ## PHP metrics: CLI vs Web context
 

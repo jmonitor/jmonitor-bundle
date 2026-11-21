@@ -38,4 +38,16 @@ final class ScreenRegistryTest extends TestCase
         static::assertSame('requests', $registry->default()->id());
         static::assertSame('requests', $registry->default()->id());
     }
+
+    public function testWithoutUsableStorageTheDefaultIsTheFirstScreenThatDoesNotReadIt(): void
+    {
+        $registry = new ScreenRegistry([new StubScreen('requests'), new StubBlockScreen('probe')]);
+
+        static::assertSame('requests', $registry->default(true)->id());
+        static::assertSame('probe', $registry->default(false)->id());
+
+        $registry = new ScreenRegistry([new StubScreen('requests'), new StubScreen('queries')]);
+
+        static::assertSame('requests', $registry->default(false)->id());
+    }
 }

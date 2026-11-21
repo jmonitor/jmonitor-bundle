@@ -12,7 +12,11 @@ use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
+use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
+use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Clock\ClockInterface;
 use Psr\Log\AbstractLogger;
@@ -163,6 +167,66 @@ final class RequestRecorderTest extends TestCase
         static::assertSame('GET app_admin', $this->buffer->entries[0]->key);
     }
 
+    public function testAMarkedRequestIsNotRecorded(): void
+    {
+        $units = new Recorder($this->buffer, $this->logger);
+
+        $this->handle($this->recorder([], $units), Request::create('/'), 'admin_monitoring', 200, [RequestRecorder::NOT_RECORDED => true]);
+
+        static::assertSame([], $this->buffer->entries);
+        static::assertFalse($units->isRecording());
+        static::assertSame(0, $units->openUnits());
+    }
+
+    /**
+     * @param array<string, mixed> $attributes
+     */
+    #[DataProvider('provideValuesThatDoNotMark')]
+    public function testOnlyTheBooleanTrueMarksARequest(array $attributes): void
+    {
+        $this->handle($this->recorder(), Request::create('/'), 'app_home', 200, $attributes);
+
+        static::assertCount(1, $this->buffer->entries);
+        static::assertSame('GET app_home', $this->buffer->entries[0]->key);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>}>
+     */
+    public static function provideValuesThatDoNotMark(): iterable
+    {
+        yield 'string 1' => [[RequestRecorder::NOT_RECORDED => '1']];
+        yield 'integer 1' => [[RequestRecorder::NOT_RECORDED => 1]];
+        yield 'string true' => [[RequestRecorder::NOT_RECORDED => 'true']];
+        yield 'false' => [[RequestRecorder::NOT_RECORDED => false]];
+        yield 'absent' => [[]];
+    }
+
+    public function testAMeasureOfAMarkedRequestIsDroppedWithIt(): void
+    {
+        $units = new Recorder($this->buffer, $this->logger, null, new QueryDigester(new LabelStore(new BufferDirectory($this->dir, 'app'))));
+        $recorder = $this->recorder([], $units);
+        $kernel = $this->createStub(HttpKernelInterface::class);
+        $request = Request::create('/');
+
+        $recorder->onRequest(new RequestEvent($kernel, $request, HttpKernelInterface::MAIN_REQUEST));
+        $request->attributes->set('_route', 'admin_monitoring');
+        $units->addSql('SELECT * FROM t WHERE id = 1', 1.0, SqlDialect::Sqlite);
+        $request->attributes->set(RequestRecorder::NOT_RECORDED, true);
+        $event = new TerminateEvent($kernel, $request, new Response());
+        $recorder->onTerminate($event);
+        $recorder->onTerminateFlush($event);
+
+        static::assertSame([], $this->buffer->entries);
+        static::assertSame(0, $units->openUnits());
+
+        $this->handle($recorder, Request::create('/'), 'app_home', 200);
+
+        static::assertCount(1, $this->buffer->entries);
+        static::assertArrayNotHasKey('sql_n', $this->buffer->entries[0]->attributes);
+        static::assertSame([], $this->buffer->entries[0]->children);
+    }
+
     public function testStaleRequestTimeFallsBackToNow(): void
     {
         $request = Request::create('/', server: ['REQUEST_TIME_FLOAT' => microtime(true) - 7200]);
@@ -258,7 +322,10 @@ final class RequestRecorderTest extends TestCase
         };
     }
 
-    private function handle(RequestRecorder $recorder, Request $request, ?string $route, int $status): void
+    /**
+     * @param array<string, mixed> $attributes set after the request starts, as a host would
+     */
+    private function handle(RequestRecorder $recorder, Request $request, ?string $route, int $status, array $attributes = []): void
     {
         $kernel = $this->createStub(HttpKernelInterface::class);
 
@@ -266,6 +333,7 @@ final class RequestRecorderTest extends TestCase
         if ($route !== null) {
             $request->attributes->set('_route', $route);
         }
+        $request->attributes->add($attributes);
 
         $event = new TerminateEvent($kernel, $request, new Response('', $status));
         $recorder->onTerminate($event);

@@ -12,7 +12,7 @@ use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTask;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -28,7 +28,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
  *
  * @phpstan-type Task array{key: string, label: string, schedule: ?string, trigger: ?string, next: ?int, runs: int, total: float, avg: float, max: float, failed: int, last: int, lastFailed: int}
  */
-final class SchedulerScreen implements ScreenInterface
+final class SchedulerScreen implements StorageScreenInterface
 {
     private const LIMIT = 100;
     private const NONE = '—';

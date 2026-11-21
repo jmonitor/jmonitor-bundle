@@ -1,4 +1,4 @@
-:root {
+.jm {
     --jm-bg: #14171a;
     --jm-bg-gradient: linear-gradient(119deg, #14171a, #181f22 52%, #14181c);
     --jm-header-bg: rgba(20, 23, 26, .86);
@@ -17,10 +17,27 @@
     --jm-ok: #17e3dc;
     --jm-warn: #ffd9a5;
     --jm-warn-bg: rgba(255, 198, 142, .14);
+    --jm-warn-border: rgba(255, 198, 142, .32);
     --jm-bad: #ffbdca;
     --jm-bad-strong: #ff8fa5;
     --jm-bad-bg: rgba(255, 100, 128, .14);
+    --jm-bad-border: rgba(255, 100, 128, .32);
+    --jm-state-bad-border: rgba(255, 100, 128, .3);
     --jm-focus: #a8bfff;
+    --jm-segment-active-bg: rgba(110, 148, 255, .24);
+    --jm-segment-active-border: rgba(168, 191, 255, .28);
+    --jm-live-on-bg: rgba(23, 227, 220, .18);
+    --jm-live-on-border: rgba(23, 227, 220, .45);
+    --jm-live-pulse: rgba(23, 227, 220, .55);
+    --jm-method-bg: rgba(255, 255, 255, .07);
+    --jm-method-text: #c3cad6;
+    --jm-method-get-bg: rgba(110, 148, 255, .16);
+    --jm-method-post-bg: rgba(23, 227, 220, .12);
+    --jm-method-post-text: #6ff2ed;
+    --jm-method-put-bg: rgba(255, 198, 142, .14);
+    --jm-method-patch-bg: rgba(186, 148, 255, .16);
+    --jm-method-patch-text: #d6c2ff;
+    --jm-method-delete-bg: rgba(255, 100, 128, .16);
     --jm-radius: 12px;
     --jm-radius-sm: 6px;
     --jm-gutter: 24px;
@@ -30,15 +47,64 @@
     color-scheme: dark;
 }
 
-*,
-*::before,
-*::after {
+.jm[data-jm-theme="light"] {
+    --jm-bg: #f5f7fa;
+    --jm-bg-gradient: linear-gradient(119deg, #f5f7fa, #eef2f7 52%, #f4f6fa);
+    --jm-header-bg: rgba(245, 247, 250, .86);
+    --jm-surface: #fff;
+    --jm-surface-hover: rgba(37, 64, 143, .035);
+    --jm-surface-strong: rgba(37, 64, 143, .08);
+    --jm-border: rgba(37, 64, 143, .14);
+    --jm-border-subtle: rgba(37, 64, 143, .08);
+    --jm-text: #1f2633;
+    --jm-text-strong: #0c111b;
+    --jm-muted: #4f5d78;
+    --jm-faint: #5f6b80;
+    --jm-primary: #3460e0;
+    --jm-primary-light: #2d55cc;
+    --jm-accent: linear-gradient(90deg, #0b9fbd, #5874e8);
+    --jm-ok: #0b8f8a;
+    --jm-warn: #8a4f00;
+    --jm-warn-bg: rgba(235, 150, 40, .12);
+    --jm-warn-border: rgba(200, 120, 20, .4);
+    --jm-bad: #b01c3c;
+    --jm-bad-strong: #c0183c;
+    --jm-bad-bg: rgba(225, 45, 80, .08);
+    --jm-bad-border: rgba(200, 30, 65, .35);
+    --jm-state-bad-border: rgba(200, 30, 65, .35);
+    --jm-focus: #2d55cc;
+    --jm-segment-active-bg: rgba(52, 96, 224, .12);
+    --jm-segment-active-border: rgba(52, 96, 224, .4);
+    --jm-live-on-bg: rgba(11, 143, 138, .16);
+    --jm-live-on-border: rgba(11, 143, 138, .55);
+    --jm-live-pulse: rgba(11, 143, 138, .45);
+    --jm-method-bg: rgba(37, 64, 143, .07);
+    --jm-method-text: #46536b;
+    --jm-method-get-bg: rgba(52, 96, 224, .11);
+    --jm-method-post-bg: rgba(11, 143, 138, .12);
+    --jm-method-post-text: #08736f;
+    --jm-method-put-bg: rgba(235, 150, 40, .16);
+    --jm-method-patch-bg: rgba(125, 80, 225, .11);
+    --jm-method-patch-text: #6236c4;
+    --jm-method-delete-bg: rgba(225, 45, 80, .11);
+    color-scheme: light;
+}
+
+.jm,
+.jm *,
+.jm *::before,
+.jm *::after {
     box-sizing: border-box;
 }
 
-html {
+.jm {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    color: var(--jm-text);
+    font-family: var(--jm-font);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
 }
 
 body.jm {
@@ -46,11 +112,11 @@ body.jm {
     min-height: 100vh;
     background: var(--jm-bg);
     background-image: var(--jm-bg-gradient);
-    color: var(--jm-text);
-    font-family: var(--jm-font);
-    font-size: 15px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
+}
+
+.jm:not(body) {
+    border-radius: var(--jm-radius-sm);
+    background: var(--jm-bg);
 }
 
 .jm h1,
@@ -93,10 +159,13 @@ body.jm {
 }
 
 .jm-header {
+    border-bottom: 1px solid var(--jm-border);
+}
+
+body.jm .jm-header {
     position: sticky;
     top: 0;
     z-index: 5;
-    border-bottom: 1px solid var(--jm-border);
     background: var(--jm-header-bg);
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
@@ -202,8 +271,8 @@ body.jm {
 }
 
 .jm-segmented__item.is-active {
-    background: rgba(110, 148, 255, .24);
-    box-shadow: inset 0 0 0 1px rgba(168, 191, 255, .28);
+    background: var(--jm-segment-active-bg);
+    box-shadow: inset 0 0 0 1px var(--jm-segment-active-border);
     color: var(--jm-text-strong);
 }
 
@@ -249,8 +318,8 @@ body.jm {
 }
 
 .jm-live__switch:checked {
-    border-color: rgba(23, 227, 220, .45);
-    background: rgba(23, 227, 220, .18);
+    border-color: var(--jm-live-on-border);
+    background: var(--jm-live-on-bg);
 }
 
 .jm-live__switch:checked::before {
@@ -272,14 +341,33 @@ body.jm {
     animation: none;
 }
 
+.jm-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border: 1px solid var(--jm-border);
+    border-radius: var(--jm-radius-sm);
+    background: var(--jm-surface);
+    color: var(--jm-muted);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.jm-button:hover {
+    background: var(--jm-surface-strong);
+    color: var(--jm-text-strong);
+}
+
 @keyframes jm-pulse {
     0% {
-        box-shadow: 0 0 0 0 rgba(23, 227, 220, .55);
+        box-shadow: 0 0 0 0 var(--jm-live-pulse);
     }
 
     70%,
     100% {
-        box-shadow: 0 0 0 6px rgba(23, 227, 220, 0);
+        box-shadow: 0 0 0 6px transparent;
     }
 }
 
@@ -357,7 +445,7 @@ body.jm {
 }
 
 .jm-card--bad {
-    border-color: rgba(255, 100, 128, .32);
+    border-color: var(--jm-bad-border);
     background: var(--jm-bad-bg);
 }
 
@@ -366,7 +454,7 @@ body.jm {
 }
 
 .jm-card--warn {
-    border-color: rgba(255, 198, 142, .32);
+    border-color: var(--jm-warn-border);
     background: var(--jm-warn-bg);
 }
 
@@ -541,11 +629,11 @@ body.jm {
     opacity: .6;
 }
 
-.is-sorted .jm-sort {
+.jm :where(.is-sorted) .jm-sort {
     color: var(--jm-text-strong);
 }
 
-.is-sorted .jm-sort__icon {
+.jm :where(.is-sorted) .jm-sort__icon {
     color: var(--jm-primary-light);
     opacity: 1;
 }
@@ -556,8 +644,8 @@ body.jm {
     margin-right: 10px;
     padding: 2px 6px;
     border-radius: 4px;
-    background: rgba(255, 255, 255, .07);
-    color: #c3cad6;
+    background: var(--jm-method-bg);
+    color: var(--jm-method-text);
     font-family: var(--jm-font-mono);
     font-size: 11px;
     font-weight: 700;
@@ -568,27 +656,27 @@ body.jm {
 }
 
 .jm-method--get {
-    background: rgba(110, 148, 255, .16);
+    background: var(--jm-method-get-bg);
     color: var(--jm-primary-light);
 }
 
 .jm-method--post {
-    background: rgba(23, 227, 220, .12);
-    color: #6ff2ed;
+    background: var(--jm-method-post-bg);
+    color: var(--jm-method-post-text);
 }
 
 .jm-method--put {
-    background: rgba(255, 198, 142, .14);
+    background: var(--jm-method-put-bg);
     color: var(--jm-warn);
 }
 
 .jm-method--patch {
-    background: rgba(186, 148, 255, .16);
-    color: #d6c2ff;
+    background: var(--jm-method-patch-bg);
+    color: var(--jm-method-patch-text);
 }
 
 .jm-method--delete {
-    background: rgba(255, 100, 128, .16);
+    background: var(--jm-method-delete-bg);
     color: var(--jm-bad);
 }
 
@@ -691,7 +779,7 @@ body.jm {
 
 .jm-state--bad {
     border-style: solid;
-    border-color: rgba(255, 100, 128, .3);
+    border-color: var(--jm-state-bad-border);
 }
 
 .jm-state--bad .jm-state__icon {
@@ -728,7 +816,7 @@ body.jm {
 }
 
 @media (max-width: 720px) {
-    :root {
+    .jm {
         --jm-gutter: 16px;
     }
 
@@ -795,9 +883,9 @@ body.jm {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
+    .jm *,
+    .jm *::before,
+    .jm *::after {
         animation: none !important;
         transition: none !important;
     }
@@ -807,5 +895,20 @@ body.jm {
     .jm-segmented__item.is-active,
     .jm-nav__item[aria-current="page"] {
         outline: 1px solid CanvasText;
+    }
+
+    .jm-live__switch {
+        border-color: CanvasText;
+    }
+
+    .jm-live__switch::before {
+        background: CanvasText;
+        forced-color-adjust: none;
+    }
+
+    .jm-live__switch:checked::before,
+    .jm-live.is-failed .jm-live__switch:checked::before {
+        background: Highlight;
+        animation: none;
     }
 }

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Dashboard;
+namespace Jmonitor\JmonitorBundle\Dashboard\View;
 
-enum ScreenState: string
+enum BlockState: string
 {
     case Ready = 'ready';
     case Empty = 'empty';
@@ -12,4 +12,5 @@ enum ScreenState: string
     case BufferUnavailable = 'buffer_unavailable';
     case NoConnection = 'no_connection';
     case StorageError = 'storage_error';
+    case Error = 'error';
 }

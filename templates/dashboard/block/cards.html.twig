@@ -1,6 +1,6 @@
 {% autoescape 'html' %}
 <section class="jm-cards" aria-label="Summary">
-    {% for card in cards %}
+    {% for card in block.content %}
         <article class="jm-card{{ card.wide ? ' jm-card--wide' }}{{ card.tone ? ' jm-card--' ~ card.tone }}">
             <h2 class="jm-card__label">{{ card.label }}</h2>
             {% if card.series is not empty %}

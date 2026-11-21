@@ -89,6 +89,44 @@ final class DashboardTest extends WebTestCase
         static::assertCount(0, $crawler->filter('tr[data-jm-route^="GET jmonitor_"]'));
     }
 
+    public function testTheDashboardRoutesCarryTheMark(): void
+    {
+        static::createClient(['jmonitor' => $this->recording()]);
+
+        $routes = [];
+        foreach (static::getContainer()->get('router')->getRouteCollection() as $name => $route) {
+            if (str_starts_with($name, 'jmonitor_')) {
+                $routes[$name] = $route->getDefault('_jmonitor');
+            }
+        }
+
+        static::assertSame([
+            'jmonitor_dashboard' => true,
+            'jmonitor_dashboard_fragment' => true,
+            'jmonitor_screen_fragment' => true,
+            'jmonitor_action' => true,
+            'jmonitor_screen' => true,
+        ], $routes);
+    }
+
+    public function testTheActionRouteOnlyAcceptsPost(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/jmonitor/_action/requests');
+
+        static::assertResponseStatusCodeSame(405);
+    }
+
+    public function testAnActionOnAScreenWithoutOneIsNotFound(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('POST', '/jmonitor/_action/requests', ['action' => 'refresh'], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
+
+        static::assertResponseStatusCodeSame(404);
+    }
+
     public function testFragmentReturnsOnlyTheContent(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
@@ -262,6 +300,19 @@ final class DashboardTest extends WebTestCase
         static::assertResponseStatusCodeSame(404);
 
         $client->request('GET', '/jmonitor/_fragment/nope');
+        static::assertResponseStatusCodeSame(404);
+    }
+
+    public function testAPathOfSeveralSegmentsMatchesTheRouteAndIsNotFound(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/jmonitor/requests/detail');
+        static::assertRouteSame('jmonitor_screen');
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('GET', '/jmonitor/_fragment/requests/detail');
+        static::assertRouteSame('jmonitor_screen_fragment');
         static::assertResponseStatusCodeSame(404);
     }
 

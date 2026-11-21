@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 
+use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Controller\DashboardController;
+use Jmonitor\JmonitorBundle\Controller\StandaloneUrls;
+use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
+use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
-use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
+use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\CacheScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\CommandsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
@@ -17,6 +21,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
@@ -25,6 +30,7 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service_locator;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_locator;
 
@@ -39,21 +45,43 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service('security.authorization_checker')->nullOnInvalid(),
         ]);
 
+    $services->set(StandaloneUrls::class)
+        ->args([service('router')->nullOnInvalid()]);
+
     $services->set(DashboardController::class)
         ->public()
         ->args([
             service(DashboardAccess::class),
-            service(ScreenRegistry::class)->nullOnInvalid(),
-            service(ScreenBuilder::class)->nullOnInvalid(),
-            service(Flusher::class)->nullOnInvalid(),
+            service(JmonitorPage::class),
+            service(StandaloneUrls::class),
             service('twig')->nullOnInvalid(),
         ]);
 
-    if ($builder->getParameter('jmonitor.dashboard.enabled') === false) {
-        return;
-    }
+    $services->set(JmonitorPage::class)
+        ->public()
+        ->args([service_locator([PageRenderer::class => service(PageRenderer::class)])]);
+
+    $services->set(Assets::class);
+
+    $services->set(ActionGuard::class)
+        ->args([service('security.csrf.token_manager')->nullOnInvalid()]);
 
     $customLogger = $builder->getParameter('jmonitor.logger');
+    $pageRenderer = $services->set(PageRenderer::class)
+        ->args([
+            service(ScreenRegistry::class),
+            service(ScreenBuilder::class),
+            service(Flusher::class)->nullOnInvalid(),
+            service('twig')->nullOnInvalid(),
+            service(Assets::class),
+            service(ActionGuard::class),
+            \is_string($customLogger) ? service($customLogger) : service('logger')->nullOnInvalid(),
+        ]);
+
+    if ($customLogger === null) {
+        $pageRenderer->tag('monolog.logger', ['channel' => 'jmonitor']);
+    }
+
     $screenBuilder = $services->set(ScreenBuilder::class)
         ->args([
             service(ReaderInterface::class)->nullOnInvalid(),
@@ -122,6 +150,5 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     }
 
     $services->set(JmonitorExtension::class)
-        ->args([service('request_stack')->nullOnInvalid()])
         ->tag('twig.extension');
 };

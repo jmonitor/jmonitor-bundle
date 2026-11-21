@@ -1,0 +1,22 @@
+{% autoescape 'html' %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Back office — {{ content.title }}</title>
+    {% for stylesheet in content.stylesheets %}
+    <link rel="stylesheet" href="{{ stylesheet }}">
+    {% endfor %}
+    {% for script in content.scripts %}
+    <script src="{{ script }}" defer></script>
+    {% endfor %}
+</head>
+<body data-host="back-office">
+    <nav class="sidebar" aria-label="Back office">
+        <a href="/back-office/">Home</a>
+        <a href="/back-office/monitoring/" aria-current="page">Monitoring</a>
+    </nav>
+    <div class="jm" data-jm-theme="light">{{ content.html|raw }}</div>
+</body>
+</html>
+{% endautoescape %}

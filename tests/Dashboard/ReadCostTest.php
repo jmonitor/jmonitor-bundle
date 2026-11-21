@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
@@ -61,7 +62,7 @@ final class ReadCostTest extends KernelTestCase
         $registry = static::getContainer()->get(ScreenRegistry::class);
         \assert($registry instanceof ScreenRegistry);
 
-        $screens = $registry->available();
+        $screens = array_filter($registry->available(), static fn(ScreenInterface $screen): bool => $screen instanceof StorageScreenInterface);
         $ids = array_map(static fn(ScreenInterface $screen): string => $screen->id(), $screens);
         static::assertSame([], array_values(array_diff(array_keys(self::BUDGET), $ids)), 'A screen with a budget is not available in the test kernel.');
 

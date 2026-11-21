@@ -25,17 +25,24 @@ use Jmonitor\JmonitorBundle\JmonitorBundle;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
+use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
 use Jmonitor\JmonitorBundle\Recording\CommandRecorder;
+use Jmonitor\JmonitorBundle\Recording\ExceptionRecorder;
+use Jmonitor\JmonitorBundle\Recording\HttpClient\CallRecorder;
 use Jmonitor\JmonitorBundle\Recording\MessengerRecorder;
 use Jmonitor\JmonitorBundle\Recording\Recorder;
 use Jmonitor\JmonitorBundle\Recording\RequestRecorder;
 use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
+use Jmonitor\JmonitorBundle\Recording\UserRecorder;
+use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -171,6 +178,38 @@ class JmonitorBundleTest extends TestCase
         $container = $this->loadBundle(['recording' => ['enabled' => false]], environment: 'prod');
 
         foreach (self::SQL_SERVICES as $id) {
+            static::assertFalse($container->hasDefinition($id), $id);
+        }
+    }
+
+    public function testTheScreensAndThePublicServiceExistWhileThePageIsOff(): void
+    {
+        $container = $this->loadBundle(['dashboard' => ['enabled' => false]], environment: 'prod');
+
+        foreach ([ScreenRegistry::class, ScreenBuilder::class, PageRenderer::class, JmonitorPage::class] as $id) {
+            static::assertTrue($container->hasDefinition($id), $id);
+        }
+        static::assertTrue($container->getDefinition(JmonitorPage::class)->isPublic());
+    }
+
+    public function testTheContainerCompilesWithoutARouter(): void
+    {
+        $container = $this->loadBundle([], environment: 'prod', bundles: []);
+        (new JmonitorBundle())->build($container);
+
+        $container->compile();
+
+        static::assertFalse($container->has('router'));
+        static::assertInstanceOf(JmonitorPage::class, $container->get(JmonitorPage::class));
+    }
+
+    public function testTheReaderAndTheClockExistWhileRecordingAndThePageAreOff(): void
+    {
+        $container = $this->loadBundle(['recording' => ['enabled' => false], 'dashboard' => ['enabled' => false]], environment: 'prod');
+
+        static::assertTrue($container->has(ReaderInterface::class));
+        static::assertTrue($container->hasDefinition('jmonitor.clock'));
+        foreach ([Recorder::class, RequestRecorder::class, CommandRecorder::class, MessengerRecorder::class, ExceptionRecorder::class, UserRecorder::class, CallRecorder::class] as $id) {
             static::assertFalse($container->hasDefinition($id), $id);
         }
     }

@@ -39,8 +39,18 @@ final class ScreenRegistry
         return null;
     }
 
-    public function default(): ScreenInterface
+    public function default(bool $storageUsable = true): ScreenInterface
     {
-        return $this->available()[0] ?? throw new \LogicException('JMonitor has no available screen.');
+        $available = $this->available();
+
+        if (!$storageUsable) {
+            foreach ($available as $screen) {
+                if (!$screen instanceof StorageScreenInterface) {
+                    return $screen;
+                }
+            }
+        }
+
+        return $available[0] ?? throw new \LogicException('JMonitor has no available screen.');
     }
 }

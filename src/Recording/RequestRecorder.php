@@ -17,6 +17,7 @@ final class RequestRecorder implements EventSubscriberInterface
 {
     private const STARTED_AT = '_jmonitor_started_at';
     public const UNIT = '_jmonitor_unit';
+    public const NOT_RECORDED = '_jmonitor';
     private const MAX_REQUEST_AGE = 300;
     private const INTERNAL_ROUTE_PREFIXES = ['_wdt', '_profiler', 'jmonitor_'];
     private const STANDARD_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
@@ -90,7 +91,7 @@ final class RequestRecorder implements EventSubscriberInterface
             }
 
             $route = $request->attributes->get('_route');
-            if (\is_string($route) && $this->isIgnored($route)) {
+            if ($this->isIgnored($request, $route)) {
                 $this->recorder->discard($token);
 
                 return;
@@ -131,8 +132,16 @@ final class RequestRecorder implements EventSubscriberInterface
         return \in_array($method, self::STANDARD_METHODS, true) ? $method : 'OTHER';
     }
 
-    private function isIgnored(string $route): bool
+    private function isIgnored(Request $request, mixed $route): bool
     {
+        if ($request->attributes->get(self::NOT_RECORDED) === true) {
+            return true;
+        }
+
+        if (!\is_string($route)) {
+            return false;
+        }
+
         foreach (self::INTERNAL_ROUTE_PREFIXES as $prefix) {
             if (str_starts_with($route, $prefix)) {
                 return true;

@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 
 PORT="${JMONITOR_E2E_PORT:-8090}"
 export JMONITOR_E2E_PORT="$PORT"
+export JMONITOR_FIXTURE_FEATURES=embed
 BASE="http://127.0.0.1:$PORT"
 COMPOSE="docker compose -p jmonitor-bundle-e2e-worker -f compose.yaml"
 
@@ -134,4 +135,20 @@ captures_round 2
 $COMPOSE exec -T app php tests/Fixtures/App/bin/console app:work || fail "app:work failed"
 expect_page /jmonitor/commands 'data-jm-command="app:work" data-jm-runs="1"' 'the Commands screen did not list 1 run of app:work'
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command"
+hit /hello/host
+expect_page /back-office/monitoring/requests 'data-jm-route="GET app_hello"' 'the embedded Requests screen did not list "GET app_hello"'
+
+status="$(curl -s -o /dev/null -w '%{http_code}' -H "Origin: $BASE" --data 'action=ping' "$BASE/back-office/monitoring-action/probe")"
+[ "$status" = 303 ] || fail "POST /back-office/monitoring-action/probe answered $status instead of 303"
+expect_page /back-office/monitoring/probe 'data-jm-probe-runs="1"' 'the embedded Probe screen did not count 1 run'
+
+for path in /back-office/monitoring/ /back-office/monitoring/requests /back-office/monitoring/queries /back-office/monitoring/cache /back-office/monitoring/probe /back-office/monitoring-fragment/ '/back-office/monitoring-fragment/requests?menu=3&period=1h' /back-office/monitoring-fragment/queries /back-office/monitoring-fragment/cache /back-office/monitoring-fragment/probe; do
+    hit "$path" 200
+done
+hit /teapot 418
+expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests screen did not list "GET app_teapot", requested after the embedded pages'
+if printf '%s\n' "$page" | grep -q 'back_office_'; then
+    fail "the Requests screen lists a request to an embedded page"
+fi
+
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them"
