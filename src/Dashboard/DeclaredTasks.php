@@ -56,8 +56,7 @@ final class DeclaredTasks
     }
 
     /**
-     * Asked on copies, since asking a trigger can set its starting point. A trigger that is not anchored answers
-     * relative to the instant of the question: its next run depends on when the worker started, unknown here.
+     * Null when the next run shifts with the instant asked, which makes it depend on when the worker started.
      */
     private static function nextRun(TriggerInterface $trigger, int $now): ?int
     {

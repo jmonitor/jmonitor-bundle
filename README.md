@@ -264,7 +264,7 @@ The bundle can also record the HTTP requests your application serves, its consol
 
 A screen only appears when its component is installed and its recording option is on: HTTP client needs the `http_client` service of the framework, Users needs the SecurityBundle, Messages needs `symfony/messenger` and Scheduler needs `symfony/scheduler`, each enabled in the framework configuration.
 
-It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` and `jmonitor_keys` tables are created automatically in the configured connection, upgraded automatically when a new version of the bundle changes them, and Doctrine migrations will not try to drop them. Tables created by an earlier development build of 3.x are dropped and recreated, losing the metrics they held. Your database receives batched writes, at most once per `flush_interval` per server, never one write per request or per query.
+It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` and `jmonitor_keys` tables are created automatically in the configured connection, upgraded automatically when a new version of the bundle changes them, and Doctrine migrations will not try to drop them. Tables created by an earlier development build of 3.x are dropped and recreated, losing the metrics they held. Your database receives batched writes, never one write per request or per query: web requests and Messenger workers write at most once per `flush_interval` per server, and a command writes when it ends, at most once per second for each user that runs PHP.
 
 If the database user of your application is not allowed to create tables, run `php bin/console jmonitor:setup` at deployment with a user that is. It creates or upgrades the two tables, or tells you they are up to date.
 
@@ -293,8 +293,8 @@ jmonitor:
         sql:
             enabled: true             # record the SQL queries run through Doctrine DBAL
             slow_threshold: 100       # ms from which a query counts as slow
-            n_plus_one_threshold: 10  # executions of the same SELECT within one request that make an N+1
-        exceptions: true      # count the exceptions behind 5xx responses
+            n_plus_one_threshold: 10  # executions of the same SELECT within one request, command, message or task that make an N+1
+        exceptions: true      # count the exceptions behind 5xx responses and those thrown by commands, message handlers and scheduled tasks
         users: true           # record the requests of each signed-in user (needs the SecurityBundle)
         http_client: true     # record the outgoing calls of the http_client service and the scoped clients
         cache: true           # count the reads, writes and deletes of cache.app and of the pools you declare
