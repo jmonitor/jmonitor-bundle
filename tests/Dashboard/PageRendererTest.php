@@ -330,6 +330,20 @@ final class PageRendererTest extends TestCase
         static::assertTrue($tokens->isTokenValid(new CsrfToken('jmonitor', (string) $forms->filter('input[name="token"]')->attr('value'))));
     }
 
+    public function testAHostileActionUrlAndActionNameAreEscaped(): void
+    {
+        $screen = new StubActionScreen(actions: ['x"><script>' => 'Ping']);
+
+        $html = $this->renderer([$screen])->page(Request::create('/'), 'stub', new FakeHostUrls('"><script>'))->html;
+        $form = (new Crawler($html))->filter('.jm-toolbar form');
+
+        static::assertSame('"><script>/action/stub?menu=3', $form->attr('action'));
+        static::assertSame('x"><script>', $form->filter('input[name="action"]')->attr('value'));
+        static::assertStringContainsString('action="&quot;&gt;&lt;script&gt;/action/stub?menu=3"', $html);
+        static::assertStringContainsString('value="x&quot;&gt;&lt;script&gt;"', $html);
+        static::assertStringNotContainsString('"><script>', $html);
+    }
+
     public function testAScreenWithoutActionAsksForNoToken(): void
     {
         $tokens = new class implements CsrfTokenManagerInterface {

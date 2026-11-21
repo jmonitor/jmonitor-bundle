@@ -303,6 +303,19 @@ final class DashboardTest extends WebTestCase
         static::assertResponseStatusCodeSame(404);
     }
 
+    public function testAPathOfSeveralSegmentsMatchesTheRouteAndIsNotFound(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/jmonitor/requests/detail');
+        static::assertRouteSame('jmonitor_screen');
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('GET', '/jmonitor/_fragment/requests/detail');
+        static::assertRouteSame('jmonitor_screen_fragment');
+        static::assertResponseStatusCodeSame(404);
+    }
+
     public function testSortAndPeriodLinksStayOnTheScreen(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
