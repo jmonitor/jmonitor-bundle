@@ -1,0 +1,31 @@
+{% extends '@EasyAdmin/page/content.html.twig' %}
+
+{% block content_title %}{% autoescape 'html' %}{{ content.title }}{% endautoescape %}{% endblock %}
+
+{% block head_stylesheets %}
+    {{ parent() }}
+    {% autoescape 'html' %}
+    {% for stylesheet in content.stylesheets %}
+    <link rel="stylesheet" href="{{ stylesheet }}">
+    {% endfor %}
+    {% endautoescape %}
+{% endblock %}
+
+{% block head_javascript %}
+    {{ parent() }}
+    {% autoescape 'html' %}
+    {% for script in content.scripts %}
+    {% guard function csp_nonce %}
+    <script src="{{ script }}" defer nonce="{{ csp_nonce('script') }}"></script>
+    {% else %}
+    <script src="{{ script }}" defer></script>
+    {% endguard %}
+    {% endfor %}
+    {% endautoescape %}
+{% endblock %}
+
+{% block content_header_wrapper %}{% endblock %}
+
+{% block main %}
+    <div class="jm" data-jm-theme="auto">{{ content.html|raw }}</div>
+{% endblock %}

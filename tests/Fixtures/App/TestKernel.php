@@ -16,6 +16,7 @@ use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Command\WorkCommand;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller\DemoController;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\AdminDashboard;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\NonceExtension;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\StaffDashboard;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeController;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeUrls;
@@ -70,6 +71,7 @@ final class TestKernel extends Kernel
         private readonly bool $withEmbedHost = false,
         private readonly bool $withCsrf = false,
         private readonly bool $withEasyAdmin = false,
+        private readonly bool $withCspNonce = false,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
@@ -83,7 +85,7 @@ final class TestKernel extends Kernel
         $this->withSecurity = $withSecurity || $withEasyAdmin;
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce]));
     }
 
     public static function fromEnvironment(): self
@@ -370,6 +372,10 @@ final class TestKernel extends Kernel
                     ->tag('controller.service_arguments');
             }
         }
+        if ($this->withCspNonce) {
+            $services->set(NonceExtension::class)
+                ->tag('twig.extension');
+        }
     }
 
     /**
@@ -378,8 +384,9 @@ final class TestKernel extends Kernel
     private function environmentConfig(): array
     {
         $interval = getenv('JMONITOR_FLUSH_INTERVAL');
+        $config = \is_string($interval) && $interval !== '' ? ['recording' => ['flush_interval' => (int) $interval]] : [];
 
-        return \is_string($interval) && $interval !== '' ? ['recording' => ['flush_interval' => (int) $interval]] : [];
+        return $this->withEasyAdmin ? $config + ['easyadmin' => true] : $config;
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void

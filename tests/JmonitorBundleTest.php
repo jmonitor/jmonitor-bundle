@@ -31,6 +31,7 @@ use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
+use Jmonitor\JmonitorBundle\EasyAdmin\JmonitorController;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Flush\LabelSync;
@@ -46,6 +47,7 @@ use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\UserRecorder;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
+use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
@@ -188,6 +190,32 @@ class JmonitorBundleTest extends TestCase
         $this->expectExceptionMessage('The "jmonitor.easyadmin.permission" option requires the SecurityBundle.');
 
         $this->loadBundle(['easyadmin' => ['permission' => 'ROLE_X']], bundles: ['EasyAdminBundle' => EasyAdminBundle::class]);
+    }
+
+    #[Group('easyadmin')]
+    public function testTheEasyAdminOptionRegistersALazyController(): void
+    {
+        $container = $this->loadBundle(['easyadmin' => ['permission' => 'ROLE_X']], bundles: $this->easyAdminBundles());
+
+        static::assertTrue($container->hasDefinition(JmonitorController::class));
+        $definition = $container->getDefinition(JmonitorController::class);
+        static::assertTrue($definition->hasTag('controller.service_arguments'));
+        static::assertTrue($definition->hasTag('ea.admin_route_controller'));
+        static::assertFalse($definition->isPublic());
+
+        $arguments = array_values($definition->getArguments());
+        static::assertCount(3, $arguments);
+        static::assertInstanceOf(Reference::class, $arguments[0]);
+        static::assertSame(JmonitorPage::class, (string) $arguments[0]);
+        static::assertInstanceOf(ServiceLocatorArgument::class, $arguments[1]);
+        static::assertSame('%jmonitor.easyadmin.permission%', $arguments[2]);
+
+        foreach ($arguments as $argument) {
+            if ($argument instanceof Reference) {
+                static::assertNotContains((string) $argument, ['twig', 'router']);
+                static::assertStringNotContainsString('connection', (string) $argument);
+            }
+        }
     }
 
     public function testAPermissionIsIgnoredWhileTheOptionIsOff(): void

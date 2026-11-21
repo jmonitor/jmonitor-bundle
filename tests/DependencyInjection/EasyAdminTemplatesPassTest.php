@@ -24,6 +24,17 @@ final class EasyAdminTemplatesPassTest extends TestCase
         );
     }
 
+    public function testTheRegisteredDirectoryHoldsThePage(): void
+    {
+        $container = $this->container(true);
+
+        (new EasyAdminTemplatesPass())->process($container);
+
+        $directory = $container->getDefinition('twig.loader.native_filesystem')->getMethodCalls()[0][1][0];
+        static::assertDirectoryExists($directory);
+        static::assertFileExists($directory . '/page.html.twig');
+    }
+
     public function testNothingIsRegisteredWhenTheOptionIsOff(): void
     {
         $container = $this->container(false);
