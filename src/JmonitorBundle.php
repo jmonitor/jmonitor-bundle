@@ -103,12 +103,24 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.easyadmin.permission', $easyAdminPermission);
         $builder->setParameter('jmonitor.easyadmin.permission_required', $easyAdminPermission !== null);
         $builder->setParameter('jmonitor.logger', $config['logger'] ?: null);
+        $builder->setParameter('jmonitor.stack.enabled', $config['stack']['enabled']);
+        $builder->setParameter('jmonitor.stack.end_of_life', $config['stack']['end_of_life']);
+        $builder->setParameter('jmonitor.stack.symfony.flex', $config['stack']['symfony']['flex']);
+        $builder->setParameter('jmonitor.stack.components', [
+            'system' => ['enabled' => $config['stack']['system']],
+            'php' => ['enabled' => $config['stack']['php']],
+            'symfony' => ['enabled' => $config['stack']['symfony']['enabled']],
+        ]);
 
         $container->import('../config/recording.php');
         $container->import('../config/dashboard.php');
 
         if ($easyAdminEnabled) {
             $container->import('../config/easyadmin.php');
+        }
+
+        if ($config['stack']['enabled'] && isset($bundles['FrameworkBundle'])) {
+            $container->import('../config/stack.php');
         }
 
         if (!$config['project_api_key']) {
@@ -402,6 +414,29 @@ final class JmonitorBundle extends AbstractBundle
                     ->info('Show the screens inside an EasyAdmin back office. Requires easycorp/easyadmin-bundle.')
                     ->children()
                         ->scalarNode('permission')->defaultNull()->info('Role or attribute required to see the screens in EasyAdmin. Requires the SecurityBundle.')->end()
+                    ->end()
+                ->end()
+                ->arrayNode('stack')
+                    ->canBeDisabled()
+                    ->beforeNormalization()
+                        ->ifTrue(static fn(mixed $v): bool => \is_string($v) || (\is_array($v) && \is_string($v['enabled'] ?? null)))
+                        ->then(static fn(): never => throw new \LogicException('The "jmonitor.stack" option cannot be read from an environment variable: its services are registered when the container is built.'))
+                    ->end()
+                    ->children()
+                        ->booleanNode('end_of_life')->defaultTrue()->end()
+                        ->enumNode('system')->values(['auto', true, false])->defaultValue('auto')->end()
+                        ->enumNode('php')->values(['auto', true, false])->defaultValue('auto')->end()
+                        ->arrayNode('symfony')
+                            ->addDefaultsIfNotSet()
+                            ->beforeNormalization()
+                                ->ifTrue(static fn(mixed $v): bool => \is_string($v) || \is_bool($v))
+                                ->then(static fn(string|bool $v): array => ['enabled' => $v])
+                            ->end()
+                            ->children()
+                                ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
+                                ->booleanNode('flex')->defaultTrue()->end()
+                            ->end()
+                        ->end()
                     ->end()
                 ->end()
             ->end()

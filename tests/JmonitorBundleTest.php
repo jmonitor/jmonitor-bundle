@@ -55,6 +55,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
+use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 
 class JmonitorBundleTest extends TestCase
 {
@@ -1444,5 +1445,91 @@ class JmonitorBundleTest extends TestCase
                 'cloudflare' => $cloudflare,
             ],
         ]);
+    }
+
+    public function testTheStackIsOnByDefault(): void
+    {
+        $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        static::assertTrue($container->getParameter('jmonitor.stack.enabled'));
+        static::assertTrue($container->getParameter('jmonitor.stack.end_of_life'));
+        static::assertTrue($container->getParameter('jmonitor.stack.symfony.flex'));
+        static::assertSame(
+            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto']],
+            $container->getParameter('jmonitor.stack.components'),
+        );
+        static::assertTrue($container->hasDefinition('jmonitor.stack.cache'));
+    }
+
+    public function testTheStackLoadsWithoutApiKeyAndWithoutDoctrine(): void
+    {
+        $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        static::assertTrue($container->hasDefinition('jmonitor.stack.cache'));
+    }
+
+    public function testTurningTheStackOffRegistersNothing(): void
+    {
+        $container = $this->loadBundle(['stack' => false], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        static::assertFalse($container->getParameter('jmonitor.stack.enabled'));
+        foreach ($container->getDefinitions() as $id => $definition) {
+            static::assertStringStartsNotWith('jmonitor.stack.', $id);
+            static::assertStringStartsNotWith('Jmonitor\\JmonitorBundle\\Stack\\', $id);
+            static::assertStringStartsNotWith('Jmonitor\\JmonitorBundle\\Stack\\', (string) $definition->getClass());
+        }
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, array<string, array{enabled: 'auto'|bool}>, bool}>
+     */
+    public static function stackComponentProvider(): iterable
+    {
+        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto']];
+
+        yield 'system: false' => [['system' => false], array_replace($auto, ['system' => ['enabled' => false]]), true];
+        yield 'php: true' => [['php' => true], array_replace($auto, ['php' => ['enabled' => true]]), true];
+        yield 'symfony: false' => [['symfony' => false], array_replace($auto, ['symfony' => ['enabled' => false]]), true];
+        yield 'symfony: { flex: false }' => [['symfony' => ['flex' => false]], $auto, false];
+        yield 'symfony: { enabled: true }' => [['symfony' => ['enabled' => true]], array_replace($auto, ['symfony' => ['enabled' => true]]), true];
+    }
+
+    /**
+     * @param array<string, mixed>                       $stack
+     * @param array<string, array{enabled: 'auto'|bool}> $components
+     */
+    #[DataProvider('stackComponentProvider')]
+    public function testAComponentTakesAutoTrueOrFalse(array $stack, array $components, bool $flex): void
+    {
+        $container = $this->loadBundle(['stack' => $stack]);
+
+        static::assertSame($components, $container->getParameter('jmonitor.stack.components'));
+        static::assertSame($flex, $container->getParameter('jmonitor.stack.symfony.flex'));
+    }
+
+    public function testAnUnknownComponentSettingIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.system"');
+
+        $this->loadBundle(['stack' => ['system' => 'maybe']]);
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function stackOptionsFromTheEnvironment(): iterable
+    {
+        yield 'the option itself' => ['%env(bool:JMONITOR_STACK)%'];
+        yield 'enabled' => [['enabled' => '%env(bool:JMONITOR_STACK)%']];
+    }
+
+    #[DataProvider('stackOptionsFromTheEnvironment')]
+    public function testTheStackOptionCannotComeFromAnEnvironmentVariable(mixed $stack): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.stack" option cannot be read from an environment variable: its services are registered when the container is built.');
+
+        $this->loadBundle(['stack' => $stack]);
     }
 }

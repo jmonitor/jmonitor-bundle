@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception as DbalException;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
+use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -24,6 +25,7 @@ final class DemoController
         private readonly ?HttpClientInterface $flakyClient = null,
         private readonly ?CacheInterface $cache = null,
         private readonly ?MessageBusInterface $bus = null,
+        private readonly ?CacheItemPoolInterface $stackCache = null,
     ) {}
 
     public function hello(string $name): Response
@@ -115,6 +117,19 @@ final class DemoController
         $cache = $this->cache ?? throw new \LogicException('This route needs the application cache.');
 
         return new Response($cache->get('demo', static fn(): string => 'Computed once'));
+    }
+
+    public function stackCached(): Response
+    {
+        foreach ([$this->cache, $this->stackCache] as $pool) {
+            if (!$pool instanceof CacheItemPoolInterface) {
+                throw new \LogicException('This route needs the application cache and the stack cache.');
+            }
+            $item = $pool->getItem('stacked');
+            $pool->save($item->set('Stored'));
+        }
+
+        return new Response('Stored');
     }
 
     public function dispatch(Request $request): Response
