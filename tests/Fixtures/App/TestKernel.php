@@ -8,11 +8,15 @@ use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Command\WorkCommand;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller\DemoController;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeController;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeUrls;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\ProbeScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPing;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPingHandler;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
@@ -55,11 +59,13 @@ final class TestKernel extends Kernel
         private readonly bool $withMessenger = false,
         private readonly bool $withScheduler = false,
         private readonly bool $withPublicInternals = false,
+        private readonly bool $withEmbedHost = false,
+        private readonly bool $withCsrf = false,
     ) {
         parent::__construct($environment, $debug);
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf]));
     }
 
     public static function fromEnvironment(): self
@@ -68,7 +74,7 @@ final class TestKernel extends Kernel
         $debug = self::environmentValue('APP_DEBUG');
         $features = array_filter(array_map(trim(...), explode(',', self::environmentValue('JMONITOR_FIXTURE_FEATURES'))));
 
-        $unknown = array_diff($features, ['messenger', 'scheduler', 'security']);
+        $unknown = array_diff($features, ['embed', 'messenger', 'scheduler', 'security']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
         }
@@ -79,6 +85,7 @@ final class TestKernel extends Kernel
             withSecurity: \in_array('security', $features, true),
             withMessenger: \in_array('messenger', $features, true),
             withScheduler: \in_array('scheduler', $features, true),
+            withEmbedHost: \in_array('embed', $features, true),
         );
     }
 
@@ -229,9 +236,21 @@ final class TestKernel extends Kernel
                 ],
                 'access_control' => [
                     ['path' => '^/lazy/me$', 'roles' => 'IS_AUTHENTICATED_FULLY'],
+                    ...$this->withEmbedHost ? [['path' => '^/back-office/locked', 'roles' => 'ROLE_ADMIN']] : [],
                 ],
             ]);
             $container->extension('framework', ['session' => ['storage_factory_id' => 'session.storage.factory.mock_file']]);
+        }
+
+        if ($this->withCsrf) {
+            $container->extension('framework', [
+                'csrf_protection' => true,
+                'session' => ['storage_factory_id' => 'session.storage.factory.mock_file'],
+            ]);
+        }
+
+        if ($this->withEmbedHost && $this->withTwig) {
+            $container->extension('twig', ['paths' => [__DIR__ . '/templates' => 'BackOffice']]);
         }
 
         $services = $container->services();
@@ -278,6 +297,21 @@ final class TestKernel extends Kernel
         $services->set(CacheConsumer::class)
             ->autowire()
             ->public();
+        if ($this->withEmbedHost) {
+            $services->set(BackOfficeUrls::class)
+                ->args([service('router')]);
+            $services->set(BackOfficeController::class)
+                ->args([
+                    service(JmonitorPage::class),
+                    service(BackOfficeUrls::class),
+                    service('twig')->nullOnInvalid(),
+                    service('security.authorization_checker')->nullOnInvalid(),
+                ])
+                ->tag('controller.service_arguments');
+            $services->set(ProbeScreen::class)
+                ->args([$this->varDir . '/probe-runs'])
+                ->tag('jmonitor.screen', ['priority' => 10]);
+        }
     }
 
     /**
@@ -309,5 +343,26 @@ final class TestKernel extends Kernel
         $routes->add('app_cached', '/cached')->controller([DemoController::class, 'cached']);
         $routes->add('app_dispatch', '/dispatch')->controller([DemoController::class, 'dispatch']);
         $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');
+
+        if ($this->withEmbedHost) {
+            $marked = [JmonitorPage::NOT_RECORDED => true];
+            $this->addBackOfficeRoute($routes, 'back_office_monitoring', '/back-office/monitoring/{path}', 'page', 'GET', $marked);
+            $this->addBackOfficeRoute($routes, 'back_office_monitoring_fragment', '/back-office/monitoring-fragment/{path}', 'fragment', 'GET', $marked);
+            $this->addBackOfficeRoute($routes, 'back_office_monitoring_action', '/back-office/monitoring-action/{path}', 'action', 'POST', $marked);
+            $this->addBackOfficeRoute($routes, 'back_office_locked', '/back-office/locked/{path}', 'page', 'GET', $marked);
+            $this->addBackOfficeRoute($routes, 'back_office_unmarked', '/back-office/unmarked/{path}', 'page', 'GET', []);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $defaults
+     */
+    private function addBackOfficeRoute(RoutingConfigurator $routes, string $name, string $path, string $method, string $httpMethod, array $defaults): void
+    {
+        $routes->add($name, $path)
+            ->controller([BackOfficeController::class, $method])
+            ->requirements(['path' => '.*'])
+            ->defaults(['path' => ''] + $defaults)
+            ->methods([$httpMethod]);
     }
 }
