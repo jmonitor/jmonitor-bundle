@@ -1117,6 +1117,29 @@ final class SnapshotProviderTest extends TestCase
         self::assertCount(1, $logger->cleanLogs());
     }
 
+    public function testWhenOnlyTheGroupedWriteIsRefusedEachValueIsStillKept(): void
+    {
+        $logger = new BufferingLogger();
+        $network = new FakeCollector('php.network', ['a' => 1]);
+        $immediate = new FakeCollector('php', ['requests' => 1]);
+        $instance = self::instance([self::spec($network, cost: CostClass::Network), self::spec($immediate)]);
+        $provider = $this->provider(logger: $logger, cache: new RefusingCachePool(refusesSave: false, inner: $this->recording));
+
+        $first = $this->read($provider, $instance);
+        $firstLogs = $logger->cleanLogs();
+        $this->clock->sleep(5);
+        $second = $this->read($provider, $instance);
+
+        self::assertSame([1, 1], [$network->collects, $immediate->collects]);
+        self::assertSame(ResultState::Fresh, $first->result('php.network')?->state);
+        self::assertSame(ResultState::Fresh, $second->result('php.network')?->state);
+        self::assertSame(ResultState::Fresh, $second->result('php')?->state);
+        self::assertCount(1, $firstLogs);
+        self::assertSame([], $logger->cleanLogs());
+        self::assertFalse($this->recording->hasItem('jmonitor.stack.failure.%node.web-1.php.php.network'));
+        self::assertFalse($this->recording->hasItem('jmonitor.stack.failure.%node.web-1.php.php'));
+    }
+
     public function testARefusedSlowValueIsKeptAsAFailureForTenMinutes(): void
     {
         $slow = new FakeCollector('php.slow', ['page' => str_repeat('x', 2000)]);
