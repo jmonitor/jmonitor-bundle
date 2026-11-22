@@ -32,7 +32,7 @@
     var inFlight = false;
     var fastTimer = null;
     var fastTries = 0;
-    var reloading = false;
+    var fastEnded = false;
 
     if (!url || !content) {
         return;
@@ -219,14 +219,14 @@
     }
 
     function hasFastTriesLeft() {
-        return isReading() && fastTries < FAST_TRIES;
+        return !fastEnded && isReading() && fastTries < FAST_TRIES;
     }
 
     function scheduleFastTry(delay) {
         window.clearTimeout(fastTimer);
         fastTimer = null;
 
-        if (!reloading && !document.hidden && root.isConnected && hasFastTriesLeft()) {
+        if (!document.hidden && root.isConnected && hasFastTriesLeft()) {
             fastTimer = window.setTimeout(fastTry, delay);
         }
     }
@@ -285,10 +285,16 @@
     function load(forced) {
         var target;
 
+        function mark(failed) {
+            if (enabled || !forced) {
+                markFailed(failed);
+            }
+        }
+
         try {
             target = fragmentUrl();
         } catch (e) {
-            markFailed(true);
+            mark(true);
             settle();
 
             return;
@@ -305,14 +311,22 @@
             .then(function (response) {
                 // a redirect or a denial means the session or the access changed: a reload shows why
                 if (response.type === 'opaqueredirect' || response.status === 401 || response.status === 403 || response.status === 404) {
-                    reloading = true;
+                    fastEnded = true;
+
+                    // an early try never reloads: a page whose fragment is always refused would reload in a loop
+                    if (forced) {
+                        mark(true);
+
+                        return null;
+                    }
+
                     stop();
                     window.location.reload();
 
                     return null;
                 }
 
-                markFailed(!response.ok);
+                mark(!response.ok);
 
                 return response.ok ? response.text() : null;
             })
@@ -322,7 +336,7 @@
                 }
             })
             .catch(function () {
-                markFailed(true);
+                mark(true);
             })
             .then(function () {
                 inFlight = false;
