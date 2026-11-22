@@ -15,6 +15,9 @@ final class StylesheetTest extends TestCase
     private const UNDER_JM = '/^(?:body)?\.jm(?![a-z0-9_])/i';
     private const ON_JM = '/^(?:\.jm|\.jm\[[^\]]+\]|body\.jm)$/';
     private const COLOUR = '/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i';
+    private const STANDALONE_LAYOUT_TAGS = ['html', 'head', 'meta', 'title', 'link', 'script', 'body'];
+    private const DRAWING_TAGS = ['svg', 'defs', 'linearGradient', 'stop', 'rect', 'line', 'polyline', 'circle'];
+    private const TAGS_WITHOUT_BOX_DEFAULTS = ['template', 'section', 'article', 'nav', 'form', 'label', 'strong'];
 
     public function testTheParserReadsTopLevelMediaAndKeyframeRules(): void
     {
@@ -166,6 +169,38 @@ final class StylesheetTest extends TestCase
         static::assertContains('.jm-live.is-failed .jm-live__switch', $selectors);
         static::assertNotContains('.jm-live__switch', $selectors);
         static::assertNotContains('.jm-live__switch:checked', $selectors);
+    }
+
+    public function testEveryTagOfTheTemplatesHasItsBrowserDefaultsRestatedForHostPages(): void
+    {
+        $restated = [];
+        foreach (self::rules() as $rule) {
+            if ($rule['at'] !== null) {
+                continue;
+            }
+
+            foreach ($rule['selectors'] as $selector) {
+                if (preg_match('/^\.jm :where\(([a-z0-9, ]+)\)$/', $selector, $match) === 1) {
+                    array_push($restated, ...array_map(trim(...), explode(',', $match[1])));
+                } elseif (preg_match('/^\.jm ([a-z0-9]+)$/', $selector, $match) === 1 && \in_array(['margin', '0'], $rule['declarations'], true)) {
+                    $restated[] = $match[1];
+                }
+            }
+        }
+
+        $used = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(__DIR__ . '/../../templates/dashboard', \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if (str_ends_with($file->getFilename(), '.html.twig')) {
+                preg_match_all('/<([a-zA-Z][a-zA-Z0-9]*)/', (string) file_get_contents($file->getPathname()), $matches);
+                array_push($used, ...$matches[1]);
+            }
+        }
+
+        static::assertNotEmpty($used);
+        $needNothing = [...self::STANDALONE_LAYOUT_TAGS, ...self::DRAWING_TAGS, ...self::TAGS_WITHOUT_BOX_DEFAULTS];
+        foreach (array_unique($used) as $tag) {
+            static::assertTrue(\in_array($tag, $restated, true) || \in_array($tag, $needNothing, true), sprintf('<%s> is used by a template but its browser defaults are not restated under .jm.', $tag));
+        }
     }
 
     private static function withoutHostAncestor(string $selector): string

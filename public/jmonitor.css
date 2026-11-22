@@ -946,7 +946,7 @@ body.jm .jm-header {
     white-space: nowrap;
 }
 
-.jm-rest {
+.jm .jm-rest {
     margin-top: 4px;
     color: var(--jm-muted);
     font-size: 13px;
@@ -1212,7 +1212,7 @@ body.jm .jm-header {
     font-size: 14px;
 }
 
-.jm-components__group {
+.jm .jm-components__group {
     margin-bottom: 10px;
     color: var(--jm-muted);
     font-size: 12px;
@@ -1356,14 +1356,14 @@ body.jm .jm-header {
     overflow-wrap: anywhere;
 }
 
-.jm-components__more {
+.jm .jm-components__more {
     margin-top: 12px;
     color: var(--jm-muted);
     font-size: 13px;
     overflow-wrap: anywhere;
 }
 
-.jm-components__absent {
+.jm .jm-components__absent {
     display: flex;
     flex-wrap: wrap;
     gap: 4px 16px;
