@@ -150,23 +150,27 @@ body.jm {
 }
 
 /* Browser defaults, restated for host pages that style bare elements. */
-.jm :where(div, li, svg, table) {
+.jm :where(div, li, svg, table, span, dt) {
     margin: 0;
 }
 
-.jm :where(p, ul, pre) {
+.jm :where(h3) {
+    margin: 1em 0;
+}
+
+.jm :where(p, ul, pre, dl, details) {
     font-size: inherit;
 }
 
-.jm :where(p, ul, h1, h2, table, pre) {
+.jm :where(p, ul, h1, h2, h3, table, pre, dl, dt, dd, details) {
     line-height: inherit;
 }
 
-.jm :where(p, ul, h1, h2, table, th, td, code) {
+.jm :where(p, ul, h1, h2, h3, table, th, td, code, dl, details) {
     overflow-wrap: inherit;
 }
 
-.jm :where(h1, h2) {
+.jm :where(h1, h2, h3) {
     letter-spacing: inherit;
 }
 
@@ -179,7 +183,7 @@ body.jm {
     text-underline-offset: auto;
 }
 
-.jm :where(li) {
+.jm :where(li, dd) {
     padding: 0;
 }
 
