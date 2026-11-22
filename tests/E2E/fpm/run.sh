@@ -10,7 +10,9 @@ BASE="http://127.0.0.1:$PORT"
 ADMIN=admin:test
 COMPOSE="docker compose -p jmonitor-bundle-e2e -f compose.yaml"
 
+slow_loops=
 cleanup() {
+    [ -z "$slow_loops" ] || kill $slow_loops 2>/dev/null || true
     $COMPOSE down --volumes --remove-orphans >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -153,6 +155,7 @@ refreshed="$(php_read_at)"
 
 for _ in 1 2 3; do
     (for _ in $(seq 1 30); do curl -s -o /dev/null "$BASE/slow"; done) &
+    slow_loops="$slow_loops $!"
 done
 sleep 0.2
 before="$(date +%s)"
@@ -160,6 +163,7 @@ status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin
 [ "$status" = 303 ] || fail "POST /jmonitor/_action/stack/php answered $status instead of 303"
 detail="$(curl -sf "$BASE/jmonitor/stack/php?inflight=e2e")" || fail "GET /jmonitor/stack/php did not return 2xx"
 wait
+slow_loops=
 printf '%s\n' "$detail" | grep -q 'class="jm-panel__title">PHP-FPM<' || fail "the PHP screen has no PHP-FPM section"
 read_at="$(printf '%s\n' "$detail" | sed -n 's/.*data-jm-component="php"[^>]*data-jm-read-at="\([0-9]*\)".*/\1/p' | head -n 1)"
 [ -n "$read_at" ] && [ "$read_at" -ge "$before" ] || fail "the PHP screen did not read PHP during its own request: read at ${read_at:-never}, refreshed at $before"
@@ -168,9 +172,15 @@ for address in inflight /hello/ /slow /n-plus-one /cached /boom /teapot; do
         fail "the PHP screen shows $address, the address of a request"
     fi
 done
-if $COMPOSE exec -T php sh -c 'grep -rlq "inflight=e2e" /tmp/jmonitor-bundle-tests/*/cache/*/pools'; then
-    fail "the cache of the stack holds the address of a request in flight"
-fi
+pools='/tmp/jmonitor-bundle-tests/*/cache/*/pools'
+$COMPOSE exec -T php sh -c "grep -rlqF 'jmonitor.stack.' $pools" || fail "no entry of the stack found under $pools: the cache check has nothing to look at"
+searched=0
+$COMPOSE exec -T php sh -c "grep -rlqF 'inflight=e2e' $pools" || searched=$?
+case "$searched" in
+    0) fail "the cache of the stack holds the address of a request in flight" ;;
+    1) ;;
+    *) fail "the search of the cache of the stack under $pools failed with exit code $searched" ;;
+esac
 
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/stack")" || fail "GET /admin/jmonitor/stack failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
