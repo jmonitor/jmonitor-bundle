@@ -57,7 +57,6 @@ final class ServerCollectorTest extends TestCase
         $root = \dirname(__DIR__, 3);
         $code = sprintf(<<<'PHP'
             require %s;
-            // Like the error handler of Symfony in debug mode, a warning silenced with @ is not thrown.
             set_error_handler(static function (int $type, string $message): bool {
                 if ((error_reporting() & $type) === 0) {
                     return true;

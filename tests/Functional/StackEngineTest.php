@@ -237,8 +237,6 @@ final class StackEngineTest extends WebTestCase
     }
 
     /**
-     * The same ids are built once the stack is read: they name the services of the engine.
-     *
      * @param list<string> $ids
      */
     private static function assertBuiltByARead(ContainerInterface $container, array $ids): void
@@ -252,9 +250,6 @@ final class StackEngineTest extends WebTestCase
         }
     }
 
-    /**
-     * The boot that compiles the container also runs the cache warmers: the second boot reads it from the cache.
-     */
     private function bootedTwice(bool $withEasyAdmin = false): TestKernel
     {
         $jmonitor = ['recording' => ['enabled' => true, 'buffer_dir' => $this->bufferDir]] + ($withEasyAdmin ? ['easyadmin' => true] : []);

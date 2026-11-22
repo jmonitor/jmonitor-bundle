@@ -9,8 +9,7 @@ use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 /**
- * Reads, but reports its writes as failed without throwing, as symfony/cache does on a full disk
- * or a Redis that refuses writes.
+ * Reads, but reports its writes as failed without throwing: a full disk, or a Redis that refuses writes.
  */
 final class RefusingCachePool implements CacheItemPoolInterface
 {

@@ -8,10 +8,6 @@ use Jmonitor\Collector\BootableCollectorInterface;
 use Jmonitor\Collector\CollectorInterface;
 use Jmonitor\Collector\ResetInterface;
 
-/**
- * Runs one collector the way the collector library does: boot, collect, drop nulls, reset.
- * Exceptions are left to the caller.
- */
 final readonly class CollectorRunner
 {
     /**

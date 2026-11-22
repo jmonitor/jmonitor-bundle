@@ -42,7 +42,7 @@ final readonly class Instance
     }
 
     /**
-     * "php" for the implicit instance, "mysql.main" for a named one, the id URL-encoded
+     * "php" for the implicit instance, "symfony.main" for a named one, the id URL-encoded
      */
     public function key(): string
     {

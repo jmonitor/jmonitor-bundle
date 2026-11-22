@@ -123,7 +123,7 @@ final class ComponentRegistryTest extends TestCase
         };
 
         $auto = Detectors::registry(['symfony' => $throwing, 'php' => new StaticDetector(Component::Php, $this->found(Component::Php))], $this->config());
-        self::assertSame([Component::Php], $auto->available(), 'auto: the component is simply absent, the other tabs still render');
+        self::assertSame([Component::Php], $auto->available(), 'auto: the component is simply absent, the other components are still listed');
 
         $forced = Detectors::registry(['symfony' => $throwing], $this->config(['symfony' => ['enabled' => true]]));
         self::assertSame([Component::Symfony], $forced->available());

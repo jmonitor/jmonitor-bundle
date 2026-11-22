@@ -65,8 +65,6 @@ function filesystemCache(string $dir): CountingCachePool
 }
 
 /**
- * The services of config/stack.php, with the real detectors of Server, PHP and Symfony.
- *
  * @return array{LocalStackReader, ComponentRegistry}
  */
 function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, ?FakeUrlFetcher $endOfLife = null): array

@@ -34,7 +34,7 @@ use Symfony\Component\Cache\Adapter\NullAdapter;
 use Symfony\Component\Clock\MockClock;
 
 /**
- * Fifty viewers of the stack within ten seconds cost the monitored servers what one viewer costs.
+ * Viewers of the stack within one lifetime of its values cost the monitored servers what one viewer costs.
  */
 final class DisplayCostTest extends TestCase
 {
@@ -163,8 +163,6 @@ final class DisplayCostTest extends TestCase
     }
 
     /**
-     * A page, then fragments, one every 0.2 s.
-     *
      * @param \Closure(): LocalStackReader $reader the reader of each display
      */
     private function display(\Closure $reader): StackState
