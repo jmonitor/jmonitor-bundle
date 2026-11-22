@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Collector;
 
+use Jmonitor\JmonitorBundle\Stack\Collector\ErrorMessage;
 use Jmonitor\JmonitorBundle\Stack\Collector\MissingPrerequisiteException;
 use Jmonitor\JmonitorBundle\Stack\Collector\StackShell;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\Failures;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -27,9 +29,12 @@ final class StackShellTest extends TestCase
     {
         $runner = (new FakeProcessRunner())->answer(['sh', '-c', 'nginx -V 2>&1'], 'sh: nginx: not found', 127);
 
-        $this->expectException(MissingPrerequisiteException::class);
+        $e = Failures::thrownBy(static fn() => (new StackShell($runner))->execute('nginx -V 2>&1'));
 
-        (new StackShell($runner))->execute('nginx -V 2>&1');
+        self::assertInstanceOf(MissingPrerequisiteException::class, $e);
+        self::assertSame('The command "nginx -V 2>&1" cannot be run.', $e->getMessage());
+        self::assertNull($e->getPrevious());
+        self::assertSame('The command "nginx -V 2>&1" cannot be run.', ErrorMessage::of($e));
     }
 
     /**

@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\MissingPrerequisiteException;
 use Jmonitor\JmonitorBundle\Stack\Collector\NginxConfigCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\StackShell;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\Failures;
 use PHPUnit\Framework\TestCase;
 
 final class NginxConfigCollectorTest extends TestCase
@@ -60,9 +61,11 @@ final class NginxConfigCollectorTest extends TestCase
     {
         $runner = (new FakeProcessRunner())->answer(self::VERSION, 'sh: nginx: not found', 127);
 
-        $this->expectException(MissingPrerequisiteException::class);
+        $e = Failures::thrownBy(static fn() => (new NginxConfigCollector(new StackShell($runner)))->collect());
 
-        (new NginxConfigCollector(new StackShell($runner)))->collect();
+        self::assertInstanceOf(MissingPrerequisiteException::class, $e);
+        self::assertStringContainsString('nginx -V', $e->getMessage());
+        self::assertStringStartsNotWith('"sh"', $e->getMessage());
     }
 
     public function testACommandThatFailsLeavesTheVersionOfTheServerSoftware(): void

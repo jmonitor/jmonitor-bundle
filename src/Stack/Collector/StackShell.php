@@ -25,7 +25,11 @@ final class StackShell extends ShellExecutor
      */
     public function execute(string $command): ?string
     {
-        $run = $this->runner->run(['sh', '-c', $command], '/', self::TIMEOUT);
+        try {
+            $run = $this->runner->run(['sh', '-c', $command], '/', self::TIMEOUT);
+        } catch (MissingPrerequisiteException) {
+            throw new MissingPrerequisiteException(sprintf('The command "%s" cannot be run.', $command));
+        }
 
         return $run['exit_code'] === 0 && $run['output'] !== '' ? $run['output'] : null;
     }
