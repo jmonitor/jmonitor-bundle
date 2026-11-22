@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack\Screen;
 
-use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Metric\SupportStatus;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
@@ -24,7 +24,9 @@ use Psr\Clock\ClockInterface;
  */
 final class CardBuilder
 {
-    private const NBSP = "\u{00A0}";
+    public const HOST_LOAD = 'Load is measured on the host node';
+
+    private const NBSP = Figures::NBSP;
     private const READING = 'Reading…';
     private const MISSING = '—';
     private const FLEX = 'symfony.flex';
@@ -89,7 +91,7 @@ final class CardBuilder
                 new Vital('Disk', $main(self::percent($server->diskPercent))),
             ],
             null,
-            $server->container ? 'Load is the one of the host node' : null,
+            $server->container ? self::HOST_LOAD : null,
         ];
     }
 
@@ -100,11 +102,10 @@ final class CardBuilder
      */
     private static function php(PhpReading $php, ComponentSnapshot $snapshot, \Closure $main): array
     {
-        $hitRate = $php->opcacheRecentHitRate->value;
-        $firstSample = $php->opcacheEnabled && $hitRate === null && $snapshot->delta('php') === null;
+        $hitRate = $php->opcacheHitRate;
         $vitals = [
             new Vital('OPcache memory', $main(self::percent($php->opcacheMemoryPercent))),
-            new Vital('OPcache hit rate', $main(self::percent($hitRate)), $firstSample ? 'available in a few seconds' : null),
+            new Vital('OPcache hit rate', $main(self::percent($hitRate->value)), Figures::span($hitRate, $snapshot->delta('php')?->elapsed)),
         ];
 
         if ($php->fpm) {
@@ -153,6 +154,6 @@ final class CardBuilder
 
     private static function percent(?float $percent): ?string
     {
-        return $percent === null ? null : str_replace(' ', self::NBSP, Format::percent($percent / 100));
+        return $percent === null ? null : Figures::percent($percent);
     }
 }

@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Gauge;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
+use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Metric\Rate;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
@@ -18,8 +19,6 @@ use Jmonitor\JmonitorBundle\Stack\Screen\Marks;
 
 final class PhpDetail implements DetailInterface
 {
-    private const SINCE_POOL_START = 'since the pool started';
-
     public function sections(InstanceState $instance, array $findings, int $now, bool $reading = true): array
     {
         $snapshot = Sections::snapshot($instance);
@@ -105,7 +104,7 @@ final class PhpDetail implements DetailInterface
 
     private static function hitRate(Rate $rate, ?Mark $mark, ?int $elapsed): Gauge
     {
-        return new Gauge('Hit rate', $rate->value, Sections::percent($rate->value), $mark, Sections::span($rate, $elapsed));
+        return new Gauge('Hit rate', $rate->value, Sections::percent($rate->value), $mark, Figures::span($rate, $elapsed));
     }
 
     /**
@@ -124,7 +123,7 @@ final class PhpDetail implements DetailInterface
             new Fact(
                 'Requests per second',
                 $requests->value === null ? Sections::MISSING : Sections::unbroken(Sections::decimal($requests->value, 1) . ' ' . $requests->unit),
-                hint: Sections::span($requests, $elapsed),
+                hint: Figures::span($requests, $elapsed),
             ),
             new Fact('Queue', Sections::value($php->fpmQueue === null ? null : (string) $php->fpmQueue), Sections::mark($findings, 'php.fpm_queue')),
             new Fact(
@@ -136,12 +135,12 @@ final class PhpDetail implements DetailInterface
                     default => Sections::unbroken($php->fpmMaxChildrenReached . ' times'),
                 },
                 Sections::mark($findings, 'php.fpm_max_children'),
-                $php->fpmMaxChildrenReached === null ? null : self::SINCE_POOL_START,
+                $php->fpmMaxChildrenReached === null ? null : PhpReading::SINCE_FPM_START,
             ),
             new Fact(
                 'Slow requests',
                 Sections::value($php->fpmSlowRequests === null ? null : (string) $php->fpmSlowRequests),
-                hint: $php->fpmSlowRequests === null ? null : self::SINCE_POOL_START,
+                hint: $php->fpmSlowRequests === null ? null : PhpReading::SINCE_FPM_START,
             ),
         ];
     }

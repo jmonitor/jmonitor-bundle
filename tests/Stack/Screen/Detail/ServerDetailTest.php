@@ -17,11 +17,6 @@ final class ServerDetailTest extends TestCase
 {
     use DescribesSections;
 
-    protected function tearDown(): void
-    {
-        restore_error_handler();
-    }
-
     public function testTheServerShowsItsUsageItsLoadAndItsSystem(): void
     {
         $snapshot = Snapshots::of(Component::System, ['system' => Snapshots::system()]);
@@ -61,7 +56,7 @@ final class ServerDetailTest extends TestCase
 
         self::assertSame(['facts', 'Load', [self::nb('1 min') => '2.48', self::nb('5 min') => '1.10', self::nb('15 min') => '0.90', 'CPU cores' => '4', 'CPU quota' => self::nb('1.5 CPUs')]], self::describe($blocks)[1]);
         self::assertSame(['facts', 'System', ['OS' => 'Debian GNU/Linux 12 (bookworm)', 'Uptime' => self::nb('3 d 4 h'), 'Hostname' => 'web-1', 'Memory limit' => self::nb('2 GB')]], self::describe($blocks)[2]);
-        self::assertSame('Load is the one of the host node', self::hints($blocks)['Usage / Load']);
+        self::assertSame('Load is measured on the host node', self::hints($blocks)['Usage / Load']);
     }
 
     public function testARaisedCheckMarksItsGauge(): void
@@ -75,13 +70,24 @@ final class ServerDetailTest extends TestCase
         $blocks = (new ServerDetail())->sections(self::instance($snapshot), self::findings($snapshot), Snapshots::NOW);
 
         self::assertSame(
-            ['gauges', 'Usage', ['Load' => self::nb('130 %') . ' [Warning]', 'Memory' => self::nb('88 %') . ' [Warning]', 'Disk' => self::nb('97 %') . ' [Critical]']],
+            ['gauges', 'Usage', ['Load' => self::nb('130 %') . ' [Warning]', 'Memory' => self::nb('87.5 %') . ' [Warning]', 'Disk' => self::nb('97 %') . ' [Critical]']],
             self::describe($blocks)[0],
         );
 
         $blocks = (new ServerDetail())->sections(self::instance($snapshot), [], Snapshots::NOW);
 
-        self::assertSame(['gauges', 'Usage', ['Load' => self::nb('130 %'), 'Memory' => self::nb('88 %'), 'Disk' => self::nb('97 %')]], self::describe($blocks)[0]);
+        self::assertSame(['gauges', 'Usage', ['Load' => self::nb('130 %'), 'Memory' => self::nb('87.5 %'), 'Disk' => self::nb('97 %')]], self::describe($blocks)[0]);
+    }
+
+    public function testAGaugeNeverShowsAThresholdItDidNotReach(): void
+    {
+        foreach ([154 => self::nb('84.6 %'), 54 => self::nb('94.6 %') . ' [Warning]'] as $available => $shown) {
+            $system = Snapshots::system();
+            $system['ram'] = ['total' => 1_000, 'available' => $available];
+            $snapshot = Snapshots::of(Component::System, ['system' => $system]);
+
+            self::assertSame($shown, self::describe((new ServerDetail())->sections(self::instance($snapshot), self::findings($snapshot), Snapshots::NOW))[0][2]['Memory']);
+        }
     }
 
     public function testASectionSaysReadingWhileItsCollectorWasNeverRead(): void
@@ -134,17 +140,17 @@ final class ServerDetailTest extends TestCase
 
     public function testAnEmptySnapshotRendersWithoutWarning(): void
     {
-        self::failOnWarnings();
-
-        $empty = (new ServerDetail())->sections(self::instance(Snapshots::of(Component::System, ['system' => []])), [], Snapshots::NOW);
-        $odd = (new ServerDetail())->sections(self::instance(Snapshots::of(Component::System, ['system' => [
-            'cpu' => 'busy',
-            'ram' => ['total' => 'lots', 'available' => []],
-            'disk' => null,
-            'os' => ['pretty_name' => ['Linux'], 'uptime' => -5],
-            'hostname' => 42,
-            'cgroup' => 'none',
-        ]])), [], Snapshots::NOW);
+        [$empty, $odd] = self::withoutWarnings(static fn(): array => [
+            (new ServerDetail())->sections(self::instance(Snapshots::of(Component::System, ['system' => []])), [], Snapshots::NOW),
+            (new ServerDetail())->sections(self::instance(Snapshots::of(Component::System, ['system' => [
+                'cpu' => 'busy',
+                'ram' => ['total' => 'lots', 'available' => []],
+                'disk' => null,
+                'os' => ['pretty_name' => ['Linux'], 'uptime' => -5],
+                'hostname' => 42,
+                'cgroup' => 'none',
+            ]])), [], Snapshots::NOW),
+        ]);
 
         self::assertSame([
             ['gauges', 'Usage', ['Load' => '', 'Memory' => '', 'Disk' => '']],

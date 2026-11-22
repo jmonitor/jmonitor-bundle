@@ -113,8 +113,21 @@ trait DescribesSections
         return (new StackChecks([], $debug, new MockClock('@' . Snapshots::NOW)))->health(Snapshots::stack($snapshot))->of($snapshot->component);
     }
 
-    private static function failOnWarnings(): void
+    /**
+     * @template T
+     *
+     * @param \Closure(): T $run
+     *
+     * @return T
+     */
+    private static function withoutWarnings(\Closure $run): mixed
     {
         set_error_handler(static fn(int $level, string $message): never => throw new \ErrorException($message, 0, $level));
+
+        try {
+            return $run();
+        } finally {
+            restore_error_handler();
+        }
     }
 }

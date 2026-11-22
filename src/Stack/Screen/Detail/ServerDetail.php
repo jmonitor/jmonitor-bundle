@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Gauge;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
+use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
 
 final class ServerDetail implements DetailInterface
 {
@@ -27,7 +28,7 @@ final class ServerDetail implements DetailInterface
 
             return [
                 Block::gauges(new Gauges('Usage', [
-                    new Gauge('Load', $server->loadPercent, Sections::percent($server->loadPercent), Sections::mark($findings, 'system.load'), $server->container ? 'Load is the one of the host node' : null),
+                    new Gauge('Load', $server->loadPercent, Sections::percent($server->loadPercent), Sections::mark($findings, 'system.load'), $server->container ? CardBuilder::HOST_LOAD : null),
                     new Gauge('Memory', $server->memoryPercent, Sections::percent($server->memoryPercent), Sections::mark($findings, 'system.memory'), Sections::share($server->memoryUsed, $server->memoryTotal)),
                     new Gauge('Disk', $server->diskPercent, Sections::percent($server->diskPercent), Sections::mark($findings, 'system.disk'), Sections::share($server->diskUsed, $server->diskTotal)),
                 ])),

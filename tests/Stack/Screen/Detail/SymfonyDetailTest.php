@@ -18,12 +18,7 @@ final class SymfonyDetailTest extends TestCase
 
     private const OUTDATED = ['up_to_date' => false, 'outdated_recipes' => ['doctrine/doctrine-bundle', 'symfony/framework-bundle']];
 
-    protected function tearDown(): void
-    {
-        restore_error_handler();
-    }
-
-    public function testSymfonyShowsItsApplicationItsOutdatedRecipesAndItsBundles(): void
+    public function testSymfonyShowsItsApplicationItsBundlesAndItsOutdatedRecipes(): void
     {
         $snapshot = Snapshots::of(Component::Symfony, [
             'symfony' => ['version' => '6.4.20'] + Snapshots::symfony(),
@@ -35,9 +30,9 @@ final class SymfonyDetailTest extends TestCase
 
         self::assertSame([
             ['facts', 'Application', ['Version' => '6.4.20 [Security fixes only]', 'Environment' => 'prod', 'Debug' => 'off']],
+            ['table', 'Bundles', ['FrameworkBundle', 'TwigBundle', 'JmonitorBundle']],
             ['facts', 'Flex', ['Flex recipes' => self::nb('2 outdated') . ' [Info]']],
             ['table', 'Outdated recipes', ['doctrine/doctrine-bundle', 'symfony/framework-bundle']],
-            ['table', 'Bundles', ['FrameworkBundle', 'TwigBundle', 'JmonitorBundle']],
         ], self::describe($blocks));
     }
 
@@ -47,8 +42,8 @@ final class SymfonyDetailTest extends TestCase
 
         $blocks = (new SymfonyDetail())->sections(self::instance($snapshot), self::findings($snapshot), Snapshots::NOW);
 
-        self::assertSame(['Application', 'Flex', 'Bundles'], self::titles($blocks));
-        self::assertSame(['facts', 'Flex', ['Flex recipes' => self::nb('up to date')]], self::describe($blocks)[1]);
+        self::assertSame(['Application', 'Bundles', 'Flex'], self::titles($blocks));
+        self::assertSame(['facts', 'Flex', ['Flex recipes' => self::nb('up to date')]], self::describe($blocks)[2]);
     }
 
     public function testWithoutTheRecipeCheckThereIsNoFlexSection(): void
@@ -73,15 +68,15 @@ final class SymfonyDetailTest extends TestCase
 
         $blocks = (new SymfonyDetail())->sections(self::instance($snapshot), self::findings($snapshot), Snapshots::NOW);
 
-        self::assertSame(['Application', 'notice: The Flex recipes could not be checked', 'Bundles'], self::titles($blocks));
-        self::assertSame(['notice', 'warn', 'The Flex recipes could not be checked', Snapshots::FAILURE], self::describe($blocks)[1]);
+        self::assertSame(['Application', 'Bundles', 'notice: The Flex recipes could not be checked'], self::titles($blocks));
+        self::assertSame(['notice', 'warn', 'The Flex recipes could not be checked', Snapshots::FAILURE], self::describe($blocks)[2]);
     }
 
     public function testASectionSaysReadingWhileItsCollectorWasNeverRead(): void
     {
         $flex = Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()], ['symfony.flex' => ResultState::Pending, 'eol.symfony' => ResultState::Busy]);
 
-        self::assertSame(['Application', 'reading', 'Bundles'], self::titles((new SymfonyDetail())->sections(self::instance($flex), [], Snapshots::NOW)));
+        self::assertSame(['Application', 'Bundles', 'reading'], self::titles((new SymfonyDetail())->sections(self::instance($flex), [], Snapshots::NOW)));
         self::assertSame(['Application', 'Bundles'], self::titles((new SymfonyDetail())->sections(self::instance($flex), [], Snapshots::NOW, false)));
 
         $nothing = Snapshots::of(Component::Symfony, [], ['symfony' => ResultState::Pending, 'symfony.flex' => ResultState::Pending]);
@@ -96,8 +91,14 @@ final class SymfonyDetailTest extends TestCase
 
         $blocks = (new SymfonyDetail())->sections(self::instance($snapshot), [], Snapshots::NOW);
 
-        self::assertSame(['Application', 'notice: Read ' . self::nb('1 h') . ' ago', 'Flex', 'Outdated recipes', 'Bundles'], self::titles($blocks));
-        self::assertSame('info', self::describe($blocks)[1][1]);
+        self::assertSame(['Application', 'Bundles', 'notice: Read ' . self::nb('1 h') . ' ago', 'Flex', 'Outdated recipes'], self::titles($blocks));
+        self::assertSame('info', self::describe($blocks)[2][1]);
+
+        $snapshot = Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony(), 'symfony.flex' => self::OUTDATED], ['symfony' => ResultState::Stale]);
+
+        $blocks = (new SymfonyDetail())->sections(self::instance($snapshot), [], Snapshots::NOW);
+
+        self::assertSame(['notice: Read ' . self::nb('1 h') . ' ago', 'Application', 'Bundles', 'Flex', 'Outdated recipes'], self::titles($blocks));
     }
 
     public function testAFailedRenewalSaysWhyAndWhenItIsRetried(): void
@@ -109,20 +110,21 @@ final class SymfonyDetailTest extends TestCase
 
         $blocks = (new SymfonyDetail())->sections(self::instance($snapshot), [], Snapshots::NOW);
 
-        self::assertSame(['notice', 'warn', 'Could not be read again: composer is not installed', 'next try in ' . self::nb('3 h')], self::describe($blocks)[1]);
-        self::assertSame(['Flex', 'Outdated recipes', 'Bundles'], array_slice(self::titles($blocks), 2));
+        self::assertSame(['notice', 'warn', 'Could not be read again: composer is not installed', 'next try in ' . self::nb('3 h')], self::describe($blocks)[2]);
+        self::assertSame(['Application', 'Bundles'], array_slice(self::titles($blocks), 0, 2));
+        self::assertSame(['Flex', 'Outdated recipes'], array_slice(self::titles($blocks), 3));
     }
 
     public function testAnEmptySnapshotRendersWithoutWarning(): void
     {
-        self::failOnWarnings();
-
-        $empty = (new SymfonyDetail())->sections(self::instance(Snapshots::of(Component::Symfony, ['symfony' => [], 'symfony.flex' => []])), [], Snapshots::NOW);
-        $odd = (new SymfonyDetail())->sections(self::instance(Snapshots::of(Component::Symfony, [
-            'symfony' => ['version' => [7], 'env' => null, 'debug' => 'maybe', 'bundles' => ['FrameworkBundle', 3, ['x']]],
-            'symfony.flex' => ['up_to_date' => 'perhaps', 'outdated_recipes' => 'all'],
-            'eol.symfony' => ['cycles' => [7]],
-        ])), [], Snapshots::NOW);
+        [$empty, $odd] = self::withoutWarnings(static fn(): array => [
+            (new SymfonyDetail())->sections(self::instance(Snapshots::of(Component::Symfony, ['symfony' => [], 'symfony.flex' => []])), [], Snapshots::NOW),
+            (new SymfonyDetail())->sections(self::instance(Snapshots::of(Component::Symfony, [
+                'symfony' => ['version' => [7], 'env' => null, 'debug' => 'maybe', 'bundles' => ['FrameworkBundle', 3, ['x']]],
+                'symfony.flex' => ['up_to_date' => 'perhaps', 'outdated_recipes' => 'all'],
+                'eol.symfony' => ['cycles' => [7]],
+            ])), [], Snapshots::NOW),
+        ]);
 
         self::assertSame([
             ['facts', 'Application', ['Version' => '—', 'Environment' => '—', 'Debug' => '—']],
@@ -130,8 +132,8 @@ final class SymfonyDetailTest extends TestCase
         ], self::describe($empty));
         self::assertSame([
             ['facts', 'Application', ['Version' => '—', 'Environment' => '—', 'Debug' => '—']],
-            ['facts', 'Flex', ['Flex recipes' => '—']],
             ['table', 'Bundles', ['FrameworkBundle']],
+            ['facts', 'Flex', ['Flex recipes' => '—']],
         ], self::describe($odd));
     }
 }

@@ -220,9 +220,9 @@ final class ComponentScreenTest extends TestCase
 
         $blocks = $this->screen(new FakeStackReader(self::stack($snapshot)), Component::Symfony)->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertSame([Block::SUBNAV, Block::COMPONENTS, Block::CHECKS, Block::FACTS, Block::FACTS, Block::TABLE], array_map(static fn(Block $block): string => $block->type, $blocks));
-        self::assertSame([false, true, false, false, true, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
-        self::assertSame(BlockState::Reading, $blocks[4]->state);
+        self::assertSame([Block::SUBNAV, Block::COMPONENTS, Block::CHECKS, Block::FACTS, Block::TABLE, Block::FACTS], array_map(static fn(Block $block): string => $block->type, $blocks));
+        self::assertSame([false, true, false, false, false, true], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+        self::assertSame(BlockState::Reading, $blocks[5]->state);
     }
 
     public function testRefreshOnlyForgetsItsComponent(): void

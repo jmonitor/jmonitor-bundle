@@ -39,6 +39,7 @@ final class SymfonyDetail implements DetailInterface
                     null => Sections::MISSING,
                 }, Sections::mark($findings, 'symfony.debug_in_prod')),
             ])),
+            ...($symfony->bundles === [] ? [] : [Block::table(self::names('bundles', 'Bundles', 'bundle', $symfony->bundles))]),
         ]);
 
         if ($snapshot->result(self::FLEX) !== null) {
@@ -51,10 +52,6 @@ final class SymfonyDetail implements DetailInterface
                 static fn(): array => self::recipes($symfony, $findings),
                 'The Flex recipes could not be checked',
             ));
-        }
-
-        if ($snapshot->has('symfony') && $symfony->bundles !== []) {
-            $blocks[] = Block::table(self::names('bundles', 'Bundles', 'bundle', $symfony->bundles));
         }
 
         return $blocks;

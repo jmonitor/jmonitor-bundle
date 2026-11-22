@@ -12,6 +12,10 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 
 final readonly class PhpReading
 {
+    /** fewer lookups tell nothing about the hit rate */
+    public const OPCACHE_HIT_RATE_LOOKUPS = 1_000;
+    public const SINCE_FPM_START = 'since PHP-FPM started';
+
     private const OPCACHE_HITS = 'opcache.status.opcache_statistics.hits';
     private const OPCACHE_MISSES = 'opcache.status.opcache_statistics.misses';
 
@@ -19,8 +23,9 @@ final readonly class PhpReading
      * @param bool   $opcacheAbsent                 the extension is not loaded, or its status cannot be read
      * @param ?bool  $opcacheRunning                null when nothing tells
      * @param ?float $opcacheMemoryPercent          wasted memory counts as taken: it is only freed by a restart
+     * @param Rate   $opcacheHitRate                the variation between the two samples when it holds enough lookups, else since the server started
      * @param ?int   $maxExecutionTime              in seconds, 0 for no limit
-     * @param ?int   $fpmMaxChildrenReached         since the pool started
+     * @param ?int   $fpmMaxChildrenReached         since PHP-FPM started
      * @param ?float $fpmMaxChildrenReachedRecently between the last two samples
      */
     private function __construct(
@@ -41,8 +46,6 @@ final readonly class PhpReading
         public ?float $opcacheMemoryPercent,
         public bool $opcacheFull,
         public Rate $opcacheHitRate,
-        public Rate $opcacheRecentHitRate,
-        public Rate $opcacheCumulativeHitRate,
         public bool $apcuEnabled,
         public ?int $apcuUsed,
         public ?int $apcuTotal,
@@ -95,6 +98,7 @@ final readonly class PhpReading
         $fpmActive = Values::int($fpm['active-processes'] ?? null);
         $fpmIdle = Values::int($fpm['idle-processes'] ?? null);
         $fpmRecently = $delta?->getValue('fpm.max-children-reached');
+        $opcacheRecentHitRate = Ratios::share($delta, self::OPCACHE_HITS, self::OPCACHE_MISSES, null, null);
 
         return new self(
             $version,
@@ -113,9 +117,9 @@ final readonly class PhpReading
             $opcacheTotal,
             Values::percent($opcacheTaken, $opcacheTotal),
             Values::bool($opcache['status']['cache_full'] ?? null) === true,
-            Ratios::share($delta, self::OPCACHE_HITS, self::OPCACHE_MISSES, $opcacheHits, $opcacheMisses),
-            Ratios::share($delta, self::OPCACHE_HITS, self::OPCACHE_MISSES, null, null),
-            Ratios::share(null, self::OPCACHE_HITS, self::OPCACHE_MISSES, $opcacheHits, $opcacheMisses),
+            $opcacheRecentHitRate->total !== null && $opcacheRecentHitRate->total >= self::OPCACHE_HIT_RATE_LOOKUPS
+                ? $opcacheRecentHitRate
+                : Ratios::share(null, self::OPCACHE_HITS, self::OPCACHE_MISSES, $opcacheHits, $opcacheMisses),
             Values::bool($apcu['config']['apc.enabled'] ?? null) === true,
             $apcuUsed,
             $apcuTotal,

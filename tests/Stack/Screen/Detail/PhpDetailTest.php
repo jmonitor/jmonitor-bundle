@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Screen\Detail;
 
+use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
@@ -15,11 +16,6 @@ use PHPUnit\Framework\TestCase;
 final class PhpDetailTest extends TestCase
 {
     use DescribesSections;
-
-    protected function tearDown(): void
-    {
-        restore_error_handler();
-    }
 
     public function testPhpShowsItsRuntimeOpcacheApcuAndFpm(): void
     {
@@ -36,7 +32,7 @@ final class PhpDetailTest extends TestCase
                 'display_errors' => 'off',
                 'realpath_cache_size' => self::nb('4 MB'),
             ]],
-            ['gauges', 'OPcache', ['Memory' => self::nb('70 %'), 'Hit rate' => self::nb('91 %')]],
+            ['gauges', 'OPcache', ['Memory' => self::nb('70 %'), 'Hit rate' => self::nb('90.8 %')]],
             ['gauges', 'APCu', ['Memory' => self::nb('75 %'), 'Hit rate' => self::nb('90 %')]],
             ['facts', 'PHP-FPM', [
                 'Busy workers' => self::nb('2 / 8'),
@@ -55,15 +51,15 @@ final class PhpDetailTest extends TestCase
         self::assertSame('24 MB of 32 MB', $hints['APCu / Memory']);
         self::assertSame('since server start', $hints['APCu / Hit rate']);
         self::assertSame('at the next refresh', $hints['PHP-FPM / Requests per second']);
-        self::assertSame('since the pool started', $hints['PHP-FPM / pm.max_children reached']);
-        self::assertSame('since the pool started', $hints['PHP-FPM / Slow requests']);
+        self::assertSame('since PHP-FPM started', $hints['PHP-FPM / pm.max_children reached']);
+        self::assertSame('since PHP-FPM started', $hints['PHP-FPM / Slow requests']);
         self::assertNull($hints['Runtime / Version']);
     }
 
     public function testRatesOverTheLastSamplesSayTheirSpan(): void
     {
         $delta = Snapshots::delta(
-            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => 1000, 'misses' => 100]]], 'fpm' => ['accepted-conn' => 4880]],
+            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => 190, 'misses' => 10]]], 'fpm' => ['accepted-conn' => 4880]],
             ['opcache' => ['status' => ['opcache_statistics' => ['hits' => 1090, 'misses' => 110]]], 'fpm' => ['accepted-conn' => 5000]],
         );
         $snapshot = Snapshots::of(Component::Php, ['php' => Snapshots::php()], deltas: ['php' => $delta]);
@@ -93,13 +89,44 @@ final class PhpDetailTest extends TestCase
         self::assertSame('8.4.23', $described[0][2]['Version']);
         self::assertSame('on [Warning]', $described[0][2]['display_errors']);
         self::assertSame(self::nb('16 KB') . ' [Info]', $described[0][2]['realpath_cache_size']);
-        self::assertSame(['Memory' => self::nb('97 %') . ' [Warning]', 'Hit rate' => self::nb('45 %') . ' [Warning]'], $described[1][2]);
+        self::assertSame(['Memory' => self::nb('97 %') . ' [Warning]', 'Hit rate' => self::nb('45.4 %') . ' [Warning]'], $described[1][2]);
         self::assertSame(self::nb('97 %') . ' [Warning]', $described[2][2]['Memory']);
         self::assertSame('2 [Warning]', $described[3][2]['Queue']);
 
         $ended = Snapshots::of(Component::Php, ['php' => ['version' => '8.1.31'] + Snapshots::php(), 'eol.php' => Snapshots::cycles()]);
 
         self::assertSame('8.1.31 [End of life]', self::describe((new PhpDetail())->sections(self::instance($ended), self::findings($ended), Snapshots::NOW))[0][2]['Version']);
+    }
+
+    public function testOnAQuietSiteTheGaugeAndTheCheckShowTheSameHitRate(): void
+    {
+        $php = Snapshots::php();
+        $php['opcache']['status']['opcache_statistics']['hits'] = 7_000;
+        $php['opcache']['status']['opcache_statistics']['misses'] = 3_000;
+        $delta = Snapshots::delta(
+            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => 6_970, 'misses' => 3_000]]]],
+            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => 7_000, 'misses' => 3_000]]]],
+        );
+        $snapshot = Snapshots::of(Component::Php, ['php' => $php], deltas: ['php' => $delta]);
+        $findings = self::findings($snapshot);
+
+        $blocks = (new PhpDetail())->sections(self::instance($snapshot), $findings, Snapshots::NOW);
+
+        self::assertSame(self::nb('70 %') . ' [Warning]', self::describe($blocks)[1][2]['Hit rate']);
+        self::assertSame('since server start', self::hints($blocks)['OPcache / Hit rate']);
+        self::assertSame('OPcache hit rate is ' . self::nb('70 %') . ' since server start', array_values(array_filter($findings, static fn(Finding $finding): bool => $finding->id === 'php.opcache_hit_rate'))[0]->sentence);
+    }
+
+    public function testAGaugeNeverShowsAThresholdItDidNotReach(): void
+    {
+        $php = Snapshots::php();
+        $php['opcache']['status']['opcache_statistics']['hits'] = 846;
+        $php['opcache']['status']['opcache_statistics']['misses'] = 154;
+        $snapshot = Snapshots::of(Component::Php, ['php' => $php]);
+        $findings = self::findings($snapshot);
+
+        self::assertSame(self::nb('84.6 %') . ' [Warning]', self::describe((new PhpDetail())->sections(self::instance($snapshot), $findings, Snapshots::NOW))[1][2]['Hit rate']);
+        self::assertSame('OPcache hit rate is ' . self::nb('84.6 %') . ' since server start', array_values(array_filter($findings, static fn(Finding $finding): bool => $finding->id === 'php.opcache_hit_rate'))[0]->sentence);
     }
 
     public function testOpcacheThatDoesNotRunIsAFact(): void
@@ -198,19 +225,19 @@ final class PhpDetailTest extends TestCase
 
     public function testAnEmptySnapshotRendersWithoutWarning(): void
     {
-        self::failOnWarnings();
-
-        $empty = (new PhpDetail())->sections(self::instance(Snapshots::of(Component::Php, ['php' => []])), [], Snapshots::NOW);
-        $odd = (new PhpDetail())->sections(self::instance(Snapshots::of(Component::Php, ['php' => [
-            'version' => ['8.4'],
-            'memory_limit' => '-1',
-            'max_execution_time' => 0,
-            'display_errors' => 'stderr',
-            'realpath_cache_size' => 'lots',
-            'opcache' => ['status' => 'on', 'config' => 7],
-            'apcu' => ['config' => ['apc.enabled' => '1'], 'sma_info' => 'x', 'cache_info' => null],
-            'fpm' => ['pool' => ['www'], 'active-processes' => 'many', 'procs' => 'none'],
-        ], 'eol.php' => ['cycles' => 'soon']])), [], Snapshots::NOW);
+        [$empty, $odd] = self::withoutWarnings(static fn(): array => [
+            (new PhpDetail())->sections(self::instance(Snapshots::of(Component::Php, ['php' => []])), [], Snapshots::NOW),
+            (new PhpDetail())->sections(self::instance(Snapshots::of(Component::Php, ['php' => [
+                'version' => ['8.4'],
+                'memory_limit' => '-1',
+                'max_execution_time' => 0,
+                'display_errors' => 'stderr',
+                'realpath_cache_size' => 'lots',
+                'opcache' => ['status' => 'on', 'config' => 7],
+                'apcu' => ['config' => ['apc.enabled' => '1'], 'sma_info' => 'x', 'cache_info' => null],
+                'fpm' => ['pool' => ['www'], 'active-processes' => 'many', 'procs' => 'none'],
+            ], 'eol.php' => ['cycles' => 'soon']])), [], Snapshots::NOW),
+        ]);
 
         self::assertSame([
             ['facts', 'Runtime', ['Version' => '—', 'SAPI' => '—', 'memory_limit' => '—', 'max_execution_time' => '—', 'display_errors' => '—', 'realpath_cache_size' => '—']],

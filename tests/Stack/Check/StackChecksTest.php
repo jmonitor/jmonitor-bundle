@@ -126,8 +126,8 @@ final class StackChecksTest extends TestCase
             Snapshots::of(Component::Php, ['php' => self::opcacheMemory(935)]),
         ));
 
-        self::assertSame('Memory is 93% used', self::find($health, 'system.memory')?->sentence);
-        self::assertSame('OPcache memory is 93.5% full', self::find($health, 'php.opcache_memory')?->sentence);
+        self::assertSame("Memory is 93\u{00A0}% used", self::find($health, 'system.memory')?->sentence);
+        self::assertSame("OPcache memory is 93.5\u{00A0}% full", self::find($health, 'php.opcache_memory')?->sentence);
     }
 
     public function testAFullOpcacheMayLackMemoryOrKeys(): void
@@ -155,10 +155,10 @@ final class StackChecksTest extends TestCase
      */
     public static function hitRateSpans(): iterable
     {
-        yield 'no lookup between the samples' => [500_000, 500_000, [500_000, 500_000], 'OPcache hit rate is 50% since server start'];
-        yield 'too few lookups between the samples' => [500_000, 500_000, [499_800, 499_800], 'OPcache hit rate is 50% since server start'];
-        yield 'enough lookups between the samples' => [500_000, 500_000, [499_500, 499_500], 'OPcache hit rate is 50% over the last 60 s'];
-        yield 'a bad variation beats a good cumulated rate' => [990_500, 10_500, [990_000, 10_000], 'OPcache hit rate is 50% over the last 60 s'];
+        yield 'no lookup between the samples' => [500_000, 500_000, [500_000, 500_000], "OPcache hit rate is 50\u{00A0}% since server start"];
+        yield 'too few lookups between the samples' => [500_000, 500_000, [499_800, 499_800], "OPcache hit rate is 50\u{00A0}% since server start"];
+        yield 'enough lookups between the samples' => [500_000, 500_000, [499_500, 499_500], "OPcache hit rate is 50\u{00A0}% over the last 60\u{00A0}s"];
+        yield 'a bad variation beats a good cumulated rate' => [990_500, 10_500, [990_000, 10_000], "OPcache hit rate is 50\u{00A0}% over the last 60\u{00A0}s"];
         yield 'a good variation beats a bad cumulated rate' => [500_990, 500_010, [500_000, 500_000], null];
         yield 'too few lookups either way' => [500, 499, [450, 449], null];
         yield 'too few lookups and no second sample' => [500, 499, null, null];
@@ -265,10 +265,10 @@ final class StackChecksTest extends TestCase
             ['php' => self::fpm(['max-children-reached' => 4], self::hitRate(5_000, 5_000))],
         )));
 
-        self::assertSame('OPcache hit rate is 80% over the last 60 s', self::find($recent, 'php.opcache_hit_rate')?->sentence);
-        self::assertSame('PHP-FPM reached pm.max_children 3 times over the last 60 s', self::find($recent, 'php.fpm_max_children')?->sentence);
-        self::assertSame('OPcache hit rate is 50% since server start', self::find($sinceStart, 'php.opcache_hit_rate')?->sentence);
-        self::assertSame('PHP-FPM reached pm.max_children 4 times since server start', self::find($sinceStart, 'php.fpm_max_children')?->sentence);
+        self::assertSame("OPcache hit rate is 80\u{00A0}% over the last 60\u{00A0}s", self::find($recent, 'php.opcache_hit_rate')?->sentence);
+        self::assertSame("PHP-FPM reached pm.max_children 3 times over the last 60\u{00A0}s", self::find($recent, 'php.fpm_max_children')?->sentence);
+        self::assertSame("OPcache hit rate is 50\u{00A0}% since server start", self::find($sinceStart, 'php.opcache_hit_rate')?->sentence);
+        self::assertSame("PHP-FPM reached pm.max_children 4 times since PHP-FPM started", self::find($sinceStart, 'php.fpm_max_children')?->sentence);
     }
 
     public function testAFindingOnAnOutdatedValueCarriesItsAge(): void

@@ -41,7 +41,7 @@ final class CardBuilderTest extends TestCase
         $system = Snapshots::system();
         $system['cgroup']['memory_limit'] = 2_000_000_000;
 
-        self::assertSame('Load is the one of the host node', $this->card(Snapshots::of(Component::System, ['system' => $system]))->note);
+        self::assertSame('Load is measured on the host node', $this->card(Snapshots::of(Component::System, ['system' => $system]))->note);
     }
 
     public function testThePhpCardShowsOpcacheAndFpmWorkersWithItsEndOfLife(): void
@@ -56,22 +56,30 @@ final class CardBuilderTest extends TestCase
         self::assertEquals([new Mark('warn', 'Security fixes only')], $card->badges);
         self::assertEquals([
             new Vital('OPcache memory', '70 %'),
-            new Vital('OPcache hit rate', '—', 'available in a few seconds'),
+            new Vital('OPcache hit rate', '90.8 %', 'since server start'),
             new Vital('FPM workers', '2 / 8'),
         ], array_map(self::readable(...), $card->vitals));
 
         $delta = Snapshots::delta(
-            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => 1000, 'misses' => 100]]]],
+            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => 190, 'misses' => 10]]]],
             ['opcache' => ['status' => ['opcache_statistics' => ['hits' => 1090, 'misses' => 110]]]],
         );
         $card = $this->card(Snapshots::of(Component::Php, ['php' => Snapshots::php()], deltas: ['php' => $delta]));
 
         self::assertSame(['OPcache memory' => '70 %', 'OPcache hit rate' => '90 %', 'FPM workers' => '2 / 8'], self::vitals($card));
-        self::assertNull($card->vitals[1]->hint);
+        self::assertSame('over the last 60' . self::NBSP . 's', $card->vitals[1]->hint);
 
         $ended = $this->card(Snapshots::of(Component::Php, ['php' => ['version' => '8.1.31'] + Snapshots::php(), 'eol.php' => Snapshots::cycles()]));
         self::assertEquals([new Mark('bad', 'End of life')], $ended->badges);
         self::assertSame([], $this->card(Snapshots::of(Component::Php, ['php' => Snapshots::php(), 'eol.php' => Snapshots::cycles()]))->badges);
+    }
+
+    public function testAVitalNeverShowsAThresholdItDidNotReach(): void
+    {
+        $php = Snapshots::php();
+        $php['opcache']['status']['memory_usage'] = ['used_memory' => 84_960, 'free_memory' => 15_040, 'wasted_memory' => 0];
+
+        self::assertSame('84.9' . self::NBSP . '%', $this->card(Snapshots::of(Component::Php, ['php' => $php]))->vitals[0]->value);
     }
 
     public function testTheSymfonyCardShowsItsEnvironmentDebugAndFlexRecipes(): void

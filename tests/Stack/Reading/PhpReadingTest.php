@@ -43,12 +43,9 @@ final class PhpReadingTest extends TestCase
         self::assertSame(100_000_000, $reading->opcacheTotal);
         self::assertSame(70.0, $reading->opcacheMemoryPercent, 'wasted memory is not free');
         self::assertFalse($reading->opcacheFull);
-        self::assertSame(90.0, $reading->opcacheHitRate->value, '90 hits for 10 misses between the two samples');
-        self::assertSame(RateSource::Delta, $reading->opcacheHitRate->source);
-        self::assertSame(90.0, $reading->opcacheRecentHitRate->value);
-        self::assertSame(100, $reading->opcacheRecentHitRate->total);
-        self::assertSame(90.83, $reading->opcacheCumulativeHitRate->value);
-        self::assertSame(1_200, $reading->opcacheCumulativeHitRate->total);
+        self::assertSame(90.83, $reading->opcacheHitRate->value, 'the 100 lookups between the two samples are too few: the counters tell');
+        self::assertSame(RateSource::SinceStart, $reading->opcacheHitRate->source);
+        self::assertSame(1_200, $reading->opcacheHitRate->total);
 
         self::assertTrue($reading->apcuEnabled);
         self::assertSame(25_165_824, $reading->apcuUsed);
@@ -68,6 +65,38 @@ final class PhpReadingTest extends TestCase
         self::assertSame(1, $reading->fpmSlowRequests);
         self::assertSame('www', $reading->fpmPool);
         self::assertSame('dynamic', $reading->fpmProcessManager);
+    }
+
+    /**
+     * @return iterable<string, array{int, int, ?array{int, int}, ?float, ?RateSource}>
+     */
+    public static function hitRates(): iterable
+    {
+        yield 'no lookup between the samples' => [500_000, 500_000, [500_000, 500_000], 50.0, RateSource::SinceStart];
+        yield 'too few lookups between the samples' => [500_000, 500_000, [499_800, 499_800], 50.0, RateSource::SinceStart];
+        yield 'enough lookups between the samples' => [990_500, 10_500, [990_000, 10_000], 50.0, RateSource::Delta];
+        yield 'a few lookups and no second sample' => [500, 499, null, 50.05, RateSource::SinceStart];
+        yield 'no lookup at all' => [0, 0, null, null, RateSource::Unavailable];
+    }
+
+    /**
+     * @param ?array{int, int} $previous hits and misses of the previous sample
+     */
+    #[DataProvider('hitRates')]
+    public function testTheHitRateIsTheVariationWhenItHoldsEnoughLookupsElseTheCounters(int $hits, int $misses, ?array $previous, ?float $value, RateSource $source): void
+    {
+        $data = Snapshots::php();
+        $data['opcache']['status']['opcache_statistics']['hits'] = $hits;
+        $data['opcache']['status']['opcache_statistics']['misses'] = $misses;
+        $deltas = $previous === null ? [] : ['php' => Snapshots::delta(
+            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => $previous[0], 'misses' => $previous[1]]]]],
+            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => $hits, 'misses' => $misses]]]],
+        )];
+
+        $rate = PhpReading::of(Snapshots::of(Component::Php, ['php' => $data], deltas: $deltas), self::today())->opcacheHitRate;
+
+        self::assertSame($value, $rate->value);
+        self::assertSame($source, $rate->source);
     }
 
     public function testWithoutASecondSampleTheRecentValuesAreUnknown(): void

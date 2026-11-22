@@ -10,8 +10,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
-use Jmonitor\JmonitorBundle\Stack\Metric\Rate;
-use Jmonitor\JmonitorBundle\Stack\Metric\RateSource;
+use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Screen\Marks;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
@@ -24,10 +23,10 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 final class Sections
 {
     public const MISSING = '—';
-    public const NBSP = "\u{00A0}";
+    public const NBSP = Figures::NBSP;
 
     /**
-     * Null when the instance could not be read at all: its card says why.
+     * Null when the instance could not be read at all.
      */
     public static function snapshot(InstanceState $instance): ?ComponentSnapshot
     {
@@ -39,7 +38,7 @@ final class Sections
     /**
      * @param string                  $type     the type of the first block, shown while the collector was never read
      * @param \Closure(): list<Block> $sections built only when the collector has a value
-     * @param ?string                 $failure  the title that tells a failure in place of the sections; without it, the card tells it
+     * @param ?string                 $failure  the title of a notice telling a failure in place of the sections; none without it
      *
      * @return list<Block>
      */
@@ -79,7 +78,7 @@ final class Sections
 
     public static function percent(?float $percent): string
     {
-        return $percent === null ? '' : self::unbroken(Format::percent($percent / 100));
+        return $percent === null ? '' : Figures::percent($percent);
     }
 
     public static function bytes(int $bytes): string
@@ -114,19 +113,6 @@ final class Sections
             $minutes > 0 => $minutes . ' min',
             default => $seconds . ' s',
         });
-    }
-
-    /**
-     * The span a rate covers, or when it comes.
-     */
-    public static function span(Rate $rate, ?int $elapsed): ?string
-    {
-        return match ($rate->source) {
-            RateSource::Delta => $elapsed === null ? null : 'over the last ' . self::unbroken($elapsed . ' s'),
-            RateSource::SinceStart => $rate->since,
-            RateSource::Pending => $rate->expected,
-            RateSource::Unavailable => null,
-        };
     }
 
     /**

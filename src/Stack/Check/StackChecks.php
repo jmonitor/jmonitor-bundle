@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Stack\Check;
 
 use Jmonitor\JmonitorBundle\Stack\Component;
-use Jmonitor\JmonitorBundle\Stack\Metric\Rate;
-use Jmonitor\JmonitorBundle\Stack\Metric\RateSource;
+use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Metric\SupportStatus;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
@@ -19,7 +18,6 @@ use Psr\Clock\ClockInterface;
 
 final class StackChecks
 {
-    private const OPCACHE_HIT_RATE_LOOKUPS = 1_000;
     private const REALPATH_CACHE_SIZE = 4_096_000;
 
     /**
@@ -164,7 +162,7 @@ final class StackChecks
             $findings[] = $raise(
                 'system.memory',
                 $server->memoryPercent >= 95 ? Severity::Critical : Severity::Warning,
-                sprintf('Memory is %s used', self::percent($server->memoryPercent)),
+                sprintf('Memory is %s used', Figures::percent($server->memoryPercent)),
                 'When memory runs out, the system swaps or stops processes, and requests slow down or fail. Find what uses it, or give the server more memory.',
                 'system',
             );
@@ -174,7 +172,7 @@ final class StackChecks
             $findings[] = $raise(
                 'system.disk',
                 $server->diskPercent >= 95 ? Severity::Critical : Severity::Warning,
-                sprintf('Disk is %s full', self::percent($server->diskPercent)),
+                sprintf('Disk is %s full', Figures::percent($server->diskPercent)),
                 'When the disk is full, writes fail: logs, cache, sessions and uploads. Free some space, such as old logs and backups, or grow the disk.',
                 'system',
             );
@@ -190,7 +188,7 @@ final class StackChecks
                 },
                 sprintf(
                     'The load over 1 minute is %s of %s',
-                    self::percent($server->loadPercent),
+                    Figures::percent($server->loadPercent),
                     $server->cores === null ? 'the CPU capacity' : sprintf('the %d CPU %s', $server->cores, $server->cores === 1 ? 'core' : 'cores'),
                 ),
                 $server->container
@@ -242,19 +240,19 @@ final class StackChecks
             $findings[] = $raise(
                 'php.opcache_memory',
                 Severity::Warning,
-                sprintf('OPcache memory is %s full', self::percent($php->opcacheMemoryPercent)),
+                sprintf('OPcache memory is %s full', Figures::percent($php->opcacheMemoryPercent)),
                 'Once full, OPcache caches no new script, and PHP compiles those on every request. Raise opcache.memory_consumption before it fills up.',
                 'php',
             );
         }
 
-        $hitRate = self::judgedHitRate($php);
+        $hitRate = $php->opcacheHitRate;
 
-        if ($php->opcacheEnabled && $hitRate !== null && $hitRate->value < 85) {
+        if ($php->opcacheEnabled && $hitRate->value !== null && $hitRate->total >= PhpReading::OPCACHE_HIT_RATE_LOOKUPS && $hitRate->value < 85) {
             $findings[] = $raise(
                 'php.opcache_hit_rate',
                 Severity::Warning,
-                sprintf('OPcache hit rate is %s %s', self::percent($hitRate->value), self::span($hitRate, $snapshot)),
+                sprintf('OPcache hit rate is %s %s', Figures::percent($hitRate->value), Figures::span($hitRate, $snapshot->delta('php')?->elapsed) ?? $hitRate->since),
                 'Every miss compiles a script again. The cache may be too small for the application (opcache.memory_consumption, opcache.max_accelerated_files), or reset too often.',
                 'php',
             );
@@ -264,7 +262,7 @@ final class StackChecks
             $findings[] = $raise(
                 'php.apcu_memory',
                 Severity::Warning,
-                sprintf('APCu memory is %s full', self::percent($php->apcuMemoryPercent)),
+                sprintf('APCu memory is %s full', Figures::percent($php->apcuMemoryPercent)),
                 'Once full, APCu evicts entries before they expire, and the application computes them again. Raise apc.shm_size.',
                 'php',
             );
@@ -286,7 +284,7 @@ final class StackChecks
             $findings[] = $raise(
                 'php.fpm_max_children',
                 Severity::Warning,
-                sprintf('PHP-FPM reached pm.max_children %s over the last %d s', self::times((int) $php->fpmMaxChildrenReachedRecently), $elapsed),
+                sprintf('PHP-FPM reached pm.max_children %s %s', self::times((int) $php->fpmMaxChildrenReachedRecently), Figures::lastSeconds($elapsed)),
                 'Requests had to wait for a free worker. Raise pm.max_children if the memory allows it, or find the slow requests that hold the workers.',
                 'php',
             );
@@ -294,7 +292,7 @@ final class StackChecks
             $findings[] = $raise(
                 'php.fpm_max_children',
                 Severity::Info,
-                sprintf('PHP-FPM reached pm.max_children %s %s', self::times($php->fpmMaxChildrenReached), Rate::SINCE_SERVER_START),
+                sprintf('PHP-FPM reached pm.max_children %s %s', self::times($php->fpmMaxChildrenReached), PhpReading::SINCE_FPM_START),
                 'At some point, requests had to wait for a free worker. If it happens again, raise pm.max_children, as far as the memory allows it.',
                 'php',
             );
@@ -388,20 +386,6 @@ final class StackChecks
     }
 
     /**
-     * The variation between the two samples when it holds enough lookups, else the counters since the server started.
-     */
-    private static function judgedHitRate(PhpReading $php): ?Rate
-    {
-        foreach ([$php->opcacheRecentHitRate, $php->opcacheCumulativeHitRate] as $rate) {
-            if ($rate->value !== null && $rate->total !== null && $rate->total >= self::OPCACHE_HIT_RATE_LOOKUPS) {
-                return $rate;
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * The age of the oldest outdated value among the results judged.
      */
     private static function age(ComponentSnapshot $snapshot, int $now, string ...$judged): ?int
@@ -417,23 +401,6 @@ final class StackChecks
         }
 
         return $ages === [] ? null : max($ages);
-    }
-
-    private static function span(Rate $rate, ComponentSnapshot $snapshot): string
-    {
-        $elapsed = $snapshot->delta('php')?->elapsed;
-
-        return $rate->source === RateSource::Delta && $elapsed !== null ? sprintf('over the last %d s', $elapsed) : $rate->since;
-    }
-
-    /**
-     * Rounded down, so that a value is never shown at a threshold it did not reach.
-     */
-    private static function percent(float $value): string
-    {
-        $shown = number_format(floor(round($value * 10, 6)) / 10, 1, '.', '');
-
-        return rtrim(rtrim($shown, '0'), '.') . '%';
     }
 
     private static function times(int $count): string
