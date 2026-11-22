@@ -3,6 +3,8 @@
 
     var STORAGE_KEY = 'jmonitor.live';
     var INTERVAL = 10000;
+    var FAST_DELAY = 2000;
+    var FAST_TRIES = 5;
     var PAGE_PARAMETERS = ['period', 'sort', 'dir'];
     var root = document.querySelector('[data-jm-live]');
 
@@ -28,10 +30,15 @@
     var enabled = readPreference();
     var timer = null;
     var inFlight = false;
+    var fastTimer = null;
+    var fastTries = 0;
+    var reloading = false;
 
     if (!url || !content) {
         return;
     }
+
+    var scope = root.closest('.jm') || document;
 
     function readPreference() {
         try {
@@ -104,8 +111,8 @@
         return fragment.toString();
     }
 
-    function findInContent(selector, attribute, value) {
-        var candidates = content.querySelectorAll(selector);
+    function findIn(parent, selector, attribute, value) {
+        var candidates = parent.querySelectorAll(selector);
 
         for (var i = 0; i < candidates.length; i++) {
             if (candidates[i].getAttribute(attribute) === value) {
@@ -137,15 +144,15 @@
             return;
         }
 
-        var element = identity.id ? findInContent('[id]', 'id', identity.id) : null;
+        var element = identity.id ? findIn(content, '[id]', 'id', identity.id) : null;
 
         if (!element && identity.key) {
-            var details = findInContent('details[data-jm-key]', 'data-jm-key', identity.key);
+            var details = findIn(content, 'details[data-jm-key]', 'data-jm-key', identity.key);
             element = details ? details.querySelector('summary') : null;
         }
 
         if (!element && identity.href) {
-            element = findInContent('a[href]', 'href', identity.href);
+            element = findIn(content, 'a[href]', 'href', identity.href);
         }
 
         if (element) {
@@ -161,6 +168,7 @@
         }
         var focused = focusedIdentity();
         var opened = openKeys();
+        var node = currentNode();
 
         content.innerHTML = html;
         reopen(opened);
@@ -171,6 +179,93 @@
         }
 
         restoreFocus(focused);
+        fillSlots();
+        tellNodeChange(node);
+
+        if (!isReading()) {
+            fastTries = 0;
+        }
+    }
+
+    function fillSlots() {
+        var templates = content.querySelectorAll('template[data-jm-slot-content]');
+
+        for (var i = 0; i < templates.length; i++) {
+            var slot = findIn(scope, '[data-jm-slot]', 'data-jm-slot', templates[i].getAttribute('data-jm-slot-content'));
+
+            if (slot) {
+                slot.innerHTML = templates[i].innerHTML;
+            }
+        }
+    }
+
+    function currentNode() {
+        var element = content.querySelector('[data-jm-node]');
+
+        return element ? element.getAttribute('data-jm-node') : '';
+    }
+
+    function tellNodeChange(previous) {
+        var node = currentNode();
+        var mention = content.querySelector('[data-jm-node-changed]');
+
+        if (previous !== '' && node !== '' && previous !== node && mention) {
+            mention.hidden = false;
+        }
+    }
+
+    function isReading() {
+        return content.querySelector('[data-jm-reading]') !== null;
+    }
+
+    function hasFastTriesLeft() {
+        return isReading() && fastTries < FAST_TRIES;
+    }
+
+    function scheduleFastTry(delay) {
+        window.clearTimeout(fastTimer);
+        fastTimer = null;
+
+        if (!reloading && !document.hidden && root.isConnected && hasFastTriesLeft()) {
+            fastTimer = window.setTimeout(fastTry, delay);
+        }
+    }
+
+    function fastTry() {
+        fastTimer = null;
+
+        if (!root.isConnected) {
+            stop();
+
+            return;
+        }
+
+        if (inFlight || document.hidden) {
+            return;
+        }
+
+        fastTries++;
+
+        if (hasSelectionInside(content)) {
+            settle();
+
+            return;
+        }
+
+        load(true);
+    }
+
+    function settle() {
+        scheduleFastTry(FAST_DELAY);
+        showRestLink();
+    }
+
+    function showRestLink() {
+        var link = content.querySelector('[data-jm-rest]');
+
+        if (link) {
+            (link.closest('.jm-rest') || link).hidden = enabled || hasFastTriesLeft();
+        }
     }
 
     function refresh() {
@@ -184,12 +279,17 @@
             return;
         }
 
+        load(false);
+    }
+
+    function load(forced) {
         var target;
 
         try {
             target = fragmentUrl();
         } catch (e) {
             markFailed(true);
+            settle();
 
             return;
         }
@@ -205,6 +305,7 @@
             .then(function (response) {
                 // a redirect or a denial means the session or the access changed: a reload shows why
                 if (response.type === 'opaqueredirect' || response.status === 401 || response.status === 403 || response.status === 404) {
+                    reloading = true;
                     stop();
                     window.location.reload();
 
@@ -216,7 +317,7 @@
                 return response.ok ? response.text() : null;
             })
             .then(function (html) {
-                if (html !== null && enabled && !hasSelectionInside(content)) {
+                if (html !== null && (enabled || forced) && !hasSelectionInside(content)) {
                     replaceContent(html);
                 }
             })
@@ -225,6 +326,7 @@
             })
             .then(function () {
                 inFlight = false;
+                settle();
             });
     }
 
@@ -253,6 +355,7 @@
             markFailed(false);
             start();
             refresh();
+            showRestLink();
         });
     }
 
@@ -263,7 +366,11 @@
             start();
             refresh();
         }
+
+        scheduleFastTry(0);
     });
 
     start();
+    showRestLink();
+    scheduleFastTry(0);
 })();
