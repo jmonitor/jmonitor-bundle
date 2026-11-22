@@ -414,9 +414,9 @@ To silence a check, add its identifier to `ignore_checks`: it is no longer shown
 | `system.memory` | memory is 85% used or more (`Critical` from 95%) |
 | `system.disk` | the disk is 85% full or more (`Critical` from 95%) |
 | `system.load` | the load over 1 minute reaches 100% of the CPU cores (`Critical` from 200%, `Info` in a container) |
-| `php.opcache_disabled` | OPcache is not running, or its status cannot be read |
+| `php.opcache_disabled` | OPcache is not running, or its status cannot be read (`Info` in debug mode) |
 | `php.opcache_memory` | OPcache memory is 90% full or more (`Critical` when full) |
-| `php.opcache_hit_rate` | the OPcache hit rate is below 85% over at least 1,000 lookups |
+| `php.opcache_hit_rate` | the OPcache hit rate is below 85% over at least 1,000 lookups, outside debug mode |
 | `php.apcu_memory` | APCu memory is 90% full or more |
 | `php.fpm_queue` | requests are waiting for a PHP-FPM worker |
 | `php.fpm_max_children` | PHP-FPM reached `pm.max_children` between two readings (`Info` when only since it started) |

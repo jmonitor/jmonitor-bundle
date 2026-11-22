@@ -22,7 +22,6 @@ final class StackChecks
 
     /**
      * @param list<string> $ignored ids of the findings to leave out
-     * @param bool         $debug   whether the kernel runs in debug mode
      */
     public function __construct(
         private readonly array $ignored,
@@ -209,11 +208,12 @@ final class StackChecks
     private function php(PhpReading $php, ComponentSnapshot $snapshot, \Closure $raise): array
     {
         $findings = [];
+        $opcacheOff = $this->debug ? Severity::Info : Severity::Warning;
 
         if ($php->opcacheAbsent) {
             $findings[] = $raise(
                 'php.opcache_disabled',
-                Severity::Warning,
+                $opcacheOff,
                 'OPcache is not running, or its status cannot be read',
                 'Without OPcache, PHP compiles every script on every request, which makes the application several times slower. Load the extension and set opcache.enable=1; if it already runs, opcache.restrict_api keeps its status from being read here.',
                 'php',
@@ -221,7 +221,7 @@ final class StackChecks
         } elseif ($php->opcacheRunning === false) {
             $findings[] = $raise(
                 'php.opcache_disabled',
-                Severity::Warning,
+                $opcacheOff,
                 'OPcache is not running',
                 'Without OPcache, PHP compiles every script on every request, which makes the application several times slower. Set opcache.enable=1.',
                 'php',
@@ -248,7 +248,7 @@ final class StackChecks
 
         $hitRate = $php->opcacheHitRate;
 
-        if ($php->opcacheEnabled && $hitRate->value !== null && $hitRate->total >= PhpReading::OPCACHE_HIT_RATE_LOOKUPS && $hitRate->value < 85) {
+        if (!$this->debug && $php->opcacheEnabled && $hitRate->value !== null && $hitRate->total >= PhpReading::OPCACHE_HIT_RATE_LOOKUPS && $hitRate->value < 85) {
             $findings[] = $raise(
                 'php.opcache_hit_rate',
                 Severity::Warning,

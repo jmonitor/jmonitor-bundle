@@ -53,6 +53,8 @@ final class StackChecksTest extends TestCase
         yield 'OPcache as a string' => [Component::Php, ['php' => ['opcache' => 'on'] + self::php()], [], 'php.opcache_disabled', null];
         yield 'OPcache status and config of unknown shape' => [Component::Php, ['php' => ['opcache' => ['status' => 'x', 'config' => 5]] + self::php()], [], 'php.opcache_disabled', null];
         yield 'OPcache flag that cannot be read' => [Component::Php, ['php' => ['opcache' => ['status' => ['opcache_enabled' => 'maybe']]] + self::php()], [], 'php.opcache_disabled', null];
+        yield 'OPcache turned off at runtime in debug' => [Component::Php, ['php' => self::php(['opcache' => ['status' => ['opcache_enabled' => false]]])], [], 'php.opcache_disabled', Severity::Info, true];
+        yield 'OPcache not loaded in debug' => [Component::Php, ['php' => ['opcache' => []] + self::php()], [], 'php.opcache_disabled', Severity::Info, true];
 
         yield 'OPcache memory 89.9 %' => [Component::Php, ['php' => self::opcacheMemory(899)], [], 'php.opcache_memory', null];
         yield 'OPcache memory 90 %' => [Component::Php, ['php' => self::opcacheMemory(900)], [], 'php.opcache_memory', Severity::Warning];
@@ -63,6 +65,8 @@ final class StackChecksTest extends TestCase
         yield 'OPcache hit rate 84.9 % of 1,000' => [Component::Php, ['php' => self::hitRate(849, 151)], [], 'php.opcache_hit_rate', Severity::Warning];
         yield 'OPcache hit rate 84.9 % of 999' => [Component::Php, ['php' => self::hitRate(848, 151)], [], 'php.opcache_hit_rate', null];
         yield 'OPcache hit rate 85 %' => [Component::Php, ['php' => self::hitRate(850, 150)], [], 'php.opcache_hit_rate', null];
+        yield 'OPcache hit rate 84.9 % of 1,000 in debug' => [Component::Php, ['php' => self::hitRate(849, 151)], [], 'php.opcache_hit_rate', null, true];
+        yield 'OPcache hit rate 10 % in debug' => [Component::Php, ['php' => self::hitRate(100_000, 900_000)], [], 'php.opcache_hit_rate', null, true];
 
         yield 'APCu memory 89.9 %' => [Component::Php, ['php' => self::apcuMemory(899)], [], 'php.apcu_memory', null];
         yield 'APCu memory 90 %' => [Component::Php, ['php' => self::apcuMemory(900)], [], 'php.apcu_memory', Severity::Warning];
