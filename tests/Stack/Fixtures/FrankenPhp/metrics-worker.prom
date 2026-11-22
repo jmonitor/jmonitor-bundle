@@ -1,0 +1,54 @@
+# HELP caddy_admin_http_requests_total Counter of requests made to the Admin API's HTTP endpoints.
+# TYPE caddy_admin_http_requests_total counter
+caddy_admin_http_requests_total{code="200",handler="metrics",method="GET",path="/metrics"} 12
+# HELP caddy_http_requests_total Counter of HTTP(S) requests made.
+# TYPE caddy_http_requests_total counter
+caddy_http_requests_total{handler="file_server",server="srv0"} 1536
+caddy_http_requests_total{handler="php",server="srv0"} 12000
+# HELP caddy_http_requests_in_flight Number of requests currently handled by this server.
+# TYPE caddy_http_requests_in_flight gauge
+caddy_http_requests_in_flight{handler="php",server="srv0"} 2
+# HELP frankenphp_busy_threads Number of threads currently processing a request.
+# TYPE frankenphp_busy_threads gauge
+frankenphp_busy_threads 13
+# HELP frankenphp_busy_workers Number of workers currently processing a request.
+# TYPE frankenphp_busy_workers gauge
+frankenphp_busy_workers{worker="/app/public/index.php"} 2
+frankenphp_busy_workers{worker="api"} 4
+# HELP frankenphp_queue_depth Number of regular queued requests.
+# TYPE frankenphp_queue_depth gauge
+frankenphp_queue_depth 0
+# HELP frankenphp_ready_workers Running workers that have successfully called frankenphp_handle_request at least once.
+# TYPE frankenphp_ready_workers gauge
+frankenphp_ready_workers{worker="/app/public/index.php"} 8
+frankenphp_ready_workers{worker="api"} 4
+# HELP frankenphp_total_threads Total number of PHP threads.
+# TYPE frankenphp_total_threads gauge
+frankenphp_total_threads 16
+# HELP frankenphp_total_workers Total number of workers.
+# TYPE frankenphp_total_workers gauge
+frankenphp_total_workers{worker="/app/public/index.php"} 8
+frankenphp_total_workers{worker="api"} 4
+# HELP frankenphp_worker_crashes Number of PHP worker crashes for this worker.
+# TYPE frankenphp_worker_crashes counter
+frankenphp_worker_crashes{worker="/app/public/index.php"} 1
+frankenphp_worker_crashes{worker="api"} 0
+# HELP frankenphp_worker_queue_depth Number of queued requests.
+# TYPE frankenphp_worker_queue_depth gauge
+frankenphp_worker_queue_depth{worker="/app/public/index.php"} 0
+frankenphp_worker_queue_depth{worker="api"} 2
+# HELP frankenphp_worker_request_count Number of requests processed by this worker.
+# TYPE frankenphp_worker_request_count counter
+frankenphp_worker_request_count{worker="/app/public/index.php"} 10000
+frankenphp_worker_request_count{worker="api"} 2000
+# HELP frankenphp_worker_request_time Time taken to process requests by this worker.
+# TYPE frankenphp_worker_request_time counter
+frankenphp_worker_request_time{worker="/app/public/index.php"} 125.5
+frankenphp_worker_request_time{worker="api"} 40
+# HELP frankenphp_worker_restarts Number of PHP worker restarts for this worker.
+# TYPE frankenphp_worker_restarts counter
+frankenphp_worker_restarts{worker="/app/public/index.php"} 3
+frankenphp_worker_restarts{worker="api"} 0
+# HELP go_goroutines Number of goroutines that currently exist.
+# TYPE go_goroutines gauge
+go_goroutines 42

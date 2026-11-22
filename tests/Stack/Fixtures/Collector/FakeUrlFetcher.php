@@ -15,7 +15,8 @@ final class FakeUrlFetcher extends UrlFetcher
     public ?string $url = null;
 
     public function __construct(
-        private readonly ?string $content,
+        public ?string $content,
+        private readonly ?\Throwable $failure = null,
     ) {}
 
     public function fetch(string $url): string
@@ -24,7 +25,7 @@ final class FakeUrlFetcher extends UrlFetcher
         $this->url = $url;
 
         if ($this->content === null) {
-            throw new \RuntimeException(sprintf('Failed to fetch "%s": Connection refused', $url));
+            throw $this->failure ?? new \RuntimeException(sprintf('Failed to fetch "%s": Connection refused', $url));
         }
 
         return $this->content;

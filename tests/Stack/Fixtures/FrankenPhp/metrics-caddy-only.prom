@@ -1,0 +1,13 @@
+# HELP caddy_admin_http_requests_total Counter of requests made to the Admin API's HTTP endpoints.
+# TYPE caddy_admin_http_requests_total counter
+caddy_admin_http_requests_total{code="200",handler="metrics",method="GET",path="/metrics"} 12
+# HELP caddy_http_requests_total Counter of HTTP(S) requests made.
+# TYPE caddy_http_requests_total counter
+caddy_http_requests_total{handler="file_server",server="srv0"} 1536
+caddy_http_requests_total{handler="php",server="srv0"} 12000
+# HELP caddy_http_requests_in_flight Number of requests currently handled by this server.
+# TYPE caddy_http_requests_in_flight gauge
+caddy_http_requests_in_flight{handler="php",server="srv0"} 2
+# HELP go_goroutines Number of goroutines that currently exist.
+# TYPE go_goroutines gauge
+go_goroutines 42
