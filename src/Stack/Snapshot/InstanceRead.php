@@ -18,7 +18,7 @@ final class InstanceRead
     /** @var array<string, CollectorResult> keyed by collector name */
     public array $results = [];
 
-    /** @var list<CacheItemInterface> */
+    /** @var list<array{item: CacheItemInterface, spec: CollectorSpec, value: bool}> value: false for a failure */
     public array $writes = [];
 
     /** proves the witness is ours, once set */
@@ -44,12 +44,12 @@ final class InstanceRead
         public readonly array $failures,
     ) {}
 
-    public function write(string $key, mixed $payload, int $seconds): void
+    public function write(CollectorSpec $spec, string $key, mixed $payload, int $seconds, bool $value): void
     {
         $item = $this->items[$key] ?? null;
 
         if ($item !== null) {
-            $this->writes[] = $item->set($payload)->expiresAfter($seconds);
+            $this->writes[] = ['item' => $item->set($payload)->expiresAfter($seconds), 'spec' => $spec, 'value' => $value];
         }
     }
 

@@ -30,6 +30,7 @@ final readonly class SnapshotProvider
     private const WITNESS_SECONDS = 300;
     private const BUILD_FAILURE_SECONDS = 60;
     private const FORGOTTEN_SECONDS = 604800;
+    private const REFUSED = 'The cache refused to keep this value, it may be too large.';
 
     private LoggerInterface $logger;
     private CacheKeys $keys;
@@ -68,6 +69,12 @@ final readonly class SnapshotProvider
                 $errors[$instance->key()] = $specs;
             } else {
                 $reads[$instance->key()] = $this->lookUp($instance, $specs, $guard, $now);
+            }
+        }
+
+        foreach ($reads as $read) {
+            if ($this->mayCollect($read, $budget, $cache, $guard)) {
+                $this->takeWitness($read, $guard);
             }
         }
 
@@ -222,17 +229,29 @@ final readonly class SnapshotProvider
             return $this->shown($spec, $value, $now, ResultState::Pending);
         }
 
-        $this->takeWitness($read, $guard);
-
-        if (!self::cacheAllows($spec, $cache, $guard)) {
-            return $this->shown($spec, $value, $now, ResultState::Pending);
-        }
-
         $startedAt = $this->seconds();
         $result = $this->collect($read, $spec, $guard);
         $budget->ran($spec->cost, $this->seconds() - $startedAt);
 
         return $result;
+    }
+
+    /**
+     * Whether a collector without a result may run now: the budget and the cache only allow less as the read goes on.
+     */
+    private function mayCollect(InstanceRead $read, CollectBudget $budget, CacheState $cache, CacheGuard $guard): bool
+    {
+        if ($read->busy) {
+            return false;
+        }
+
+        foreach ($read->specs as $spec) {
+            if (!isset($read->results[$spec->name]) && self::cacheAllows($spec, $cache, $guard) && $budget->allows($spec->cost)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -253,7 +272,7 @@ final readonly class SnapshotProvider
             $now = $this->now();
             $kept = self::keptFor($e, $spec->cost);
             $failure = new StoredFailure(self::describe($e), $now + $kept, $read->forgotten);
-            $read->write($this->keys->failure($read->instance, $spec), $failure->toCache(), $kept);
+            $read->write($spec, $this->keys->failure($read->instance, $spec), $failure->toCache(), $kept, value: false);
 
             return $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $failure->error, $failure->until);
         }
@@ -261,7 +280,7 @@ final readonly class SnapshotProvider
         $now = $this->now();
         $delta = $spec->trackDelta ? $guard->attempt(fn(): ?Delta => $this->deltas->track($this->keys->suffix($read->instance, $spec), $data, $now), null) : null;
         $value = new StoredValue($data, $now, $delta, $read->forgotten);
-        $read->write($this->keys->result($read->instance, $spec), $value->toCache(), $spec->lifetime->keptFor());
+        $read->write($spec, $this->keys->result($read->instance, $spec), $value->toCache(), $spec->lifetime->keptFor(), value: true);
 
         return $this->shown($spec, $value, $now);
     }
@@ -294,20 +313,21 @@ final readonly class SnapshotProvider
     {
         if ($read->writes !== []) {
             $committed = $guard->attempt(function () use ($read): bool {
-                foreach ($read->writes as $item) {
-                    $this->cache->saveDeferred($item);
+                foreach ($read->writes as $write) {
+                    $this->cache->saveDeferred($write['item']);
                 }
 
                 return $this->cache->commit();
             }, false);
 
-            if (!$committed) {
+            if (!$committed && $guard->works()) {
                 $guard->refused('the values of ' . $read->instance->key(), false);
+                $this->writeOneByOne($read, $guard);
             }
         }
 
         if ($read->token !== null) {
-            $this->liftWitness($read->instance, $read->token);
+            $this->liftWitness($read->instance, $read->token, $guard);
         }
 
         if ($read->ran) {
@@ -324,19 +344,40 @@ final readonly class SnapshotProvider
     }
 
     /**
-     * Whatever happened to the cache since it was taken: a witness left behind holds every reader off.
+     * A value the cache refuses, one too large for it, leaves a failure in its place: without it, its collector
+     * would run again at every display.
      */
-    private function liftWitness(Instance $instance, string $token): void
+    private function writeOneByOne(InstanceRead $read, CacheGuard $guard): void
+    {
+        foreach ($read->writes as ['item' => $item, 'spec' => $spec, 'value' => $value]) {
+            $saved = $guard->attempt(fn(): bool => $this->cache->save($item), false);
+
+            if ($saved || !$value || $spec->cost === CostClass::Immediate) {
+                continue;
+            }
+
+            $failure = $read->items[$this->keys->failure($read->instance, $spec)] ?? null;
+
+            if ($failure !== null) {
+                $kept = self::keptAfterFailure($spec->cost);
+                $refused = new StoredFailure(self::REFUSED, $this->now() + $kept, $read->forgotten);
+                $guard->attempt(fn(): bool => $this->cache->save($failure->set($refused->toCache())->expiresAfter($kept)), false);
+            }
+        }
+    }
+
+    /**
+     * A witness left behind holds every reader off.
+     */
+    private function liftWitness(Instance $instance, string $token, CacheGuard $guard): void
     {
         $witness = $this->keys->witness($instance);
 
-        try {
+        $guard->lift(function () use ($witness, $token): void {
             if ($this->cache->getItem($witness)->get() === $token) {
                 $this->cache->deleteItem($witness);
             }
-        } catch (\Throwable) {
-            // it expires on its own
-        }
+        });
     }
 
     private function shown(CollectorSpec $spec, ?StoredValue $value, int $now, ResultState $withoutValue = ResultState::Pending, ?string $error = null, ?int $retryAt = null): CollectorResult
@@ -383,9 +424,13 @@ final readonly class SnapshotProvider
         return match (true) {
             $has(MissingPrerequisiteException::class) => 3600,
             $has(UnreachableServerException::class) => 60,
-            $cost === CostClass::Slow => 600,
-            default => 10,
+            default => self::keptAfterFailure($cost),
         };
+    }
+
+    private static function keptAfterFailure(CostClass $cost): int
+    {
+        return $cost === CostClass::Slow ? 600 : 10;
     }
 
     private static function describe(\Throwable $e): string

@@ -10,12 +10,16 @@ use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 /**
  * Reads, but reports its writes as failed without throwing: a full disk, or a Redis that refuses writes.
+ * With $maxBytes, it only refuses the values larger than that once serialized, like a Memcached under its item size.
  */
 final class RefusingCachePool implements CacheItemPoolInterface
 {
+    private bool $deferredRefused = false;
+
     public function __construct(
         private readonly bool $refusesSave = true,
         public readonly CacheItemPoolInterface $inner = new ArrayAdapter(),
+        private readonly ?int $maxBytes = null,
     ) {}
 
     public function getItem(string $key): CacheItemInterface
@@ -50,16 +54,42 @@ final class RefusingCachePool implements CacheItemPoolInterface
 
     public function save(CacheItemInterface $item): bool
     {
-        return !$this->refusesSave && $this->inner->save($item);
+        if ($this->maxBytes === null) {
+            return !$this->refusesSave && $this->inner->save($item);
+        }
+
+        return $this->fits($item) && $this->inner->save($item);
     }
 
     public function saveDeferred(CacheItemInterface $item): bool
     {
-        return false;
+        if ($this->maxBytes === null) {
+            return false;
+        }
+
+        if (!$this->fits($item)) {
+            $this->deferredRefused = true;
+
+            return false;
+        }
+
+        return $this->inner->saveDeferred($item);
     }
 
     public function commit(): bool
     {
-        return false;
+        if ($this->maxBytes === null) {
+            return false;
+        }
+
+        $refused = $this->deferredRefused;
+        $this->deferredRefused = false;
+
+        return $this->inner->commit() && !$refused;
+    }
+
+    private function fits(CacheItemInterface $item): bool
+    {
+        return strlen(serialize($item->get())) <= $this->maxBytes;
     }
 }

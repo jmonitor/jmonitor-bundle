@@ -16,6 +16,7 @@ use Psr\Log\LoggerInterface;
 final class CacheGuard
 {
     private bool $refusalLogged = false;
+    private bool $lifts = true;
 
     public function __construct(
         private readonly LoggerInterface $logger,
@@ -51,6 +52,25 @@ final class CacheGuard
             ]);
 
             return $fallback;
+        }
+    }
+
+    /**
+     * Runs an operation whatever happened to the cache since the read began, until one of them throws:
+     * the next ones would wait on the same broken backend.
+     *
+     * @param \Closure(): void $operation
+     */
+    public function lift(\Closure $operation): void
+    {
+        if (!$this->lifts) {
+            return;
+        }
+
+        try {
+            $operation();
+        } catch (\Throwable) {
+            $this->lifts = false;
         }
     }
 
