@@ -405,7 +405,7 @@ Neither delays the first display of the screen: they run when the page reads wha
 
 The values live in the `jmonitor.stack.cache` pool, built on `cache.app` with keys of their own. It shows in `cache:pool:list` and in the Cache panel of the profiler, `cache:pool:clear jmonitor.stack.cache` empties it, and its reads are not counted on the Cache screen. The stack needs a cache that keeps its values from one request to the next: with `cache.app` on the `array` or `null` adapter, or a cache that is down, the screen says so and only shows what PHP reads in its own process, without the end-of-life dates or the Flex recipes, and `Refresh` does nothing.
 
-Each web server keeps its own figures in that cache, under its host name, and the screen names the one that answered. In containers, give each web server its own host name: two containers that share one, through a fixed `hostname` in Compose for instance, mix their values.
+Each web server keeps its own figures in that cache, under its host name, and the screen names the one that answered. In containers, give each web server its own host name: two containers that share one, through a fixed `hostname` in Compose for instance, mix their values. The badge of the navigation and the figures of the server, PHP and Symfony are those of the web server that answered, while the 10-second bound of `Refresh` is shared by all the web servers that share the cache.
 
 To silence a check, add its identifier to `ignore_checks`: it is no longer shown, nor counted in the verdict of its component or in the badge. The identifiers:
 
@@ -415,7 +415,7 @@ To silence a check, add its identifier to `ignore_checks`: it is no longer shown
 | `system.disk` | the disk is 85% full or more (`Critical` from 95%) |
 | `system.load` | the load over 1 minute reaches 100% of the CPU cores (`Critical` from 200%, `Info` in a container) |
 | `php.opcache_disabled` | OPcache is not running, or its status cannot be read (`Info` in debug mode) |
-| `php.opcache_memory` | OPcache memory is 90% full or more (`Critical` when full) |
+| `php.opcache_memory` | OPcache memory is 90% full or more, wasted memory counting as used (`Critical` when full) |
 | `php.opcache_hit_rate` | the OPcache hit rate is below 85% over at least 1,000 lookups, outside debug mode |
 | `php.apcu_memory` | APCu memory is 90% full or more |
 | `php.fpm_queue` | requests are waiting for a PHP-FPM worker |
