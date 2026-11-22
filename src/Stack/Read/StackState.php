@@ -33,10 +33,15 @@ final class StackState
     }
 
     /**
-     * Whether a read instance still waits for a value; an instance listed without being read does not.
+     * Whether a read instance still waits for a value; an instance listed without being read does not,
+     * nor does one that a cache out of order keeps pending for good.
      */
     public function isReading(): bool
     {
+        if ($this->cache === CacheState::OutOfOrder) {
+            return false;
+        }
+
         foreach ($this->components as $component) {
             foreach ($component->instances as $instance) {
                 if ($instance->snapshot?->isReading() === true) {

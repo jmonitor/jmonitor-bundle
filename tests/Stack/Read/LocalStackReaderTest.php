@@ -252,6 +252,25 @@ final class LocalStackReaderTest extends TestCase
         self::assertFalse($fragment->isReading());
     }
 
+    public function testAReadThatCannotProgressIsNotReading(): void
+    {
+        $registry = Detectors::registry(['php' => self::detector(
+            Component::Php,
+            self::spec(new FakeCollector('php.status')),
+            self::spec(new FakeCollector('php.remote'), cost: CostClass::Network),
+        )], self::settings());
+
+        $outOfOrder = $this->reader($registry, new ArrayAdapter())->overview(ReadMode::Page);
+        $cold = $this->reader($registry)->overview(ReadMode::Page);
+
+        self::assertSame(CacheState::OutOfOrder, $outOfOrder->cache);
+        self::assertSame(ResultState::Pending, $outOfOrder->component(Component::Php)?->instances[0]->snapshot?->result('php.remote')?->state);
+        self::assertFalse($outOfOrder->isReading());
+        self::assertSame(CacheState::Cold, $cold->cache);
+        self::assertSame(ResultState::Pending, $cold->component(Component::Php)?->instances[0]->snapshot?->result('php.remote')?->state);
+        self::assertTrue($cold->isReading());
+    }
+
     public function testRefreshForgetsWhatTheScreenShows(): void
     {
         $collectors = [];
