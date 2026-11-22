@@ -71,6 +71,6 @@
         "lint:check": "./vendor/bin/php-cs-fixer check --verbose --diff",
         "lint:fix": "./vendor/bin/php-cs-fixer fix --verbose --diff",
         "phpstan": "./vendor/bin/phpstan",
-        "phpunit": "./vendor/bin/phpunit tests"
+        "phpunit": "php -d memory_limit=-1 vendor/bin/phpunit tests"
     }
 }

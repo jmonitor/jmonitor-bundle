@@ -23,7 +23,7 @@ composer lint:fix
 ./vendor/bin/phpunit tests/path/to/TestFile.php
 ```
 
-The full suite needs more than 512 MB of memory in one process: where PHP is limited to that, run it with `php -d memory_limit=1G vendor/bin/phpunit tests`.
+`composer phpunit` lifts the memory limit, which the full suite needs; a direct call of `vendor/bin/phpunit` on the whole suite needs `-d memory_limit=-1`.
 
 ## EasyAdmin integration
 
