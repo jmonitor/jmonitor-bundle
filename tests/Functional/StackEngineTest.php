@@ -24,7 +24,6 @@ use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\Group;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\KernelInterface;
@@ -102,9 +101,10 @@ final class StackEngineTest extends WebTestCase
         $page = $container->get(JmonitorPage::class);
         static::assertInstanceOf(JmonitorPage::class, $page);
         $page->page(Request::create('/'), 'requests', new FakeHostUrls());
+        $services = array_values(array_diff(self::SERVICES, ['jmonitor.stack.cache']));
 
-        self::assertNotBuilt($container, self::SERVICES);
-        self::assertBuiltByARead($container, self::SERVICES);
+        self::assertNotBuilt($container, $services);
+        self::assertBuiltByARead($container, $services);
     }
 
     #[Group('easyadmin')]
@@ -187,20 +187,6 @@ final class StackEngineTest extends WebTestCase
 
         $client->request('GET', '/jmonitor/requests');
         static::assertResponseStatusCodeSame(200);
-    }
-
-    public function testNoScreenIsAddedYet(): void
-    {
-        $client = static::createClient();
-
-        $client->request('GET', '/jmonitor/stack');
-        static::assertResponseStatusCodeSame(404);
-
-        $crawler = $client->request('GET', '/jmonitor/requests');
-        static::assertResponseIsSuccessful();
-        $entries = $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text());
-        static::assertContains('Requests', $entries);
-        static::assertNotContains('Stack', $entries);
     }
 
     private static function assertFreshValues(ComponentState $component): void

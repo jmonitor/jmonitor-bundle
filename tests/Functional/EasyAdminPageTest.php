@@ -22,6 +22,7 @@ final class EasyAdminPageTest extends WebTestCase
     private const USER = ['PHP_AUTH_USER' => 'user', 'PHP_AUTH_PW' => 'test'];
     private const SUPER = ['PHP_AUTH_USER' => 'super', 'PHP_AUTH_PW' => 'test'];
     private const SAME_ORIGIN = ['HTTP_SEC_FETCH_SITE' => 'same-origin'];
+    private const STACK = ['end_of_life' => false, 'symfony' => ['flex' => false]];
 
     private const VARIABLES = ['JMONITOR_TEST_PERMISSION', 'JMONITOR_TEST_ABSENT'];
 
@@ -217,6 +218,41 @@ final class EasyAdminPageTest extends WebTestCase
         $client->request('POST', '/staff/jmonitor/_action/probe', ['action' => 'ping'], server: self::SAME_ORIGIN);
         static::assertResponseStatusCodeSame(303);
         static::assertResponseRedirects('/staff/jmonitor/probe');
+    }
+
+    public function testTheStackShowsUnderEasyAdmin(): void
+    {
+        $client = $this->client(['jmonitor' => ['stack' => self::STACK]]);
+
+        $crawler = $client->request('GET', '/admin/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('body.ea'));
+        static::assertCount(1, $crawler->filter('.jm [data-jm-component="php"]'));
+        static::assertCount(1, $crawler->filter('.jm [data-jm-component="symfony"]'));
+        static::assertSame('/admin/jmonitor/stack', $crawler->filter('.jm .jm-nav__item[aria-current="page"]')->attr('href'));
+        static::assertSame('/admin/jmonitor/stack/php', $crawler->filter('.jm [data-jm-component="php"] a')->attr('href'));
+        foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
+            static::assertStringStartsWith('/admin/jmonitor', $url);
+        }
+    }
+
+    public function testRefreshWorksThroughEasyAdmin(): void
+    {
+        $client = $this->client(['jmonitor' => ['stack' => self::STACK]]);
+
+        $crawler = $client->request('GET', '/admin/jmonitor/stack');
+        static::assertCount(1, $crawler->filter('.jm form[action="/admin/jmonitor/_action/stack"] button'));
+
+        $client->request('POST', '/admin/jmonitor/_action/stack', ['action' => 'refresh'], server: self::SAME_ORIGIN);
+        static::assertResponseStatusCodeSame(303);
+        static::assertResponseRedirects('/admin/jmonitor/stack');
+
+        $client->request('POST', '/admin/jmonitor/_action/stack', ['action' => 'refresh'], server: ['HTTP_SEC_FETCH_SITE' => 'cross-site']);
+        static::assertResponseStatusCodeSame(403);
+
+        $client->request('GET', '/admin/jmonitor/stack');
+        static::assertResponseIsSuccessful();
     }
 
     public function testWithCsrfTheActionNeedsTheTokenOfThePage(): void

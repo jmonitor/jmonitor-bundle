@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack;
 
+use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
+use Jmonitor\JmonitorBundle\Dashboard\Assets;
+use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
@@ -14,24 +21,39 @@ use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
+use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
+use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
+use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
+use Jmonitor\JmonitorBundle\Tests\Dashboard\FakeHostUrls;
+use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\Detectors;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\StaticDetector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ForgetfulCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ThrowingCachePool;
+use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Cache\CacheItemPoolInterface;
+use Psr\Log\AbstractLogger;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Cache\Adapter\NullAdapter;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\DependencyInjection\ServiceLocator;
+use Symfony\Component\DomCrawler\Crawler;
+use Symfony\Component\HttpFoundation\Request;
+use Twig\Environment;
+use Twig\Loader\FilesystemLoader;
 
 /**
  * Viewers of the stack within one lifetime of its values cost the monitored servers what one viewer costs.
@@ -49,6 +71,9 @@ final class DisplayCostTest extends TestCase
     private array $collectors = [];
 
     private ComponentRegistry $registry;
+
+    /** @var list<string> the services the Stack screen asked for */
+    private array $built = [];
 
     protected function setUp(): void
     {
@@ -162,6 +187,63 @@ final class DisplayCostTest extends TestCase
         self::assertLessThanOrEqual(2 * count(Component::cases()) + 2, $cache->roundTrips());
     }
 
+    public function testAWarmStackScreenCostsAtMostTwoRoundTripsPerCardPlusTwo(): void
+    {
+        $cache = new CountingCachePool();
+        $this->renderer($cache)->page(Request::create('/'), 'stack', new FakeHostUrls());
+        $this->renderer($cache)->fragment(Request::create('/'), 'stack', new FakeHostUrls());
+        $calls = $this->calls();
+        $cache->reset();
+
+        $html = (string) $this->renderer($cache)->fragment(Request::create('/'), 'stack', new FakeHostUrls())->getContent();
+
+        self::assertSame($calls, $this->calls(), 'warm: nothing is collected');
+        $cards = (new Crawler($html))->filter('[data-jm-component]')->count();
+        self::assertSame(count(Component::cases()), $cards);
+        self::assertLessThanOrEqual(2 * $cards + 2, $cache->roundTrips(), json_encode($cache->calls, \JSON_THROW_ON_ERROR));
+    }
+
+    public function testAnApplicationScreenCostsOneRoundTripForTheBadge(): void
+    {
+        $cache = new CountingCachePool();
+        $this->renderer($cache)->page(Request::create('/'), 'stack', new FakeHostUrls());
+        $calls = $this->calls();
+        $cache->reset();
+        $this->built = [];
+
+        $this->renderer($cache)->page(Request::create('/'), 'requests', new FakeHostUrls());
+
+        self::assertSame(['getItem' => 1], $cache->calls);
+        self::assertSame([StackSummary::class], $this->built);
+        self::assertSame($calls, $this->calls());
+    }
+
+    public function testFiftyPagesAskedForTheRestInTenSecondsCostOneCallPerCollector(): void
+    {
+        $cache = new CountingCachePool();
+        $html = '';
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $html = $this->renderer($cache)->page(Request::create('/', parameters: ['rest' => '1']), 'stack', new FakeHostUrls())->html;
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+        }
+
+        self::assertSame(['Immediate' => [1, 1, 1], 'Network' => [1, 1, 1], 'Slow' => [1, 1, 1]], $this->calls());
+        self::assertStringNotContainsString('data-jm-rest', $html);
+    }
+
+    public function testAPoolThatThrowsNeverBreaksAnApplicationScreen(): void
+    {
+        $logger = self::logger();
+
+        $html = $this->renderer(new ThrowingCachePool(), $logger)->page(Request::create('/'), 'requests', new FakeHostUrls())->html;
+
+        $crawler = new Crawler($html);
+        self::assertSame('Requests', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        self::assertSame('<span data-jm-slot="nav-stack"></span>', $crawler->filter('[data-jm-slot="nav-stack"]')->outerHtml());
+        self::assertSame(['warning The summary of the live stack could not be read: Connection refused'], $logger->messages);
+    }
+
     /**
      * @param \Closure(): LocalStackReader $reader the reader of each display
      */
@@ -191,5 +273,54 @@ final class DisplayCostTest extends TestCase
         $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, $node);
 
         return new LocalStackReader($this->registry, $snapshots, new CacheProbe($cache, $this->clock), $cache, $this->clock, $node);
+    }
+
+    /**
+     * The page of one request: the Requests and Stack screens on a reader, checks and summary of their own,
+     * which share the collectors and the cache of the test.
+     */
+    private function renderer(CacheItemPoolInterface $cache, ?LoggerInterface $logger = null): PageRenderer
+    {
+        $node = new WebNode('web-1');
+        $services = [
+            StackReaderInterface::class => fn(): StackReaderInterface => $this->reader($cache),
+            StackChecks::class => fn(): StackChecks => new StackChecks([], false, $this->clock),
+            StackSummary::class => fn(): StackSummary => new StackSummary(new ServiceLocator(['cache' => static fn(): CacheItemPoolInterface => $cache]), $node, $this->clock, $logger),
+        ];
+        $screen = new StackScreen(new ServiceLocator(array_map(fn(\Closure $factory): \Closure => function () use ($factory): object {
+            $service = $factory();
+            $this->built[] = $service instanceof StackReaderInterface ? StackReaderInterface::class : $service::class;
+
+            return $service;
+        }, $services)), new CardBuilder($this->clock), $this->clock);
+
+        $loader = new FilesystemLoader();
+        $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');
+        $twig = new Environment($loader, ['autoescape' => false, 'strict_variables' => true]);
+        $twig->addExtension(new JmonitorExtension());
+
+        return new PageRenderer(
+            new ScreenRegistry([new RequestsScreen(), $screen]),
+            new ScreenBuilder(new FixedReader(), true, $this->clock),
+            null,
+            $twig,
+            new Assets(),
+            new ActionGuard(),
+            $logger,
+        );
+    }
+
+    /** @return AbstractLogger&object{messages: list<string>} */
+    private static function logger(): AbstractLogger
+    {
+        return new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $messages = [];
+
+            public function log($level, \Stringable|string $message, array $context = []): void
+            {
+                $this->messages[] = $level . ' ' . strtr((string) $message, ['{reason}' => (string) ($context['reason'] ?? '')]);
+            }
+        };
     }
 }

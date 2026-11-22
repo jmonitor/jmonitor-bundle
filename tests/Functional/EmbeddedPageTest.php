@@ -254,7 +254,7 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertResponseIsSuccessful();
         $screen = $crawler->filter('.jm-screen');
         static::assertSame('mixed', $screen->attr('data-jm-state'));
-        static::assertSame(['jm-cards', 'jm-state jm-state--info'], $screen->children()->each(static fn(Crawler $block): string => (string) $block->attr('class')));
+        static::assertSame(['jm-cards', 'jm-state jm-state--info'], $screen->children(':not(template)')->each(static fn(Crawler $block): string => (string) $block->attr('class')));
         static::assertSame('Runs', $screen->filter('.jm-cards .jm-card__label')->text());
         static::assertSame('Nothing probed yet', $screen->filter('.jm-state .jm-state__title')->text());
     }
