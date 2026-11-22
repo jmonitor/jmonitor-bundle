@@ -252,7 +252,7 @@ php bin/console jmonitor:collect -vv --memory-limit=32M --time-limit=3600
 
 The bundle can also record the HTTP requests your application serves, its console commands, the messages its Messenger workers handle and its scheduled tasks, with the SQL queries, outgoing HTTP calls, cache reads, writes and deletes, exceptions and signed-in users behind them, and show them on a `/jmonitor` page, over the last hour, 6 hours, 24 hours or 7 days:
 
-- **Requests** (`/jmonitor/`): requests, response times (average, p95, max), SQL time and number of queries, time spent in outgoing HTTP calls (`HTTP out`), slow requests, 5xx errors and peak memory, per route.
+- **Requests** (`/jmonitor/`, or `/jmonitor/requests` when nothing is recorded and the page opens on Stack): requests, response times (average, p95, max), SQL time and number of queries, time spent in outgoing HTTP calls (`HTTP out`), slow requests, 5xx errors and peak memory, per route.
 - **Queries** (`/jmonitor/queries`): executions, total, average and maximum time and slow executions per SQL query, and the queries repeated within one request, command, message or task (N+1).
 - **Commands** (`/jmonitor/commands`): runs, average and maximum duration, failures (non-zero exit code), peak memory, last run and SQL time, per console command.
 - **Messages** (`/jmonitor/messages`): messages sent and handled, handling time (average, p95, max), failures, retries and SQL time, per message class.
@@ -261,10 +261,11 @@ The bundle can also record the HTTP requests your application serves, its consol
 - **Cache** (`/jmonitor/cache`): hits, misses, hit rate, writes and deletes, per cache pool.
 - **Exceptions** (`/jmonitor/exceptions`): count and last occurrence per exception class, and per class and route, command, message or task.
 - **Users** (`/jmonitor/users`): requests, total and average time, slow requests and 5xx errors, per signed-in user.
+- **Stack** (`/jmonitor/stack`): the server, PHP and Symfony, read live rather than recorded, with what to check; see [The live stack](#the-live-stack).
 
 A screen only appears when its component is installed and its recording option is on: HTTP client needs the `http_client` service of the framework, Users needs the SecurityBundle, Messages needs `symfony/messenger` and Scheduler needs `symfony/scheduler`, each enabled in the framework configuration.
 
-It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` and `jmonitor_keys` tables are created automatically in the configured connection, upgraded automatically when a new version of the bundle changes them, and Doctrine migrations will not try to drop them. Tables created by an earlier development build of 3.x are dropped and recreated, losing the metrics they held. Your database receives batched writes, never one write per request or per query: web requests and Messenger workers write at most once per `flush_interval` per server, and a command writes when it ends, at most once per second for each user that runs PHP.
+It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`), except for the Stack screen, and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` and `jmonitor_keys` tables are created automatically in the configured connection, upgraded automatically when a new version of the bundle changes them, and Doctrine migrations will not try to drop them. Tables created by an earlier development build of 3.x are dropped and recreated, losing the metrics they held. Your database receives batched writes, never one write per request or per query: web requests and Messenger workers write at most once per `flush_interval` per server, and a command writes when it ends, at most once per second for each user that runs PHP.
 
 If the database user of your application is not allowed to create tables, run `php bin/console jmonitor:setup` at deployment with a user that is. It creates or upgrades the two tables, or tells you they are up to date.
 
@@ -312,6 +313,15 @@ jmonitor:
     easyadmin:
         enabled: false        # show the screens inside EasyAdmin
         permission: ~         # role or voter attribute required to see them there
+    stack:                    # the Stack screen, see "The live stack" below
+        enabled: true
+        end_of_life: true     # look up support dates on endoflife.date
+        ignore_checks: []     # identifiers of the checks to silence
+        system: auto
+        php: auto
+        symfony:
+            enabled: auto
+            flex: true        # run `composer recipes` to list the outdated Flex recipes
 ```
 
 `recording.enabled` can come from an environment variable, read at runtime, to switch recording off without a new deployment:
@@ -377,7 +387,7 @@ jmonitor:
         enabled: true         # false: no Stack screen and nothing read; `stack: false` does the same
         end_of_life: true     # look up the support dates of PHP and Symfony on endoflife.date, once a day
         ignore_checks: []     # identifiers of the checks to silence, e.g. ['symfony.flex_recipes']
-        system: auto          # auto: read when found; true: also shown, with the reason, when it cannot be read; false: never read
+        system: auto          # auto: read when found, otherwise the reason shows on the "Not detected" line; true: its card stays, with the reason, when it cannot be read; false: never read
         php: auto             # same values
         symfony:
             enabled: auto     # same values; `symfony: false` does the same
@@ -391,7 +401,7 @@ The stack makes two calls outside the web server, each with its switch:
 
 Neither delays the first display of the screen: they run when the page reads what it still lacks.
 
-The `stack` option cannot be read from an environment variable: its services are registered when the container is built.
+`stack` and `stack.enabled` cannot be read from an environment variable: the services of the stack are registered when the container is built.
 
 The values live in the `jmonitor.stack.cache` pool, built on `cache.app` with keys of their own. It shows in `cache:pool:list` and in the Cache panel of the profiler, `cache:pool:clear jmonitor.stack.cache` empties it, and its reads are not counted on the Cache screen. The stack needs a cache that keeps its values from one request to the next: with `cache.app` on the `array` or `null` adapter, or a cache that is down, the screen says so and only shows what PHP reads in its own process, without the end-of-life dates or the Flex recipes, and `Refresh` does nothing.
 
@@ -482,7 +492,8 @@ composer require jmonitor/jmonitor-bundle
 | `jmonitor_easyadmin` | Here |
 |---|---|
 | `permission` | `jmonitor.easyadmin.permission` |
-| `cache_pool`, `polling_interval`, `static_ttl`, `exclude_connections`, `components.*` | no equivalent |
+| `components.system.enabled`, `components.php.enabled`, `components.symfony.enabled`, `components.symfony.flex` | `jmonitor.stack.system`, `jmonitor.stack.php`, `jmonitor.stack.symfony.enabled`, `jmonitor.stack.symfony.flex` |
+| `cache_pool`, `polling_interval`, `static_ttl`, `exclude_connections`, the other `components.*` | no equivalent |
 
 The menu link and its route name, `admin_jmonitor_index` for a dashboard whose route is `admin`, do not change. The addresses of the former tabs, such as `/admin/jmonitor/mysql`, answer 404.
 
