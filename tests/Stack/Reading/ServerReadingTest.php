@@ -66,6 +66,19 @@ final class ServerReadingTest extends TestCase
         self::assertNull($reading->diskPercent);
     }
 
+    public function testDifferencesBeyondTheIntegerRangeGiveNulls(): void
+    {
+        $reading = ServerReading::of(Snapshots::of(Component::System, ['system' => [
+            'ram' => ['total' => PHP_INT_MAX, 'available' => -10],
+            'disk' => ['total' => PHP_INT_MAX, 'free' => -1],
+        ]]));
+
+        self::assertNull($reading->memoryUsed);
+        self::assertNull($reading->memoryPercent);
+        self::assertNull($reading->diskUsed);
+        self::assertNull($reading->diskPercent);
+    }
+
     public function testAnEmptySnapshotGivesNulls(): void
     {
         foreach ([new ComponentSnapshot(Component::System, []), Snapshots::of(Component::System, [], ['system' => ResultState::Failed])] as $snapshot) {

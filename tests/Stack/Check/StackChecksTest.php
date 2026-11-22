@@ -49,10 +49,16 @@ final class StackChecksTest extends TestCase
         yield 'OPcache not loaded' => [Component::Php, ['php' => ['opcache' => []] + self::php()], [], 'php.opcache_disabled', Severity::Warning];
         yield 'OPcache told off' => [Component::Php, ['php' => ['opcache' => false] + self::php()], [], 'php.opcache_disabled', Severity::Warning];
         yield 'OPcache not told' => [Component::Php, ['php' => array_diff_key(self::php(), ['opcache' => true])], [], 'php.opcache_disabled', null];
+        yield 'OPcache null' => [Component::Php, ['php' => ['opcache' => null] + self::php()], [], 'php.opcache_disabled', null];
+        yield 'OPcache as a string' => [Component::Php, ['php' => ['opcache' => 'on'] + self::php()], [], 'php.opcache_disabled', null];
+        yield 'OPcache status and config of unknown shape' => [Component::Php, ['php' => ['opcache' => ['status' => 'x', 'config' => 5]] + self::php()], [], 'php.opcache_disabled', null];
+        yield 'OPcache flag that cannot be read' => [Component::Php, ['php' => ['opcache' => ['status' => ['opcache_enabled' => 'maybe']]] + self::php()], [], 'php.opcache_disabled', null];
 
         yield 'OPcache memory 89.9 %' => [Component::Php, ['php' => self::opcacheMemory(899)], [], 'php.opcache_memory', null];
         yield 'OPcache memory 90 %' => [Component::Php, ['php' => self::opcacheMemory(900)], [], 'php.opcache_memory', Severity::Warning];
         yield 'OPcache full at 50 %' => [Component::Php, ['php' => self::opcacheMemory(500, true)], [], 'php.opcache_memory', Severity::Critical];
+        yield 'OPcache memory 89.9 % with wasted memory' => [Component::Php, ['php' => self::opcacheMemory(799, wasted: 100)], [], 'php.opcache_memory', null];
+        yield 'OPcache memory 90 % with wasted memory' => [Component::Php, ['php' => self::opcacheMemory(800, wasted: 100)], [], 'php.opcache_memory', Severity::Warning];
 
         yield 'OPcache hit rate 84.9 % of 1,000' => [Component::Php, ['php' => self::hitRate(849, 151)], [], 'php.opcache_hit_rate', Severity::Warning];
         yield 'OPcache hit rate 84.9 % of 999' => [Component::Php, ['php' => self::hitRate(848, 151)], [], 'php.opcache_hit_rate', null];
@@ -122,6 +128,56 @@ final class StackChecksTest extends TestCase
 
         self::assertSame('Memory is 93% used', self::find($health, 'system.memory')?->sentence);
         self::assertSame('OPcache memory is 93.5% full', self::find($health, 'php.opcache_memory')?->sentence);
+    }
+
+    public function testAFullOpcacheMayLackMemoryOrKeys(): void
+    {
+        $finding = self::find(self::checks()->health(Snapshots::stack(Snapshots::of(Component::Php, ['php' => self::opcacheMemory(500, true)]))), 'php.opcache_memory');
+
+        self::assertSame('OPcache is full', $finding?->sentence);
+        self::assertStringContainsString('opcache.memory_consumption', $finding->explanation);
+        self::assertStringContainsString('opcache.max_accelerated_files', $finding->explanation);
+    }
+
+    public function testAnOpcacheStatusThatCannotBeReadIsNotSaidToBeOff(): void
+    {
+        $unread = self::find(self::checks()->health(Snapshots::stack(Snapshots::of(Component::Php, ['php' => ['opcache' => []] + self::php()]))), 'php.opcache_disabled');
+        $off = self::find(self::checks()->health(Snapshots::stack(Snapshots::of(Component::Php, ['php' => self::php(['opcache' => ['status' => ['opcache_enabled' => false]]])]))), 'php.opcache_disabled');
+
+        self::assertSame('OPcache is not running, or its status cannot be read', $unread?->sentence);
+        self::assertStringContainsString('opcache.enable', $unread->explanation);
+        self::assertStringContainsString('opcache.restrict_api', $unread->explanation);
+        self::assertSame('OPcache is not running', $off?->sentence);
+    }
+
+    /**
+     * @return iterable<string, array{int, int, ?array{int, int}, ?string}>
+     */
+    public static function hitRateSpans(): iterable
+    {
+        yield 'no lookup between the samples' => [500_000, 500_000, [500_000, 500_000], 'OPcache hit rate is 50% since server start'];
+        yield 'too few lookups between the samples' => [500_000, 500_000, [499_800, 499_800], 'OPcache hit rate is 50% since server start'];
+        yield 'enough lookups between the samples' => [500_000, 500_000, [499_500, 499_500], 'OPcache hit rate is 50% over the last 60 s'];
+        yield 'a bad variation beats a good cumulated rate' => [990_500, 10_500, [990_000, 10_000], 'OPcache hit rate is 50% over the last 60 s'];
+        yield 'a good variation beats a bad cumulated rate' => [500_990, 500_010, [500_000, 500_000], null];
+        yield 'too few lookups either way' => [500, 499, [450, 449], null];
+        yield 'too few lookups and no second sample' => [500, 499, null, null];
+    }
+
+    /**
+     * @param ?array{int, int} $previous hits and misses of the previous sample
+     */
+    #[DataProvider('hitRateSpans')]
+    public function testTheHitRateJudgesTheVariationWhenItHoldsEnoughLookups(int $hits, int $misses, ?array $previous, ?string $expected): void
+    {
+        $deltas = $previous === null ? [] : ['php' => Snapshots::delta(
+            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => $previous[0], 'misses' => $previous[1]]]]],
+            ['opcache' => ['status' => ['opcache_statistics' => ['hits' => $hits, 'misses' => $misses]]]],
+        )];
+
+        $finding = self::find(self::checks()->health(Snapshots::stack(Snapshots::of(Component::Php, ['php' => self::hitRate($hits, $misses)], deltas: $deltas))), 'php.opcache_hit_rate');
+
+        self::assertSame($expected, $finding?->sentence);
     }
 
     public function testTheLoadIsOnlyInformativeInAContainer(): void
@@ -256,6 +312,7 @@ final class StackChecksTest extends TestCase
                     'display_errors' => ['On'],
                     'realpath_cache_size' => '16Q',
                     'apcu' => 'on',
+                    'opcache' => ['status' => ['opcache_enabled' => 'maybe', 'cache_full' => 'yes please'], 'config' => 5],
                     'fpm' => ['listen-queue' => 'many', 'max-children-reached' => NAN],
                 ],
                 'eol.php' => ['cycles' => 'soon'],
@@ -401,11 +458,11 @@ final class StackChecksTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private static function opcacheMemory(int $usedPerThousand, bool $full = false): array
+    private static function opcacheMemory(int $usedPerThousand, bool $full = false, int $wasted = 0): array
     {
         return self::php(['opcache' => ['status' => [
             'cache_full' => $full,
-            'memory_usage' => ['used_memory' => $usedPerThousand, 'free_memory' => 1_000 - $usedPerThousand, 'wasted_memory' => 0],
+            'memory_usage' => ['used_memory' => $usedPerThousand, 'free_memory' => 1_000 - $usedPerThousand - $wasted, 'wasted_memory' => $wasted],
         ]]]);
     }
 

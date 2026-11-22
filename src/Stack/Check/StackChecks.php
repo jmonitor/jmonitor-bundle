@@ -212,12 +212,20 @@ final class StackChecks
     {
         $findings = [];
 
-        if ($php->opcacheReported && !$php->opcacheEnabled) {
+        if ($php->opcacheAbsent) {
+            $findings[] = $raise(
+                'php.opcache_disabled',
+                Severity::Warning,
+                'OPcache is not running, or its status cannot be read',
+                'Without OPcache, PHP compiles every script on every request, which makes the application several times slower. Load the extension and set opcache.enable=1; if it already runs, opcache.restrict_api keeps its status from being read here.',
+                'php',
+            );
+        } elseif ($php->opcacheRunning === false) {
             $findings[] = $raise(
                 'php.opcache_disabled',
                 Severity::Warning,
                 'OPcache is not running',
-                'Without OPcache, PHP compiles every script on every request, which makes the application several times slower. Install the OPcache extension and set opcache.enable=1.',
+                'Without OPcache, PHP compiles every script on every request, which makes the application several times slower. Set opcache.enable=1.',
                 'php',
             );
         }
@@ -226,8 +234,8 @@ final class StackChecks
             $findings[] = $raise(
                 'php.opcache_memory',
                 Severity::Critical,
-                'OPcache memory is full',
-                'OPcache caches no new script once full, and PHP compiles those on every request. Raise opcache.memory_consumption.',
+                'OPcache is full',
+                'OPcache caches no new script once full, and PHP compiles those on every request. Raise opcache.memory_consumption, or opcache.max_accelerated_files when the application has more scripts than it allows.',
                 'php',
             );
         } elseif ($php->opcacheEnabled && $php->opcacheMemoryPercent !== null && $php->opcacheMemoryPercent >= 90) {
@@ -240,9 +248,9 @@ final class StackChecks
             );
         }
 
-        $hitRate = $php->opcacheHitRate;
+        $hitRate = self::judgedHitRate($php);
 
-        if ($php->opcacheEnabled && $hitRate->value !== null && $hitRate->total !== null && $hitRate->total >= self::OPCACHE_HIT_RATE_LOOKUPS && $hitRate->value < 85) {
+        if ($php->opcacheEnabled && $hitRate !== null && $hitRate->value < 85) {
             $findings[] = $raise(
                 'php.opcache_hit_rate',
                 Severity::Warning,
@@ -377,6 +385,20 @@ final class StackChecks
             )],
             default => [],
         };
+    }
+
+    /**
+     * The variation between the two samples when it holds enough lookups, else the counters since the server started.
+     */
+    private static function judgedHitRate(PhpReading $php): ?Rate
+    {
+        foreach ([$php->opcacheRecentHitRate, $php->opcacheCumulativeHitRate] as $rate) {
+            if ($rate->value !== null && $rate->total !== null && $rate->total >= self::OPCACHE_HIT_RATE_LOOKUPS) {
+                return $rate;
+            }
+        }
+
+        return null;
     }
 
     /**

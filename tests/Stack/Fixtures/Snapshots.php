@@ -72,7 +72,7 @@ final class Snapshots
                 $instance = new InstanceState(null, null, null, $instance);
             }
 
-            $component = $instance->snapshot->component ?? throw new \LogicException('An instance without snapshot needs its component: use instance().');
+            $component = $instance->snapshot->component ?? throw new \LogicException('An instance without snapshot needs its component: use state().');
             $byComponent[$component->value][] = $instance;
         }
 

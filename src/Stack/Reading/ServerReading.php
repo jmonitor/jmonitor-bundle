@@ -40,10 +40,10 @@ final readonly class ServerReading
 
         $memoryTotal = Values::int($data['ram']['total'] ?? null);
         $memoryAvailable = Values::int($data['ram']['available'] ?? null);
-        $memoryUsed = $memoryTotal !== null && $memoryAvailable !== null ? $memoryTotal - $memoryAvailable : null;
+        $memoryUsed = $memoryTotal !== null && $memoryAvailable !== null ? Values::int($memoryTotal - $memoryAvailable) : null;
         $diskTotal = Values::int($data['disk']['total'] ?? null);
         $diskFree = Values::int($data['disk']['free'] ?? null);
-        $diskUsed = $diskTotal !== null && $diskFree !== null ? $diskTotal - $diskFree : null;
+        $diskUsed = $diskTotal !== null && $diskFree !== null ? Values::int($diskTotal - $diskFree) : null;
         $memoryLimit = Values::int($data['cgroup']['memory_limit'] ?? null);
         $cpuQuota = Values::float($data['cgroup']['cpu_quota'] ?? null);
 

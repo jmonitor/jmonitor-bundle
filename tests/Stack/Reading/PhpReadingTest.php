@@ -35,14 +35,20 @@ final class PhpReadingTest extends TestCase
         self::assertFalse($reading->displayErrors);
         self::assertSame(4_194_304, $reading->realpathCacheSize);
 
-        self::assertTrue($reading->opcacheReported);
+        self::assertFalse($reading->opcacheAbsent);
+        self::assertTrue($reading->opcacheRunning);
         self::assertTrue($reading->opcacheEnabled);
         self::assertSame(60_000_000, $reading->opcacheUsed);
+        self::assertSame(10_000_000, $reading->opcacheWasted);
         self::assertSame(100_000_000, $reading->opcacheTotal);
-        self::assertSame(60.0, $reading->opcacheMemoryPercent);
+        self::assertSame(70.0, $reading->opcacheMemoryPercent, 'wasted memory is not free');
         self::assertFalse($reading->opcacheFull);
         self::assertSame(90.0, $reading->opcacheHitRate->value, '90 hits for 10 misses between the two samples');
         self::assertSame(RateSource::Delta, $reading->opcacheHitRate->source);
+        self::assertSame(90.0, $reading->opcacheRecentHitRate->value);
+        self::assertSame(100, $reading->opcacheRecentHitRate->total);
+        self::assertSame(90.83, $reading->opcacheCumulativeHitRate->value);
+        self::assertSame(1_200, $reading->opcacheCumulativeHitRate->total);
 
         self::assertTrue($reading->apcuEnabled);
         self::assertSame(25_165_824, $reading->apcuUsed);
@@ -86,7 +92,8 @@ final class PhpReadingTest extends TestCase
             'fpm' => [],
         ]]), self::today());
 
-        self::assertTrue($reading->opcacheReported, 'an empty array says the extension is not there');
+        self::assertTrue($reading->opcacheAbsent, 'no extension, or no status to read');
+        self::assertNull($reading->opcacheRunning);
         self::assertFalse($reading->opcacheEnabled);
         self::assertFalse($reading->apcuEnabled);
         self::assertFalse($reading->fpm);
@@ -103,6 +110,48 @@ final class PhpReadingTest extends TestCase
         $data['opcache']['status']['opcache_enabled'] = false;
 
         self::assertFalse(PhpReading::of(Snapshots::of(Component::Php, ['php' => $data]), self::today())->opcacheEnabled);
+    }
+
+    /**
+     * @return iterable<string, array{mixed, bool, ?bool}>
+     */
+    public static function opcacheStatuses(): iterable
+    {
+        yield 'running' => [['status' => ['opcache_enabled' => true]], false, true];
+        yield 'turned off at runtime' => [['config' => ['directives' => ['opcache.enable' => true]], 'status' => ['opcache_enabled' => false]], false, false];
+        yield 'turned off by its directive' => [['config' => ['directives' => ['opcache.enable' => '0']]], false, false];
+        yield 'false' => [false, true, null];
+        yield 'empty' => [[], true, null];
+        yield 'null' => [null, false, null];
+        yield 'a string' => ['on', false, null];
+        yield 'status and config of unknown shape' => [['status' => 'x', 'config' => 5], false, null];
+        yield 'a flag that cannot be read' => [['status' => ['opcache_enabled' => 'maybe']], false, null];
+    }
+
+    #[DataProvider('opcacheStatuses')]
+    public function testOnlyAReadableStatusSaysWhetherOpcacheRuns(mixed $opcache, bool $absent, ?bool $running): void
+    {
+        $reading = PhpReading::of(Snapshots::of(Component::Php, ['php' => ['opcache' => $opcache]]), self::today());
+
+        self::assertSame($absent, $reading->opcacheAbsent);
+        self::assertSame($running, $reading->opcacheRunning);
+        self::assertSame($running === true, $reading->opcacheEnabled);
+    }
+
+    public function testSumsBeyondTheIntegerRangeGiveNulls(): void
+    {
+        $reading = PhpReading::of(Snapshots::of(Component::Php, ['php' => [
+            'opcache' => ['status' => ['opcache_enabled' => true, 'memory_usage' => ['used_memory' => PHP_INT_MAX, 'free_memory' => 10, 'wasted_memory' => 10]]],
+            'apcu' => ['config' => ['apc.enabled' => true], 'sma_info' => ['num_seg' => 4, 'seg_size' => PHP_INT_MAX, 'avail_mem' => 0]],
+            'fpm' => ['active-processes' => PHP_INT_MAX, 'idle-processes' => 1],
+        ]]), self::today());
+
+        self::assertNull($reading->opcacheTotal);
+        self::assertNull($reading->opcacheMemoryPercent);
+        self::assertNull($reading->apcuTotal);
+        self::assertNull($reading->apcuUsed);
+        self::assertNull($reading->apcuMemoryPercent);
+        self::assertNull($reading->fpmTotal);
     }
 
     public function testAFullOpcacheIsTold(): void
@@ -145,7 +194,8 @@ final class PhpReadingTest extends TestCase
             self::assertNull($reading->sapi);
             self::assertNull($reading->displayErrors);
             self::assertNull($reading->realpathCacheSize);
-            self::assertFalse($reading->opcacheReported);
+            self::assertFalse($reading->opcacheAbsent);
+            self::assertNull($reading->opcacheRunning);
             self::assertFalse($reading->opcacheEnabled);
             self::assertNull($reading->opcacheMemoryPercent);
             self::assertFalse($reading->opcacheFull);
