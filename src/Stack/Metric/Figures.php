@@ -28,7 +28,7 @@ final class Figures
         $value = $bytes;
         $unit = 0;
 
-        while ($value >= 1024 && $unit < count(self::BYTE_UNITS) - 1) {
+        while (round($value) >= 1024 && $unit < count(self::BYTE_UNITS) - 1) {
             $value /= 1024;
             ++$unit;
         }
