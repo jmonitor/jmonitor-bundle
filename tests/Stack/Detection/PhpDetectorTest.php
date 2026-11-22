@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Detection;
 
-use Jmonitor\Collector\Php\PhpCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
 use Jmonitor\JmonitorBundle\Stack\Collector\EndOfLifeCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
+use Jmonitor\JmonitorBundle\Stack\Collector\PhpRuntimeCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeUrlFetcher;
@@ -30,7 +30,7 @@ final class PhpDetectorTest extends TestCase
 
         $spec = $collectors->get('php');
         self::assertNotNull($spec);
-        self::assertInstanceOf(PhpCollector::class, $spec->collector);
+        self::assertInstanceOf(PhpRuntimeCollector::class, $spec->collector);
         self::assertSame(Lifetime::Dynamic, $spec->lifetime);
         self::assertSame(CostClass::Immediate, $spec->cost);
         self::assertTrue($spec->trackDelta);
