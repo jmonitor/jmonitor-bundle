@@ -63,7 +63,7 @@
         }
 
         toggle.classList.toggle('is-failed', failed);
-        toggle.title = failed ? 'Last refresh failed, retrying' : '';
+        toggle.title = !failed ? '' : liveRefused ? 'Refresh stopped: turn Live on again or reload the page' : 'Last refresh failed, retrying';
     }
 
     function hasSelectionInside(element) {
@@ -310,8 +310,6 @@
             headers: { Accept: 'text/html' },
         })
             .then(function (response) {
-                // a redirect or a denial: an early try only ends the early tries; a refresh reloads to show why,
-                // unless an early try of this page was refused too, since the reloaded page would be refused again
                 if (response.type === 'opaqueredirect' || response.status === 401 || response.status === 403 || response.status === 404) {
                     if (forced) {
                         fastRefused = true;
@@ -323,6 +321,7 @@
                     liveRefused = true;
                     stop();
 
+                    // the page loads but its content is refused: a reload would only start over
                     if (fastRefused) {
                         mark(true);
                     } else {
