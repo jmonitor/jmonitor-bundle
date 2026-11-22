@@ -85,6 +85,20 @@ final class StackScreenTest extends WebTestCase
         static::assertSame('JMonitor — Stack', $crawler->filter('title')->text());
     }
 
+    public function testATestThatLeavesTheStackOutReadsNothingOutsideTheWebServer(): void
+    {
+        $client = static::createClient(['jmonitor' => ['recording' => ['enabled' => false, 'buffer_dir' => $this->bufferDir]]]);
+
+        $client->request('GET', '/jmonitor/');
+        static::assertResponseIsSuccessful();
+        $client->request('GET', '/jmonitor/_fragment');
+        static::assertResponseIsSuccessful();
+
+        $container = $client->getKernel()->getContainer();
+        static::assertFalse($container->getParameter('jmonitor.stack.end_of_life'));
+        static::assertFalse($container->getParameter('jmonitor.stack.symfony.flex'));
+    }
+
     public function testAStackRequestIsNotRecorded(): void
     {
         $client = $this->client(['jmonitor' => ['recording' => ['flush_interval' => 1]]]);

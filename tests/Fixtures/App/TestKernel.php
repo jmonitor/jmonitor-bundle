@@ -64,13 +64,16 @@ final class TestKernel extends Kernel
 
     private readonly bool $withSecurity;
 
+    /** @var array<string, mixed> */
+    private readonly array $jmonitorConfig;
+
     /**
-     * @param array<string, mixed> $jmonitorConfig
+     * @param array<string, mixed> $jmonitorConfig without a `stack` key, the stack calls neither endoflife.date nor composer
      */
     public function __construct(
         string $environment,
         bool $debug,
-        private readonly array $jmonitorConfig = [],
+        array $jmonitorConfig = [],
         private readonly bool $withDoctrine = true,
         bool $withSecurity = false,
         private readonly bool $withTwig = true,
@@ -98,9 +101,10 @@ final class TestKernel extends Kernel
         parent::__construct($environment, $debug);
 
         $this->withSecurity = $withSecurity || $withEasyAdmin;
+        $this->jmonitorConfig = ($jmonitorConfig ?: $this->environmentConfig()) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false]]];
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery]));
+            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery]));
     }
 
     public static function fromEnvironment(): self
@@ -274,7 +278,7 @@ final class TestKernel extends Kernel
             $container->extension('framework', ['scheduler' => ['enabled' => true]]);
         }
 
-        $container->extension('jmonitor', $this->jmonitorConfig ?: $this->environmentConfig());
+        $container->extension('jmonitor', $this->jmonitorConfig);
 
         if ($this->withDoctrine) {
             $container->extension('doctrine', [
@@ -425,7 +429,7 @@ final class TestKernel extends Kernel
     private function environmentConfig(): array
     {
         $interval = getenv('JMONITOR_FLUSH_INTERVAL');
-        $config = ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false]]];
+        $config = [];
         if (\is_string($interval) && $interval !== '') {
             $config['recording'] = ['flush_interval' => (int) $interval];
         }
