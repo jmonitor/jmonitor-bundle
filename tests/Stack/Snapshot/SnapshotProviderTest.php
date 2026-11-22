@@ -495,6 +495,19 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(1, $failing->collects, 'the failure is kept');
     }
 
+    public function testAnOutdatedValueWhoseRenewalFailedSaysWhenItIsRetried(): void
+    {
+        $provider = $this->provider();
+        $this->read($provider, self::instance([self::spec(new FakeCollector('php.version', ['version' => '8.4']), Lifetime::Static, CostClass::Slow)]));
+        $failing = new FakeCollector('php.version', collectFailure: new \RuntimeException('Permission denied'));
+
+        $this->clock->sleep(2 * 86400);
+        $snapshot = $this->read($provider, self::instance([self::spec($failing, Lifetime::Static, CostClass::Slow)]));
+
+        self::assertSame(ResultState::Stale, $snapshot->result('php.version')?->state);
+        self::assertSame(self::START + 2 * 86400 + 600, $snapshot->result('php.version')->expiresAt);
+    }
+
     public function testAnOutdatedStaticValueShowsUntilItIsReplaced(): void
     {
         $provider = $this->provider();
@@ -811,7 +824,7 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(['requests' => 1], $snapshot->data('php'));
         self::assertSame(ResultState::Pending, $snapshot->result('php.network')?->state, 'the rest of the read goes on without the cache');
         self::assertCount(1, $logs);
-        self::assertSame('error', $logs[0][0]);
+        self::assertSame('warning', $logs[0][0]);
         self::assertSame(1, $pool->calls);
 
         $provider->forget([$instance]);
@@ -892,7 +905,7 @@ final class SnapshotProviderTest extends TestCase
             self::assertSame(ResultState::Fresh, $snapshot->result('php')?->state);
             self::assertSame(ResultState::Pending, $snapshot->result('php.network')?->state);
             self::assertCount(1, $logs);
-            self::assertSame('error', $logs[0][0]);
+            self::assertSame('warning', $logs[0][0]);
             $this->clock->sleep(1);
         }
 
@@ -910,7 +923,7 @@ final class SnapshotProviderTest extends TestCase
 
         self::assertSame(['a' => 1], $snapshot->data('php'));
         self::assertCount(1, $logs);
-        self::assertSame('error', $logs[0][0]);
+        self::assertSame('warning', $logs[0][0]);
     }
 
     public function testACommitThatFailsStillLiftsTheWitnesses(): void

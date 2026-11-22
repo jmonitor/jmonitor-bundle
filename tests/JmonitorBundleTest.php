@@ -1528,6 +1528,23 @@ class JmonitorBundleTest extends TestCase
         static::assertSame($flex, $container->getParameter('jmonitor.stack.symfony.flex'));
     }
 
+    public function testIgnoredChecksAreAListOfIdentifiers(): void
+    {
+        $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+        $set = $this->loadBundle(['stack' => ['ignore_checks' => ['symfony.flex_recipes', 'x.y']]]);
+
+        static::assertSame([], $default->getParameter('jmonitor.stack.ignore_checks'));
+        static::assertSame(['symfony.flex_recipes', 'x.y'], $set->getParameter('jmonitor.stack.ignore_checks'));
+    }
+
+    public function testIgnoredChecksRefuseAnythingButStrings(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.ignore_checks');
+
+        $this->loadBundle(['stack' => ['ignore_checks' => [['a']]]]);
+    }
+
     public function testAnUnknownComponentSettingIsRefused(): void
     {
         $this->expectException(InvalidConfigurationException::class);

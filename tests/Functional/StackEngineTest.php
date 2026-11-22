@@ -161,7 +161,12 @@ final class StackEngineTest extends WebTestCase
 
         $first = $reader->overview(ReadMode::Page);
         // a value collected again would then carry a later second
-        time_sleep_until(floor(microtime(true)) + 1);
+        $start = (int) microtime(true);
+
+        while ((int) microtime(true) === $start) {
+            usleep(1000);
+        }
+
         $second = $reader->overview(ReadMode::Page);
 
         static::assertSame(CacheState::Working, $second->cache);

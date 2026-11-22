@@ -319,6 +319,15 @@ final class LocalStackReaderTest extends TestCase
         self::assertSame(4, $status->collects);
     }
 
+    public function testRefreshingAComponentWithoutInstanceForgetsNothing(): void
+    {
+        $registry = Detectors::registry(['php' => new StaticDetector(Component::Php, Detection::unavailable('No PHP binary here.'))], self::settings());
+        $reader = $this->reader($registry);
+        $this->warm();
+
+        self::assertFalse($reader->refresh(Component::Php));
+    }
+
     public function testRefreshingAComponentLeavesTheOthers(): void
     {
         $server = new FakeCollector('system.server');
@@ -512,6 +521,28 @@ final class LocalStackReaderTest extends TestCase
         self::assertFalse($refreshed);
         self::assertSame(['error', 'error', 'error'], array_map(static fn(array $log): string => $log[0], $logger->cleanLogs()));
         self::assertFalse($this->cache->hasItem('jmonitor.stack.refreshed.all'));
+    }
+
+    public function testAnEngineFailureIsTold(): void
+    {
+        $detectors = new class implements ContainerInterface {
+            public function get(string $id): mixed
+            {
+                throw new \LogicException('Cannot reach redis://app:s3cret@cache');
+            }
+
+            public function has(string $id): bool
+            {
+                throw new \LogicException('Cannot reach redis://app:s3cret@cache');
+            }
+        };
+
+        $state = $this->reader(new ComponentRegistry($detectors, self::settings()))->overview(ReadMode::Page);
+
+        self::assertNotNull($state->error);
+        self::assertStringNotContainsString('s3cret', $state->error);
+        self::assertStringNotContainsString('app', $state->error);
+        self::assertSame([], $state->components);
     }
 
     public function testReasonsCarryNoCredentials(): void

@@ -353,7 +353,7 @@ final readonly class SnapshotProvider
             $error,
             min($value->collectedAt, $now),
             $value->delta,
-            $value->collectedAt + $spec->lifetime->seconds(),
+            $retryAt ?? $value->collectedAt + $spec->lifetime->seconds(),
         );
     }
 

@@ -11,15 +11,15 @@ final class EndOfLife
     /**
      * "16.4 (Debian 16.4-1)" is looked up as cycle "16.4", then "16".
      *
-     * @param array<mixed> $cycles the data of an EndOfLifeCollector
+     * @param array<mixed> $collected the data of an EndOfLifeCollector, with its "cycles" key
      */
-    public static function status(array $cycles, ?string $version, \DateTimeImmutable $today): ?SupportStatus
+    public static function status(array $collected, ?string $version, \DateTimeImmutable $today): ?SupportStatus
     {
         if ($version === null || preg_match('/^v?(\d+)(?:\.(\d+))?/', $version, $matches) !== 1) {
             return null;
         }
 
-        $cycles = $cycles['cycles'] ?? null;
+        $cycles = $collected['cycles'] ?? null;
 
         if (!is_array($cycles) || !self::areCycles($cycles)) {
             return null;
