@@ -41,6 +41,7 @@ final class DisplayCostTest extends TestCase
     private const START = 1_791_799_200;
     private const DISPLAYS = 50;
     private const BETWEEN_DISPLAYS = 0.2;
+    private const BETWEEN_REFRESHES = 0.18;
 
     private MockClock $clock;
 
@@ -125,16 +126,24 @@ final class DisplayCostTest extends TestCase
         $this->clock->sleep(self::BETWEEN_DISPLAYS);
         $reader->overview(ReadMode::Fragment);
         $this->clock->sleep(1 - self::BETWEEN_DISPLAYS);
-        $forgotten = 0;
+        $once = ['Immediate' => [1, 1, 1], 'Network' => [1, 1, 1], 'Slow' => [1, 1, 1]];
+        $twice = ['Immediate' => [2, 2, 2], 'Network' => [2, 2, 2], 'Slow' => [2, 2, 2]];
+        self::assertSame($once, $this->calls());
 
-        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+        $forgotten = (int) $reader->refresh();
+        $reader->overview(ReadMode::Fragment);
+
+        self::assertSame($twice, $this->calls(), 'the first refresh forgets every value');
+
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(self::BETWEEN_REFRESHES);
             $forgotten += (int) $reader->refresh();
             $reader->overview(ReadMode::Fragment);
-            $this->clock->sleep(self::BETWEEN_DISPLAYS);
         }
 
+        self::assertLessThan(self::START + Lifetime::Dynamic->seconds(), $this->clock->now()->getTimestamp(), 'no value expires on its own');
+        self::assertSame($twice, $this->calls(), 'no other refresh forgets');
         self::assertSame(1, $forgotten);
-        self::assertSame(['Immediate' => [2, 2, 2], 'Network' => [2, 2, 2], 'Slow' => [2, 2, 2]], $this->calls());
     }
 
     public function testAWarmOverviewCostsAtMostTwoRoundTripsPerInstancePlusTwo(): void
