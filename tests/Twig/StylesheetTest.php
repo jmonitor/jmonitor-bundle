@@ -138,6 +138,25 @@ final class StylesheetTest extends TestCase
         }
     }
 
+    public function testTheTwoTonesOfTheNavigationBadgeDifferByMoreThanColour(): void
+    {
+        $declarations = static function (string $selector, ?string $at): array {
+            $found = [];
+            foreach (self::rules() as $rule) {
+                if ($rule['at'] === $at && \in_array($selector, $rule['selectors'], true)) {
+                    array_push($found, ...$rule['declarations']);
+                }
+            }
+
+            return $found;
+        };
+
+        static::assertContains(['background', 'transparent'], $declarations('.jm-nav__badge--warn', null));
+        static::assertContains(['background', 'var(--jm-bad-strong)'], $declarations('.jm-nav__badge--bad', null));
+        static::assertContains(['background', 'Highlight'], $declarations('.jm-nav__badge--bad', '@media (forced-colors: active)'));
+        static::assertContains(['border-color', 'CanvasText'], $declarations('.jm-nav__badge', '@media (forced-colors: active)'));
+    }
+
     public function testForcedColorsTellAFailedLiveSwitchFromAnActiveOne(): void
     {
         $rules = array_filter(self::rules(), static fn(array $rule): bool => $rule['at'] === '@media (forced-colors: active)'

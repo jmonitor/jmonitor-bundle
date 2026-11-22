@@ -905,6 +905,7 @@ body.jm .jm-header {
 }
 
 .jm-nav__badge {
+    position: relative;
     display: inline-block;
     min-width: 18px;
     padding: 0 5px;
@@ -918,15 +919,27 @@ body.jm .jm-header {
 }
 
 .jm-nav__badge--warn {
-    border-color: var(--jm-warn-border);
-    background: var(--jm-warn-bg);
+    border-color: var(--jm-warn);
+    background: transparent;
     color: var(--jm-warn);
 }
 
 .jm-nav__badge--bad {
-    border-color: var(--jm-bad-border);
-    background: var(--jm-bad-bg);
-    color: var(--jm-bad);
+    border-color: var(--jm-bad-strong);
+    background: var(--jm-bad-strong);
+    color: var(--jm-bg);
+}
+
+.jm-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
 }
 
 .jm-rest {
@@ -1049,6 +1062,7 @@ body.jm .jm-header {
 .jm-node {
     color: var(--jm-muted);
     font-size: 13px;
+    overflow-wrap: anywhere;
 }
 
 .jm-node strong {
@@ -1091,6 +1105,7 @@ body.jm .jm-header {
     align-items: center;
     gap: 4px 10px;
     color: var(--jm-text-strong);
+    overflow-wrap: anywhere;
 }
 
 .jm-notice__title strong {
@@ -1142,6 +1157,7 @@ body.jm .jm-header {
 .jm-check__more p {
     max-width: 72ch;
     margin-top: 4px;
+    overflow-wrap: anywhere;
 }
 
 .jm-check__where {
@@ -1292,6 +1308,7 @@ body.jm .jm-header {
 .jm-component__note {
     color: var(--jm-faint);
     font-size: 12.5px;
+    overflow-wrap: anywhere;
 }
 
 .jm-vitals {
@@ -1319,7 +1336,7 @@ body.jm .jm-header {
     font-size: 18px;
     font-weight: 650;
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 .jm-component[data-jm-reading] .jm-vital__value {
@@ -1332,12 +1349,14 @@ body.jm .jm-header {
     margin: 0;
     color: var(--jm-faint);
     font-size: 12px;
+    overflow-wrap: anywhere;
 }
 
 .jm-components__more {
     margin-top: 12px;
     color: var(--jm-muted);
     font-size: 13px;
+    overflow-wrap: anywhere;
 }
 
 .jm-components__absent {
@@ -1347,6 +1366,11 @@ body.jm .jm-header {
     margin-top: 12px;
     color: var(--jm-faint);
     font-size: 13px;
+}
+
+.jm-components__absent-item {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .jm-components__absent-label {
@@ -1370,9 +1394,9 @@ body.jm .jm-header {
 
 .jm-gauge__head {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
+    gap: 4px 10px;
 }
 
 .jm-gauge__label {
@@ -1383,10 +1407,13 @@ body.jm .jm-header {
 }
 
 .jm-gauge__value {
+    min-width: 0;
+    margin-left: auto;
     color: var(--jm-text-strong);
     font-weight: 650;
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+    text-align: right;
+    overflow-wrap: anywhere;
 }
 
 .jm-gauge__bar {
@@ -1423,6 +1450,7 @@ body.jm .jm-header {
 .jm-gauge__hint {
     color: var(--jm-faint);
     font-size: 12px;
+    overflow-wrap: anywhere;
 }
 
 .jm-facts__list {
@@ -1469,6 +1497,7 @@ body.jm .jm-header {
     margin: 0;
     color: var(--jm-faint);
     font-size: 12.5px;
+    overflow-wrap: anywhere;
 }
 
 @media (max-width: 1080px) {
@@ -1645,6 +1674,13 @@ body.jm .jm-header {
     .jm-nav__badge {
         border-color: CanvasText;
         color: CanvasText;
+    }
+
+    .jm-nav__badge--bad {
+        border-color: Highlight;
+        background: Highlight;
+        color: HighlightText;
+        forced-color-adjust: none;
     }
 
     .jm-gauge__bar {

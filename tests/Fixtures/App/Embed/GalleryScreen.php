@@ -26,10 +26,11 @@ use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * Every block of the live stack in every state. Each request moves a counter kept in a file: the
- * badge shows it, and the web server named by the second navigation alternates with its parity.
+ * badge shows it, and its tone and the web server named by the second navigation alternate with its parity.
  */
 final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterface, ResetInterface
 {
+    private const HOST = 'redis-primary-0.redis-headless.monitoring.svc.cluster.local:6379';
     private const LONG = 'A sentence long enough to wrap on a narrow screen, so that the layout shows how it breaks: the cache of compiled scripts is nearly full and new scripts are compiled on every request.';
 
     private ?int $requests = null;
@@ -58,7 +59,9 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
 
     public function navBadge(): NavBadge
     {
-        return new NavBadge((string) $this->requests(), 'warn', 'Requests seen by the gallery');
+        $requests = $this->requests();
+
+        return new NavBadge((string) $requests, $requests % 2 === 1 ? 'warn' : 'bad', 'Requests seen by the gallery');
     }
 
     public function blocks(ScreenRequest $request): array
@@ -80,7 +83,7 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
             ], $this->requests() % 2 === 1 ? 'web-1' : 'web-2')),
             Block::notice(new Notice('bad', 'The stack could not be read', 'Cannot reach redis://cache:6379: Connection refused')),
             Block::notice(new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.')),
-            Block::notice(new Notice('info', 'Some figures are still being read')),
+            Block::notice(new Notice('info', 'Some figures are still being read from ' . self::HOST)),
             Block::checks(new CheckList([
                 new CheckLine('php.opcache_memory', $critical, 'OPcache memory is full', self::LONG, 'PHP', 'gallery', '12 s ago'),
                 new CheckLine('symfony.debug', $warning, 'Debug mode is on in production', 'The debug mode slows every request down and shows internals to visitors. Set APP_DEBUG=0.', 'Symfony', 'gallery'),
@@ -92,19 +95,21 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 new ComponentCard('php', 'PHP', $warning, [new Vital('OPcache memory', '92 %'), new Vital('OPcache hit rate', '—', 'available in a few seconds'), new Vital('FPM workers', '3 / 8')], '8.2.29', 'gallery', badges: [new Mark('warn', 'Security fixes only')], readAt: 1800000000),
                 new ComponentCard('symfony', 'Symfony', $unknown, [new Vital('Environment', 'prod'), new Vital('Debug', 'off'), new Vital('Flex recipes', '3 outdated')], '7.4.0', 'gallery', reading: true),
                 new ComponentCard('mysql', 'MySQL', $critical, [new Vital('Connections', '98 %')], '8.0.36', reason: 'SQLSTATE[HY000] [2002] Connection refused while reading the status of the server at a-very-long-host-name.internal.example:3306'),
-                new ComponentCard('redis', 'Redis', $info, [new Vital('Memory', '12 %')], badges: [new Mark('bad', 'End of life')]),
-            ], ['Nginx: SERVER_SOFTWARE does not name it', 'PostgreSQL: no Doctrine connection uses it'], 'web-1', '2 more connections'))->withReading(),
+                new ComponentCard('redis', 'Redis', $info, [new Vital('Memory', '12 %'), new Vital('Host', self::HOST)], badges: [new Mark('bad', 'End of life')]),
+            ], ['Nginx: SERVER_SOFTWARE does not name it', 'PostgreSQL: no Doctrine connection uses it', 'Memcached: ' . self::HOST . ' did not answer'], 'web-1', '2 more connections'))->withReading(),
             Block::gauges(new Gauges('Memory', [
-                new Gauge('OPcache memory', 92.4, '92 % of 128 MB', 'bad', 'Wasted memory counts as used'),
-                new Gauge('Interned strings', 71.0, '71 % of 8 MB', 'warn'),
-                new Gauge('APCu', 12.5, '12 % of 32 MB'),
-                new Gauge('Connections beyond the maximum', 130.0, '130 / 100', 'bad'),
+                new Gauge('OPcache memory', 92.4, '92 % of 128 MB', $critical, 'Wasted memory counts as used'),
+                new Gauge('Interned strings', 71.0, '71 % of 8 MB', $warning),
+                new Gauge('APCu', 12.5, '12 % of 32 MB', $healthy),
+                new Gauge('Shared memory', 40.0, '40 % of ' . self::HOST),
+                new Gauge('Connections beyond the maximum', 130.0, '130 / 100', $critical),
                 new Gauge('Swap', null, ''),
                 new Gauge('Realpath cache, a label long enough to wrap on a narrow screen', null, 'unlimited'),
             ])),
             Block::facts(new Facts('Runtime', [
                 new Fact('Version', '8.2.29', new Mark('warn', 'Security fixes only'), 'Security support ends on 31 Dec 2026'),
                 new Fact('SAPI', 'fpm-fcgi'),
+                new Fact('Session handler', self::HOST, hint: self::HOST),
                 new Fact('memory_limit', '512M'),
                 new Fact('Loaded extensions', 'Core, date, libxml, openssl, pcre, sqlite3, zlib, ctype, curl, dom, fileinfo, filter, hash, iconv, json, mbstring, SPL, PDO, pdo_mysql, session, posix, Reflection, standard, SimpleXML, Phar, tokenizer, xml, xmlreader, xmlwriter, mysqlnd, apcu, intl, opcache'),
                 new Fact('OPcache', 'off', $critical),

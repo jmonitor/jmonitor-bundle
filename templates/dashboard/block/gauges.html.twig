@@ -6,9 +6,11 @@
     </div>
     <div class="jm-gauges__list">
         {% for gauge in gauges.gauges %}
-            <div class="jm-gauge{{ gauge.tone ? ' jm-gauge--' ~ gauge.tone }}">
+            {% set tone = gauge.mark.tone ?? null %}
+            <div class="jm-gauge{{ tone in ['warn', 'bad'] ? ' jm-gauge--' ~ tone }}">
                 <p class="jm-gauge__head">
                     <span class="jm-gauge__label">{{ gauge.label }}</span>
+                    {% if gauge.mark %}{{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: gauge.mark}, with_context = false) }}{% endif %}
                     <span class="jm-gauge__value">{{ gauge.percent is null and gauge.value is same as('') ? '—' : gauge.value }}</span>
                 </p>
                 {% if gauge.percent is not null %}

@@ -275,7 +275,7 @@ final class TemplatesTest extends TestCase
         foreach (['page.html.twig', '_screen.html.twig'] as $template) {
             $html = $this->render($template, $context);
 
-            static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--warn" title="&quot;&gt;&lt;script&gt;">&quot;&gt;&lt;script&gt;</span>', $html, $template);
+            static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--warn" title="&quot;&gt;&lt;script&gt;">&quot;&gt;&lt;script&gt;<span class="jm-visually-hidden"> — &quot;&gt;&lt;script&gt;</span></span>', $html, $template);
             static::assertStringNotContainsString('<script>', $html, $template);
         }
     }
@@ -297,7 +297,7 @@ final class TemplatesTest extends TestCase
             new ComponentCard($h, $h, $mark, [new Vital($h, $h, $h)], reading: true),
             new ComponentCard($h, $h, $mark, reason: $h),
         ], [$h, $h], $h, $h))];
-        yield 'gauges' => [Block::gauges(new Gauges($h, [new Gauge($h, 42.0, $h, 'warn', $h), new Gauge($h, null, $h, hint: $h)]))];
+        yield 'gauges' => [Block::gauges(new Gauges($h, [new Gauge($h, 42.0, $h, $mark, $h), new Gauge($h, null, $h, hint: $h)]))];
         yield 'facts' => [Block::facts(new Facts($h, [new Fact($h, $h, $mark, $h), new Fact($h, $h)]))];
     }
 
@@ -323,6 +323,7 @@ final class TemplatesTest extends TestCase
                 Block::components(new ComponentCards([new ComponentCard('php', 'PHP', $mark)])),
                 Block::components(new ComponentCards([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), badges: [$mark])])),
                 Block::facts(new Facts('Runtime', [new Fact('Version', '8.4', $mark)])),
+                Block::gauges(new Gauges('Memory', [new Gauge('Used', 50.0, '50 %', $mark)])),
             ] as $block) {
                 static::assertStringContainsString($expected, $this->screen($block), $block->type . ' ' . $tone);
             }
@@ -395,7 +396,7 @@ final class TemplatesTest extends TestCase
     public function testAGaugeWithoutValueShowsADash(): void
     {
         $crawler = new Crawler($this->screen(Block::gauges(new Gauges('Memory', [
-            new Gauge('Used', 142.5, '142 %', 'bad'),
+            new Gauge('Used', 142.5, '142 %', new Mark('bad', 'Critical')),
             new Gauge('Swap', null, ''),
             new Gauge('Pool', null, 'unlimited'),
         ]))));
@@ -408,6 +409,67 @@ final class TemplatesTest extends TestCase
         static::assertSame('—', $gauges->eq(1)->filter('.jm-gauge__value')->text());
         static::assertCount(0, $gauges->eq(2)->filter('[role="meter"]'));
         static::assertSame('unlimited', $gauges->eq(2)->filter('.jm-gauge__value')->text());
+    }
+
+    public function testAGaugeShowsTheWordOfItsMark(): void
+    {
+        $gauges = (new Crawler($this->screen(Block::gauges(new Gauges('Memory', [
+            new Gauge('OPcache memory', 92.0, '92 %', new Mark('bad', 'Critical')),
+            new Gauge('APCu', 12.0, '12 %', new Mark('info', 'Info')),
+            new Gauge('Swap', 5.0, '5 %'),
+        ])))))->filter('.jm-gauge');
+
+        static::assertSame('jm-gauge jm-gauge--bad', $gauges->eq(0)->attr('class'));
+        static::assertSame('Critical', $gauges->eq(0)->filter('.jm-gauge__head .jm-mark.jm-mark--bad')->text());
+        static::assertSame('jm-gauge', $gauges->eq(1)->attr('class'));
+        static::assertSame('Info', $gauges->eq(1)->filter('.jm-mark--info')->text());
+        static::assertSame('jm-gauge', $gauges->eq(2)->attr('class'));
+        static::assertCount(0, $gauges->eq(2)->filter('.jm-mark'));
+    }
+
+    public function testNeighbouringWordsAreSeparatedInTheText(): void
+    {
+        $warning = new Mark('warn', 'Warning');
+        $crawler = new Crawler($this->screen(
+            Block::subnav(new SubNav([new SubNavItem('PHP', 'stack/php', false, $warning)])),
+            Block::notice(new Notice('bad', 'The stack could not be read')),
+            Block::checks(new CheckList([new CheckLine('php.x', $warning, 'Sentence', 'Explanation', 'PHP', 'stack/php', '12 s ago')])),
+            Block::components(new ComponentCards([new ComponentCard('php', 'PHP', $warning, version: '8.2.29', badges: [new Mark('warn', 'Security fixes only')])])),
+            Block::facts(new Facts('Runtime', [new Fact('Version', '8.2.29', new Mark('warn', 'Security fixes only'))])),
+            Block::gauges(new Gauges('Memory', [new Gauge('Used', 50.0, '50 %', $warning)])),
+        ));
+
+        static::assertSame('PHP Warning', $crawler->filter('.jm-subnav__item')->text());
+        static::assertSame('Error The stack could not be read', $crawler->filter('.jm-notice__title')->text());
+        static::assertSame('PHP 12 s ago', $crawler->filter('.jm-check__where')->text());
+        static::assertSame('PHP 8.2.29 Warning Security fixes only', $crawler->filter('[data-jm-component="php"] .jm-component__head')->text());
+        static::assertSame('8.2.29 Security fixes only', $crawler->filter('.jm-fact__value')->text());
+        static::assertSame('Used Warning 50 %', $crawler->filter('.jm-gauge__head')->text());
+    }
+
+    public function testEveryDashboardTemplateEscapesExplicitlyAndOnlyTheLayoutPrintsRawHtml(): void
+    {
+        $root = __DIR__ . '/../../templates/dashboard/';
+        $raw = [];
+        $templates = 0;
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if (!str_ends_with($file->getFilename(), '.html.twig')) {
+                continue;
+            }
+
+            ++$templates;
+            $name = substr($file->getPathname(), \strlen($root));
+            $source = (string) file_get_contents($file->getPathname());
+
+            static::assertStringStartsWith("{% autoescape 'html' %}", $source, $name);
+            if (preg_match_all('/\|\s*raw\b/', $source, $matches) > 0) {
+                $raw[$name] = \count($matches[0]);
+            }
+        }
+
+        static::assertGreaterThan(10, $templates);
+        static::assertSame(['layout.html.twig' => 1], $raw);
     }
 
     public function testTheNodeIsNamedOnceAndItsChangeNoticeStartsHidden(): void

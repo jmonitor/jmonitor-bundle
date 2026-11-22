@@ -4,8 +4,7 @@
     <nav class="jm-subnav" aria-label="Stack">
         {% for item in subnav.items %}
             <a class="jm-subnav__item" href="{{ urls.page(item.path) }}"{% if item.current %} aria-current="page"{% endif %}>
-                <span>{{ item.label }}</span>
-                {%- if item.mark %}{{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: item.mark}, with_context = false) }}{% endif -%}
+                <span>{{ item.label }}</span>{% if item.mark %} {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: item.mark}, with_context = false) }}{% endif %}
             </a>
         {% endfor %}
     </nav>

@@ -7,7 +7,7 @@
     <p class="jm-rest"><a data-jm-rest href="{{ urls.page(path ?? page.screen.id, {rest: '1'}) }}">Load the rest</a></p>
 {% endif %}
 {% for id, badge in badges ?? {} %}
-    <template data-jm-slot-content="nav-{{ id }}">{% if badge %}<span class="jm-nav__badge jm-nav__badge--{{ badge.tone }}" title="{{ badge.title }}">{{ badge.text }}</span>{% endif %}</template>
+    <template data-jm-slot-content="nav-{{ id }}">{% if badge %}{{ include('@Jmonitor/dashboard/_badge.html.twig', {badge: badge}, with_context = false) }}{% endif %}</template>
 {% endfor %}
 </div>
 {% endautoescape %}

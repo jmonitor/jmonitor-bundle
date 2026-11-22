@@ -9,8 +9,7 @@
             <div class="jm-fact">
                 <dt class="jm-fact__label">{{ fact.label }}</dt>
                 <dd class="jm-fact__value">
-                    <span>{{ fact.value }}</span>
-                    {%- if fact.mark %}{{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: fact.mark}, with_context = false) }}{% endif -%}
+                    <span>{{ fact.value }}</span>{% if fact.mark %} {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: fact.mark}, with_context = false) }}{% endif %}
                 </dd>
                 {% if fact.hint is not null %}
                     <dd class="jm-fact__hint">{{ fact.hint }}</dd>

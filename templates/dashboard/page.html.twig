@@ -23,7 +23,7 @@
         {% endif %}
         <nav class="jm-nav" aria-label="Screens">
             {% for screen in screens %}
-                <a class="jm-nav__item" href="{{ urls.page(screen.id, page.period ? {period: page.period.label} : {}) }}"{% if screen.id == root.id %} aria-current="page"{% endif %}>{{ screen.label }}{% if badges[screen.id] is defined %}{% set badge = badges[screen.id] %} <span data-jm-slot="nav-{{ screen.id }}">{% if badge %}<span class="jm-nav__badge jm-nav__badge--{{ badge.tone }}" title="{{ badge.title }}">{{ badge.text }}</span>{% endif %}</span>{% endif %}</a>
+                <a class="jm-nav__item" href="{{ urls.page(screen.id, page.period ? {period: page.period.label} : {}) }}"{% if screen.id == root.id %} aria-current="page"{% endif %}>{{ screen.label }}{% if badges[screen.id] is defined %}{% set badge = badges[screen.id] %} <span data-jm-slot="nav-{{ screen.id }}">{% if badge %}{{ include('@Jmonitor/dashboard/_badge.html.twig', {badge: badge}, with_context = false) }}{% endif %}</span>{% endif %}</a>
             {% endfor %}
         </nav>
         <div class="jm-toolbar">

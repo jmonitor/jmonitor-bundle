@@ -595,14 +595,14 @@ final class PageRendererTest extends TestCase
         static::assertSame(['blocks', 'badge'], $watched->calls);
         static::assertSame([], $hidden->calls);
         static::assertCount(3, $nav);
-        static::assertSame('<span data-jm-slot="nav-watched"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2</span></span>', $nav->eq(0)->filter('[data-jm-slot]')->outerHtml());
+        static::assertSame('<span data-jm-slot="nav-watched"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2<span class="jm-visually-hidden"> — 2 warnings</span></span></span>', $nav->eq(0)->filter('[data-jm-slot]')->outerHtml());
         static::assertSame('<span data-jm-slot="nav-quiet"></span>', $nav->eq(1)->filter('[data-jm-slot]')->outerHtml());
         static::assertCount(0, $nav->eq(2)->filter('[data-jm-slot]'));
         static::assertStringNotContainsString('nav-hidden', $html);
 
         $fragment = (string) $renderer->fragment(Request::create('/'), 'plain', new FakeHostUrls())->getContent();
 
-        static::assertStringContainsString('<template data-jm-slot-content="nav-watched"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2</span></template>', $fragment);
+        static::assertStringContainsString('<template data-jm-slot-content="nav-watched"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2<span class="jm-visually-hidden"> — 2 warnings</span></span></template>', $fragment);
         static::assertStringContainsString('<template data-jm-slot-content="nav-quiet"></template>', $fragment);
         static::assertStringNotContainsString('nav-plain', $fragment);
         static::assertStringNotContainsString('nav-hidden', $fragment);

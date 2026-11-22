@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\GalleryScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -273,6 +275,41 @@ final class EmbeddedPageTest extends WebTestCase
         }
         static::assertStringStartsWith('/back-office/monitoring/gallery?', (string) $crawler->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
         static::assertCount(1, $crawler->filter('.jm-nav__item[aria-current="page"] [data-jm-slot="nav-gallery"] .jm-nav__badge'));
+    }
+
+    public function testTheGalleryMovesOnEveryRequest(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $seen = [];
+        for ($i = 0; $i < 2; ++$i) {
+            $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+            static::assertResponseIsSuccessful();
+            $seen[] = [(int) $crawler->filter('[data-jm-slot="nav-gallery"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent, (string) $crawler->filter('.jm-node')->attr('data-jm-node')];
+        }
+
+        static::assertSame($seen[0][0] + 1, $seen[1][0]);
+        static::assertSame($seen[0][0] % 2 === 1 ? 'web-1' : 'web-2', $seen[0][1]);
+        static::assertSame($seen[1][0] % 2 === 1 ? 'web-1' : 'web-2', $seen[1][1]);
+    }
+
+    public function testTheGalleryCountsARequestOnceWhateverItIsAskedFor(): void
+    {
+        $counter = $this->bufferDir . '/gallery-requests';
+        $gallery = new GalleryScreen($counter);
+
+        $gallery->navBadge();
+        $gallery->blocks(new ScreenRequest(1800000000));
+        static::assertSame('1', $gallery->navBadge()->text);
+        static::assertSame('1', file_get_contents($counter));
+
+        $gallery->reset();
+        $gallery->blocks(new ScreenRequest(1800000000));
+        static::assertSame('2', file_get_contents($counter));
+
+        $gallery->reset();
+        static::assertSame('3', $gallery->navBadge()->text);
+        static::assertSame('3', file_get_contents($counter));
     }
 
     /**
