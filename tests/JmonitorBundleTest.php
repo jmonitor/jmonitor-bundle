@@ -53,6 +53,7 @@ use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
@@ -1600,6 +1601,7 @@ class JmonitorBundleTest extends TestCase
         static::assertSame('index', $locator->getTaggedIteratorArgument()->getIndexAttribute());
         static::assertSame('%jmonitor.stack.components%', $registry->getArgument(1));
         static::assertSame([['method' => 'reset']], $registry->getTag('kernel.reset'));
+        static::assertSame([['method' => 'reset']], $container->getDefinition(StackSummary::class)->getTag('kernel.reset'));
     }
 
     public function testTheStackIsReadThroughOnePrivateReader(): void

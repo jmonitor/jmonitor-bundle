@@ -326,6 +326,7 @@ final class LocalStackReaderTest extends TestCase
         $this->warm();
 
         self::assertFalse($reader->refresh(Component::Php));
+        self::assertFalse($this->cache->hasItem('jmonitor.stack.refreshed.php'));
     }
 
     public function testRefreshingAComponentLeavesTheOthers(): void
