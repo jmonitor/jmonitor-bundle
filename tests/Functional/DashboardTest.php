@@ -238,6 +238,20 @@ final class DashboardTest extends WebTestCase
         static::assertResponseStatusCodeSame(200);
     }
 
+    public function testAnEmptyPermissionVariableDoesNotOpenThePageInDebug(): void
+    {
+        $client = static::createClient(['debug' => true, 'security' => true, 'jmonitor' => ['dashboard' => ['permission' => '%env(default::JMONITOR_TEST_ABSENT)%']]]);
+
+        $client->request('GET', '/jmonitor/');
+        static::assertResponseStatusCodeSame(401);
+
+        $client->request('GET', '/jmonitor/_fragment');
+        static::assertResponseStatusCodeSame(401);
+
+        $client->request('GET', '/jmonitor/', server: ['PHP_AUTH_USER' => 'admin', 'PHP_AUTH_PW' => 'test']);
+        static::assertResponseStatusCodeSame(403);
+    }
+
     public function testStorageFailureIsShown(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);

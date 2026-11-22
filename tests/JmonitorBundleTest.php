@@ -27,6 +27,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
@@ -139,6 +140,16 @@ class JmonitorBundleTest extends TestCase
     {
         $this->expectException(\LogicException::class);
         $this->loadBundle(['dashboard' => ['permission' => '']], environment: 'prod');
+    }
+
+    public function testThePermissionRequirementIsKnownWhenTheContainerIsBuilt(): void
+    {
+        $container = $this->loadBundle(['dashboard' => ['permission' => '%env(default::JMONITOR_PERMISSION)%']]);
+
+        static::assertTrue($container->getParameter('jmonitor.dashboard.permission_required'));
+        static::assertSame('%env(default::JMONITOR_PERMISSION)%', $container->getParameter('jmonitor.dashboard.permission'));
+        static::assertSame(['%jmonitor.dashboard.permission_required%', '%jmonitor.dashboard.permission%'], \array_slice($container->getDefinition(DashboardAccess::class)->getArguments(), 2, 2));
+        static::assertFalse($this->loadBundle([])->getParameter('jmonitor.dashboard.permission_required'));
     }
 
     public function testTheEasyAdminOptionIsOffByDefault(): void
