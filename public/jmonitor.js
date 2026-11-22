@@ -371,6 +371,7 @@
 
         input.addEventListener('change', function () {
             enabled = input.checked;
+            liveRefused = false;
             writePreference(enabled);
             markFailed(false);
             start();
