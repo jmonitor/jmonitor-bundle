@@ -178,7 +178,7 @@ final class StackScreenTest extends TestCase
     {
         $state = new StackState('web-1', Snapshots::NOW, CacheState::OutOfOrder, Snapshots::stack(
             Snapshots::of(Component::Php, ['php' => Snapshots::php()], ['eol.php' => ResultState::Pending]),
-            Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()]),
+            Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()], ['symfony.flex' => ResultState::Pending]),
         )->components, []);
 
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
@@ -188,6 +188,13 @@ final class StackScreenTest extends TestCase
         self::assertSame([false, false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
         self::assertInstanceOf(ComponentCards::class, $blocks[3]->content);
         self::assertSame([false, false], array_map(static fn(ComponentCard $card): bool => $card->reading, $blocks[3]->content->cards));
+
+        foreach ($blocks[3]->content->cards as $card) {
+            foreach ($card->vitals as $vital) {
+                self::assertNotSame('Reading…', $vital->value, $card->id . ' ' . $vital->label);
+            }
+        }
+        self::assertSame('—', $blocks[3]->content->cards[1]->vitals[2]->value);
     }
 
     public function testAColdCacheIsNotTold(): void

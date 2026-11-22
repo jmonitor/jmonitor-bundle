@@ -169,7 +169,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
 
             foreach ($component->instances as $instance) {
                 if ($instance->snapshot !== null) {
-                    $cards[] = $this->cards->card($component->component, $instance, $health, self::path($component->component));
+                    $cards[] = $this->cards->card($component->component, $instance, $health, self::path($component->component), $state->cache !== CacheState::OutOfOrder);
                 }
             }
         }

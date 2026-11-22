@@ -6,9 +6,7 @@ namespace Jmonitor\JmonitorBundle\Stack\Read;
 
 use Jmonitor\JmonitorBundle\Stack\Check\Severity;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
-use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Collector\ErrorMessage;
-use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Psr\Cache\CacheItemPoolInterface;
@@ -103,18 +101,21 @@ final class StackSummary implements ResetInterface
      */
     private static function summary(mixed $payload): ?array
     {
-        if (!is_array($payload) || array_keys($payload) !== ['at', 'critical', 'warning', 'components']) {
+        if (!is_array($payload)) {
             return null;
         }
 
-        ['at' => $at, 'critical' => $critical, 'warning' => $warning, 'components' => $components] = $payload;
+        $at = $payload['at'] ?? null;
+        $critical = $payload['critical'] ?? null;
+        $warning = $payload['warning'] ?? null;
+        $components = $payload['components'] ?? null;
 
-        if (!is_int($at) || !is_int($critical) || !is_int($warning) || $critical < 0 || $warning < 0 || !is_array($components)) {
+        if (!is_int($at) || !is_int($critical) || !is_int($warning) || !is_array($components)) {
             return null;
         }
 
         foreach ($components as $component => $verdict) {
-            if (Component::tryFrom((string) $component) === null || !is_string($verdict) || Verdict::tryFrom($verdict) === null) {
+            if (!is_string($component) || !is_string($verdict)) {
                 return null;
             }
         }

@@ -121,6 +121,24 @@ final class CardBuilderTest extends TestCase
         self::assertSame('—', self::vitals($card)['Flex recipes']);
     }
 
+    public function testWhatWillNotBeReadForNowShowsAsMissing(): void
+    {
+        $instance = new InstanceState(null, null, null, Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()], ['symfony.flex' => ResultState::Pending]));
+        $card = $this->cardOf(Component::Symfony, $instance, reading: false);
+
+        self::assertSame(['Environment' => 'prod', 'Debug' => 'off', 'Flex recipes' => '—'], self::vitals($card));
+        self::assertNull($card->vitals[2]->hint);
+        self::assertFalse($card->reading);
+
+        foreach ([ResultState::Pending, ResultState::Busy] as $state) {
+            $card = $this->cardOf(Component::Php, new InstanceState(null, null, null, Snapshots::of(Component::Php, [], ['php' => $state])), reading: false);
+
+            self::assertFalse($card->reading, $state->value);
+            self::assertSame(['OPcache memory' => '—', 'OPcache hit rate' => '—'], self::vitals($card), $state->value);
+            self::assertSame([null, null], array_map(static fn(Vital $vital): ?string => $vital->hint, $card->vitals), $state->value);
+        }
+    }
+
     /**
      * @return iterable<string, array{ResultState, bool}>
      */
@@ -191,12 +209,12 @@ final class CardBuilderTest extends TestCase
         return $this->cardOf($snapshot->component, new InstanceState(null, null, null, $snapshot), $path);
     }
 
-    private function cardOf(Component $component, InstanceState $instance, ?string $path = null): ComponentCard
+    private function cardOf(Component $component, InstanceState $instance, ?string $path = null, bool $reading = true): ComponentCard
     {
         $clock = new MockClock('@' . Snapshots::NOW);
         $health = (new StackChecks([], false, $clock))->health(Snapshots::state([$component->value => [$instance]]));
 
-        return (new CardBuilder($clock))->card($component, $instance, $health, $path);
+        return (new CardBuilder($clock))->card($component, $instance, $health, $path, $reading);
     }
 
     /**

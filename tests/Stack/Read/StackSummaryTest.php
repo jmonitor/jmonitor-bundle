@@ -114,10 +114,10 @@ final class StackSummaryTest extends TestCase
         yield 'an empty array' => [[]];
         yield 'a date as a string' => [['at' => '1780000000'] + self::EXPECTED];
         yield 'a count as a float' => [['critical' => 1.0] + self::EXPECTED];
-        yield 'a negative count' => [['warning' => -1] + self::EXPECTED];
+        yield 'no warning count' => [array_diff_key(self::EXPECTED, ['warning' => true])];
         yield 'no components' => [array_diff_key(self::EXPECTED, ['components' => true])];
-        yield 'an unknown component' => [['components' => ['mysql' => 'healthy']] + self::EXPECTED];
-        yield 'an unknown verdict' => [['components' => ['php' => 'fine']] + self::EXPECTED];
+        yield 'components as a string' => [['components' => 'php'] + self::EXPECTED];
+        yield 'a component without name' => [['components' => ['healthy']] + self::EXPECTED];
         yield 'a verdict as a number' => [['components' => ['php' => 1]] + self::EXPECTED];
     }
 
@@ -128,6 +128,15 @@ final class StackSummaryTest extends TestCase
         $pool->save($pool->getItem('jmonitor.stack.summary.' . (new WebNode('web-1'))->keyPrefix() . 'last')->set($payload));
 
         self::assertNull($this->summary($pool)->last());
+    }
+
+    public function testAPayloadIsReadWhateverTheOrderOfItsKeysAndWithoutItsExtraKeys(): void
+    {
+        $pool = new ArrayAdapter();
+        $payload = ['components' => self::EXPECTED['components'], 'warning' => 1, 'node' => 'web-1', 'critical' => 1, 'at' => Snapshots::NOW];
+        $pool->save($pool->getItem('jmonitor.stack.summary.' . (new WebNode('web-1'))->keyPrefix() . 'last')->set($payload));
+
+        self::assertSame(self::EXPECTED, $this->summary($pool)->last());
     }
 
     public function testAPoolThatThrowsGivesNoSummaryAndNoException(): void

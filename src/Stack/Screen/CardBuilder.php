@@ -33,13 +33,16 @@ final class CardBuilder
         private readonly ClockInterface $clock,
     ) {}
 
-    public function card(Component $component, InstanceState $instance, StackHealth $health, ?string $path): ComponentCard
+    /**
+     * @param bool $reading false when nothing more will be read for now: what was never read shows as missing
+     */
+    public function card(Component $component, InstanceState $instance, StackHealth $health, ?string $path, bool $reading = true): ComponentCard
     {
         $snapshot = $instance->snapshot;
         $main = $snapshot?->result($component->value);
         $reason = $instance->error ?? $snapshot->error ?? ($main?->state === ResultState::Failed ? $main->error ?? 'no reason given' : null);
-        $reading = $reason === null && ($main === null || $main->state === ResultState::Pending || $main->state === ResultState::Busy);
-        [$version, $vitals, $support, $note] = $snapshot === null || $reason !== null ? [null, [], null, null] : $this->figures($component, $snapshot);
+        $waiting = $reading && $reason === null && ($main === null || $main->state === ResultState::Pending || $main->state === ResultState::Busy);
+        [$version, $vitals, $support, $note] = $snapshot === null || $reason !== null ? [null, [], null, null] : $this->figures($component, $snapshot, $reading);
         $badge = $support === null ? null : Marks::support($support);
 
         return new ComponentCard(
@@ -49,7 +52,7 @@ final class CardBuilder
             $vitals,
             $version,
             $path,
-            $reading,
+            $waiting,
             $reason,
             $badge === null ? [] : [$badge],
             $note,
@@ -60,14 +63,14 @@ final class CardBuilder
     /**
      * @return array{?string, list<Vital>, ?SupportStatus, ?string} the version, the vitals, the support, a note
      */
-    private function figures(Component $component, ComponentSnapshot $snapshot): array
+    private function figures(Component $component, ComponentSnapshot $snapshot, bool $reading): array
     {
-        $main = self::collector($snapshot, $component->value);
+        $main = self::collector($snapshot, $component->value, $reading);
 
         return match ($component) {
             Component::System => self::server(ServerReading::of($snapshot), $main),
             Component::Php => self::php(PhpReading::of($snapshot, $this->clock->now()), $snapshot, $main),
-            Component::Symfony => self::symfony(SymfonyReading::of($snapshot, $this->clock->now()), $snapshot, $main),
+            Component::Symfony => self::symfony(SymfonyReading::of($snapshot, $this->clock->now()), $snapshot, $main, $reading),
         };
     }
 
@@ -117,7 +120,7 @@ final class CardBuilder
      *
      * @return array{?string, list<Vital>, ?SupportStatus, ?string}
      */
-    private static function symfony(SymfonyReading $symfony, ComponentSnapshot $snapshot, \Closure $main): array
+    private static function symfony(SymfonyReading $symfony, ComponentSnapshot $snapshot, \Closure $main, bool $reading): array
     {
         $vitals = [
             new Vital('Environment', $main($symfony->environment)),
@@ -131,7 +134,7 @@ final class CardBuilder
                 $outdated > 0 => $outdated . self::NBSP . 'outdated',
                 default => null,
             };
-            $vitals[] = new Vital('Flex recipes', self::collector($snapshot, self::FLEX)($recipes));
+            $vitals[] = new Vital('Flex recipes', self::collector($snapshot, self::FLEX, $reading)($recipes));
         }
 
         return [$symfony->version, $vitals, $symfony->support, null];
@@ -140,12 +143,12 @@ final class CardBuilder
     /**
      * @return \Closure(?string): string what a vital read by this collector shows
      */
-    private static function collector(ComponentSnapshot $snapshot, string $name): \Closure
+    private static function collector(ComponentSnapshot $snapshot, string $name, bool $reading): \Closure
     {
         $state = $snapshot->result($name)?->state;
-        $reading = $state === null || $state === ResultState::Pending || $state === ResultState::Busy;
+        $waiting = $reading && ($state === null || $state === ResultState::Pending || $state === ResultState::Busy);
 
-        return static fn(?string $value): string => $reading ? self::READING : $value ?? self::MISSING;
+        return static fn(?string $value): string => $waiting ? self::READING : $value ?? self::MISSING;
     }
 
     private static function percent(?float $percent): ?string
