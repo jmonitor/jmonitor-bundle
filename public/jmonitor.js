@@ -32,7 +32,8 @@
     var inFlight = false;
     var fastTimer = null;
     var fastTries = 0;
-    var fastEnded = false;
+    var fastRefused = false;
+    var liveRefused = false;
 
     if (!url || !content) {
         return;
@@ -219,7 +220,7 @@
     }
 
     function hasFastTriesLeft() {
-        return !fastEnded && isReading() && fastTries < FAST_TRIES;
+        return !fastRefused && !liveRefused && isReading() && fastTries < FAST_TRIES;
     }
 
     function scheduleFastTry(delay) {
@@ -275,7 +276,7 @@
             return;
         }
 
-        if (!enabled || inFlight || document.hidden || hasSelectionInside(content)) {
+        if (!enabled || liveRefused || inFlight || document.hidden || hasSelectionInside(content)) {
             return;
         }
 
@@ -309,19 +310,24 @@
             headers: { Accept: 'text/html' },
         })
             .then(function (response) {
-                // a redirect or a denial means the session or the access changed: a reload shows why
+                // a redirect or a denial: an early try only ends the early tries; a refresh reloads to show why,
+                // unless an early try of this page was refused too, since the reloaded page would be refused again
                 if (response.type === 'opaqueredirect' || response.status === 401 || response.status === 403 || response.status === 404) {
-                    fastEnded = true;
-
-                    // an early try never reloads: a page whose fragment is always refused would reload in a loop
                     if (forced) {
+                        fastRefused = true;
                         mark(true);
 
                         return null;
                     }
 
+                    liveRefused = true;
                     stop();
-                    window.location.reload();
+
+                    if (fastRefused) {
+                        mark(true);
+                    } else {
+                        window.location.reload();
+                    }
 
                     return null;
                 }
@@ -347,7 +353,7 @@
     function start() {
         stop();
 
-        if (enabled && !document.hidden) {
+        if (enabled && !liveRefused && !document.hidden) {
             timer = window.setInterval(refresh, INTERVAL);
         }
     }
