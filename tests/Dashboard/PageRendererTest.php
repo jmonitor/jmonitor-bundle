@@ -418,6 +418,27 @@ final class PageRendererTest extends TestCase
         static::assertSame('12', (new Crawler($fragment))->filter('.jm-card__value')->text());
     }
 
+    public function testTheSortLinksOfASubScreenStayOnItsPath(): void
+    {
+        $child = new StubScreen('child', view: static fn(): ScreenView => new ScreenView([], [
+            new Table('stubs', 'Stubs', [new Column('name', 'Name', false, 'name'), new Column('count', 'Count', sort: 'count')], [
+                new Row('k1', ['name' => new Cell('a'), 'count' => new Cell('1')]),
+            ]),
+        ]));
+        $renderer = $this->renderer([new StubParentScreen('stub', ['child' => $child])]);
+        $request = Request::create('/', parameters: ['period' => '6h', 'sort' => 'name', 'dir' => 'asc']);
+
+        foreach ([
+            $renderer->page($request, 'stub/child', new FakeHostUrls())->html,
+            (string) $renderer->fragment($request, 'stub/child', new FakeHostUrls())->getContent(),
+        ] as $html) {
+            $sorts = (new Crawler($html))->filter('a.jm-sort');
+
+            static::assertSame('/host/page/stub/child?menu=3&period=6h&sort=name&dir=desc', $sorts->eq(0)->attr('href'));
+            static::assertSame('/host/page/stub/child?menu=3&period=6h&sort=count&dir=desc', $sorts->eq(1)->attr('href'));
+        }
+    }
+
     public function testAnUnknownSubScreenAThirdSegmentAndAChildOfAPlainScreenAreNotFound(): void
     {
         $child = new StubParentScreen('child', actions: ['ping' => 'Ping']);
