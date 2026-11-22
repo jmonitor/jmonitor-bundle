@@ -33,6 +33,17 @@ final class BlockTest extends TestCase
         static::assertSame(['', ''], [Block::unavailable(Block::CARDS, BlockState::Error)->title, Block::unavailable(Block::CARDS, BlockState::Error)->text]);
     }
 
+    public function testAReadingBlockSaysSo(): void
+    {
+        $cards = Block::cards([new Card('Hits', '12')]);
+        $partial = $cards->withReading();
+
+        static::assertFalse($cards->reading);
+        static::assertFalse(Block::unavailable(Block::TABLE, BlockState::Empty)->reading);
+        static::assertTrue(Block::unavailable(Block::TABLE, BlockState::Reading)->reading);
+        static::assertSame([Block::CARDS, BlockState::Ready, $cards->content, true], [$partial->type, $partial->state, $partial->content, $partial->reading]);
+    }
+
     public function testAnUnavailableBlockCannotBeReady(): void
     {
         $this->expectException(\LogicException::class);

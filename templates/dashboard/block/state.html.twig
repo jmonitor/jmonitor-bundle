@@ -1,7 +1,7 @@
 {% autoescape 'html' %}
 {% set state = block.state.value %}
 {% set tone = state in ['no_connection', 'storage_error', 'buffer_unavailable', 'error'] ? 'bad' : 'info' %}
-<div class="jm-state jm-state--{{ tone }}">
+<div class="jm-state jm-state--{{ tone }}"{% if state == 'reading' %} data-jm-reading{% endif %}>
     <svg class="jm-state__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.75"/>
         {% if tone == 'bad' %}
@@ -23,6 +23,9 @@
     {% elseif state == 'no_connection' %}
         <h2 class="jm-state__title">No storage configured</h2>
         <p class="jm-state__text">JMonitor needs a Doctrine DBAL connection to store its data. Install doctrine/doctrine-bundle or set <code>jmonitor.storage.connection</code>.</p>
+    {% elseif state == 'reading' %}
+        <h2 class="jm-state__title">Reading…</h2>
+        <p class="jm-state__text">JMonitor is reading this section.</p>
     {% elseif state == 'error' %}
         <h2 class="jm-state__title">Section unavailable</h2>
         <p class="jm-state__text">JMonitor could not display this section. Check the application logs.</p>

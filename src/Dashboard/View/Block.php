@@ -15,6 +15,7 @@ final class Block
         public readonly mixed $content,
         public readonly string $title = '',
         public readonly string $text = '',
+        public readonly bool $reading = false,
     ) {}
 
     /** @param list<Card> $cards */
@@ -34,6 +35,11 @@ final class Block
             throw new \LogicException('An unavailable block cannot be ready.');
         }
 
-        return new self($type, $state, null, $title, $text);
+        return new self($type, $state, null, $title, $text, $state === BlockState::Reading);
+    }
+
+    public function withReading(): self
+    {
+        return new self($this->type, $this->state, $this->content, $this->title, $this->text, true);
     }
 }

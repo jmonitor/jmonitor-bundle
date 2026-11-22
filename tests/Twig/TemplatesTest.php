@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
+use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\CommandsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
@@ -234,6 +235,33 @@ final class TemplatesTest extends TestCase
         static::assertStringContainsString('<div class="jm-state jm-state--bad">', $html);
         static::assertStringContainsString('<h2 class="jm-state__title">Section unavailable</h2>', $html);
         static::assertStringContainsString('<p class="jm-state__text">JMonitor could not display this section. Check the application logs.</p>', $html);
+    }
+
+    public function testTheReadingStateHasItsOwnText(): void
+    {
+        $page = new Page(new StubBlockScreen(), [Block::unavailable(Block::TABLE, BlockState::Reading)], null, '', '', []);
+
+        $html = $this->render('_screen.html.twig', ['page' => $page, 'path' => 'probe', 'badges' => []]);
+
+        static::assertStringContainsString('<div class="jm-screen" data-jm-state="reading" data-jm-reading>', $html);
+        static::assertStringContainsString('<div class="jm-state jm-state--info" data-jm-reading>', $html);
+        static::assertStringContainsString('<h2 class="jm-state__title">Reading…</h2>', $html);
+        static::assertStringContainsString('<p class="jm-state__text">JMonitor is reading this section.</p>', $html);
+        static::assertStringContainsString('<p class="jm-rest"><a data-jm-rest href="/host/page/probe?menu=3&amp;rest=1">Load the rest</a></p>', $html);
+    }
+
+    public function testABadgeIsEscaped(): void
+    {
+        $page = new Page(new StubBlockScreen(), [], null, '', '', []);
+        $badges = ['probe' => new NavBadge('"><script>', 'warn', '"><script>')];
+        $context = ['page' => $page, 'path' => 'probe', 'root' => $page->screen, 'badges' => $badges, 'screens' => [$page->screen], 'periods' => Period::cases()];
+
+        foreach (['page.html.twig', '_screen.html.twig'] as $template) {
+            $html = $this->render($template, $context);
+
+            static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--warn" title="&quot;&gt;&lt;script&gt;">&quot;&gt;&lt;script&gt;</span>', $html, $template);
+            static::assertStringNotContainsString('<script>', $html, $template);
+        }
     }
 
     /**

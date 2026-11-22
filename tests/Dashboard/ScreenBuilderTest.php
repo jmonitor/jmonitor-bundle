@@ -245,6 +245,27 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame(['count', 'desc'], [$page->sort, $page->direction]);
     }
 
+    public function testTheScreenRequestSaysWhenItIsAFollowUp(): void
+    {
+        $screen = new StubBlockScreen();
+        $builder = $this->builder(null);
+
+        $builder->create($screen, null, null, null);
+        $builder->create($screen, null, null, null, false, true);
+
+        static::assertEquals([new ScreenRequest(1800000000), new ScreenRequest(1800000000, true)], $screen->requests);
+        static::assertSame([false, true], array_map(static fn(ScreenRequest $request): bool => $request->fragment, $screen->requests));
+    }
+
+    public function testAPageIsReadingWhileOneOfItsBlocksIs(): void
+    {
+        $cards = Block::cards([new Card('Hits', '12')]);
+
+        static::assertFalse($this->builder(null)->create(new StubBlockScreen(blocks: [$cards]), null, null, null)->isReading());
+        static::assertTrue($this->builder(null)->create(new StubBlockScreen(blocks: [$cards, $cards->withReading()]), null, null, null)->isReading());
+        static::assertTrue($this->builder(null)->create(new StubBlockScreen(blocks: [$cards, Block::unavailable(Block::TABLE, BlockState::Reading)]), null, null, null)->isReading());
+    }
+
     public function testStorageIsUsableWithAReaderAndRecordingOn(): void
     {
         static::assertTrue($this->builder($this->reader(), true)->storageUsable());

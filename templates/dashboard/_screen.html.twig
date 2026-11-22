@@ -1,7 +1,13 @@
 {% autoescape 'html' %}
-<div class="jm-screen" data-jm-state="{{ page.state }}">
+<div class="jm-screen" data-jm-state="{{ page.state }}"{% if page.reading %} data-jm-reading{% endif %}>
 {% for block in page.blocks %}
     {{ include('@Jmonitor/dashboard/block/' ~ (block.state.value == 'ready' ? block.type : 'state') ~ '.html.twig', {block: block}) }}
+{% endfor %}
+{% if page.reading %}
+    <p class="jm-rest"><a data-jm-rest href="{{ urls.page(path ?? page.screen.id, {rest: '1'}) }}">Load the rest</a></p>
+{% endif %}
+{% for id, badge in badges ?? {} %}
+    <template data-jm-slot-content="nav-{{ id }}">{% if badge %}<span class="jm-nav__badge jm-nav__badge--{{ badge.tone }}" title="{{ badge.title }}">{{ badge.text }}</span>{% endif %}</template>
 {% endfor %}
 </div>
 {% endautoescape %}

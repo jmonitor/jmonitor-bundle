@@ -1,4 +1,7 @@
 {% autoescape 'html' %}
+{% set path = path ?? page.screen.id %}
+{% set root = root ?? page.screen %}
+{% set badges = badges ?? {} %}
 {% set header = standalone ? 'header' : 'div' %}
 {% set main = standalone ? 'main' : 'div' %}
 <{{ header }} class="jm-header">
@@ -20,7 +23,7 @@
         {% endif %}
         <nav class="jm-nav" aria-label="Screens">
             {% for screen in screens %}
-                <a class="jm-nav__item" href="{{ urls.page(screen.id, page.period ? {period: page.period.label} : {}) }}"{% if screen.id == page.screen.id %} aria-current="page"{% endif %}>{{ screen.label }}</a>
+                <a class="jm-nav__item" href="{{ urls.page(screen.id, page.period ? {period: page.period.label} : {}) }}"{% if screen.id == root.id %} aria-current="page"{% endif %}>{{ screen.label }}{% if badges[screen.id] is defined %}{% set badge = badges[screen.id] %} <span data-jm-slot="nav-{{ screen.id }}">{% if badge %}<span class="jm-nav__badge jm-nav__badge--{{ badge.tone }}" title="{{ badge.title }}">{{ badge.text }}</span>{% endif %}</span>{% endif %}</a>
             {% endfor %}
         </nav>
         <div class="jm-toolbar">
@@ -31,7 +34,7 @@
                         {% for period in periods %}
                             <li>
                                 <a class="jm-segmented__item{{ period == page.period ? ' is-active' }}"
-                                   href="{{ urls.page(page.screen.id, {period: period.label, sort: page.sort, dir: page.direction}) }}"
+                                   href="{{ urls.page(path, {period: period.label, sort: page.sort, dir: page.direction}) }}"
                                    {% if period == page.period %}aria-current="true"{% endif %}>{{ period.label }}</a>
                             </li>
                         {% endfor %}
@@ -39,7 +42,7 @@
                 </nav>
             {% endif %}
             {% for name, label in actions %}
-                <form method="post" action="{{ urls.action(page.screen.id) }}">
+                <form method="post" action="{{ urls.action(path) }}">
                     <input type="hidden" name="action" value="{{ name }}">
                     {% if token is not null %}
                         <input type="hidden" name="token" value="{{ token }}">
@@ -54,7 +57,7 @@
         </div>
     </div>
 </{{ header }}>
-<{{ main }} id="jm-main" class="jm-main" data-jm-live data-jm-fragment-url="{{ urls.fragment(page.screen.id) }}">
+<{{ main }} id="jm-main" class="jm-main" data-jm-live data-jm-fragment-url="{{ urls.fragment(path) }}">
     <div class="jm-heading">
         <h1 class="jm-heading__title">{{ page.screen.label }}</h1>
         <p class="jm-heading__text">{{ page.screen.heading }}{% if page.period %}, {{ page.period|jmonitor_period|lower }}{% endif %}.</p>

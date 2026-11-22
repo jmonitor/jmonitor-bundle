@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Embed;
 
+use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
@@ -108,6 +109,8 @@ final class JmonitorPageTest extends TestCase
             null,
             $twig,
             new Assets(),
+            new ActionGuard(),
+            null,
         );
     }
 }
