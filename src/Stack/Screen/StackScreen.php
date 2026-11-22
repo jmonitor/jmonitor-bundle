@@ -122,7 +122,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
 
         $blocks[] = Block::checks($this->parts->checkList($health->findings, true, $state->isReading() ? 'Nothing to check so far' : null));
         $components = Block::components($this->componentCards($state, $health));
-        $blocks[] = $state->isReading() ? $components->withReading() : $components;
+        $blocks[] = StackScreenParts::followUp($state) ? $components->withReading() : $components;
 
         return $blocks;
     }

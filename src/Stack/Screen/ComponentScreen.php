@@ -105,7 +105,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
 
         return [
             ...$blocks,
-            $state->isReading() ? $card->withReading() : $card,
+            StackScreenParts::followUp($state) ? $card->withReading() : $card,
             Block::checks($this->parts->checkList($findings, false, 'Nothing to check on ' . $this->label())),
             ...$this->detail->sections($instance, $findings, $this->parts->now(), $reading),
         ];

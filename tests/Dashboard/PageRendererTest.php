@@ -26,14 +26,30 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Recording\Entry;
+use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
+use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Read\StackState;
+use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
+use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
+use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FakeStackReader;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
@@ -651,6 +667,27 @@ final class PageRendererTest extends TestCase
         }
     }
 
+    public function testAStackScreenWithAnOutdatedValueOffersToLoadTheRest(): void
+    {
+        $flex = ['up_to_date' => true, 'outdated_recipes' => []];
+        $outdated = Snapshots::stack(Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony(), 'symfony.flex' => $flex], ['symfony.flex' => ResultState::Stale]));
+        $fresh = Snapshots::stack(Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony(), 'symfony.flex' => $flex]));
+
+        foreach (['stack' => '/host/page/stack?menu=3&rest=1', 'stack/symfony' => '/host/page/stack/symfony?menu=3&rest=1'] as $path => $rest) {
+            $crawler = new Crawler($this->renderer([self::stackScreen($outdated)])->page(Request::create('/'), $path, new FakeHostUrls())->html);
+
+            static::assertCount(1, $crawler->filter('.jm-screen[data-jm-reading]'), $path);
+            static::assertSame($rest, $crawler->filter('.jm-screen > p.jm-rest > a[data-jm-rest]')->attr('href'));
+            static::assertSame('Load the rest', $crawler->filter('a[data-jm-rest]')->text());
+            static::assertStringNotContainsString('Reading…', $crawler->filter('.jm-screen')->text());
+
+            $html = $this->renderer([self::stackScreen($fresh)])->page(Request::create('/'), $path, new FakeHostUrls())->html;
+
+            static::assertStringNotContainsString('data-jm-reading', $html);
+            static::assertStringNotContainsString('Load the rest', $html);
+        }
+    }
+
     /**
      * @param array<string, mixed> $fields
      */
@@ -692,6 +729,22 @@ final class PageRendererTest extends TestCase
             $guard ?? new ActionGuard(),
             $logger,
         );
+    }
+
+    private static function stackScreen(StackState $state): StackScreen
+    {
+        $clock = new MockClock('@' . Snapshots::NOW);
+        $summary = new StackSummary(new ServiceLocator(['cache' => static fn(): CountingCachePool => new CountingCachePool()]), new WebNode('web-1'), $clock);
+
+        return new StackScreen(new ServiceLocator([
+            StackReaderInterface::class => static fn(): StackReaderInterface => new FakeStackReader($state),
+            StackChecks::class => static fn(): StackChecks => new StackChecks([], false, $clock),
+            StackSummary::class => static fn(): StackSummary => $summary,
+        ]), new CardBuilder($clock), $clock, new ServiceLocator([
+            'system' => static fn(): ServerDetail => new ServerDetail(),
+            'php' => static fn(): PhpDetail => new PhpDetail(),
+            'symfony' => static fn(): SymfonyDetail => new SymfonyDetail(),
+        ]));
     }
 
     private function screenWithATable(): StubScreen

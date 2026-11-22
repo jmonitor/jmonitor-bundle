@@ -13,7 +13,10 @@ use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Psr\Clock\ClockInterface;
 use Psr\Container\ContainerInterface;
 
@@ -50,6 +53,32 @@ final class StackScreenParts
     public static function cacheOutOfOrder(): Notice
     {
         return new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.');
+    }
+
+    /**
+     * Whether the screen asks for its rest: a value was never read, or one is outdated and nothing says its renewal failed.
+     */
+    public static function followUp(StackState $state): bool
+    {
+        if ($state->isReading()) {
+            return true;
+        }
+
+        if ($state->cache === CacheState::OutOfOrder) {
+            return false;
+        }
+
+        foreach ($state->components as $component) {
+            foreach ($component->instances as $instance) {
+                foreach ($instance->snapshot->results ?? [] as $result) {
+                    if ($result->state === ResultState::Stale && $result->error === null) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

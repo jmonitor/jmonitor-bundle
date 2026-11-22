@@ -29,6 +29,7 @@ use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
@@ -99,7 +100,7 @@ final class StackScreenTest extends TestCase
         self::assertSame('web-1', $cards->group);
         self::assertNull($cards->more);
         self::assertSame([], $cards->notDetected);
-        self::assertFalse($blocks[2]->reading);
+        self::assertTrue($blocks[2]->reading, 'the disk read an hour ago is read again');
     }
 
     public function testACheckOfANamedInstanceSaysWhichOne(): void
@@ -256,6 +257,42 @@ final class StackScreenTest extends TestCase
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertSame([false, false, true], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+    }
+
+    public function testAnOutdatedValueIsReadAgainUnlessItsRenewalFailed(): void
+    {
+        $php = Snapshots::php();
+        unset($php['fpm']);
+        $outdated = Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony(), 'symfony.flex' => ['up_to_date' => true, 'outdated_recipes' => []]], ['symfony.flex' => ResultState::Stale]);
+        $state = self::withNode(Snapshots::stack(Snapshots::of(Component::Php, ['php' => $php]), $outdated));
+
+        $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame([false, false, true], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+        self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
+        self::assertSame([false, false], array_map(static fn(ComponentCard $card): bool => $card->reading, $blocks[2]->content->cards));
+        self::assertInstanceOf(CheckList::class, $blocks[1]->content);
+        self::assertSame('Nothing to check', $blocks[1]->content->emptyTitle);
+
+        $failed = new ComponentSnapshot(Component::Symfony, [
+            ...$outdated->results,
+            'symfony.flex' => new CollectorResult('symfony.flex', ['up_to_date' => true, 'outdated_recipes' => []], ResultState::Stale, 'composer could not run', Snapshots::NOW - Snapshots::STALE_AGE, expiresAt: Snapshots::NOW + 60),
+        ]);
+        $state = self::withNode(Snapshots::stack(Snapshots::of(Component::Php, ['php' => $php]), $failed));
+
+        $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame([false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+
+        $outOfOrder = new StackState('web-1', Snapshots::NOW, CacheState::OutOfOrder, Snapshots::stack($outdated)->components, []);
+
+        $blocks = $this->screen(new FakeStackReader($outOfOrder))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame([false, false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+
+        $blocks = $this->screen(new FakeStackReader(self::healthy()))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame([false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
     }
 
     public function testAnEngineFailureIsToldInsteadOfAnEmptyStack(): void

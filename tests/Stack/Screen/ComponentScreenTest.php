@@ -26,6 +26,7 @@ use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
@@ -223,6 +224,40 @@ final class ComponentScreenTest extends TestCase
         self::assertSame([Block::SUBNAV, Block::COMPONENTS, Block::CHECKS, Block::FACTS, Block::TABLE, Block::FACTS], array_map(static fn(Block $block): string => $block->type, $blocks));
         self::assertSame([false, true, false, false, false, true], array_map(static fn(Block $block): bool => $block->reading, $blocks));
         self::assertSame(BlockState::Reading, $blocks[5]->state);
+    }
+
+    public function testAnOutdatedValueIsReadAgainUnlessItsRenewalFailed(): void
+    {
+        $flex = ['up_to_date' => true, 'outdated_recipes' => []];
+        $outdated = Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony(), 'symfony.flex' => $flex], ['symfony.flex' => ResultState::Stale]);
+
+        $blocks = $this->screen(new FakeStackReader(self::stack($outdated)), Component::Symfony)->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame(Block::COMPONENTS, $blocks[1]->type);
+        self::assertSame([1], array_keys(array_filter(array_map(static fn(Block $block): bool => $block->reading, $blocks))));
+        self::assertInstanceOf(ComponentCards::class, $blocks[1]->content);
+        self::assertFalse($blocks[1]->content->cards[0]->reading);
+
+        $failed = new ComponentSnapshot(Component::Symfony, [
+            ...$outdated->results,
+            'symfony.flex' => new CollectorResult('symfony.flex', $flex, ResultState::Stale, 'composer could not run', Snapshots::NOW - Snapshots::STALE_AGE, expiresAt: Snapshots::NOW + 60),
+        ]);
+
+        $blocks = $this->screen(new FakeStackReader(self::stack($failed)), Component::Symfony)->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertNotContains(true, array_map(static fn(Block $block): bool => $block->reading, $blocks));
+
+        $outOfOrder = new StackState('web-1', Snapshots::NOW, CacheState::OutOfOrder, Snapshots::stack($outdated)->components, []);
+
+        $blocks = $this->screen(new FakeStackReader($outOfOrder), Component::Symfony)->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertNotContains(true, array_map(static fn(Block $block): bool => $block->reading, $blocks));
+
+        $fresh = Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony(), 'symfony.flex' => $flex]);
+
+        $blocks = $this->screen(new FakeStackReader(self::stack($fresh)), Component::Symfony)->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertNotContains(true, array_map(static fn(Block $block): bool => $block->reading, $blocks));
     }
 
     public function testRefreshOnlyForgetsItsComponent(): void

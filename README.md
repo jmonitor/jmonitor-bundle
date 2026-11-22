@@ -399,7 +399,7 @@ The stack makes two calls outside the web server, each with its switch:
 - `end_of_life`: an HTTPS request to `endoflife.date` for PHP and one for Symfony, once a day, shared by all your web servers through the cache. Turned off, versions are shown without their support status, and the end-of-life and security-fixes checks are not run.
 - `symfony.flex`: the `composer recipes` command, run in the project directory once an hour on each web server, when `symfony/flex` is installed. `composer` must be available to the user that runs the web server, or a check says it could not run. Turned off, the Flex recipes are not shown.
 
-Neither delays the first display of the screen: they run when the page reads what it still lacks.
+Neither delays the first display of the screen: they run when the page reads what it still lacks or what has gone out of date.
 
 `stack` and `stack.enabled` cannot be read from an environment variable: the services of the stack are registered when the container is built.
 
