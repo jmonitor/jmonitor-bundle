@@ -23,7 +23,7 @@ composer lint:fix
 ./vendor/bin/phpunit tests/path/to/TestFile.php
 ```
 
-`composer phpunit` lifts the memory limit, which the full suite needs; a direct call of `vendor/bin/phpunit` on the whole suite needs `-d memory_limit=-1`.
+`composer phpunit` lifts the memory limit, which the full suite needs, and Composer's time limit on scripts; a direct call of `vendor/bin/phpunit` on the whole suite needs `-d memory_limit=-1`.
 
 ## EasyAdmin integration
 
