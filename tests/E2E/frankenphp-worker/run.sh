@@ -153,7 +153,9 @@ refreshed="$(php_read_at)"
 
 hit /jmonitor/stack/php 200
 
-admin="$(curl -sf -u "$ADMIN" "$BASE/admin/jmonitor/stack")" || fail "GET /admin/jmonitor/stack did not return 2xx"
+admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/stack")" || fail "GET /admin/jmonitor/stack failed"
+status="$(printf '%s\n' "$admin" | tail -n 1)"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor/stack answered $status instead of 200"
 [ "$(cards_of "$admin")" = 'php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
 
 sleep 2

@@ -151,18 +151,30 @@ status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin
 refreshed="$(php_read_at)"
 [ "$refreshed" -gt "$renewed" ] || fail "the PHP card was still read at $renewed after a refresh"
 
-detail="$(curl -sf "$BASE/jmonitor/stack/php?inflight=e2e" &
-    pid=$!
-    for _ in 1 2 3 4 5; do curl -s -o /dev/null "$BASE/slow"; done
-    wait "$pid")" || fail "GET /jmonitor/stack/php did not return 2xx"
+for _ in 1 2 3; do
+    (for _ in $(seq 1 30); do curl -s -o /dev/null "$BASE/slow"; done) &
+done
+sleep 0.2
+before="$(date +%s)"
+status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' --data 'action=refresh' "$BASE/jmonitor/_action/stack/php")"
+[ "$status" = 303 ] || fail "POST /jmonitor/_action/stack/php answered $status instead of 303"
+detail="$(curl -sf "$BASE/jmonitor/stack/php?inflight=e2e")" || fail "GET /jmonitor/stack/php did not return 2xx"
+wait
 printf '%s\n' "$detail" | grep -q 'class="jm-panel__title">PHP-FPM<' || fail "the PHP screen has no PHP-FPM section"
+read_at="$(printf '%s\n' "$detail" | sed -n 's/.*data-jm-component="php"[^>]*data-jm-read-at="\([0-9]*\)".*/\1/p' | head -n 1)"
+[ -n "$read_at" ] && [ "$read_at" -ge "$before" ] || fail "the PHP screen did not read PHP during its own request: read at ${read_at:-never}, refreshed at $before"
 for address in inflight /hello/ /slow /n-plus-one /cached /boom /teapot; do
     if printf '%s\n' "$detail" | grep -q "$address"; then
         fail "the PHP screen shows $address, the address of a request"
     fi
 done
+if $COMPOSE exec -T php sh -c 'grep -rlq "inflight=e2e" /tmp/jmonitor-bundle-tests/*/cache/*/pools'; then
+    fail "the cache of the stack holds the address of a request in flight"
+fi
 
-admin="$(curl -sf -u "$ADMIN" "$BASE/admin/jmonitor/stack")" || fail "GET /admin/jmonitor/stack did not return 2xx"
+admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/stack")" || fail "GET /admin/jmonitor/stack failed"
+status="$(printf '%s\n' "$admin" | tail -n 1)"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor/stack answered $status instead of 200"
 [ "$(cards_of "$admin")" = 'php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
 
 sleep 2
