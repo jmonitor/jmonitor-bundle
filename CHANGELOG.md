@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light theme for the screens shown inside another page.
 - `easyadmin` option: shows the screens inside an EasyAdmin back office, under every dashboard, with its light or dark theme.
 - `data-jm-theme="auto"`: the screens shown inside another page follow the Bootstrap colour mode of that page.
+- `/jmonitor` Stack screen: the server, PHP and Symfony read live, with what to check and a detail per component.
+- `stack` option: turns the live stack, one of its components or one of its two outgoing calls off, and silences a check with `ignore_checks`.
+- The `/jmonitor` page opens on the Stack screen when nothing is recorded.
 
 ### Changed
 - Requires PHP 8.2.
