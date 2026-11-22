@@ -212,7 +212,7 @@ final class StackChecks
     {
         $findings = [];
 
-        if ($snapshot->has('php') && !$php->opcacheEnabled) {
+        if ($php->opcacheReported && !$php->opcacheEnabled) {
             $findings[] = $raise(
                 'php.opcache_disabled',
                 Severity::Warning,

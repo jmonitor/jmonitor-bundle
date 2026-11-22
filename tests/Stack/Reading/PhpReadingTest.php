@@ -35,6 +35,7 @@ final class PhpReadingTest extends TestCase
         self::assertFalse($reading->displayErrors);
         self::assertSame(4_194_304, $reading->realpathCacheSize);
 
+        self::assertTrue($reading->opcacheReported);
         self::assertTrue($reading->opcacheEnabled);
         self::assertSame(60_000_000, $reading->opcacheUsed);
         self::assertSame(100_000_000, $reading->opcacheTotal);
@@ -85,6 +86,7 @@ final class PhpReadingTest extends TestCase
             'fpm' => [],
         ]]), self::today());
 
+        self::assertTrue($reading->opcacheReported, 'an empty array says the extension is not there');
         self::assertFalse($reading->opcacheEnabled);
         self::assertFalse($reading->apcuEnabled);
         self::assertFalse($reading->fpm);
@@ -143,6 +145,7 @@ final class PhpReadingTest extends TestCase
             self::assertNull($reading->sapi);
             self::assertNull($reading->displayErrors);
             self::assertNull($reading->realpathCacheSize);
+            self::assertFalse($reading->opcacheReported);
             self::assertFalse($reading->opcacheEnabled);
             self::assertNull($reading->opcacheMemoryPercent);
             self::assertFalse($reading->opcacheFull);

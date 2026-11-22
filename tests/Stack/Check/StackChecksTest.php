@@ -47,6 +47,8 @@ final class StackChecksTest extends TestCase
         yield 'OPcache running' => [Component::Php, ['php' => self::php()], [], 'php.opcache_disabled', null];
         yield 'OPcache turned off at runtime' => [Component::Php, ['php' => self::php(['opcache' => ['status' => ['opcache_enabled' => false]]])], [], 'php.opcache_disabled', Severity::Warning];
         yield 'OPcache not loaded' => [Component::Php, ['php' => ['opcache' => []] + self::php()], [], 'php.opcache_disabled', Severity::Warning];
+        yield 'OPcache told off' => [Component::Php, ['php' => ['opcache' => false] + self::php()], [], 'php.opcache_disabled', Severity::Warning];
+        yield 'OPcache not told' => [Component::Php, ['php' => array_diff_key(self::php(), ['opcache' => true])], [], 'php.opcache_disabled', null];
 
         yield 'OPcache memory 89.9 %' => [Component::Php, ['php' => self::opcacheMemory(899)], [], 'php.opcache_memory', null];
         yield 'OPcache memory 90 %' => [Component::Php, ['php' => self::opcacheMemory(900)], [], 'php.opcache_memory', Severity::Warning];
@@ -234,6 +236,35 @@ final class StackChecksTest extends TestCase
             Snapshots::of(Component::System, ['system' => []]),
             Snapshots::of(Component::Php, ['php' => ['opcache' => ['status' => ['opcache_enabled' => true]]], 'eol.php' => Snapshots::cycles()]),
             Snapshots::of(Component::Symfony, ['symfony' => [], 'symfony.flex' => [], 'eol.symfony' => Snapshots::cycles()]),
+        ));
+
+        self::assertSame([], $health->findings);
+    }
+
+    public function testDataOfUnknownShapeRaisesNothing(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::System, ['system' => [
+                'disk' => 'full',
+                'cpu' => ['cores' => 'four', 'load' => [250], 'load1' => INF],
+                'ram' => ['total' => 'lots', 'available' => []],
+                'cgroup' => 'none',
+            ]]),
+            Snapshots::of(Component::Php, [
+                'php' => [
+                    'version' => ['8.1'],
+                    'display_errors' => ['On'],
+                    'realpath_cache_size' => '16Q',
+                    'apcu' => 'on',
+                    'fpm' => ['listen-queue' => 'many', 'max-children-reached' => NAN],
+                ],
+                'eol.php' => ['cycles' => 'soon'],
+            ], deltas: ['php' => Snapshots::delta(['fpm' => 'x'], ['fpm' => ['max-children-reached' => 'many']])]),
+            Snapshots::of(Component::Symfony, [
+                'symfony' => ['env' => ['prod'], 'debug' => 'maybe', 'version' => ['5.4']],
+                'symfony.flex' => ['up_to_date' => 'perhaps', 'outdated_recipes' => 'symfony/framework-bundle'],
+                'eol.symfony' => ['cycles' => ['5.4' => 'ended']],
+            ]),
         ));
 
         self::assertSame([], $health->findings);

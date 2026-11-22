@@ -13,6 +13,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 final readonly class PhpReading
 {
     /**
+     * @param bool   $opcacheReported               the payload has an opcache entry: without one, whether OPcache runs is unknown
      * @param ?int   $maxExecutionTime              in seconds, 0 for no limit
      * @param ?int   $fpmMaxChildrenReached         since the pool started
      * @param ?float $fpmMaxChildrenReachedRecently between the last two samples
@@ -26,6 +27,7 @@ final readonly class PhpReading
         public ?int $maxExecutionTime,
         public ?bool $displayErrors,
         public ?int $realpathCacheSize,
+        public bool $opcacheReported,
         public bool $opcacheEnabled,
         public ?int $opcacheUsed,
         public ?int $opcacheTotal,
@@ -88,6 +90,7 @@ final readonly class PhpReading
             Values::int($data['max_execution_time'] ?? null),
             self::displayErrors($data['display_errors'] ?? null),
             is_int($realpathCacheSize) ? $realpathCacheSize : null,
+            array_key_exists('opcache', $data),
             self::opcacheRuns($opcache),
             $opcacheUsed,
             $opcacheTotal,
