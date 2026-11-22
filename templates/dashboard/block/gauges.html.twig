@@ -1,0 +1,32 @@
+{% autoescape 'html' %}
+{% set gauges = block.content %}
+<section class="jm-panel jm-gauges" aria-label="{{ gauges.title }}">
+    <div class="jm-panel__header">
+        <h2 class="jm-panel__title">{{ gauges.title }}</h2>
+    </div>
+    <div class="jm-gauges__list">
+        {% for gauge in gauges.gauges %}
+            {% set tone = gauge.mark.tone ?? null %}
+            <div class="jm-gauge{{ tone in ['warn', 'bad'] ? ' jm-gauge--' ~ tone }}">
+                <p class="jm-gauge__head">
+                    <span class="jm-gauge__label">{{ gauge.label }}</span>
+                    {% if gauge.mark %}{{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: gauge.mark}, with_context = false) }}{% endif %}
+                    <span class="jm-gauge__value">{{ gauge.percent is null and gauge.value is same as('') ? '—' : gauge.value }}</span>
+                </p>
+                {% if gauge.percent is not null %}
+                    {% set drawn = max(0, min(100, gauge.percent))|round(1) %}
+                    <div class="jm-gauge__meter" role="meter" aria-valuenow="{{ drawn }}" aria-valuemin="0" aria-valuemax="100" aria-label="{{ gauge.label }}" aria-valuetext="{{ gauge.value }}">
+                        <svg class="jm-gauge__bar" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                            <rect class="jm-gauge__track" width="100" height="6"/>
+                            <rect class="jm-gauge__fill" width="{{ drawn }}" height="6"/>
+                        </svg>
+                    </div>
+                {% endif %}
+                {% if gauge.hint is not null %}
+                    <p class="jm-gauge__hint">{{ gauge.hint }}</p>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+</section>
+{% endautoescape %}

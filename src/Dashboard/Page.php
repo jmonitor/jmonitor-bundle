@@ -33,6 +33,17 @@ final class Page
         };
     }
 
+    public function isReading(): bool
+    {
+        foreach ($this->blocks as $block) {
+            if ($block->reading) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function directionFor(string $sort): string
     {
         if ($sort !== $this->sort) {

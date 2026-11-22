@@ -13,4 +13,5 @@ enum BlockState: string
     case NoConnection = 'no_connection';
     case StorageError = 'storage_error';
     case Error = 'error';
+    case Reading = 'reading';
 }

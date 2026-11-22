@@ -15,6 +15,9 @@ final class StylesheetTest extends TestCase
     private const UNDER_JM = '/^(?:body)?\.jm(?![a-z0-9_])/i';
     private const ON_JM = '/^(?:\.jm|\.jm\[[^\]]+\]|body\.jm)$/';
     private const COLOUR = '/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i';
+    private const STANDALONE_LAYOUT_TAGS = ['html', 'head', 'meta', 'title', 'link', 'script', 'body'];
+    private const DRAWING_TAGS = ['svg', 'defs', 'linearGradient', 'stop', 'rect', 'line', 'polyline', 'circle'];
+    private const TAGS_WITHOUT_BOX_DEFAULTS = ['template', 'section', 'article', 'nav', 'form', 'label', 'strong'];
 
     public function testTheParserReadsTopLevelMediaAndKeyframeRules(): void
     {
@@ -122,6 +125,82 @@ final class StylesheetTest extends TestCase
         $selectors = self::selectorsIn(self::rules(), '@media (forced-colors: active)');
 
         static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => str_contains($selector, '.jm-live__switch')));
+    }
+
+    public function testForcedColorsCoverTheMarksAndTheGauges(): void
+    {
+        $rules = array_filter(self::rules(), static fn(array $rule): bool => $rule['at'] === '@media (forced-colors: active)');
+
+        foreach (['.jm-mark' => ['CanvasText'], '.jm-gauge' => ['CanvasText', 'Highlight']] as $block => $colours) {
+            foreach ($colours as $colour) {
+                $found = array_filter($rules, static fn(array $rule): bool => array_filter($rule['selectors'], static fn(string $selector): bool => str_contains($selector, $block)) !== []
+                    && array_filter($rule['declarations'], static fn(array $declaration): bool => str_contains($declaration[1], $colour)) !== []);
+
+                static::assertNotEmpty($found, $block . ' ' . $colour);
+            }
+        }
+    }
+
+    public function testTheTwoTonesOfTheNavigationBadgeDifferByMoreThanColour(): void
+    {
+        $declarations = static function (string $selector, ?string $at): array {
+            $found = [];
+            foreach (self::rules() as $rule) {
+                if ($rule['at'] === $at && \in_array($selector, $rule['selectors'], true)) {
+                    array_push($found, ...$rule['declarations']);
+                }
+            }
+
+            return $found;
+        };
+
+        static::assertContains(['background', 'transparent'], $declarations('.jm-nav__badge--warn', null));
+        static::assertContains(['background', 'var(--jm-bad-strong)'], $declarations('.jm-nav__badge--bad', null));
+        static::assertContains(['background', 'Highlight'], $declarations('.jm-nav__badge--bad', '@media (forced-colors: active)'));
+        static::assertContains(['border-color', 'CanvasText'], $declarations('.jm-nav__badge', '@media (forced-colors: active)'));
+    }
+
+    public function testForcedColorsTellAFailedLiveSwitchFromAnActiveOne(): void
+    {
+        $rules = array_filter(self::rules(), static fn(array $rule): bool => $rule['at'] === '@media (forced-colors: active)'
+            && \in_array(['border-style', 'dashed'], $rule['declarations'], true));
+        $selectors = array_merge(...array_column(array_values($rules), 'selectors'));
+
+        static::assertContains('.jm-live.is-failed .jm-live__switch', $selectors);
+        static::assertNotContains('.jm-live__switch', $selectors);
+        static::assertNotContains('.jm-live__switch:checked', $selectors);
+    }
+
+    public function testEveryTagOfTheTemplatesHasItsBrowserDefaultsRestatedForHostPages(): void
+    {
+        $restated = [];
+        foreach (self::rules() as $rule) {
+            if ($rule['at'] !== null) {
+                continue;
+            }
+
+            foreach ($rule['selectors'] as $selector) {
+                if (preg_match('/^\.jm :where\(([a-z0-9, ]+)\)$/', $selector, $match) === 1) {
+                    array_push($restated, ...array_map(trim(...), explode(',', $match[1])));
+                } elseif (preg_match('/^\.jm ([a-z0-9]+)$/', $selector, $match) === 1 && \in_array(['margin', '0'], $rule['declarations'], true)) {
+                    $restated[] = $match[1];
+                }
+            }
+        }
+
+        $used = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(__DIR__ . '/../../templates/dashboard', \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if (str_ends_with($file->getFilename(), '.html.twig')) {
+                preg_match_all('/<([a-zA-Z][a-zA-Z0-9]*)/', (string) file_get_contents($file->getPathname()), $matches);
+                array_push($used, ...$matches[1]);
+            }
+        }
+
+        static::assertNotEmpty($used);
+        $needNothing = [...self::STANDALONE_LAYOUT_TAGS, ...self::DRAWING_TAGS, ...self::TAGS_WITHOUT_BOX_DEFAULTS];
+        foreach (array_unique($used) as $tag) {
+            static::assertTrue(\in_array($tag, $restated, true) || \in_array($tag, $needNothing, true), sprintf('<%s> is used by a template but its browser defaults are not restated under .jm.', $tag));
+        }
     }
 
     private static function withoutHostAncestor(string $selector): string

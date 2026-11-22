@@ -13,6 +13,7 @@ final class DashboardAccess
     public function __construct(
         private readonly bool $enabled,
         private readonly bool $debug,
+        private readonly bool $permissionRequired,
         private readonly ?string $permission,
         private readonly ?AuthorizationCheckerInterface $checker = null,
     ) {}
@@ -23,12 +24,16 @@ final class DashboardAccess
             throw new NotFoundHttpException();
         }
 
-        if ($this->permission === null) {
+        if (!$this->permissionRequired) {
             if ($this->debug) {
                 return;
             }
 
             throw new NotFoundHttpException();
+        }
+
+        if ($this->permission === null || $this->permission === '') {
+            throw new AccessDeniedException('JMonitor needs a permission, and the configured one is empty.');
         }
 
         if ($this->checker === null || !$this->checker->isGranted($this->permission)) {

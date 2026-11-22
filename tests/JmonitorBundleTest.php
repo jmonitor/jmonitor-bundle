@@ -27,6 +27,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
@@ -52,6 +53,7 @@ use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
@@ -139,6 +141,16 @@ class JmonitorBundleTest extends TestCase
     {
         $this->expectException(\LogicException::class);
         $this->loadBundle(['dashboard' => ['permission' => '']], environment: 'prod');
+    }
+
+    public function testThePermissionRequirementIsKnownWhenTheContainerIsBuilt(): void
+    {
+        $container = $this->loadBundle(['dashboard' => ['permission' => '%env(default::JMONITOR_PERMISSION)%']]);
+
+        static::assertTrue($container->getParameter('jmonitor.dashboard.permission_required'));
+        static::assertSame('%env(default::JMONITOR_PERMISSION)%', $container->getParameter('jmonitor.dashboard.permission'));
+        static::assertSame(['%jmonitor.dashboard.permission_required%', '%jmonitor.dashboard.permission%'], \array_slice($container->getDefinition(DashboardAccess::class)->getArguments(), 2, 2));
+        static::assertFalse($this->loadBundle([])->getParameter('jmonitor.dashboard.permission_required'));
     }
 
     public function testTheEasyAdminOptionIsOffByDefault(): void
@@ -1528,6 +1540,23 @@ class JmonitorBundleTest extends TestCase
         static::assertSame($flex, $container->getParameter('jmonitor.stack.symfony.flex'));
     }
 
+    public function testIgnoredChecksAreAListOfIdentifiers(): void
+    {
+        $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+        $set = $this->loadBundle(['stack' => ['ignore_checks' => ['symfony.flex_recipes', 'x.y']]]);
+
+        static::assertSame([], $default->getParameter('jmonitor.stack.ignore_checks'));
+        static::assertSame(['symfony.flex_recipes', 'x.y'], $set->getParameter('jmonitor.stack.ignore_checks'));
+    }
+
+    public function testIgnoredChecksRefuseAnythingButStrings(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.ignore_checks');
+
+        $this->loadBundle(['stack' => ['ignore_checks' => [['a']]]]);
+    }
+
     public function testAnUnknownComponentSettingIsRefused(): void
     {
         $this->expectException(InvalidConfigurationException::class);
@@ -1572,6 +1601,7 @@ class JmonitorBundleTest extends TestCase
         static::assertSame('index', $locator->getTaggedIteratorArgument()->getIndexAttribute());
         static::assertSame('%jmonitor.stack.components%', $registry->getArgument(1));
         static::assertSame([['method' => 'reset']], $registry->getTag('kernel.reset'));
+        static::assertSame([['method' => 'reset']], $container->getDefinition(StackSummary::class)->getTag('kernel.reset'));
     }
 
     public function testTheStackIsReadThroughOnePrivateReader(): void

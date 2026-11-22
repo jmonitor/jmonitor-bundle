@@ -168,7 +168,7 @@ final class DashboardTest extends WebTestCase
     {
         $client = static::createClient(['doctrine' => false]);
 
-        $crawler = $client->request('GET', '/jmonitor/');
+        $crawler = $client->request('GET', '/jmonitor/requests');
 
         static::assertResponseIsSuccessful();
         static::assertCount(1, $crawler->filter('[data-jm-state="no_connection"]'));
@@ -236,6 +236,20 @@ final class DashboardTest extends WebTestCase
 
         $client->request('GET', '/jmonitor/', server: ['PHP_AUTH_USER' => 'admin', 'PHP_AUTH_PW' => 'test']);
         static::assertResponseStatusCodeSame(200);
+    }
+
+    public function testAnEmptyPermissionVariableDoesNotOpenThePageInDebug(): void
+    {
+        $client = static::createClient(['debug' => true, 'security' => true, 'jmonitor' => ['dashboard' => ['permission' => '%env(default::JMONITOR_TEST_ABSENT)%']]]);
+
+        $client->request('GET', '/jmonitor/');
+        static::assertResponseStatusCodeSame(401);
+
+        $client->request('GET', '/jmonitor/_fragment');
+        static::assertResponseStatusCodeSame(401);
+
+        $client->request('GET', '/jmonitor/', server: ['PHP_AUTH_USER' => 'admin', 'PHP_AUTH_PW' => 'test']);
+        static::assertResponseStatusCodeSame(403);
     }
 
     public function testStorageFailureIsShown(): void
@@ -441,7 +455,7 @@ final class DashboardTest extends WebTestCase
         $crawler = $client->request('GET', '/jmonitor/');
 
         static::assertSame(
-            ['Requests', 'Queries', 'Commands', 'HTTP client', 'Cache', 'Exceptions'],
+            ['Requests', 'Queries', 'Commands', 'HTTP client', 'Cache', 'Exceptions', 'Stack'],
             $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()),
         );
     }
@@ -491,7 +505,7 @@ final class DashboardTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertSame(
-            ['Requests', 'Queries', 'Commands', 'Messages', 'HTTP client', 'Cache', 'Exceptions'],
+            ['Requests', 'Queries', 'Commands', 'Messages', 'HTTP client', 'Cache', 'Exceptions', 'Stack'],
             $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()),
         );
         static::assertSame('Messages', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
@@ -513,7 +527,7 @@ final class DashboardTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertSame(
-            ['Requests', 'Queries', 'Commands', 'Messages', 'Scheduler', 'HTTP client', 'Cache', 'Exceptions'],
+            ['Requests', 'Queries', 'Commands', 'Messages', 'Scheduler', 'HTTP client', 'Cache', 'Exceptions', 'Stack'],
             $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()),
         );
         static::assertSame('Scheduler', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());

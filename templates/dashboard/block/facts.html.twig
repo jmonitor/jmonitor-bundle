@@ -1,0 +1,21 @@
+{% autoescape 'html' %}
+{% set facts = block.content %}
+<section class="jm-panel jm-facts" aria-label="{{ facts.title }}">
+    <div class="jm-panel__header">
+        <h2 class="jm-panel__title">{{ facts.title }}</h2>
+    </div>
+    <dl class="jm-facts__list">
+        {% for fact in facts.facts %}
+            <div class="jm-fact">
+                <dt class="jm-fact__label">{{ fact.label }}</dt>
+                <dd class="jm-fact__value">
+                    <span>{{ fact.value }}</span>{% if fact.mark %} {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: fact.mark}, with_context = false) }}{% endif %}
+                </dd>
+                {% if fact.hint is not null %}
+                    <dd class="jm-fact__hint">{{ fact.hint }}</dd>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </dl>
+</section>
+{% endautoescape %}

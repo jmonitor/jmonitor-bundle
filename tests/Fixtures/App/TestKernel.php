@@ -13,12 +13,14 @@ use Jmonitor\JmonitorBundle\EasyAdmin\JmonitorController;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
+use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
@@ -29,6 +31,7 @@ use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\NonceExtension;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\StaffDashboard;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeController;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeUrls;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\GalleryScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\ProbeScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPing;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPingHandler;
@@ -61,13 +64,16 @@ final class TestKernel extends Kernel
 
     private readonly bool $withSecurity;
 
+    /** @var array<string, mixed> */
+    private readonly array $jmonitorConfig;
+
     /**
-     * @param array<string, mixed> $jmonitorConfig
+     * @param array<string, mixed> $jmonitorConfig without a `stack` key, the stack calls neither endoflife.date nor composer
      */
     public function __construct(
         string $environment,
         bool $debug,
-        private readonly array $jmonitorConfig = [],
+        array $jmonitorConfig = [],
         private readonly bool $withDoctrine = true,
         bool $withSecurity = false,
         private readonly bool $withTwig = true,
@@ -83,6 +89,7 @@ final class TestKernel extends Kernel
         private readonly bool $withCspNonce = false,
         private readonly bool $withOpenBackOffice = false,
         private readonly ?string $cacheApp = null,
+        private readonly bool $withGallery = false,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
@@ -94,9 +101,10 @@ final class TestKernel extends Kernel
         parent::__construct($environment, $debug);
 
         $this->withSecurity = $withSecurity || $withEasyAdmin;
+        $this->jmonitorConfig = ($jmonitorConfig ?: $this->environmentConfig()) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false]]];
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp]));
+            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery]));
     }
 
     public static function fromEnvironment(): self
@@ -105,7 +113,7 @@ final class TestKernel extends Kernel
         $debug = self::environmentValue('APP_DEBUG');
         $features = array_filter(array_map(trim(...), explode(',', self::environmentValue('JMONITOR_FIXTURE_FEATURES'))));
 
-        $unknown = array_diff($features, ['easyadmin', 'embed', 'messenger', 'scheduler', 'security']);
+        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'scheduler', 'security']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
         }
@@ -118,6 +126,7 @@ final class TestKernel extends Kernel
             withScheduler: \in_array('scheduler', $features, true),
             withEmbedHost: \in_array('embed', $features, true),
             withEasyAdmin: \in_array('easyadmin', $features, true),
+            withGallery: \in_array('gallery', $features, true),
         );
     }
 
@@ -210,7 +219,7 @@ final class TestKernel extends Kernel
                     if ($container->hasDefinition(JmonitorController::class)) {
                         $container->getDefinition(JmonitorController::class)->setPublic(true);
                     }
-                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class] as $id) {
+                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class, StackChecks::class, StackSummary::class] as $id) {
                         if ($container->hasDefinition($id)) {
                             $container->getDefinition($id)->setPublic(true);
                         }
@@ -269,7 +278,7 @@ final class TestKernel extends Kernel
             $container->extension('framework', ['scheduler' => ['enabled' => true]]);
         }
 
-        $container->extension('jmonitor', $this->jmonitorConfig ?: $this->environmentConfig());
+        $container->extension('jmonitor', $this->jmonitorConfig);
 
         if ($this->withDoctrine) {
             $container->extension('doctrine', [
@@ -394,6 +403,12 @@ final class TestKernel extends Kernel
                 ->args([$this->varDir . '/probe-runs'])
                 ->tag('jmonitor.screen', ['priority' => 10]);
         }
+        if ($this->withGallery) {
+            $services->set(GalleryScreen::class)
+                ->args([$this->varDir . '/gallery-requests'])
+                ->tag('jmonitor.screen', ['priority' => 5])
+                ->tag('kernel.reset', ['method' => 'reset']);
+        }
         if ($this->withEasyAdmin) {
             foreach ([AdminDashboard::class, StaffDashboard::class] as $dashboard) {
                 $services->set($dashboard)
@@ -414,7 +429,10 @@ final class TestKernel extends Kernel
     private function environmentConfig(): array
     {
         $interval = getenv('JMONITOR_FLUSH_INTERVAL');
-        $config = \is_string($interval) && $interval !== '' ? ['recording' => ['flush_interval' => (int) $interval]] : [];
+        $config = [];
+        if (\is_string($interval) && $interval !== '') {
+            $config['recording'] = ['flush_interval' => (int) $interval];
+        }
 
         return $this->withEasyAdmin ? $config + ['easyadmin' => true] : $config;
     }

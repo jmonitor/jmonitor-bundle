@@ -41,6 +41,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->args([
             param('jmonitor.dashboard.enabled'),
             param('kernel.debug'),
+            param('jmonitor.dashboard.permission_required'),
             param('jmonitor.dashboard.permission'),
             service('security.authorization_checker')->nullOnInvalid(),
         ]);

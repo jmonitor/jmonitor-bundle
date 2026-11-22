@@ -252,7 +252,7 @@ php bin/console jmonitor:collect -vv --memory-limit=32M --time-limit=3600
 
 The bundle can also record the HTTP requests your application serves, its console commands, the messages its Messenger workers handle and its scheduled tasks, with the SQL queries, outgoing HTTP calls, cache reads, writes and deletes, exceptions and signed-in users behind them, and show them on a `/jmonitor` page, over the last hour, 6 hours, 24 hours or 7 days:
 
-- **Requests** (`/jmonitor/`): requests, response times (average, p95, max), SQL time and number of queries, time spent in outgoing HTTP calls (`HTTP out`), slow requests, 5xx errors and peak memory, per route.
+- **Requests** (`/jmonitor/`, or `/jmonitor/requests` when nothing is recorded and the page opens on Stack): requests, response times (average, p95, max), SQL time and number of queries, time spent in outgoing HTTP calls (`HTTP out`), slow requests, 5xx errors and peak memory, per route.
 - **Queries** (`/jmonitor/queries`): executions, total, average and maximum time and slow executions per SQL query, and the queries repeated within one request, command, message or task (N+1).
 - **Commands** (`/jmonitor/commands`): runs, average and maximum duration, failures (non-zero exit code), peak memory, last run and SQL time, per console command.
 - **Messages** (`/jmonitor/messages`): messages sent and handled, handling time (average, p95, max), failures, retries and SQL time, per message class.
@@ -261,10 +261,11 @@ The bundle can also record the HTTP requests your application serves, its consol
 - **Cache** (`/jmonitor/cache`): hits, misses, hit rate, writes and deletes, per cache pool.
 - **Exceptions** (`/jmonitor/exceptions`): count and last occurrence per exception class, and per class and route, command, message or task.
 - **Users** (`/jmonitor/users`): requests, total and average time, slow requests and 5xx errors, per signed-in user.
+- **Stack** (`/jmonitor/stack`): the server, PHP and Symfony, read live rather than recorded, with what to check; see [The live stack](#the-live-stack).
 
 A screen only appears when its component is installed and its recording option is on: HTTP client needs the `http_client` service of the framework, Users needs the SecurityBundle, Messages needs `symfony/messenger` and Scheduler needs `symfony/scheduler`, each enabled in the framework configuration.
 
-It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`) and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` and `jmonitor_keys` tables are created automatically in the configured connection, upgraded automatically when a new version of the bundle changes them, and Doctrine migrations will not try to drop them. Tables created by an earlier development build of 3.x are dropped and recreated, losing the metrics they held. Your database receives batched writes, never one write per request or per query: web requests and Messenger workers write at most once per `flush_interval` per server, and a command writes when it ends, at most once per second for each user that runs PHP.
+It needs a Doctrine DBAL connection (MySQL/MariaDB, PostgreSQL or SQLite, typically through `doctrine/doctrine-bundle`), except for the Stack screen, and the TwigBundle; without the TwigBundle the page answers 404. Nothing else to set up: the `jmonitor_aggregates` and `jmonitor_keys` tables are created automatically in the configured connection, upgraded automatically when a new version of the bundle changes them, and Doctrine migrations will not try to drop them. Tables created by an earlier development build of 3.x are dropped and recreated, losing the metrics they held. Your database receives batched writes, never one write per request or per query: web requests and Messenger workers write at most once per `flush_interval` per server, and a command writes when it ends, at most once per second for each user that runs PHP.
 
 If the database user of your application is not allowed to create tables, run `php bin/console jmonitor:setup` at deployment with a user that is. It creates or upgrades the two tables, or tells you they are up to date.
 
@@ -312,6 +313,15 @@ jmonitor:
     easyadmin:
         enabled: false        # show the screens inside EasyAdmin
         permission: ~         # role or voter attribute required to see them there
+    stack:                    # the Stack screen, see "The live stack" below
+        enabled: true
+        end_of_life: true     # look up support dates on endoflife.date
+        ignore_checks: []     # identifiers of the checks to silence
+        system: auto
+        php: auto
+        symfony:
+            enabled: auto
+            flex: true        # run `composer recipes` to list the outdated Flex recipes
 ```
 
 `recording.enabled` can come from an environment variable, read at runtime, to switch recording off without a new deployment:
@@ -324,7 +334,7 @@ jmonitor:
 
 ### Access
 
-- Without `dashboard.permission`, the page is open in debug mode and answers 404 otherwise.
+- Without `dashboard.permission`, the page is open in debug mode and answers 404 otherwise. Open that way, it also shows whoever reaches it the host names, versions and settings of your servers, on the Stack screen.
 - With `dashboard.permission`, for example `ROLE_ADMIN`, the page requires that permission in every environment. This option needs the SecurityBundle.
 - The route must sit behind one of your firewalls: outside any firewall nobody is authenticated, so the page is denied to everyone.
 
@@ -353,6 +363,73 @@ Each flush keeps the 300 most requested routes (method and route) of its batch; 
 What is recorded is buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access; the text of the recorded queries and the identifiers of the signed-in users are kept there too. When the web server and the console run as different users, each keeps and flushes its own buffer. `buffer_dir` must exist and be writable by every user that runs PHP; give it the permissions of `/tmp` (mode `1777`, sticky) rather than a plain `0777`. JMonitor never creates it: while it is missing, the system temporary directory is used instead and a warning is logged once. When that subdirectory cannot be used, nothing is recorded and the page shows "Buffer directory unusable".
 
 Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
+
+### The live stack
+
+The **Stack** screen (`/jmonitor/stack`) tells whether the server, PHP and Symfony of the web server that answers are fine right now, and where to look when they are not. Nothing is stored in the database: they are read when the screen is displayed.
+
+- **To check**: what needs attention, each line with its severity (`Critical`, `Warning` or `Info`), the component it concerns and, under `Why and what to do`, what to change.
+- **One card per component**, with its verdict (`Healthy`, `Warning`, `Critical` or `Unknown`) and its main figures: load, memory and disk for Server; version, OPcache memory and hit rate, and PHP-FPM workers for PHP; version, environment, debug mode and Flex recipes for Symfony. A version past its end of life, or that only receives security fixes, says so.
+- **One detail per component**, reached from its card or from the second navigation: `/jmonitor/stack/system`, `/jmonitor/stack/php` and `/jmonitor/stack/symfony`, with the gauges and settings behind the card (OPcache, APCu, PHP-FPM, bundles, outdated recipes…).
+
+Server is read on Linux only; on another system, the screen says so in place of its card. In a container, the load is the one of the host node, so a high load is only an `Info` there.
+
+The `Stack` entry of the navigation carries the number of critical and warning checks found at the last display of the Stack screen, for 15 minutes. When the application records nothing, because `recording.enabled` is off or there is no Doctrine DBAL connection, the `/jmonitor` page opens on the Stack screen. Under EasyAdmin, the Stack screen shows too.
+
+Nothing is read while nobody looks at it: no listener, command or scheduled task reads the stack, and the other screens only read the count of their badge from the cache. What is read is kept in the cache for a lifetime of its own, 10 seconds for the figures of the server, PHP and Symfony: however many people watch the screen, each web server reads them at most once every 10 seconds. A value that takes longer to read shows `Reading…` and fills in within a few seconds, or with the `Load the rest` link. `Refresh` forgets what the cache holds and reads it again, apart from the end-of-life dates; on a detail screen it only reads that component. It works at most once every 10 seconds for the same screen: a click within that time changes nothing.
+
+Defaults, all optional:
+
+```yaml
+# config/packages/jmonitor.yaml
+jmonitor:
+    stack:
+        enabled: true         # false: no Stack screen and nothing read; `stack: false` does the same
+        end_of_life: true     # look up the support dates of PHP and Symfony on endoflife.date, once a day
+        ignore_checks: []     # identifiers of the checks to silence, e.g. ['symfony.flex_recipes']
+        system: auto          # auto: read when found, otherwise the reason shows on the "Not detected" line; true: its card stays, with the reason, when it cannot be read; false: never read
+        php: auto             # same values
+        symfony:
+            enabled: auto     # same values; `symfony: false` does the same
+            flex: true        # run `composer recipes` once an hour to list the outdated Flex recipes
+```
+
+The stack makes two calls outside the web server, each with its switch:
+
+- `end_of_life`: an HTTPS request to `endoflife.date` for PHP and one for Symfony, once a day, shared by all your web servers through the cache. Turned off, versions are shown without their support status, and the end-of-life and security-fixes checks are not run.
+- `symfony.flex`: the `composer recipes` command, run in the project directory once an hour on each web server, when `symfony/flex` is installed. `composer` must be available to the user that runs the web server, or a check says it could not run. Turned off, the Flex recipes are not shown.
+
+Neither delays the first display of the screen: they run when the page reads what it still lacks or what has gone out of date.
+
+`stack` and `stack.enabled` cannot be read from an environment variable: the services of the stack are registered when the container is built.
+
+The values live in the `jmonitor.stack.cache` pool, built on `cache.app` with keys of their own. It shows in `cache:pool:list` and in the Cache panel of the profiler, `cache:pool:clear jmonitor.stack.cache` empties it, and its reads are not counted on the Cache screen. The stack needs a cache that keeps its values from one request to the next: with `cache.app` on the `array` or `null` adapter, or a cache that is down, the screen says so and only shows what PHP reads in its own process, without the end-of-life dates or the Flex recipes, and `Refresh` does nothing.
+
+Each web server keeps its own figures in that cache, under its host name, and the screen names the one that answered. In containers, give each web server its own host name: two containers that share one, through a fixed `hostname` in Compose for instance, mix their values. The badge of the navigation and the figures of the server, PHP and Symfony are those of the web server that answered, while the 10-second bound of `Refresh` is shared by all the web servers that share the cache.
+
+To silence a check, add its identifier to `ignore_checks`: it is no longer shown, nor counted in the verdict of its component or in the badge. The identifiers:
+
+| Identifier | Raised when |
+|---|---|
+| `system.memory` | memory is 85% used or more (`Critical` from 95%) |
+| `system.disk` | the disk is 85% full or more (`Critical` from 95%) |
+| `system.load` | the load over 1 minute reaches 100% of the CPU cores (`Critical` from 200%, `Info` in a container) |
+| `php.opcache_disabled` | OPcache is not running, or its status cannot be read (`Info` in debug mode) |
+| `php.opcache_memory` | OPcache memory is 90% full or more, wasted memory counting as used (`Critical` when full) |
+| `php.opcache_hit_rate` | the OPcache hit rate is below 85% over at least 1,000 lookups, outside debug mode |
+| `php.apcu_memory` | APCu memory is 90% full or more |
+| `php.fpm_queue` | requests are waiting for a PHP-FPM worker |
+| `php.fpm_max_children` | PHP-FPM reached `pm.max_children` between two readings (`Info` when only since it started) |
+| `php.display_errors` | `display_errors` is on, outside debug mode |
+| `php.realpath_cache_size` | `realpath_cache_size` is below 4,096,000 bytes (`Info`) |
+| `php.end_of_life`, `symfony.end_of_life` | the version has reached its end of life (`Critical`) |
+| `php.security_only`, `symfony.security_only` | the version only receives security fixes |
+| `symfony.debug_in_prod` | debug mode is on in the `prod` environment (`Critical`) |
+| `symfony.flex_recipes` | Flex recipes are outdated (`Info`) |
+| `system.failed`, `php.failed`, `symfony.failed` | the component could not be read |
+| `symfony.flex.failed` | `composer recipes` could not run (`Info`) |
+
+A check is a `Warning` unless the table says otherwise.
 
 ### Showing the screens inside EasyAdmin
 
@@ -415,11 +492,12 @@ composer require jmonitor/jmonitor-bundle
 | `jmonitor_easyadmin` | Here |
 |---|---|
 | `permission` | `jmonitor.easyadmin.permission` |
-| `cache_pool`, `polling_interval`, `static_ttl`, `exclude_connections`, `components.*` | no equivalent |
+| `components.system.enabled`, `components.php.enabled`, `components.symfony.enabled`, `components.symfony.flex` | `jmonitor.stack.system`, `jmonitor.stack.php`, `jmonitor.stack.symfony.enabled`, `jmonitor.stack.symfony.flex` |
+| `cache_pool`, `polling_interval`, `static_ttl`, `exclude_connections`, the other `components.*` | no equivalent |
 
 The menu link and its route name, `admin_jmonitor_index` for a dashboard whose route is `admin`, do not change. The addresses of the former tabs, such as `/admin/jmonitor/mysql`, answer 404.
 
-The pages show the screens of your application listed above: requests, queries, commands, messages, scheduler, HTTP client, cache, exceptions and users. They have no equivalent of the server tabs of `jmonitor/easyadmin-bundle` 1.x (System, PHP, FrankenPHP, Apache, Nginx, MySQL, PostgreSQL, Redis, Symfony), nor of its Cloudflare tab.
+The pages show the screens of your application listed above: requests, queries, commands, messages, scheduler, HTTP client, cache, exceptions and users. The System, PHP and Symfony tabs of `jmonitor/easyadmin-bundle` 1.x have their equivalent on the Stack screen (see [The live stack](#the-live-stack)). Its web server tabs (FrankenPHP, Apache, Nginx), database tabs (MySQL, PostgreSQL) and Redis tab have no equivalent yet, nor has its Cloudflare tab.
 
 Recording starts by default and creates the `jmonitor_aggregates` and `jmonitor_keys` tables in the default Doctrine connection; `recording.enabled: false` prevents it.
 

@@ -49,4 +49,13 @@ final class ErrorMessageTest extends TestCase
         self::assertSame('Connection refused', ErrorMessage::of($same));
         self::assertSame('Cannot reach the server: Connection refused', ErrorMessage::of($quoted));
     }
+
+    public function testALongMessageIsCutToFiveHundredCharacters(): void
+    {
+        $message = ErrorMessage::clean(str_repeat('a', 498) . 'é' . str_repeat('b', 2501));
+
+        self::assertSame(ErrorMessage::MAX_LENGTH, mb_strlen($message));
+        self::assertStringEndsWith('…', $message);
+        self::assertTrue(mb_check_encoding($message, 'UTF-8'));
+    }
 }

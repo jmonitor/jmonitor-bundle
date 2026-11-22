@@ -45,7 +45,7 @@ final class CacheGuard
             return $operation();
         } catch (\Throwable $e) {
             $this->works = false;
-            $this->logger->error('The cache of the live stack failed, it is left aside: {reason}', [
+            $this->logger->warning('The cache of the live stack failed, it is left aside: {reason}', [
                 'reason' => ErrorMessage::clean(ErrorMessage::of($e)),
                 'exception' => $e,
             ]);
@@ -68,7 +68,7 @@ final class CacheGuard
 
         if (!$this->refusalLogged) {
             $this->refusalLogged = true;
-            $this->logger->error('The cache of the live stack refused to save {what}.', ['what' => $what]);
+            $this->logger->warning('The cache of the live stack refused to save {what}.', ['what' => $what]);
         }
     }
 }

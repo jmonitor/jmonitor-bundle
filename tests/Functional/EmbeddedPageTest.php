@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\GalleryScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -252,9 +254,62 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertResponseIsSuccessful();
         $screen = $crawler->filter('.jm-screen');
         static::assertSame('mixed', $screen->attr('data-jm-state'));
-        static::assertSame(['jm-cards', 'jm-state jm-state--info'], $screen->children()->each(static fn(Crawler $block): string => (string) $block->attr('class')));
+        static::assertSame(['jm-cards', 'jm-state jm-state--info'], $screen->children(':not(template)')->each(static fn(Crawler $block): string => (string) $block->attr('class')));
         static::assertSame('Runs', $screen->filter('.jm-cards .jm-card__label')->text());
         static::assertSame('Nothing probed yet', $screen->filter('.jm-state .jm-state__title')->text());
+    }
+
+    public function testTheGalleryRendersEveryBlock(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+
+        static::assertResponseIsSuccessful();
+        $screen = $crawler->filter('.jm-screen');
+        foreach (['nav.jm-subnav', '.jm-node[data-jm-node]', '[data-jm-notice]', '[data-jm-check][data-jm-severity]', '.jm-checks--empty', '[data-jm-component][data-jm-verdict]', '[data-jm-component][data-jm-reading]', '.jm-gauge [role="meter"]', '.jm-facts'] as $selector) {
+            static::assertGreaterThan(0, $screen->filter($selector)->count(), $selector);
+        }
+        foreach (['bad', 'warn', 'ok', 'unknown', 'info'] as $tone) {
+            static::assertGreaterThan(0, $screen->filter('.jm-mark--' . $tone)->count(), $tone);
+        }
+        static::assertStringStartsWith('/back-office/monitoring/gallery?', (string) $crawler->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
+        static::assertCount(1, $crawler->filter('.jm-nav__item[aria-current="page"] [data-jm-slot="nav-gallery"] .jm-nav__badge'));
+    }
+
+    public function testTheGalleryMovesOnEveryRequest(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $seen = [];
+        for ($i = 0; $i < 2; ++$i) {
+            $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+            static::assertResponseIsSuccessful();
+            $seen[] = [(int) $crawler->filter('[data-jm-slot="nav-gallery"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent, (string) $crawler->filter('.jm-node')->attr('data-jm-node')];
+        }
+
+        static::assertSame($seen[0][0] + 1, $seen[1][0]);
+        static::assertSame($seen[0][0] % 2 === 1 ? 'web-1' : 'web-2', $seen[0][1]);
+        static::assertSame($seen[1][0] % 2 === 1 ? 'web-1' : 'web-2', $seen[1][1]);
+    }
+
+    public function testTheGalleryCountsARequestOnceWhateverItIsAskedFor(): void
+    {
+        $counter = $this->bufferDir . '/gallery-requests';
+        $gallery = new GalleryScreen($counter);
+
+        $gallery->navBadge();
+        $gallery->blocks(new ScreenRequest(1800000000));
+        static::assertSame('1', $gallery->navBadge()->text);
+        static::assertSame('1', file_get_contents($counter));
+
+        $gallery->reset();
+        $gallery->blocks(new ScreenRequest(1800000000));
+        static::assertSame('2', file_get_contents($counter));
+
+        $gallery->reset();
+        static::assertSame('3', $gallery->navBadge()->text);
+        static::assertSame('3', file_get_contents($counter));
     }
 
     /**
@@ -340,7 +395,7 @@ final class EmbeddedPageTest extends WebTestCase
     }
 
     /**
-     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool, messenger?: bool, scheduler?: bool, csrf?: bool} $options
+     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool, messenger?: bool, scheduler?: bool, csrf?: bool, gallery?: bool} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -355,6 +410,7 @@ final class EmbeddedPageTest extends WebTestCase
             withScheduler: $options['scheduler'] ?? false,
             withEmbedHost: true,
             withCsrf: $options['csrf'] ?? false,
+            withGallery: $options['gallery'] ?? false,
         );
         self::$varDirs[] = $kernel->getVarDir();
 

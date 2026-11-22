@@ -1,0 +1,15 @@
+{% autoescape 'html' %}
+{% set subnav = block.content %}
+<div class="jm-subbar">
+    <nav class="jm-subnav" aria-label="Stack">
+        {% for item in subnav.items %}
+            <a class="jm-subnav__item" href="{{ urls.page(item.path) }}"{% if item.current %} aria-current="page"{% endif %}>
+                <span>{{ item.label }}</span>{% if item.mark %} {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: item.mark}, with_context = false) }}{% endif %}
+            </a>
+        {% endfor %}
+    </nav>
+    {% if subnav.node is not null %}
+        <p class="jm-node" data-jm-node="{{ subnav.node }}">Answered by <strong>{{ subnav.node }}</strong><span data-jm-node-changed hidden> — another web server answered this refresh</span></p>
+    {% endif %}
+</div>
+{% endautoescape %}

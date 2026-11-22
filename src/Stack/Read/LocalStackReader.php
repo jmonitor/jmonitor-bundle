@@ -104,7 +104,7 @@ final readonly class LocalStackReader implements StackReaderInterface
 
             $instances = $component === null ? self::overviewInstances($this->statuses()) : $this->registry->instancesFor($component);
 
-            if (!$this->cache->save($item->set($now)->expiresAfter(self::REFRESH_SECONDS))) {
+            if ($instances === [] || !$this->cache->save($item->set($now)->expiresAfter(self::REFRESH_SECONDS))) {
                 return false;
             }
 
@@ -187,9 +187,10 @@ final readonly class LocalStackReader implements StackReaderInterface
 
     private function failed(\Throwable $e, CacheState $cache): StackState
     {
-        $this->logger->error('The live stack could not be read: {reason}', ['reason' => self::describe($e), 'exception' => $e]);
+        $reason = self::describe($e);
+        $this->logger->error('The live stack could not be read: {reason}', ['reason' => $reason, 'exception' => $e]);
 
-        return $this->state($cache, [], []);
+        return new StackState($this->node->name, $this->now(), $cache, [], [], $reason);
     }
 
     private function budget(ReadMode $mode): CollectBudget

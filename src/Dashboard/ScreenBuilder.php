@@ -22,7 +22,7 @@ final class ScreenBuilder
         private readonly ?LoggerInterface $logger = null,
     ) {}
 
-    public function create(ScreenInterface $screen, ?string $period, ?string $sort, ?string $direction, bool $storageFailed = false): Page
+    public function create(ScreenInterface $screen, ?string $period, ?string $sort, ?string $direction, bool $storageFailed = false, bool $fragment = false): Page
     {
         $now = $this->clock->now()->getTimestamp();
         $blocks = [];
@@ -47,7 +47,7 @@ final class ScreenBuilder
         }
 
         if ($screen instanceof BlockScreenInterface) {
-            $blocks = [...$blocks, ...$this->screenBlocks($screen, $now)];
+            $blocks = [...$blocks, ...$this->screenBlocks($screen, new ScreenRequest($now, $fragment))];
         }
 
         return new Page($screen, $blocks, $period, $sort, $direction, $sorts);
@@ -95,10 +95,10 @@ final class ScreenBuilder
     }
 
     /** @return list<Block> */
-    private function screenBlocks(BlockScreenInterface $screen, int $now): array
+    private function screenBlocks(BlockScreenInterface $screen, ScreenRequest $request): array
     {
         try {
-            return $screen->blocks(new ScreenRequest($now));
+            return $screen->blocks($request);
         } catch (\Throwable $e) {
             $this->logger?->error(sprintf('JMonitor could not display the "%s" screen: %s', $screen->id(), $e->getMessage()), ['exception' => $e]);
 

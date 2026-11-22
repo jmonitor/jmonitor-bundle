@@ -100,6 +100,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.storage.retention', $config['storage']['retention']);
         $builder->setParameter('jmonitor.dashboard.enabled', $config['dashboard']['enabled']);
         $builder->setParameter('jmonitor.dashboard.permission', $permission);
+        $builder->setParameter('jmonitor.dashboard.permission_required', $permission !== null);
         $builder->setParameter('jmonitor.easyadmin.enabled', $easyAdminEnabled);
         $builder->setParameter('jmonitor.easyadmin.permission', $easyAdminPermission);
         $builder->setParameter('jmonitor.easyadmin.permission_required', $easyAdminPermission !== null);
@@ -107,6 +108,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.stack.enabled', $stackEnabled);
         $builder->setParameter('jmonitor.stack.end_of_life', $config['stack']['end_of_life']);
         $builder->setParameter('jmonitor.stack.symfony.flex', $config['stack']['symfony']['flex']);
+        $builder->setParameter('jmonitor.stack.ignore_checks', $config['stack']['ignore_checks']);
         $builder->setParameter('jmonitor.stack.components', [
             'system' => ['enabled' => $config['stack']['system']],
             'php' => ['enabled' => $config['stack']['php']],
@@ -419,12 +421,22 @@ final class JmonitorBundle extends AbstractBundle
                 ->end()
                 ->arrayNode('stack')
                     ->canBeDisabled()
+                    ->info('Read the server, PHP and Symfony live on the Stack screen.')
                     ->beforeNormalization()
                         ->ifTrue(static fn(mixed $v): bool => \is_string($v) || (\is_array($v) && \is_string($v['enabled'] ?? null)))
                         ->then(static fn(): never => throw new \LogicException('The "jmonitor.stack" option cannot be read from an environment variable: its services are registered when the container is built.'))
                     ->end()
                     ->children()
-                        ->booleanNode('end_of_life')->defaultTrue()->end()
+                        ->booleanNode('end_of_life')->defaultTrue()->info('Look up support dates on endoflife.date, once a day per product.')->end()
+                        ->arrayNode('ignore_checks')
+                            ->info("Identifiers of the checks to silence, e.g. ['symfony.flex_recipes'].")
+                            ->scalarPrototype()->end()
+                            ->defaultValue([])
+                            ->validate()
+                                ->ifTrue(static fn(array $ids): bool => array_filter($ids, static fn(mixed $id): bool => !\is_string($id)) !== [])
+                                ->thenInvalid('The "ignore_checks" option takes a list of strings.')
+                            ->end()
+                        ->end()
                         ->enumNode('system')->values(['auto', true, false])->defaultValue('auto')->end()
                         ->enumNode('php')->values(['auto', true, false])->defaultValue('auto')->end()
                         ->arrayNode('symfony')
@@ -435,7 +447,7 @@ final class JmonitorBundle extends AbstractBundle
                             ->end()
                             ->children()
                                 ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
-                                ->booleanNode('flex')->defaultTrue()->end()
+                                ->booleanNode('flex')->defaultTrue()->info('Run "composer recipes" once an hour to list outdated recipes.')->end()
                             ->end()
                         ->end()
                     ->end()

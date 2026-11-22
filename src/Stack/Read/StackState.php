@@ -12,6 +12,7 @@ final class StackState
     /**
      * @param list<ComponentState>  $components  the available ones, in the order of Component::cases()
      * @param array<string, string> $notDetected component value => why it was not found
+     * @param ?string               $error       why the engine failed, without credentials; the components are then empty
      */
     public function __construct(
         public readonly ?string $node,
@@ -19,6 +20,7 @@ final class StackState
         public readonly CacheState $cache,
         public readonly array $components,
         public readonly array $notDetected,
+        public readonly ?string $error = null,
     ) {}
 
     public function component(Component $component): ?ComponentState

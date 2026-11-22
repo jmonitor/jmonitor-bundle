@@ -27,25 +27,41 @@ final class PageRenderer
         private readonly ?Flusher $flusher,
         private readonly ?Environment $twig,
         private readonly Assets $assets,
-        private readonly ActionGuard $guard = new ActionGuard(),
-        private readonly ?LoggerInterface $logger = null,
+        private readonly ActionGuard $guard,
+        private readonly ?LoggerInterface $logger,
     ) {}
 
     public function page(Request $request, string $path, HostUrlsInterface $urls, bool $standalone = false): PageContent
     {
         $twig = $this->twig();
-        $page = $this->build($request, $this->screen($path));
-        $actions = $page->screen instanceof ActionScreenInterface ? $page->screen->actions() : [];
+        [$root, $screen, $path] = $this->resolve($path);
+        $page = $this->build($request, $screen, self::query($request, 'rest') === '1');
+        $actions = $this->actions($screen, $path) ?? [];
+        $token = null;
+
+        if ($actions !== []) {
+            try {
+                $token = $this->guard->token($request);
+            } catch (\Throwable $e) {
+                $this->logger?->error(sprintf('JMonitor could not protect the actions of the "%s" screen: %s', $path, $e->getMessage()), ['exception' => $e]);
+                $actions = [];
+            }
+        }
+
+        $screens = $this->screens->available();
 
         return new PageContent(
             $twig->render('@Jmonitor/dashboard/page.html.twig', [
                 'page' => $page,
-                'screens' => $this->screens->available(),
+                'path' => $path,
+                'root' => $root,
+                'badges' => $this->badges($screens),
+                'screens' => $screens,
                 'periods' => Period::cases(),
                 'urls' => $urls,
                 'standalone' => $standalone,
                 'actions' => $actions,
-                'token' => $actions === [] ? null : $this->guard->token($request),
+                'token' => $token,
             ]),
             'JMonitor — ' . $page->screen->label(),
             $this->assets->stylesheets($request),
@@ -57,9 +73,15 @@ final class PageRenderer
     public function fragment(Request $request, string $path, HostUrlsInterface $urls): Response
     {
         $twig = $this->twig();
-        $page = $this->build($request, $this->screen($path));
+        [, $screen, $path] = $this->resolve($path);
+        $page = $this->build($request, $screen, true);
 
-        return new Response($twig->render('@Jmonitor/dashboard/_screen.html.twig', ['page' => $page, 'urls' => $urls]), Response::HTTP_OK, self::HEADERS);
+        return new Response($twig->render('@Jmonitor/dashboard/_screen.html.twig', [
+            'page' => $page,
+            'urls' => $urls,
+            'path' => $path,
+            'badges' => $this->badges($this->screens->available()),
+        ]), Response::HTTP_OK, self::HEADERS);
     }
 
     public function action(Request $request, string $path, HostUrlsInterface $urls): Response
@@ -68,21 +90,28 @@ final class PageRenderer
             throw new MethodNotAllowedHttpException(['POST']);
         }
 
-        $screen = $this->screen($path);
+        [, $screen, $path] = $this->resolve($path);
         $action = $request->request->all()['action'] ?? null;
 
-        if (!$screen instanceof ActionScreenInterface || !\is_string($action) || !\array_key_exists($action, $screen->actions())) {
+        if (!$screen instanceof ActionScreenInterface || !\is_string($action) || !\array_key_exists($action, $this->actions($screen, $path) ?? [])) {
             throw new NotFoundHttpException();
         }
 
-        if (!$this->guard->allows($request)) {
+        try {
+            $allowed = $this->guard->allows($request);
+        } catch (\Throwable $e) {
+            $this->logger?->error(sprintf('JMonitor could not check the token of an action of the "%s" screen: %s', $path, $e->getMessage()), ['exception' => $e]);
+            $allowed = false;
+        }
+
+        if (!$allowed) {
             throw new AccessDeniedHttpException();
         }
 
         try {
             $screen->run($action);
         } catch (\Throwable $e) {
-            $this->logger?->error(sprintf('JMonitor could not run the "%s" action of the "%s" screen: %s', $action, $screen->id(), $e->getMessage()), ['exception' => $e]);
+            $this->logger?->error(sprintf('JMonitor could not run the "%s" action of the "%s" screen: %s', $action, $path, $e->getMessage()), ['exception' => $e]);
         }
 
         return new RedirectResponse($urls->page($path), Response::HTTP_SEE_OTHER, self::HEADERS);
@@ -93,20 +122,84 @@ final class PageRenderer
         return $this->twig ?? throw new NotFoundHttpException();
     }
 
-    private function screen(string $path): ScreenInterface
+    /** @return array{ScreenInterface, ScreenInterface, string} the entry of the main navigation, the screen shown, its full path */
+    private function resolve(string $path): array
     {
         if ($path === '') {
-            return $this->screens->default($this->builder->storageUsable());
+            $screen = $this->screens->default($this->builder->storageUsable());
+
+            return [$screen, $screen, $screen->id()];
         }
 
-        if (preg_match('/\A[a-z][a-z-]*\z/', $path) !== 1) {
+        $segments = explode('/', $path);
+
+        if (\count($segments) > 2 || preg_grep('/\A[a-z][a-z-]*\z/', $segments, \PREG_GREP_INVERT) !== []) {
             throw new NotFoundHttpException();
         }
 
-        return $this->screens->get($path) ?? throw new NotFoundHttpException();
+        $root = $this->screens->get($segments[0]) ?? throw new NotFoundHttpException();
+
+        if (!isset($segments[1])) {
+            return [$root, $root, $path];
+        }
+
+        if (!$root instanceof ParentScreenInterface) {
+            throw new NotFoundHttpException();
+        }
+
+        try {
+            $child = $root->child($segments[1]);
+        } catch (\Throwable $e) {
+            $this->logger?->error(sprintf('JMonitor could not open the "%s" screen: %s', $path, $e->getMessage()), ['exception' => $e]);
+
+            throw new NotFoundHttpException();
+        }
+
+        return [$root, $child ?? throw new NotFoundHttpException(), $path];
     }
 
-    private function build(Request $request, ScreenInterface $screen): Page
+    /** @return array<string, string>|null null when the screen could not list them */
+    private function actions(ScreenInterface $screen, string $path): ?array
+    {
+        if (!$screen instanceof ActionScreenInterface) {
+            return [];
+        }
+
+        try {
+            return $screen->actions();
+        } catch (\Throwable $e) {
+            $this->logger?->error(sprintf('JMonitor could not list the actions of the "%s" screen: %s', $path, $e->getMessage()), ['exception' => $e]);
+
+            return null;
+        }
+    }
+
+    /**
+     * @param list<ScreenInterface> $screens
+     *
+     * @return array<string, ?NavBadge>
+     */
+    private function badges(array $screens): array
+    {
+        $badges = [];
+
+        foreach ($screens as $screen) {
+            if (!$screen instanceof NavBadgeScreenInterface) {
+                continue;
+            }
+
+            try {
+                $badges[$screen->id()] = $screen->navBadge();
+            } catch (\Throwable $e) {
+                $this->logger?->error(sprintf('JMonitor could not read the navigation badge of the "%s" screen: %s', $screen->id(), $e->getMessage()), ['exception' => $e]);
+                $badges[$screen->id()] = null;
+            }
+        }
+
+        return $badges;
+    }
+
+    private function build(Request $request, ScreenInterface $screen, bool $fragment): Page
     {
         $storageFailed = false;
 
@@ -121,6 +214,7 @@ final class PageRenderer
             self::query($request, 'sort'),
             self::query($request, 'dir'),
             $storageFailed,
+            $fragment,
         );
     }
 

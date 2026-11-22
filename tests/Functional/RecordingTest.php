@@ -108,7 +108,7 @@ final class RecordingTest extends WebTestCase
             $this->setEnv('JMONITOR_TEST_RECORDING', '0');
             $client = static::createClient(['jmonitor' => $config]);
             $client->request('GET', '/hello/world');
-            $crawler = $client->request('GET', '/jmonitor/');
+            $crawler = $client->request('GET', '/jmonitor/requests');
 
             static::assertTrue(static::getContainer()->has(RequestRecorder::class));
             static::assertSame([], $this->slotFiles());

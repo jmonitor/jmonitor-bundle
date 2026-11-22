@@ -23,6 +23,8 @@ composer lint:fix
 ./vendor/bin/phpunit tests/path/to/TestFile.php
 ```
 
+`composer phpunit` lifts the memory limit, which the full suite needs, and Composer's time limit on scripts; a direct call of `vendor/bin/phpunit` on the whole suite needs `-d memory_limit=-1`.
+
 ## EasyAdmin integration
 
 The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboard. EasyAdmin is only a development dependency (`require-dev` and `suggest`), so:
@@ -40,7 +42,14 @@ The engine that reads the server, PHP and Symfony on demand, behind a cache:
 - Every collector declares a lifetime (`Lifetime`) and a cost class (`CostClass`). A collector that starts a process or calls a service outside the stack over the network is `CostClass::Slow`.
 - Detection touches no server: it only says which components exist and builds their collectors.
 - `jmonitor.stack.cache` is not declared under `framework.cache.pools`, or its reads would be counted on the Cache screen.
-- No test calls the network or `composer`: fake fetchers and process runners stand in for them, and functional tests turn `stack.end_of_life` and `stack.symfony.flex` off.
+- No test calls the network or `composer`: fake fetchers and process runners stand in for them, and the test kernel turns `stack.end_of_life` and `stack.symfony.flex` off unless a test sets `stack` itself.
+- Its screens live in `src/Stack/Screen/`: `StackScreen` and `ComponentScreen` get the reader, the checks and the summary through a service locator, read by `StackScreenParts`, so that the reader and the checks are only built when a Stack screen is displayed.
+- An application screen costs the stack one cache read, the summary behind the badge of the navigation, and builds no reader.
+- Only the display of the overview (`StackScreen::blocks()`) writes that summary (`StackSummary::remember()`).
+- Every check of `StackChecks` has a stable identifier, which users put in `stack.ignore_checks` and the README lists, and a case at its threshold and just below in `StackChecksTest`.
+- The percentages and byte sizes a check judges and a screen shows are formatted by `Figures`, so that both show the same value.
+- A block of `src/Dashboard/View/` names no type of `src/Stack/`.
+- A `Mark` always carries a word: a verdict or a severity is never told by colour alone.
 
 ## CHANGELOG
 
