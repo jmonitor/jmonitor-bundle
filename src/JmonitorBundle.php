@@ -77,6 +77,7 @@ final class JmonitorBundle extends AbstractBundle
         }
 
         $recordingEnabled = $config['recording']['enabled'] ?? $environment !== 'test';
+        $stackEnabled = $config['stack']['enabled'] && isset($bundles['FrameworkBundle']);
 
         $builder->setParameter('jmonitor.recording.enabled', $recordingEnabled);
         $builder->setParameter('jmonitor.recording.flush_interval', $config['recording']['flush_interval']);
@@ -103,7 +104,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.easyadmin.permission', $easyAdminPermission);
         $builder->setParameter('jmonitor.easyadmin.permission_required', $easyAdminPermission !== null);
         $builder->setParameter('jmonitor.logger', $config['logger'] ?: null);
-        $builder->setParameter('jmonitor.stack.enabled', $config['stack']['enabled']);
+        $builder->setParameter('jmonitor.stack.enabled', $stackEnabled);
         $builder->setParameter('jmonitor.stack.end_of_life', $config['stack']['end_of_life']);
         $builder->setParameter('jmonitor.stack.symfony.flex', $config['stack']['symfony']['flex']);
         $builder->setParameter('jmonitor.stack.components', [
@@ -119,7 +120,7 @@ final class JmonitorBundle extends AbstractBundle
             $container->import('../config/easyadmin.php');
         }
 
-        if ($config['stack']['enabled'] && isset($bundles['FrameworkBundle'])) {
+        if ($stackEnabled) {
             $container->import('../config/stack.php');
         }
 

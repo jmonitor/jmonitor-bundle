@@ -1489,6 +1489,18 @@ class JmonitorBundleTest extends TestCase
         }
     }
 
+    public function testWithoutFrameworkBundleTheStackIsOff(): void
+    {
+        $container = $this->loadBundle(['stack' => true]);
+
+        static::assertFalse($container->getParameter('jmonitor.stack.enabled'));
+        foreach ($container->getDefinitions() as $id => $definition) {
+            static::assertStringStartsNotWith('jmonitor.stack.', $id);
+            static::assertStringStartsNotWith('Jmonitor\\JmonitorBundle\\Stack\\', $id);
+            static::assertStringStartsNotWith('Jmonitor\\JmonitorBundle\\Stack\\', (string) $definition->getClass());
+        }
+    }
+
     /**
      * @return iterable<string, array{array<string, mixed>, array<string, array{enabled: 'auto'|bool}>, bool}>
      */
