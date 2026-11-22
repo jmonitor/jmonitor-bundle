@@ -31,6 +31,17 @@ The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboar
 - A test that loads an EasyAdmin class, even through a container built with the option on, carries `#[Group('easyadmin')]`, and no test class extends or implements an EasyAdmin type. The CI runs the suite once without EasyAdmin, with `--exclude-group easyadmin`.
 - `JmonitorController` is instantiated by EasyAdmin while the routes load: it only receives the `JmonitorPage` service and a service locator, and any new dependency goes through that locator, never into its constructor. The permission is checked by `Access` on the page, on its refresh and on the actions, at request time.
 
+## Live stack
+
+The engine that reads the server, PHP and Symfony on demand, behind a cache:
+
+- Its code lives in `src/Stack/` and `config/stack.php`. It shares nothing with `src/Collector/` nor the `jmonitor.collectors` services of the worker.
+- Nothing collects outside a call to `StackReaderInterface`: no event listener, command or scheduled task.
+- Every collector declares a lifetime (`Lifetime`) and a cost class (`CostClass`). A collector that starts a process or calls a service outside the stack over the network is `CostClass::Slow`.
+- Detection touches no server: it only says which components exist and builds their collectors.
+- `jmonitor.stack.cache` is not declared under `framework.cache.pools`, or its reads would be counted on the Cache screen.
+- No test calls the network or `composer`: fake fetchers and process runners stand in for them, and functional tests turn `stack.end_of_life` and `stack.symfony.flex` off.
+
 ## CHANGELOG
 
 Record changes under `## [Unreleased]`, creating the section if absent.

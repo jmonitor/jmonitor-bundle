@@ -46,6 +46,15 @@ use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\UserRecorder;
+use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
+use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
+use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
+use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Symfony\Component\Filesystem\Filesystem;
@@ -55,6 +64,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
+use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 
 class JmonitorBundleTest extends TestCase
 {
@@ -1444,5 +1454,142 @@ class JmonitorBundleTest extends TestCase
                 'cloudflare' => $cloudflare,
             ],
         ]);
+    }
+
+    public function testTheStackIsOnByDefault(): void
+    {
+        $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        static::assertTrue($container->getParameter('jmonitor.stack.enabled'));
+        static::assertTrue($container->getParameter('jmonitor.stack.end_of_life'));
+        static::assertTrue($container->getParameter('jmonitor.stack.symfony.flex'));
+        static::assertSame(
+            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto']],
+            $container->getParameter('jmonitor.stack.components'),
+        );
+        static::assertTrue($container->hasDefinition('jmonitor.stack.cache'));
+    }
+
+    public function testTheStackLoadsWithoutApiKeyAndWithoutDoctrine(): void
+    {
+        $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        static::assertTrue($container->hasDefinition('jmonitor.stack.cache'));
+    }
+
+    public function testTurningTheStackOffRegistersNothing(): void
+    {
+        $container = $this->loadBundle(['stack' => false], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        static::assertFalse($container->getParameter('jmonitor.stack.enabled'));
+        foreach ($container->getDefinitions() as $id => $definition) {
+            static::assertStringStartsNotWith('jmonitor.stack.', $id);
+            static::assertStringStartsNotWith('Jmonitor\\JmonitorBundle\\Stack\\', $id);
+            static::assertStringStartsNotWith('Jmonitor\\JmonitorBundle\\Stack\\', (string) $definition->getClass());
+        }
+    }
+
+    public function testWithoutFrameworkBundleTheStackIsOff(): void
+    {
+        $container = $this->loadBundle(['stack' => true]);
+
+        static::assertFalse($container->getParameter('jmonitor.stack.enabled'));
+        foreach ($container->getDefinitions() as $id => $definition) {
+            static::assertStringStartsNotWith('jmonitor.stack.', $id);
+            static::assertStringStartsNotWith('Jmonitor\\JmonitorBundle\\Stack\\', $id);
+            static::assertStringStartsNotWith('Jmonitor\\JmonitorBundle\\Stack\\', (string) $definition->getClass());
+        }
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, array<string, array{enabled: 'auto'|bool}>, bool}>
+     */
+    public static function stackComponentProvider(): iterable
+    {
+        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto']];
+
+        yield 'system: false' => [['system' => false], array_replace($auto, ['system' => ['enabled' => false]]), true];
+        yield 'php: true' => [['php' => true], array_replace($auto, ['php' => ['enabled' => true]]), true];
+        yield 'symfony: false' => [['symfony' => false], array_replace($auto, ['symfony' => ['enabled' => false]]), true];
+        yield 'symfony: { flex: false }' => [['symfony' => ['flex' => false]], $auto, false];
+        yield 'symfony: { enabled: true }' => [['symfony' => ['enabled' => true]], array_replace($auto, ['symfony' => ['enabled' => true]]), true];
+    }
+
+    /**
+     * @param array<string, mixed>                       $stack
+     * @param array<string, array{enabled: 'auto'|bool}> $components
+     */
+    #[DataProvider('stackComponentProvider')]
+    public function testAComponentTakesAutoTrueOrFalse(array $stack, array $components, bool $flex): void
+    {
+        $container = $this->loadBundle(['stack' => $stack]);
+
+        static::assertSame($components, $container->getParameter('jmonitor.stack.components'));
+        static::assertSame($flex, $container->getParameter('jmonitor.stack.symfony.flex'));
+    }
+
+    public function testAnUnknownComponentSettingIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.system"');
+
+        $this->loadBundle(['stack' => ['system' => 'maybe']]);
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function stackOptionsFromTheEnvironment(): iterable
+    {
+        yield 'the option itself' => ['%env(bool:JMONITOR_STACK)%'];
+        yield 'enabled' => [['enabled' => '%env(bool:JMONITOR_STACK)%']];
+    }
+
+    #[DataProvider('stackOptionsFromTheEnvironment')]
+    public function testTheStackOptionCannotComeFromAnEnvironmentVariable(mixed $stack): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('The "jmonitor.stack" option cannot be read from an environment variable: its services are registered when the container is built.');
+
+        $this->loadBundle(['stack' => $stack]);
+    }
+
+    public function testTheStackWiresItsDetectorsLazily(): void
+    {
+        $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        $detectors = $container->findTaggedServiceIds('jmonitor.stack.detector');
+        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class], array_keys($detectors));
+        static::assertSame([['index' => 'system']], $detectors[SystemDetector::class]);
+        static::assertSame([['index' => 'php']], $detectors[PhpDetector::class]);
+        static::assertSame([['index' => 'symfony']], $detectors[SymfonyDetector::class]);
+
+        $registry = $container->getDefinition(ComponentRegistry::class);
+        static::assertFalse($registry->isPublic());
+        $locator = $registry->getArgument(0);
+        static::assertInstanceOf(ServiceLocatorArgument::class, $locator);
+        static::assertSame('jmonitor.stack.detector', $locator->getTaggedIteratorArgument()?->getTag());
+        static::assertSame('index', $locator->getTaggedIteratorArgument()->getIndexAttribute());
+        static::assertSame('%jmonitor.stack.components%', $registry->getArgument(1));
+        static::assertSame([['method' => 'reset']], $registry->getTag('kernel.reset'));
+    }
+
+    public function testTheStackIsReadThroughOnePrivateReader(): void
+    {
+        $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        $reader = $container->getDefinition(LocalStackReader::class);
+        static::assertFalse($reader->isPublic());
+        static::assertSame(
+            [ComponentRegistry::class, SnapshotProvider::class, CacheProbe::class, 'jmonitor.stack.cache', 'jmonitor.clock', WebNode::class],
+            array_map(strval(...), \array_slice($reader->getArguments(), 0, 6)),
+        );
+        static::assertSame(LocalStackReader::class, (string) $container->getAlias(StackReaderInterface::class));
+        static::assertFalse($container->getAlias(StackReaderInterface::class)->isPublic());
+
+        $off = $this->loadBundle(['stack' => false], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        static::assertFalse($off->hasDefinition(LocalStackReader::class));
+        static::assertFalse($off->hasAlias(StackReaderInterface::class));
     }
 }

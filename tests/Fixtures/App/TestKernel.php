@@ -13,6 +13,14 @@ use Jmonitor\JmonitorBundle\EasyAdmin\JmonitorController;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
+use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
+use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
+use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Command\WorkCommand;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller\DemoController;
@@ -74,6 +82,7 @@ final class TestKernel extends Kernel
         private readonly bool $withEasyAdmin = false,
         private readonly bool $withCspNonce = false,
         private readonly bool $withOpenBackOffice = false,
+        private readonly ?string $cacheApp = null,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
@@ -87,7 +96,7 @@ final class TestKernel extends Kernel
         $this->withSecurity = $withSecurity || $withEasyAdmin;
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp]));
     }
 
     public static function fromEnvironment(): self
@@ -190,6 +199,9 @@ final class TestKernel extends Kernel
                 public function process(ContainerBuilder $container): void
                 {
                     foreach ([PageRenderer::class, ScreenRegistry::class, ScreenBuilder::class, DbalReader::class, Flusher::class, 'twig'] as $id) {
+                        if (!$container->has($id)) {
+                            continue;
+                        }
                         if ($container->hasAlias($id)) {
                             $container->getAlias($id)->setPublic(true);
                         }
@@ -197,6 +209,14 @@ final class TestKernel extends Kernel
                     }
                     if ($container->hasDefinition(JmonitorController::class)) {
                         $container->getDefinition(JmonitorController::class)->setPublic(true);
+                    }
+                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class] as $id) {
+                        if ($container->hasDefinition($id)) {
+                            $container->getDefinition($id)->setPublic(true);
+                        }
+                    }
+                    if ($container->hasAlias(StackReaderInterface::class)) {
+                        $container->getAlias(StackReaderInterface::class)->setPublic(true);
                     }
                 }
             });
@@ -225,6 +245,10 @@ final class TestKernel extends Kernel
                 'app.derived' => ['adapter' => 'cache.app'],
             ]],
         ]);
+
+        if ($this->cacheApp !== null) {
+            $container->extension('framework', ['cache' => ['app' => $this->cacheApp]]);
+        }
 
         if ($this->withProfiler) {
             $container->extension('framework', ['profiler' => ['enabled' => true, 'collect' => false]]);
@@ -330,6 +354,7 @@ final class TestKernel extends Kernel
                 service('flaky.client')->nullOnInvalid(),
                 service('cache.app'),
                 service('messenger.default_bus')->nullOnInvalid(),
+                service('jmonitor.stack.cache')->nullOnInvalid(),
             ])
             ->tag('controller.service_arguments');
         $services->set(WorkCommand::class)
@@ -411,6 +436,7 @@ final class TestKernel extends Kernel
         $routes->add('app_call', '/call')->controller([DemoController::class, 'call']);
         $routes->add('app_call_flaky', '/call-flaky')->controller([DemoController::class, 'callFlaky']);
         $routes->add('app_cached', '/cached')->controller([DemoController::class, 'cached']);
+        $routes->add('app_stack_cached', '/stack-cached')->controller([DemoController::class, 'stackCached']);
         $routes->add('app_dispatch', '/dispatch')->controller([DemoController::class, 'dispatch']);
         $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');
 
