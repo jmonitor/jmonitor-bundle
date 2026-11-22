@@ -425,7 +425,10 @@ final class TestKernel extends Kernel
     private function environmentConfig(): array
     {
         $interval = getenv('JMONITOR_FLUSH_INTERVAL');
-        $config = \is_string($interval) && $interval !== '' ? ['recording' => ['flush_interval' => (int) $interval]] : [];
+        $config = ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false]]];
+        if (\is_string($interval) && $interval !== '') {
+            $config['recording'] = ['flush_interval' => (int) $interval];
+        }
 
         return $this->withEasyAdmin ? $config + ['easyadmin' => true] : $config;
     }

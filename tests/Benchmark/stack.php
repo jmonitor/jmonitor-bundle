@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
+use Jmonitor\JmonitorBundle\Dashboard\Assets;
+use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
 use Jmonitor\JmonitorBundle\Stack\Component;
@@ -12,24 +20,38 @@ use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
+use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
+use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
+use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
+use Jmonitor\JmonitorBundle\Tests\Dashboard\FakeHostUrls;
+use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeUrlFetcher;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\Detectors;
+use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Clock\ClockInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Clock\NativeClock;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\KernelInterface;
+use Twig\Environment;
+use Twig\Loader\FilesystemLoader;
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
@@ -37,6 +59,7 @@ const OVERVIEW_RUNS = 200;
 const RENEWAL_RUNS = 50;
 const COLD_RUNS = 5;
 const DISPLAYS = 50;
+const SCREEN_RUNS = 200;
 const CYCLES = '[{"cycle": "8.4", "eol": "2028-12-31", "support": "2026-12-31"}]';
 
 function report(string $measure, float $value, string $unit, ?float $target, string $note = '', bool $atMost = false): void
@@ -79,6 +102,78 @@ function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInte
     $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10, 300), $cache, $clock, $node);
 
     return [new LocalStackReader($registry, $snapshots, new CacheProbe($cache, $clock), $cache, $clock, $node), $registry];
+}
+
+/**
+ * The Stack screen of one request, on services of its own, as the container gives them.
+ *
+ * @param list<string> $built the services of the stack the screen asked for
+ */
+function stackScreen(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null): StackScreen
+{
+    $node = new WebNode();
+    $services = [
+        StackReaderInterface::class => static fn(): StackReaderInterface => engine($cache, $clock, $kernel, $endOfLife)[0],
+        StackChecks::class => static fn(): StackChecks => new StackChecks([], false, $clock),
+        StackSummary::class => static fn(): StackSummary => new StackSummary(new ServiceLocator(['cache' => static fn(): CacheItemPoolInterface => $cache]), $node, $clock),
+    ];
+    $counted = [];
+
+    foreach ($services as $id => $factory) {
+        $counted[$id] = static function () use ($id, $factory, &$built): object {
+            $built[] = $id;
+
+            return $factory();
+        };
+    }
+
+    return new StackScreen(new ServiceLocator($counted), new CardBuilder($clock), $clock, new ServiceLocator([
+        Component::System->value => static fn(): ServerDetail => new ServerDetail(),
+        Component::Php->value => static fn(): PhpDetail => new PhpDetail(),
+        Component::Symfony->value => static fn(): SymfonyDetail => new SymfonyDetail(),
+    ]));
+}
+
+function renderer(StackScreen $screen, Environment $twig, ClockInterface $clock): PageRenderer
+{
+    return new PageRenderer(
+        new ScreenRegistry([new RequestsScreen(), $screen]),
+        new ScreenBuilder(new FixedReader(), true, $clock),
+        null,
+        $twig,
+        new Assets(),
+        new ActionGuard(),
+        null,
+    );
+}
+
+/**
+ * @return array{float, int} the slowest first page in ms, and the most refreshes it took to read everything
+ */
+function coldDisplays(ClockInterface $clock, KernelInterface $kernel, Environment $twig, ?string $cycles, array &$dirs): array
+{
+    $urls = new FakeHostUrls();
+    $built = [];
+    $slowest = 0.0;
+    $mostRefreshes = 0;
+
+    for ($i = 0; $i < COLD_RUNS; ++$i) {
+        $dirs[] = $dir = workDir();
+        $cache = filesystemCache($dir);
+        $endOfLife = $cycles === null ? null : new FakeUrlFetcher($cycles);
+        $html = '';
+        $slowest = max($slowest, millis(static function () use ($cache, $clock, $kernel, $twig, $urls, $endOfLife, &$built, &$html): void {
+            $html = renderer(stackScreen($cache, $clock, $kernel, $built, $endOfLife), $twig, $clock)->page(Request::create('/'), 'stack', $urls)->html;
+        }));
+        $refreshes = 0;
+        while (str_contains($html, 'data-jm-reading') && $refreshes < 10) {
+            $html = (string) renderer(stackScreen($cache, $clock, $kernel, $built, $endOfLife), $twig, $clock)->fragment(Request::create('/'), 'stack', $urls)->getContent();
+            ++$refreshes;
+        }
+        $mostRefreshes = max($mostRefreshes, str_contains($html, 'data-jm-reading') ? PHP_INT_MAX : $refreshes);
+    }
+
+    return [$slowest, $mostRefreshes];
 }
 
 function instances(StackState $state): int
@@ -160,6 +255,47 @@ for ($i = 0; $i < COLD_RUNS; ++$i) {
 }
 report('first display on an empty cache, page duration', $slowest, 'ms', 1200, sprintf('(slowest of %d)', COLD_RUNS));
 report('first display on an empty cache, calls before a complete state', $mostCalls, 'calls', 3, sprintf('(most of %d)', COLD_RUNS), true);
+
+$loader = new FilesystemLoader();
+$loader->addPath(dirname(__DIR__, 2) . '/templates', 'Jmonitor');
+$twig = new Environment($loader, ['strict_variables' => true]);
+$twig->addExtension(new JmonitorExtension());
+$urls = new FakeHostUrls();
+$built = [];
+
+$dirs[] = $dir = workDir();
+$cache = filesystemCache($dir);
+renderer(stackScreen($cache, $clock, $kernel, $built), $twig, $clock)->page(Request::create('/'), 'stack', $urls);
+$cache->reset();
+$built = [];
+$applicationMillis = millis(static function () use ($cache, $clock, $kernel, $twig, $urls, &$built): void {
+    renderer(stackScreen($cache, $clock, $kernel, $built), $twig, $clock)->page(Request::create('/'), 'requests', $urls);
+});
+report('application screen, cache round trips of the stack', $cache->roundTrips(), 'trips', 1, sprintf('(%s; page %.2f ms with Twig)', json_encode($cache->calls, JSON_THROW_ON_ERROR), $applicationMillis), true);
+report('application screen, stack readers built', count(array_filter($built, static fn(string $id): bool => $id === StackReaderInterface::class)), 'built', 0, sprintf('(services asked for: %s; without a reader no collector runs)', implode(', ', array_map(static fn(string $id): string => substr((string) strrchr('\\' . $id, '\\'), 1), $built))), true);
+
+$dirs[] = $dir = workDir();
+$cache = filesystemCache($dir);
+renderer(stackScreen($cache, $clock, $kernel, $built), $twig, $clock)->page(Request::create('/'), 'stack', $urls);
+renderer(stackScreen($cache, $clock, $kernel, $built), $twig, $clock)->fragment(Request::create('/'), 'stack', $urls);
+$cache->reset();
+$html = renderer(stackScreen($cache, $clock, $kernel, $built), $twig, $clock)->page(Request::create('/'), 'stack', $urls)->html;
+$cards = substr_count($html, 'data-jm-component=');
+report('Stack screen, everything in cache, cache round trips', $cache->roundTrips(), 'trips', 2 * $cards + 2, sprintf('(%d cards; %s)', $cards, json_encode($cache->calls, JSON_THROW_ON_ERROR)), true);
+
+$total = 0.0;
+for ($i = 0; $i < SCREEN_RUNS; ++$i) {
+    $screen = stackScreen($cache, $clock, $kernel, $built);
+    $total += millis(static fn(): array => $screen->blocks(new ScreenRequest($clock->now()->getTimestamp())));
+}
+report('Stack screen, warm, blocks without Twig, duration', $total / SCREEN_RUNS, 'ms', 15, sprintf('(mean of %d; detection, reading, checks and summary included)', SCREEN_RUNS));
+
+[$slowest, $mostRefreshes] = coldDisplays($clock, $kernel, $twig, null, $dirs);
+report('Stack screen, first display on an empty cache, page duration', $slowest, 'ms', 1200, sprintf('(slowest of %d, Twig included)', COLD_RUNS));
+report('Stack screen, first display, refreshes until complete', $mostRefreshes, 'refr.', 2, sprintf('(most of %d; no slow collector)', COLD_RUNS), true);
+[$slowest, $mostRefreshes] = coldDisplays($clock, $kernel, $twig, CYCLES, $dirs);
+report('same, with end of life read offline, page duration', $slowest, 'ms', 1200, sprintf('(slowest of %d, Twig included)', COLD_RUNS));
+report('same, with end of life read offline, refreshes until complete', $mostRefreshes, 'refr.', null, '(slow collectors only run in a refresh)');
 
 $outOfOrder = new FakeUrlFetcher(CYCLES);
 [$reader] = engine(new ArrayAdapter(), $clock, $kernel, $outOfOrder);

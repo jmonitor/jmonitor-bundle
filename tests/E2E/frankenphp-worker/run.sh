@@ -5,8 +5,9 @@ cd "$(dirname "$0")"
 
 PORT="${JMONITOR_E2E_PORT:-8090}"
 export JMONITOR_E2E_PORT="$PORT"
-export JMONITOR_FIXTURE_FEATURES=embed
+export JMONITOR_FIXTURE_FEATURES=embed,easyadmin
 BASE="http://127.0.0.1:$PORT"
+ADMIN=admin:test
 COMPOSE="docker compose -p jmonitor-bundle-e2e-worker -f compose.yaml"
 
 cleanup() {
@@ -37,7 +38,7 @@ start() {
 
 counter=0
 hit() {
-    headers="$(curl -s -D - -o /dev/null "$BASE$1")" || fail "GET $1 failed"
+    headers="$(curl -s ${3:+-u "$3"} -D - -o /dev/null "$BASE$1")" || fail "GET $1 failed"
     if [ -n "${2:-}" ]; then
         status="$(printf '%s\n' "$headers" | sed -n '1s/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p')"
         [ "$status" = "$2" ] || fail "GET $1 answered $status instead of $2"
@@ -51,7 +52,7 @@ hit() {
 expect_page() {
     found=0
     for _ in $(seq 1 30); do
-        page="$(curl -sf "$BASE$1")" || fail "GET $1 did not return 2xx"
+        page="$(curl -sf ${4:+-u "$4"} "$BASE$1")" || fail "GET $1 did not return 2xx"
         if printf '%s\n' "$page" | grep -q "$2"; then
             found=1
             break
@@ -112,6 +113,57 @@ css_path="$(printf '%s\n' "$page" | sed -n 's|.*href="\(/bundles/jmonitor/jmonit
 css="$(curl -s -o /dev/null -w '%{http_code}' "$BASE$css_path")"
 [ "$css" = 200 ] || fail "$css_path answered $css"
 
+cards_of() {
+    printf '%s\n' "$1" | grep -o 'data-jm-component="[a-z]*"' | sed 's/.*="\(.*\)"/\1/' | sort | tr '\n' ' '
+}
+
+php_read_at() {
+    page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
+    value="$(printf '%s\n' "$page" | sed -n 's/.*data-jm-component="php"[^>]*data-jm-read-at="\([0-9]*\)".*/\1/p' | head -n 1)"
+    [ -n "$value" ] || fail "the PHP card of the Stack screen carries no data-jm-read-at"
+    echo "$value"
+}
+
+hit /jmonitor/stack 200
+
+complete=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
+    if [ "$(cards_of "$page")" = 'php symfony system ' ] && ! printf '%s\n' "$page" | grep -q 'data-jm-reading'; then
+        complete=1
+        break
+    fi
+    sleep 1
+done
+[ "$complete" = 1 ] || fail 'the Stack screen did not show the system, php and symfony cards without data-jm-reading within 30 s'
+
+first="$(php_read_at)"
+sleep 1
+second="$(php_read_at)"
+[ "$first" = "$second" ] || fail "the PHP card was read again within a second: read at $first, then $second"
+sleep 11
+renewed="$(php_read_at)"
+[ "$renewed" -gt "$second" ] || fail "the PHP card was still read at $second in the worker after 11 s"
+
+sleep 1
+status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' --data 'action=refresh' "$BASE/jmonitor/_action/stack")"
+[ "$status" = 303 ] || fail "POST /jmonitor/_action/stack answered $status instead of 303"
+refreshed="$(php_read_at)"
+[ "$refreshed" -gt "$renewed" ] || fail "the PHP card was still read at $renewed after a refresh"
+
+hit /jmonitor/stack/php 200
+
+admin="$(curl -sf -u "$ADMIN" "$BASE/admin/jmonitor/stack")" || fail "GET /admin/jmonitor/stack did not return 2xx"
+[ "$(cards_of "$admin")" = 'php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
+
+sleep 2
+hit /teapot 418
+expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests screen did not list "GET app_teapot" after the Stack screens'
+printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the Stack screens'
+if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
+    fail "the Requests screen lists a request to a JMonitor screen"
+fi
+
 for _ in 1 2 3; do
     hit /n-plus-one
 done
@@ -136,14 +188,14 @@ $COMPOSE exec -T app php tests/Fixtures/App/bin/console app:work || fail "app:wo
 expect_page /jmonitor/commands 'data-jm-command="app:work" data-jm-runs="1"' 'the Commands screen did not list 1 run of app:work'
 
 hit /hello/host
-expect_page /back-office/monitoring/requests 'data-jm-route="GET app_hello"' 'the embedded Requests screen did not list "GET app_hello"'
+expect_page /back-office/monitoring/requests 'data-jm-route="GET app_hello"' 'the embedded Requests screen did not list "GET app_hello"' "$ADMIN"
 
-status="$(curl -s -o /dev/null -w '%{http_code}' -H "Origin: $BASE" --data 'action=ping' "$BASE/back-office/monitoring-action/probe")"
+status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" -H "Origin: $BASE" --data 'action=ping' "$BASE/back-office/monitoring-action/probe")"
 [ "$status" = 303 ] || fail "POST /back-office/monitoring-action/probe answered $status instead of 303"
-expect_page /back-office/monitoring/probe 'data-jm-probe-runs="1"' 'the embedded Probe screen did not count 1 run'
+expect_page /back-office/monitoring/probe 'data-jm-probe-runs="1"' 'the embedded Probe screen did not count 1 run' "$ADMIN"
 
 for path in /back-office/monitoring/ /back-office/monitoring/requests /back-office/monitoring/queries /back-office/monitoring/cache /back-office/monitoring/probe /back-office/monitoring-fragment/ '/back-office/monitoring-fragment/requests?menu=3&period=1h' /back-office/monitoring-fragment/queries /back-office/monitoring-fragment/cache /back-office/monitoring-fragment/probe; do
-    hit "$path" 200
+    hit "$path" 200 "$ADMIN"
 done
 hit /teapot 418
 expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests screen did not list "GET app_teapot", requested after the embedded pages'
@@ -151,4 +203,4 @@ if printf '%s\n' "$page" | grep -q 'back_office_'; then
     fail "the Requests screen lists a request to an embedded page"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live, keeps it 10 s, refreshes it and shows it inside EasyAdmin"
