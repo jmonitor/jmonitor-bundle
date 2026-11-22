@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
@@ -188,6 +189,28 @@ final class CardBuilderTest extends TestCase
 
         $stale = Snapshots::of(Component::Php, ['php' => Snapshots::php()], ['php' => ResultState::Stale]);
         self::assertNull($this->card($stale)->reason);
+    }
+
+    public function testAStaleCardSaysHowOldItsFiguresAre(): void
+    {
+        $stale = static fn(Component $component, array $data, ?string $error = null): ComponentSnapshot => new ComponentSnapshot($component, [
+            $component->value => new CollectorResult($component->value, $data, ResultState::Stale, $error, Snapshots::NOW - 180, expiresAt: Snapshots::NOW - 120),
+        ]);
+        $container = Snapshots::system();
+        $container['cgroup']['memory_limit'] = 2_000_000_000;
+
+        self::assertNull($this->card(Snapshots::of(Component::Php, ['php' => Snapshots::php()]))->note);
+        self::assertSame('Read 3' . self::NBSP . 'min ago', $this->card($stale(Component::Php, Snapshots::php()))->note);
+        self::assertSame('Read 3' . self::NBSP . 'min ago, could not be read again', $this->card($stale(Component::Php, Snapshots::php(), 'Timed out'))->note);
+        self::assertSame('Load is measured on the host node · Read 3' . self::NBSP . 'min ago, could not be read again', $this->card($stale(Component::System, $container, 'Timed out'))->note);
+    }
+
+    public function testFlexRecipesTellTheOutdatedOnesFirst(): void
+    {
+        $contradicting = ['up_to_date' => true, 'outdated_recipes' => ['symfony/twig-bundle']];
+        $card = $this->card(Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony(), 'symfony.flex' => $contradicting]));
+
+        self::assertSame('1 outdated', self::vitals($card)['Flex recipes']);
     }
 
     public function testFpmWorkersOnlyShowUnderFpm(): void

@@ -94,7 +94,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
         $instance = $state->component($this->component)?->instances[0] ?? null;
 
         if ($instance === null) {
-            $blocks[] = Block::notice(new Notice('info', $this->label() . ' is not part of this stack', $state->notDetected[$this->component->value] ?? ''));
+            $blocks[] = Block::notice(new Notice('info', $this->label() . ' is not part of this stack', $state->notDetected[$this->component->value] ?? 'It is turned off, or was not found on this server.'));
 
             return $blocks;
         }
@@ -111,10 +111,6 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
         ];
     }
 
-    /**
-     * Overview, then the components of the last visit of the Stack screen with their verdict then,
-     * this one with its verdict now.
-     */
     private function subnav(Verdict $verdict, ?string $node): SubNav
     {
         $last = [];

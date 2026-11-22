@@ -186,7 +186,7 @@ final class ComponentScreenTest extends TestCase
         $off = new StackState('web-1', Snapshots::NOW, CacheState::Working, [], []);
         $blocks = $this->screen(new FakeStackReader($off), Component::Symfony)->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertEquals(new Notice('info', 'Symfony is not part of this stack'), $blocks[1]->content);
+        self::assertEquals(new Notice('info', 'Symfony is not part of this stack', 'It is turned off, or was not found on this server.'), $blocks[1]->content);
         self::assertCount(2, $blocks);
     }
 

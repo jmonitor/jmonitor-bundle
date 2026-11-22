@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack\Screen;
 
+use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
@@ -15,12 +16,14 @@ use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\Sections;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Psr\Clock\ClockInterface;
 
 /**
- * The card of an instance on the overview: its verdict and the few figures that tell at a glance whether it copes.
+ * The card of an instance: its verdict and the few figures that tell at a glance whether it copes.
  */
 final class CardBuilder
 {
@@ -45,6 +48,11 @@ final class CardBuilder
         $reason = $instance->error ?? $snapshot->error ?? ($main?->state === ResultState::Failed ? $main->error ?? 'no reason given' : null);
         $waiting = $reading && $reason === null && ($main === null || $main->state === ResultState::Pending || $main->state === ResultState::Busy);
         [$version, $vitals, $support, $note] = $snapshot === null || $reason !== null ? [null, [], null, null] : $this->figures($component, $snapshot, $reading);
+
+        if ($reason === null && $main?->state === ResultState::Stale) {
+            $note = implode(' · ', array_filter([$note, $this->age($main)]));
+        }
+
         $badge = $support === null ? null : Marks::support($support);
 
         return new ComponentCard(
@@ -131,8 +139,8 @@ final class CardBuilder
         if ($snapshot->result(self::FLEX) !== null) {
             $outdated = count($symfony->outdatedRecipes);
             $recipes = match (true) {
-                $symfony->recipesUpToDate === true => 'up' . self::NBSP . 'to' . self::NBSP . 'date',
                 $outdated > 0 => $outdated . self::NBSP . 'outdated',
+                $symfony->recipesUpToDate === true => 'up' . self::NBSP . 'to' . self::NBSP . 'date',
                 default => null,
             };
             $vitals[] = new Vital('Flex recipes', self::collector($snapshot, self::FLEX, $reading)($recipes));
@@ -150,6 +158,13 @@ final class CardBuilder
         $waiting = $reading && ($state === null || $state === ResultState::Pending || $state === ResultState::Busy);
 
         return static fn(?string $value): string => $waiting ? self::READING : $value ?? self::MISSING;
+    }
+
+    private function age(CollectorResult $main): string
+    {
+        $read = $main->collectedAt === null ? 'Read earlier' : 'Read ' . Sections::unbroken(Format::ago($main->collectedAt, $this->clock->now()->getTimestamp()));
+
+        return $main->error === null ? $read : $read . ', could not be read again';
     }
 
     private static function percent(?float $percent): ?string

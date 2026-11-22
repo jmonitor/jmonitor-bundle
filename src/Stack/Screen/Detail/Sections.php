@@ -81,14 +81,9 @@ final class Sections
         return $percent === null ? '' : Figures::percent($percent);
     }
 
-    public static function bytes(int $bytes): string
-    {
-        return self::unbroken(Format::bytes($bytes));
-    }
-
     public static function share(?int $part, ?int $total): ?string
     {
-        return $part === null || $total === null ? null : self::bytes($part) . ' of ' . self::bytes($total);
+        return $part === null || $total === null ? null : Figures::bytes($part) . ' of ' . Figures::bytes($total);
     }
 
     public static function fraction(int $part, int $total): string

@@ -14,6 +14,7 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
+use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
@@ -113,7 +114,13 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             $blocks[] = Block::notice(StackScreenParts::cacheOutOfOrder());
         }
 
-        $blocks[] = Block::checks($this->parts->checkList($health->findings, true));
+        if ($state->components === []) {
+            $blocks[] = Block::notice(new Notice('info', 'No component is read', 'Every component of the stack is turned off or was not found.'));
+
+            return $state->notDetected === [] ? $blocks : [...$blocks, Block::components(new ComponentCards([], self::notDetected($state)))];
+        }
+
+        $blocks[] = Block::checks($this->parts->checkList($health->findings, true, $state->isReading() ? 'Nothing to check so far' : null));
         $components = Block::components($this->componentCards($state, $health));
         $blocks[] = $state->isReading() ? $components->withReading() : $components;
 
@@ -136,7 +143,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
         return new NavBadge(
             (string) ($last['critical'] + $last['warning']),
             $last['critical'] > 0 ? 'bad' : 'warn',
-            sprintf('%s at the last visit of the Stack screen, %s', implode(', ', $counts), Format::ago($last['at'], $this->parts->now())),
+            sprintf('%s at the last visit of the Stack overview, %s', implode(', ', $counts), Format::ago($last['at'], $this->parts->now())),
         );
     }
 
@@ -166,15 +173,9 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             }
         }
 
-        $notDetected = [];
-
-        foreach ($state->notDetected as $value => $reason) {
-            $notDetected[] = (Component::tryFrom($value)?->label() ?? $value) . ': ' . $reason;
-        }
-
         return new ComponentCards(
             $cards,
-            $notDetected,
+            self::notDetected($state),
             $state->node,
             match ($unread) {
                 0 => null,
@@ -182,5 +183,19 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
                 default => $unread . ' more connections',
             },
         );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function notDetected(StackState $state): array
+    {
+        $notDetected = [];
+
+        foreach ($state->notDetected as $value => $reason) {
+            $notDetected[] = (Component::tryFrom($value)?->label() ?? $value) . ': ' . $reason;
+        }
+
+        return $notDetected;
     }
 }

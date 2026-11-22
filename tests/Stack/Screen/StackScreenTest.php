@@ -127,6 +127,42 @@ final class StackScreenTest extends TestCase
         self::assertSame('Nothing to check', $checks->emptyTitle);
     }
 
+    public function testNothingToCheckIsProvisionalWhileSomethingIsStillRead(): void
+    {
+        $php = Snapshots::php();
+        unset($php['fpm']);
+        $state = self::withNode(Snapshots::stack(
+            Snapshots::of(Component::Php, ['php' => $php]),
+            Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()], ['symfony.flex' => ResultState::Pending]),
+        ));
+
+        $checks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[1]->content;
+
+        self::assertInstanceOf(CheckList::class, $checks);
+        self::assertSame([], $checks->lines);
+        self::assertSame('Nothing to check so far', $checks->emptyTitle);
+    }
+
+    public function testAStackWithoutComponentSaysSoInsteadOfNothingToCheck(): void
+    {
+        $notice = new Notice('info', 'No component is read', 'Every component of the stack is turned off or was not found.');
+        $off = new StackState('web-1', Snapshots::NOW, CacheState::Working, [], []);
+
+        $blocks = $this->screen(new FakeStackReader($off))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame([Block::SUBNAV, Block::NOTICE], array_map(static fn(Block $block): string => $block->type, $blocks));
+        self::assertEquals(new SubNav([new SubNavItem('Overview', 'stack', true)], 'web-1'), $blocks[0]->content);
+        self::assertEquals($notice, $blocks[1]->content);
+
+        $notFound = new StackState('web-1', Snapshots::NOW, CacheState::Working, [], ['symfony' => 'No kernel']);
+
+        $blocks = $this->screen(new FakeStackReader($notFound))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame([Block::SUBNAV, Block::NOTICE, Block::COMPONENTS], array_map(static fn(Block $block): string => $block->type, $blocks));
+        self::assertEquals($notice, $blocks[1]->content);
+        self::assertEquals(new ComponentCards([], ['Symfony: No kernel']), $blocks[2]->content);
+    }
+
     public function testAComponentThatCouldNotBeReadKeepsItsCardWithTheReason(): void
     {
         $state = self::withNode(Snapshots::state([
@@ -270,7 +306,7 @@ final class StackScreenTest extends TestCase
         $this->clock->sleep(185);
 
         self::assertEquals(
-            new NavBadge('2', 'bad', '1 critical, 1 warning at the last visit of the Stack screen, 3 min ago'),
+            new NavBadge('2', 'bad', '1 critical, 1 warning at the last visit of the Stack overview, 3 min ago'),
             $this->screen(new FakeStackReader(self::troubled()))->navBadge(),
         );
 
@@ -281,7 +317,7 @@ final class StackScreenTest extends TestCase
         $this->screen(new FakeStackReader($warnings))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertEquals(
-            new NavBadge('2', 'warn', '2 warnings at the last visit of the Stack screen, just now'),
+            new NavBadge('2', 'warn', '2 warnings at the last visit of the Stack overview, just now'),
             $this->screen(new FakeStackReader(self::troubled()))->navBadge(),
         );
 
@@ -290,7 +326,7 @@ final class StackScreenTest extends TestCase
         $this->clock->sleep(42);
 
         self::assertEquals(
-            new NavBadge('1', 'bad', '1 critical at the last visit of the Stack screen, 42 s ago'),
+            new NavBadge('1', 'bad', '1 critical at the last visit of the Stack overview, 42 s ago'),
             $this->screen(new FakeStackReader(self::troubled()))->navBadge(),
         );
     }

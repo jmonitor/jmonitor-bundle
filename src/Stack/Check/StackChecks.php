@@ -312,7 +312,7 @@ final class StackChecks
             $findings[] = $raise(
                 'php.realpath_cache_size',
                 Severity::Info,
-                sprintf('realpath_cache_size is %s', self::bytes($php->realpathCacheSize)),
+                sprintf('realpath_cache_size is %s', Figures::bytes($php->realpathCacheSize)),
                 'When this cache is too small for the files of a Symfony application, PHP resolves the same paths again on every request. Set realpath_cache_size=4096K.',
                 'php',
             );
@@ -406,14 +406,5 @@ final class StackChecks
     private static function times(int $count): string
     {
         return $count === 1 ? 'once' : $count . ' times';
-    }
-
-    private static function bytes(int $bytes): string
-    {
-        return match (true) {
-            $bytes >= 1_048_576 => round($bytes / 1_048_576, 1) . ' MB',
-            $bytes >= 1_024 => round($bytes / 1_024, 1) . ' KB',
-            default => $bytes . ' B',
-        };
     }
 }

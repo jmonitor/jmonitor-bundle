@@ -11,6 +11,8 @@ final class Figures
 {
     public const NBSP = "\u{00A0}";
 
+    private const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+
     /**
      * Rounded down to one decimal, so that a value never shows a threshold it did not reach.
      */
@@ -19,6 +21,21 @@ final class Figures
         $shown = number_format(floor(round($percent * 10, 6)) / 10, 1, '.', '');
 
         return (str_ends_with($shown, '.0') ? substr($shown, 0, -2) : $shown) . self::NBSP . '%';
+    }
+
+    public static function bytes(int $bytes): string
+    {
+        $value = $bytes;
+        $unit = 0;
+
+        while ($value >= 1024 && $unit < count(self::BYTE_UNITS) - 1) {
+            $value /= 1024;
+            ++$unit;
+        }
+
+        $shown = $unit === 0 ? number_format($value) : number_format($value, $value < 10 ? 1 : 0);
+
+        return (str_ends_with($shown, '.0') ? substr($shown, 0, -2) : $shown) . self::NBSP . self::BYTE_UNITS[$unit];
     }
 
     /**

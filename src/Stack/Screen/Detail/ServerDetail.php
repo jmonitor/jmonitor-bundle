@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Fact;
 use Jmonitor\JmonitorBundle\Dashboard\View\Facts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauge;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
+use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
@@ -70,7 +71,7 @@ final class ServerDetail implements DetailInterface
         ];
 
         if ($server->containerMemoryLimit !== null) {
-            $facts[] = new Fact('Memory limit', Sections::bytes($server->containerMemoryLimit));
+            $facts[] = new Fact('Memory limit', Figures::bytes($server->containerMemoryLimit));
         }
 
         return $facts;

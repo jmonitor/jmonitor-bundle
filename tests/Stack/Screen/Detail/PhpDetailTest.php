@@ -117,6 +117,18 @@ final class PhpDetailTest extends TestCase
         self::assertSame('OPcache hit rate is ' . self::nb('70 %') . ' since server start', array_values(array_filter($findings, static fn(Finding $finding): bool => $finding->id === 'php.opcache_hit_rate'))[0]->sentence);
     }
 
+    public function testTheCheckAndTheFactShowTheSameRealpathCacheSize(): void
+    {
+        $snapshot = Snapshots::of(Component::Php, ['php' => ['realpath_cache_size' => '20000'] + Snapshots::php()]);
+        $findings = self::findings($snapshot);
+
+        $fact = self::describe((new PhpDetail())->sections(self::instance($snapshot), $findings, Snapshots::NOW))[0][2]['realpath_cache_size'];
+        $sentence = array_values(array_filter($findings, static fn(Finding $finding): bool => $finding->id === 'php.realpath_cache_size'))[0]->sentence;
+
+        self::assertSame(self::nb('20 KB') . ' [Info]', $fact);
+        self::assertSame('realpath_cache_size is ' . self::nb('20 KB'), $sentence);
+    }
+
     public function testAGaugeNeverShowsAThresholdItDidNotReach(): void
     {
         $php = Snapshots::php();

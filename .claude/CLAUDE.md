@@ -47,7 +47,7 @@ The engine that reads the server, PHP and Symfony on demand, behind a cache:
 - An application screen costs the stack one cache read, the summary behind the badge of the navigation, and builds no reader.
 - Only the display of the overview (`StackScreen::blocks()`) writes that summary (`StackSummary::remember()`).
 - Every check of `StackChecks` has a stable identifier, which users put in `stack.ignore_checks` and the README lists, and a case at its threshold and just below in `StackChecksTest`.
-- The percentages a check judges and a screen shows are formatted by `Figures`, so that both show the same value.
+- The percentages and byte sizes a check judges and a screen shows are formatted by `Figures`, so that both show the same value.
 - A block of `src/Dashboard/View/` names no type of `src/Stack/`.
 - A `Mark` always carries a word: a verdict or a severity is never told by colour alone.
 

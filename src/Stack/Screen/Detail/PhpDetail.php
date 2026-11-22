@@ -63,7 +63,7 @@ final class PhpDetail implements DetailInterface
             new Fact('memory_limit', match (true) {
                 $php->memoryUnlimited => 'unlimited',
                 $php->memoryLimit === null => Sections::MISSING,
-                default => Sections::bytes($php->memoryLimit),
+                default => Figures::bytes($php->memoryLimit),
             }),
             new Fact('max_execution_time', match ($php->maxExecutionTime) {
                 null => Sections::MISSING,
@@ -73,7 +73,7 @@ final class PhpDetail implements DetailInterface
             new Fact('display_errors', self::onOff($php->displayErrors), Sections::mark($findings, 'php.display_errors')),
             new Fact(
                 'realpath_cache_size',
-                $php->realpathCacheSize === null ? Sections::MISSING : Sections::bytes($php->realpathCacheSize),
+                $php->realpathCacheSize === null ? Sections::MISSING : Figures::bytes($php->realpathCacheSize),
                 Sections::mark($findings, 'php.realpath_cache_size'),
             ),
         ];
@@ -94,7 +94,7 @@ final class PhpDetail implements DetailInterface
 
         $wasted = $php->opcacheUsed === null || $php->opcacheWasted === null || $php->opcacheTotal === null
             ? null
-            : sprintf('%s used and %s wasted, of %s', Sections::bytes($php->opcacheUsed), Sections::bytes($php->opcacheWasted), Sections::bytes($php->opcacheTotal));
+            : sprintf('%s used and %s wasted, of %s', Figures::bytes($php->opcacheUsed), Figures::bytes($php->opcacheWasted), Figures::bytes($php->opcacheTotal));
 
         return Block::gauges(new Gauges('OPcache', [
             new Gauge('Memory', $php->opcacheMemoryPercent, Sections::percent($php->opcacheMemoryPercent), Sections::mark($findings, 'php.opcache_memory'), $wasted),
