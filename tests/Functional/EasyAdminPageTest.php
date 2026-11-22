@@ -237,6 +237,27 @@ final class EasyAdminPageTest extends WebTestCase
         }
     }
 
+    public function testADetailShowsUnderEasyAdmin(): void
+    {
+        $client = $this->client(['jmonitor' => ['stack' => self::STACK]]);
+
+        $crawler = $client->request('GET', '/admin/jmonitor/stack/php');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('body.ea'));
+        static::assertCount(1, $crawler->filter('.jm [data-jm-component="php"]'));
+        static::assertSame('/admin/jmonitor/stack', $crawler->filter('.jm .jm-nav__item[aria-current="page"]')->attr('href'));
+        static::assertSame('/admin/jmonitor/stack/php', $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->attr('href'));
+        static::assertCount(1, $crawler->filter('.jm form[action="/admin/jmonitor/_action/stack/php"] button'));
+        foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
+            static::assertStringStartsWith('/admin/jmonitor', $url);
+        }
+
+        $client->request('POST', '/admin/jmonitor/_action/stack/php', ['action' => 'refresh'], server: self::SAME_ORIGIN);
+        static::assertResponseStatusCodeSame(303);
+        static::assertResponseRedirects('/admin/jmonitor/stack/php');
+    }
+
     public function testRefreshWorksThroughEasyAdmin(): void
     {
         $client = $this->client(['jmonitor' => ['stack' => self::STACK]]);

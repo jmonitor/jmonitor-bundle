@@ -114,6 +114,8 @@ final class StackSummaryTest extends TestCase
         yield 'an empty array' => [[]];
         yield 'a date as a string' => [['at' => '1780000000'] + self::EXPECTED];
         yield 'a count as a float' => [['critical' => 1.0] + self::EXPECTED];
+        yield 'a negative critical count' => [['critical' => -1] + self::EXPECTED];
+        yield 'a negative warning count' => [['warning' => -2] + self::EXPECTED];
         yield 'no warning count' => [array_diff_key(self::EXPECTED, ['warning' => true])];
         yield 'no components' => [array_diff_key(self::EXPECTED, ['components' => true])];
         yield 'components as a string' => [['components' => 'php'] + self::EXPECTED];

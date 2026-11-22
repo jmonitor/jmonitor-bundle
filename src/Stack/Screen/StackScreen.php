@@ -27,6 +27,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\DetailInterface;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Psr\Clock\ClockInterface;
 use Psr\Container\ContainerInterface;
@@ -37,11 +38,13 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
 
     /**
      * @param ContainerInterface $services gives StackReaderInterface, StackChecks and StackSummary under their class names
+     * @param ContainerInterface $details  gives the DetailInterface of each component under its value
      */
     public function __construct(
         private readonly ContainerInterface $services,
         private readonly CardBuilder $cards,
         private readonly ClockInterface $clock,
+        private readonly ContainerInterface $details,
     ) {}
 
     public function id(): string
@@ -78,7 +81,21 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
 
     public function child(string $id): ?ScreenInterface
     {
-        return null;
+        $component = Component::tryFrom($id);
+
+        if ($component === null) {
+            return null;
+        }
+
+        $detail = $this->details->get($component->value);
+
+        return new ComponentScreen(
+            $component,
+            $detail instanceof DetailInterface ? $detail : throw new \LogicException('No detail of ' . $component->label() . '.'),
+            $this->services,
+            $this->cards,
+            $this->clock,
+        );
     }
 
     public function blocks(ScreenRequest $request): array
@@ -98,7 +115,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
         $blocks = [Block::subnav(self::subnav($state, $health))];
 
         if ($state->cache === CacheState::OutOfOrder) {
-            $blocks[] = Block::notice(new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.'));
+            $blocks[] = Block::notice(self::cacheOutOfOrder());
         }
 
         $blocks[] = Block::checks($this->checkList($health));
@@ -126,6 +143,16 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             $last['critical'] > 0 ? 'bad' : 'warn',
             sprintf('%s at the last visit of the Stack screen, %s', implode(', ', $counts), Format::ago($last['at'], $this->now())),
         );
+    }
+
+    public static function cacheOutOfOrder(): Notice
+    {
+        return new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.');
+    }
+
+    public static function path(?Component $component = null): string
+    {
+        return $component === null ? self::ID : self::ID . '/' . $component->value;
     }
 
     private static function subnav(StackState $state, StackHealth $health): SubNav
@@ -190,11 +217,6 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
                 default => $unread . ' more connections',
             },
         );
-    }
-
-    private static function path(Component $component): string
-    {
-        return self::ID . '/' . $component->value;
     }
 
     private function reader(): StackReaderInterface

@@ -165,6 +165,82 @@ final class StackScreenTest extends WebTestCase
         static::assertResponseStatusCodeSame(404);
     }
 
+    public function testEachComponentHasItsDetail(): void
+    {
+        $client = $this->client();
+
+        foreach (['php' => 'PHP', 'symfony' => 'Symfony'] as $id => $label) {
+            $crawler = $client->request('GET', '/jmonitor/stack/' . $id);
+
+            static::assertResponseStatusCodeSame(200);
+            static::assertSame('JMonitor — ' . $label, $crawler->filter('title')->text());
+            static::assertSame('/jmonitor/stack', $crawler->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
+            static::assertSame('/jmonitor/stack/' . $id, $crawler->filter('.jm-subnav__item[aria-current="page"]')->attr('href'));
+            static::assertSame('/jmonitor/stack', $crawler->filter('.jm-subnav__item')->first()->attr('href'));
+            static::assertCount(1, $crawler->filter('[data-jm-component="' . $id . '"]'));
+            static::assertCount(0, $crawler->filter('[data-jm-component="' . $id . '"] a'));
+            static::assertCount(1, $crawler->filter('form[action="/jmonitor/_action/stack/' . $id . '"] button'));
+        }
+
+        $php = $client->request('GET', '/jmonitor/stack/php');
+        static::assertContains('Runtime', $php->filter('.jm-panel__title')->each(static fn(Crawler $title): string => $title->text()));
+
+        $symfony = $client->request('GET', '/jmonitor/stack/symfony');
+        static::assertContains('Bundles', $symfony->filter('.jm-panel__title')->each(static fn(Crawler $title): string => $title->text()));
+        static::assertGreaterThan(0, $symfony->filter('th[scope="row"]:contains("JmonitorBundle")')->count());
+    }
+
+    public function testUnknownDetailsAreNotFound(): void
+    {
+        $client = $this->client();
+
+        foreach (['/jmonitor/stack/mysql', '/jmonitor/stack/php/x', '/jmonitor/_fragment/stack/mysql'] as $url) {
+            $client->request('GET', $url);
+            static::assertResponseStatusCodeSame(404, $url);
+        }
+
+        $client->request('POST', '/jmonitor/_action/stack/mysql', ['action' => 'refresh'], server: self::SAME_ORIGIN);
+        static::assertResponseStatusCodeSame(404);
+
+        $client->request('POST', '/jmonitor/_action/stack/php', ['action' => 'forget'], server: self::SAME_ORIGIN);
+        static::assertResponseStatusCodeSame(404);
+    }
+
+    public function testADetailRefreshesItselfAndComesBack(): void
+    {
+        $client = $this->client();
+
+        $client->request('POST', '/jmonitor/_action/stack/php', ['action' => 'refresh'], server: self::SAME_ORIGIN);
+        static::assertResponseStatusCodeSame(303);
+        static::assertResponseRedirects('/jmonitor/stack/php');
+
+        $client->request('POST', '/jmonitor/_action/stack/php', ['action' => 'refresh'], server: self::SAME_ORIGIN);
+        static::assertResponseStatusCodeSame(303);
+        static::assertResponseRedirects('/jmonitor/stack/php');
+
+        $client->request('POST', '/jmonitor/_action/stack/php', ['action' => 'refresh'], server: ['HTTP_SEC_FETCH_SITE' => 'cross-site']);
+        static::assertResponseStatusCodeSame(403);
+
+        $client->request('GET', '/jmonitor/stack/php');
+        static::assertResponseIsSuccessful();
+    }
+
+    public function testTheFragmentOfADetailIsItsContent(): void
+    {
+        $client = $this->client();
+
+        $client->request('GET', '/jmonitor/_fragment/stack/php');
+        $html = (string) $client->getResponse()->getContent();
+
+        static::assertResponseIsSuccessful();
+        static::assertStringNotContainsString('<html', $html);
+        $fragment = new Crawler($html);
+        static::assertCount(1, $fragment->filter('.jm-screen'));
+        static::assertCount(1, $fragment->filter('[data-jm-component="php"]'));
+        static::assertSame('/jmonitor/stack/php', $fragment->filter('.jm-subnav__item[aria-current="page"]')->attr('href'));
+        static::assertContains('Runtime', $fragment->filter('.jm-panel__title')->each(static fn(Crawler $title): string => $title->text()));
+    }
+
     public function testAnApplicationScreenBuildsNothingOfTheStackButItsPool(): void
     {
         $client = $this->client(['internals' => true]);

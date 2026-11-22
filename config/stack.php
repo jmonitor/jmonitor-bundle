@@ -14,6 +14,9 @@ use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
@@ -120,6 +123,10 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(CardBuilder::class)
         ->args([service('jmonitor.clock')]);
 
+    $services->set(ServerDetail::class);
+    $services->set(PhpDetail::class);
+    $services->set(SymfonyDetail::class);
+
     $services->set(StackScreen::class)
         ->args([
             service_locator([
@@ -129,6 +136,11 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             ]),
             service(CardBuilder::class),
             service('jmonitor.clock'),
+            service_locator([
+                Component::System->value => service(ServerDetail::class),
+                Component::Php->value => service(PhpDetail::class),
+                Component::Symfony->value => service(SymfonyDetail::class),
+            ]),
         ])
         ->tag('jmonitor.screen', ['priority' => 10]);
 };

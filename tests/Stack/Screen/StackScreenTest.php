@@ -23,6 +23,10 @@ use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Screen\ComponentScreen;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
@@ -317,6 +321,27 @@ final class StackScreenTest extends TestCase
         self::assertSame(['getItem' => 1], $this->pool->calls);
     }
 
+    public function testEachComponentHasItsDetailAsASubScreen(): void
+    {
+        $reader = new FakeStackReader(self::healthy());
+        $screen = $this->screen($reader);
+
+        foreach (['system' => 'Server', 'php' => 'PHP', 'symfony' => 'Symfony'] as $id => $label) {
+            $child = $screen->child($id);
+
+            self::assertInstanceOf(ComponentScreen::class, $child);
+            self::assertSame($id, $child->id());
+            self::assertSame($label, $child->label());
+        }
+
+        foreach (['mysql', 'overview', 'stack', 'php-fpm'] as $id) {
+            self::assertNull($screen->child($id), $id);
+        }
+
+        self::assertSame([], $reader->calls);
+        self::assertSame([], $this->asked);
+    }
+
     public function testAVisitThenItsBadgeCostNoCacheReadForTheBadge(): void
     {
         $screen = $this->screen(new FakeStackReader(self::troubled()));
@@ -378,6 +403,10 @@ final class StackScreenTest extends TestCase
             $this->asked[] = $service instanceof StackReaderInterface ? StackReaderInterface::class : $service::class;
 
             return $service;
-        }, $services)), new CardBuilder($this->clock), $this->clock);
+        }, $services)), new CardBuilder($this->clock), $this->clock, new ServiceLocator([
+            'system' => static fn(): ServerDetail => new ServerDetail(),
+            'php' => static fn(): PhpDetail => new PhpDetail(),
+            'symfony' => static fn(): SymfonyDetail => new SymfonyDetail(),
+        ]));
     }
 }

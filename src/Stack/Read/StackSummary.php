@@ -110,7 +110,7 @@ final class StackSummary implements ResetInterface
         $warning = $payload['warning'] ?? null;
         $components = $payload['components'] ?? null;
 
-        if (!is_int($at) || !is_int($critical) || !is_int($warning) || !is_array($components)) {
+        if (!is_int($at) || !is_int($critical) || !is_int($warning) || $critical < 0 || $warning < 0 || !is_array($components)) {
             return null;
         }
 

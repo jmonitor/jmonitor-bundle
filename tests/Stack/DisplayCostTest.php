@@ -292,7 +292,7 @@ final class DisplayCostTest extends TestCase
             $this->built[] = $service instanceof StackReaderInterface ? StackReaderInterface::class : $service::class;
 
             return $service;
-        }, $services)), new CardBuilder($this->clock), $this->clock);
+        }, $services)), new CardBuilder($this->clock), $this->clock, new ServiceLocator([]));
 
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');
