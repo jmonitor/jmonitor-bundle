@@ -1,0 +1,10 @@
+{% autoescape 'html' %}
+{% set notice = block.content %}
+{% set word = {bad: 'Error', warn: 'Warning'}[notice.tone] ?? 'Note' %}
+<div class="jm-notice jm-notice--{{ notice.tone }}" data-jm-notice="{{ notice.tone }}">
+    <p class="jm-notice__title">{{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: {tone: notice.tone, label: word}}, with_context = false) }}<strong>{{ notice.title }}</strong></p>
+    {% if notice.text is not same as('') %}
+        <p class="jm-notice__text">{{ notice.text }}</p>
+    {% endif %}
+</div>
+{% endautoescape %}

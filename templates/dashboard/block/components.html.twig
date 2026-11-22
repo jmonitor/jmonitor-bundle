@@ -1,0 +1,62 @@
+{% autoescape 'html' %}
+{% set components = block.content %}
+<section class="jm-components" aria-label="{{ components.group ?? 'Components' }}">
+    {% if components.group is not null %}
+        <h2 class="jm-components__group">{{ components.group }}</h2>
+    {% endif %}
+    {% if components.cards is not empty %}
+        <div class="jm-components__grid">
+            {% for card in components.cards %}
+                <article class="jm-component{{ card.path is not null ? ' jm-component--link' }}" data-jm-component="{{ card.id }}" data-jm-verdict="{{ card.mark.tone }}"
+                    {%- if card.readAt is not null %} data-jm-read-at="{{ card.readAt }}"{% endif %}
+                    {%- if card.reading %} data-jm-reading{% endif %}>
+                    <div class="jm-component__head">
+                        <h3 class="jm-component__name">
+                            {%- if card.path is not null -%}
+                                <a class="jm-component__link" href="{{ urls.page(card.path) }}">{{ card.name }}</a>
+                            {%- else -%}
+                                {{ card.name }}
+                            {%- endif -%}
+                        </h3>
+                        {% if card.version is not null %}
+                            <span class="jm-component__version">{{ card.version }}</span>
+                        {% endif %}
+                        <span class="jm-component__marks">
+                            {{- include('@Jmonitor/dashboard/_mark.html.twig', {mark: card.mark}, with_context = false) -}}
+                            {%- for badge in card.badges %}{{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: badge}, with_context = false) }}{% endfor -%}
+                        </span>
+                    </div>
+                    {% if card.reason is not null %}
+                        <p class="jm-component__reason">{{ card.reason }}</p>
+                    {% elseif card.vitals is not empty %}
+                        <dl class="jm-vitals">
+                            {% for vital in card.vitals %}
+                                <div class="jm-vital">
+                                    <dt class="jm-vital__label">{{ vital.label }}</dt>
+                                    <dd class="jm-vital__value">{{ card.reading ? 'Reading…' : vital.value }}</dd>
+                                    {% if vital.hint is not null and not card.reading %}
+                                        <dd class="jm-vital__hint">{{ vital.hint }}</dd>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </dl>
+                    {% elseif card.reading %}
+                        <p class="jm-component__reading">Reading…</p>
+                    {% endif %}
+                    {% if card.note is not null %}
+                        <p class="jm-component__note">{{ card.note }}</p>
+                    {% endif %}
+                </article>
+            {% endfor %}
+        </div>
+    {% endif %}
+    {% if components.more is not null %}
+        <p class="jm-components__more">{{ components.more }}</p>
+    {% endif %}
+    {% if components.notDetected is not empty %}
+        <p class="jm-components__absent"><span class="jm-components__absent-label">Not detected</span>
+            {%- for absent in components.notDetected %} <span class="jm-components__absent-item">{{ absent }}</span>{% endfor -%}
+        </p>
+    {% endif %}
+</section>
+{% endautoescape %}

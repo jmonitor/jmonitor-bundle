@@ -7,7 +7,14 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard\View;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
+use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
+use Jmonitor\JmonitorBundle\Dashboard\View\Facts;
+use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
+use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
+use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class BlockTest extends TestCase
@@ -49,5 +56,49 @@ final class BlockTest extends TestCase
         $this->expectException(\LogicException::class);
 
         Block::unavailable(Block::TABLE, BlockState::Ready);
+    }
+
+    /**
+     * @return iterable<string, array{string, \Closure(): Block, object}>
+     */
+    public static function stackBlocks(): iterable
+    {
+        $subnav = new SubNav([]);
+        $notice = new Notice('warn', 'Title');
+        $checks = new CheckList([]);
+        $components = new ComponentCards([]);
+        $gauges = new Gauges('Memory', []);
+        $facts = new Facts('Runtime', []);
+
+        yield 'subnav' => ['subnav', static fn(): Block => Block::subnav($subnav), $subnav];
+        yield 'notice' => ['notice', static fn(): Block => Block::notice($notice), $notice];
+        yield 'checks' => ['checks', static fn(): Block => Block::checks($checks), $checks];
+        yield 'components' => ['components', static fn(): Block => Block::components($components), $components];
+        yield 'gauges' => ['gauges', static fn(): Block => Block::gauges($gauges), $gauges];
+        yield 'facts' => ['facts', static fn(): Block => Block::facts($facts), $facts];
+    }
+
+    /**
+     * @param \Closure(): Block $create
+     */
+    #[DataProvider('stackBlocks')]
+    public function testAStackBlockIsReadyWithItsContentAndNamesItsTemplate(string $type, \Closure $create, object $content): void
+    {
+        $block = $create();
+
+        static::assertSame([$type, BlockState::Ready, $content, false], [$block->type, $block->state, $block->content, $block->reading]);
+        static::assertSame($type, \constant(Block::class . '::' . strtoupper($type)));
+        static::assertFileExists(__DIR__ . '/../../../templates/dashboard/block/' . $type . '.html.twig');
+    }
+
+    /**
+     * @param \Closure(): Block $create
+     */
+    #[DataProvider('stackBlocks')]
+    public function testAStackBlockCanBeReading(string $type, \Closure $create, object $content): void
+    {
+        $block = $create()->withReading();
+
+        static::assertSame([$type, BlockState::Ready, $content, true], [$block->type, $block->state, $block->content, $block->reading]);
     }
 }

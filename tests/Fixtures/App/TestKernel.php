@@ -29,6 +29,7 @@ use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\NonceExtension;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\StaffDashboard;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeController;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeUrls;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\GalleryScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\ProbeScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPing;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPingHandler;
@@ -83,6 +84,7 @@ final class TestKernel extends Kernel
         private readonly bool $withCspNonce = false,
         private readonly bool $withOpenBackOffice = false,
         private readonly ?string $cacheApp = null,
+        private readonly bool $withGallery = false,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
@@ -96,7 +98,7 @@ final class TestKernel extends Kernel
         $this->withSecurity = $withSecurity || $withEasyAdmin;
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp]));
+            . hash('xxh128', serialize([$environment, $debug, $jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery]));
     }
 
     public static function fromEnvironment(): self
@@ -105,7 +107,7 @@ final class TestKernel extends Kernel
         $debug = self::environmentValue('APP_DEBUG');
         $features = array_filter(array_map(trim(...), explode(',', self::environmentValue('JMONITOR_FIXTURE_FEATURES'))));
 
-        $unknown = array_diff($features, ['easyadmin', 'embed', 'messenger', 'scheduler', 'security']);
+        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'scheduler', 'security']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
         }
@@ -118,6 +120,7 @@ final class TestKernel extends Kernel
             withScheduler: \in_array('scheduler', $features, true),
             withEmbedHost: \in_array('embed', $features, true),
             withEasyAdmin: \in_array('easyadmin', $features, true),
+            withGallery: \in_array('gallery', $features, true),
         );
     }
 
@@ -393,6 +396,12 @@ final class TestKernel extends Kernel
             $services->set(ProbeScreen::class)
                 ->args([$this->varDir . '/probe-runs'])
                 ->tag('jmonitor.screen', ['priority' => 10]);
+        }
+        if ($this->withGallery) {
+            $services->set(GalleryScreen::class)
+                ->args([$this->varDir . '/gallery-requests'])
+                ->tag('jmonitor.screen', ['priority' => 5])
+                ->tag('kernel.reset', ['method' => 'reset']);
         }
         if ($this->withEasyAdmin) {
             foreach ([AdminDashboard::class, StaffDashboard::class] as $dashboard) {

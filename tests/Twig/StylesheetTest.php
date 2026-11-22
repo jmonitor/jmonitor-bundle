@@ -124,6 +124,31 @@ final class StylesheetTest extends TestCase
         static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => str_contains($selector, '.jm-live__switch')));
     }
 
+    public function testForcedColorsCoverTheMarksAndTheGauges(): void
+    {
+        $rules = array_filter(self::rules(), static fn(array $rule): bool => $rule['at'] === '@media (forced-colors: active)');
+
+        foreach (['.jm-mark' => ['CanvasText'], '.jm-gauge' => ['CanvasText', 'Highlight']] as $block => $colours) {
+            foreach ($colours as $colour) {
+                $found = array_filter($rules, static fn(array $rule): bool => array_filter($rule['selectors'], static fn(string $selector): bool => str_contains($selector, $block)) !== []
+                    && array_filter($rule['declarations'], static fn(array $declaration): bool => str_contains($declaration[1], $colour)) !== []);
+
+                static::assertNotEmpty($found, $block . ' ' . $colour);
+            }
+        }
+    }
+
+    public function testForcedColorsTellAFailedLiveSwitchFromAnActiveOne(): void
+    {
+        $rules = array_filter(self::rules(), static fn(array $rule): bool => $rule['at'] === '@media (forced-colors: active)'
+            && \in_array(['border-style', 'dashed'], $rule['declarations'], true));
+        $selectors = array_merge(...array_column(array_values($rules), 'selectors'));
+
+        static::assertContains('.jm-live.is-failed .jm-live__switch', $selectors);
+        static::assertNotContains('.jm-live__switch', $selectors);
+        static::assertNotContains('.jm-live__switch:checked', $selectors);
+    }
+
     private static function withoutHostAncestor(string $selector): string
     {
         foreach (self::HOST_ANCESTORS as $ancestor) {

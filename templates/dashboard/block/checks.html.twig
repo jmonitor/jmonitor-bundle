@@ -1,0 +1,41 @@
+{% autoescape 'html' %}
+{% set list = block.content %}
+{% if list.lines is empty %}
+    <section class="jm-checks jm-checks--empty" aria-label="To check">
+        <h2 class="jm-checks__empty-title">{{ list.emptyTitle }}</h2>
+        {% if list.emptyText is not same as('') %}
+            <p class="jm-checks__empty-text">{{ list.emptyText }}</p>
+        {% endif %}
+    </section>
+{% else %}
+    <section class="jm-panel jm-checks" aria-label="To check">
+        <div class="jm-panel__header">
+            <h2 class="jm-panel__title">To check</h2>
+        </div>
+        <ul class="jm-checks__list">
+            {% for line in list.lines %}
+                <li class="jm-check" data-jm-check="{{ line.id }}" data-jm-severity="{{ line.mark.tone }}">
+                    <div class="jm-check__mark">{{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: line.mark}, with_context = false) }}</div>
+                    <div class="jm-check__body">
+                        <p class="jm-check__sentence">{{ line.sentence }}</p>
+                        {% if line.explanation is not same as('') %}
+                            <details class="jm-check__more" data-jm-key="check-{{ line.id }}-{{ line.where }}">
+                                <summary>Why and what to do</summary>
+                                <p>{{ line.explanation }}</p>
+                            </details>
+                        {% endif %}
+                    </div>
+                    <p class="jm-check__where">
+                        {%- if line.path is not null -%}
+                            <a href="{{ urls.page(line.path) }}">{{ line.where }}</a>
+                        {%- else -%}
+                            {{ line.where }}
+                        {%- endif -%}
+                        {%- if line.age is not null %}<span class="jm-check__age">{{ line.age }}</span>{% endif -%}
+                    </p>
+                </li>
+            {% endfor %}
+        </ul>
+    </section>
+{% endif %}
+{% endautoescape %}
