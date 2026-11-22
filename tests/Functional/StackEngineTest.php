@@ -14,6 +14,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
+use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
@@ -153,6 +154,22 @@ final class StackEngineTest extends WebTestCase
         }
     }
 
+    public function testASecondReadThroughTheContainerReusesTheFirst(): void
+    {
+        $reader = self::bootKernel()->getContainer()->get(StackReaderInterface::class);
+        static::assertInstanceOf(StackReaderInterface::class, $reader);
+
+        $first = $reader->overview(ReadMode::Page);
+        // a value collected again would then carry a later second
+        time_sleep_until(floor(microtime(true)) + 1);
+        $second = $reader->overview(ReadMode::Page);
+
+        static::assertSame(CacheState::Working, $second->cache);
+        static::assertNotSame([], self::collectedAt($first));
+        static::assertNotContains(null, self::collectedAt($first));
+        static::assertSame(self::collectedAt($first), self::collectedAt($second));
+    }
+
     public function testTheStackOffLeavesNoService(): void
     {
         $client = static::createClient(['jmonitor' => ['stack' => false]]);
@@ -191,6 +208,22 @@ final class StackEngineTest extends WebTestCase
             static::assertSame(ResultState::Fresh, $result->state, $result->name);
             static::assertNotSame([], $result->data, $result->name);
         }
+    }
+
+    /**
+     * @return array<string, ?int>
+     */
+    private static function collectedAt(StackState $state): array
+    {
+        $collectedAt = [];
+
+        foreach ($state->components as $component) {
+            foreach ($component->instances[0]->snapshot->results ?? [] as $name => $result) {
+                $collectedAt[$component->component->value . ' ' . $name] = $result->collectedAt;
+            }
+        }
+
+        return $collectedAt;
     }
 
     /**
