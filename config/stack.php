@@ -35,8 +35,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
     $services->set(WebNode::class);
 
-    $collectorRunner = $services->set(CollectorRunner::class)
-        ->args([$logger]);
+    $services->set(CollectorRunner::class);
 
     $services->set(DeltaCalculator::class)
         ->args([service('jmonitor.stack.cache'), 10, 300]);
@@ -55,7 +54,6 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ]);
 
     if ($customLogger === null) {
-        $collectorRunner->tag('monolog.logger', ['channel' => 'jmonitor']);
         $snapshotProvider->tag('monolog.logger', ['channel' => 'jmonitor']);
     }
 

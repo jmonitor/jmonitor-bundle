@@ -53,7 +53,7 @@ final class CollectorRunnerTest extends TestCase
         }
     }
 
-    public function testLoggerAwareCollectorsReceiveALogger(): void
+    public function testALoggerAwareCollectorRunsWithoutALogger(): void
     {
         $collector = new class implements CollectorInterface, LoggerAwareInterface {
             use LoggerAwareTrait;
@@ -74,6 +74,6 @@ final class CollectorRunnerTest extends TestCase
             }
         };
 
-        self::assertSame(['has_logger' => true], (new CollectorRunner())->run($collector));
+        self::assertSame(['has_logger' => false], (new CollectorRunner())->run($collector));
     }
 }

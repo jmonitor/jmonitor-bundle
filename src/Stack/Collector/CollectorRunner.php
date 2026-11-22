@@ -7,9 +7,6 @@ namespace Jmonitor\JmonitorBundle\Stack\Collector;
 use Jmonitor\Collector\BootableCollectorInterface;
 use Jmonitor\Collector\CollectorInterface;
 use Jmonitor\Collector\ResetInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 
 /**
  * Runs one collector the way the collector library does: boot, collect, drop nulls, reset.
@@ -17,13 +14,6 @@ use Psr\Log\NullLogger;
  */
 final readonly class CollectorRunner
 {
-    private LoggerInterface $logger;
-
-    public function __construct(?LoggerInterface $logger = null)
-    {
-        $this->logger = $logger ?? new NullLogger();
-    }
-
     /**
      * @return array<string, mixed>
      *
@@ -31,10 +21,6 @@ final readonly class CollectorRunner
      */
     public function run(CollectorInterface $collector): array
     {
-        if ($collector instanceof LoggerAwareInterface) {
-            $collector->setLogger($this->logger);
-        }
-
         try {
             if ($collector instanceof BootableCollectorInterface) {
                 $collector->boot();
