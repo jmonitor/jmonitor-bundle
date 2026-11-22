@@ -18,6 +18,7 @@ final class RequestRecorder implements EventSubscriberInterface
     private const STARTED_AT = '_jmonitor_started_at';
     public const UNIT = '_jmonitor_unit';
     public const NOT_RECORDED = '_jmonitor';
+    public const PROBE_HEADER = 'X-Jmonitor-Probe';
     private const MAX_REQUEST_AGE = 300;
     private const INTERNAL_ROUTE_PREFIXES = ['_wdt', '_profiler', 'jmonitor_'];
     private const STANDARD_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
