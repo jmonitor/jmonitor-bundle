@@ -14,7 +14,11 @@ use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
+use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
+use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
@@ -38,6 +42,8 @@ use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPingHandler;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\PingHandler;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\QueueTransportFactory;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use Psr\Log\LogLevel;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -46,6 +52,7 @@ use Symfony\Bundle\TwigBundle\TwigBundle;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\HttpKernel\Log\Logger;
 use Symfony\Component\Routing\Loader\Configurator\RouteConfigurator;
@@ -90,12 +97,16 @@ final class TestKernel extends Kernel
         private readonly bool $withOpenBackOffice = false,
         private readonly ?string $cacheApp = null,
         private readonly bool $withGallery = false,
+        private readonly ?string $fakeWebServer = null,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
         }
         if ($withEasyAdmin && !$withTwig) {
             throw new \LogicException('The EasyAdmin back office needs Twig.');
+        }
+        if ($fakeWebServer !== null && !\in_array($fakeWebServer, ['frankenphp', 'apache', 'nginx'], true)) {
+            throw new \InvalidArgumentException(\sprintf('Unknown fake web server "%s".', $fakeWebServer));
         }
 
         parent::__construct($environment, $debug);
@@ -104,7 +115,7 @@ final class TestKernel extends Kernel
         $this->jmonitorConfig = ($jmonitorConfig ?: $this->environmentConfig()) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false]]];
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery]));
+            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer]));
     }
 
     public static function fromEnvironment(): self
@@ -203,6 +214,34 @@ final class TestKernel extends Kernel
             }
         });
 
+        if ($this->fakeWebServer !== null) {
+            $container->addCompilerPass(new class ($this->fakeWebServer) implements CompilerPassInterface {
+                private const SAPIS = ['frankenphp' => [FrankenPhpDetector::class, 'frankenphp'], 'apache' => [ApacheDetector::class, 'apache2handler']];
+
+                public function __construct(
+                    private readonly string $webServer,
+                ) {}
+
+                public function process(ContainerBuilder $container): void
+                {
+                    foreach ([FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class] as $detector) {
+                        if (!$container->hasDefinition($detector)) {
+                            continue;
+                        }
+                        $definition = $container->getDefinition($detector)->setArgument('$fetcher', new Reference(FakeStatusPages::class));
+                        if ($detector !== ApacheDetector::class) {
+                            $definition->setArgument('$runner', new Reference(FakeProcessRunner::class));
+                        }
+                    }
+
+                    [$detector, $sapi] = self::SAPIS[$this->webServer] ?? [null, null];
+                    if ($detector !== null && $container->hasDefinition($detector)) {
+                        $container->getDefinition($detector)->setArgument('$sapi', $sapi);
+                    }
+                }
+            });
+        }
+
         if ($this->withPublicInternals) {
             $container->addCompilerPass(new class implements CompilerPassInterface {
                 public function process(ContainerBuilder $container): void
@@ -219,7 +258,7 @@ final class TestKernel extends Kernel
                     if ($container->hasDefinition(JmonitorController::class)) {
                         $container->getDefinition(JmonitorController::class)->setPublic(true);
                     }
-                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class, StackChecks::class, StackSummary::class] as $id) {
+                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, ProcessRunner::class, FakeStatusPages::class, FakeProcessRunner::class, StackChecks::class, StackSummary::class] as $id) {
                         if ($container->hasDefinition($id)) {
                             $container->getDefinition($id)->setPublic(true);
                         }
@@ -354,6 +393,10 @@ final class TestKernel extends Kernel
         }
         if ($this->withHttpClient) {
             $services->set(HttpResponses::class);
+        }
+        if ($this->fakeWebServer !== null) {
+            $services->set(FakeStatusPages::class)->public();
+            $services->set(FakeProcessRunner::class)->public();
         }
         $services->set(DemoController::class)
             ->args([

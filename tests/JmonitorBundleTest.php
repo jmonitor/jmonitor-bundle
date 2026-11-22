@@ -47,7 +47,10 @@ use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\UserRecorder;
+use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
@@ -1476,7 +1479,7 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->getParameter('jmonitor.stack.end_of_life'));
         static::assertTrue($container->getParameter('jmonitor.stack.symfony.flex'));
         static::assertSame(
-            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto']],
+            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto']],
             $container->getParameter('jmonitor.stack.components'),
         );
         static::assertTrue($container->hasDefinition('jmonitor.stack.cache'));
@@ -1518,7 +1521,7 @@ class JmonitorBundleTest extends TestCase
      */
     public static function stackComponentProvider(): iterable
     {
-        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto']];
+        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto']];
 
         yield 'system: false' => [['system' => false], array_replace($auto, ['system' => ['enabled' => false]]), true];
         yield 'php: true' => [['php' => true], array_replace($auto, ['php' => ['enabled' => true]]), true];
@@ -1538,6 +1541,44 @@ class JmonitorBundleTest extends TestCase
 
         static::assertSame($components, $container->getParameter('jmonitor.stack.components'));
         static::assertSame($flex, $container->getParameter('jmonitor.stack.symfony.flex'));
+    }
+
+    public function testEachWebServerHasItsSwitchAndItsEndpoint(): void
+    {
+        $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        static::assertSame('http://localhost:2019/metrics', $default->getParameter('jmonitor.stack.frankenphp.endpoint'));
+        static::assertSame('http://localhost/server-status', $default->getParameter('jmonitor.stack.apache.endpoint'));
+        static::assertSame('http://localhost/nginx_status', $default->getParameter('jmonitor.stack.nginx.endpoint'));
+
+        $set = $this->loadBundle(['stack' => ['nginx' => false, 'apache' => ['endpoint' => 'http://127.0.0.1:8080/status'], 'frankenphp' => ['enabled' => true]]]);
+        $components = $set->getParameter('jmonitor.stack.components');
+
+        static::assertIsArray($components);
+        static::assertSame(['enabled' => true], $components['frankenphp']);
+        static::assertSame(['enabled' => 'auto'], $components['apache']);
+        static::assertSame(['enabled' => false], $components['nginx']);
+        static::assertSame('http://127.0.0.1:8080/status', $set->getParameter('jmonitor.stack.apache.endpoint'));
+        static::assertSame('http://localhost/nginx_status', $set->getParameter('jmonitor.stack.nginx.endpoint'));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function webServerProvider(): iterable
+    {
+        yield 'frankenphp' => ['frankenphp'];
+        yield 'apache' => ['apache'];
+        yield 'nginx' => ['nginx'];
+    }
+
+    #[DataProvider('webServerProvider')]
+    public function testAnEmptyEndpointIsRefused(string $webServer): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.' . $webServer . '.endpoint"');
+
+        $this->loadBundle(['stack' => [$webServer => ['endpoint' => '']]]);
     }
 
     public function testIgnoredChecksAreAListOfIdentifiers(): void
@@ -1588,10 +1629,13 @@ class JmonitorBundleTest extends TestCase
         $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
 
         $detectors = $container->findTaggedServiceIds('jmonitor.stack.detector');
-        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class], array_keys($detectors));
+        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class], array_keys($detectors));
         static::assertSame([['index' => 'system']], $detectors[SystemDetector::class]);
         static::assertSame([['index' => 'php']], $detectors[PhpDetector::class]);
         static::assertSame([['index' => 'symfony']], $detectors[SymfonyDetector::class]);
+        static::assertSame([['index' => 'frankenphp']], $detectors[FrankenPhpDetector::class]);
+        static::assertSame([['index' => 'apache']], $detectors[ApacheDetector::class]);
+        static::assertSame([['index' => 'nginx']], $detectors[NginxDetector::class]);
 
         $registry = $container->getDefinition(ComponentRegistry::class);
         static::assertFalse($registry->isPublic());

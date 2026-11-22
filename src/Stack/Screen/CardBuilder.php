@@ -81,6 +81,7 @@ final class CardBuilder
             Component::System => self::server(ServerReading::of($snapshot), $main),
             Component::Php => self::php(PhpReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Symfony => self::symfony(SymfonyReading::of($snapshot, $this->clock->now()), $snapshot, $main, $reading),
+            Component::FrankenPhp, Component::Apache, Component::Nginx => [null, [], null, null],
         };
     }
 

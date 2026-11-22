@@ -16,6 +16,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
 use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
 use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
+use Jmonitor\JmonitorBundle\Stack\Collector\NginxStatusCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
@@ -35,6 +36,7 @@ use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FakeHostUrls;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\Detectors;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\StaticDetector;
@@ -100,7 +102,7 @@ final class DisplayCostTest extends TestCase
 
         $last = $this->display(static fn(): LocalStackReader => $reader);
 
-        self::assertSame(['Immediate' => [1, 1, 1], 'Network' => [1, 1, 1], 'Slow' => [1, 1, 1]], $this->calls());
+        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1]], $this->calls());
         self::assertSame(CacheState::Working, $last->cache);
         self::assertFalse($last->isReading());
 
@@ -134,9 +136,9 @@ final class DisplayCostTest extends TestCase
     {
         $last = $this->display(fn(): LocalStackReader => $this->reader($pool()));
 
-        self::assertSame([0, 0, 0], $this->calls()['Network']);
-        self::assertSame([0, 0, 0], $this->calls()['Slow']);
-        self::assertSame([50, 50, 50], $this->calls()['Immediate']);
+        self::assertSame([0, 0, 0, 0, 0, 0], $this->calls()['Network']);
+        self::assertSame([0, 0, 0, 0, 0, 0], $this->calls()['Slow']);
+        self::assertSame([50, 50, 50, 50, 50, 50], $this->calls()['Immediate']);
         self::assertSame($cache, $last->cache);
 
         foreach (Component::cases() as $component) {
@@ -151,8 +153,8 @@ final class DisplayCostTest extends TestCase
         $this->clock->sleep(self::BETWEEN_DISPLAYS);
         $reader->overview(ReadMode::Fragment);
         $this->clock->sleep(1 - self::BETWEEN_DISPLAYS);
-        $once = ['Immediate' => [1, 1, 1], 'Network' => [1, 1, 1], 'Slow' => [1, 1, 1]];
-        $twice = ['Immediate' => [2, 2, 2], 'Network' => [2, 2, 2], 'Slow' => [2, 2, 2]];
+        $once = ['Immediate' => [1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1]];
+        $twice = ['Immediate' => [2, 2, 2, 2, 2, 2], 'Network' => [2, 2, 2, 2, 2, 2], 'Slow' => [2, 2, 2, 2, 2, 2]];
         self::assertSame($once, $this->calls());
 
         $forgotten = (int) $reader->refresh();
@@ -228,8 +230,42 @@ final class DisplayCostTest extends TestCase
             $this->clock->sleep(self::BETWEEN_DISPLAYS);
         }
 
-        self::assertSame(['Immediate' => [1, 1, 1], 'Network' => [1, 1, 1], 'Slow' => [1, 1, 1]], $this->calls());
+        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1]], $this->calls());
         self::assertStringNotContainsString('data-jm-rest', $html);
+    }
+
+    public function testAStatusPageThatIsNotOneIsProbedOncePerHour(): void
+    {
+        $pages = new FakeStatusPages();
+        $pages->answerAsTheApplication();
+        $reader = $this->statusPageReader($pages);
+        $reader->overview(ReadMode::Page);
+
+        $this->readFor($reader, 59 * 60);
+        self::assertSame(1, $pages->calls);
+
+        $this->clock->sleep(self::START + 61 * 60 - $this->clock->now()->getTimestamp());
+        $reader->overview(ReadMode::Fragment);
+        self::assertSame(2, $pages->calls);
+
+        self::assertTrue($reader->refresh());
+        $reader->overview(ReadMode::Fragment);
+        self::assertSame(3, $pages->calls);
+    }
+
+    public function testAnUnreachableStatusPageIsProbedOncePerMinute(): void
+    {
+        $pages = new FakeStatusPages();
+        $pages->stopAnswering();
+        $reader = $this->statusPageReader($pages);
+        $reader->overview(ReadMode::Page);
+
+        $this->readFor($reader, 59);
+        self::assertSame(1, $pages->calls);
+
+        $this->clock->sleep(self::START + 61 - $this->clock->now()->getTimestamp());
+        $reader->overview(ReadMode::Fragment);
+        self::assertSame(2, $pages->calls);
     }
 
     public function testAPoolThatThrowsNeverBreaksAnApplicationScreen(): void
@@ -257,6 +293,27 @@ final class DisplayCostTest extends TestCase
         }
 
         return $state;
+    }
+
+    private function readFor(LocalStackReader $reader, int $seconds): void
+    {
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $reader->overview(ReadMode::Fragment);
+            $this->clock->sleep($seconds / self::DISPLAYS);
+        }
+    }
+
+    private function statusPageReader(FakeStatusPages $pages): LocalStackReader
+    {
+        $collectors = new CollectorSet(Component::Nginx, [
+            new CollectorSpec(new NginxStatusCollector('http://localhost/nginx_status', $pages), Lifetime::Dynamic, CostClass::Network, trackDelta: true),
+        ]);
+        $this->registry = Detectors::registry(
+            [Component::Nginx->value => new StaticDetector(Component::Nginx, Detection::found($collectors))],
+            [Component::Nginx->value => ['enabled' => 'auto']],
+        );
+
+        return $this->reader(new CountingCachePool());
     }
 
     /**

@@ -14,6 +14,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\DomCrawler\Crawler;
@@ -26,6 +27,7 @@ final class StackScreenTest extends WebTestCase
 
     private const STACK = ['end_of_life' => false, 'symfony' => ['flex' => false]];
     private const SAME_ORIGIN = ['HTTP_SEC_FETCH_SITE' => 'same-origin'];
+    private const NGINX = ['SERVER_SOFTWARE' => 'nginx/1.26.2'];
 
     private string $bufferDir;
 
@@ -271,8 +273,42 @@ final class StackScreenTest extends WebTestCase
         static::assertTrue($container->initialized('jmonitor.stack.cache'));
     }
 
+    public function testAnEndpointReadFromAMissingVariableLeavesTheWebServerOutNotTheApplication(): void
+    {
+        $client = $this->client(['jmonitor' => ['stack' => ['nginx' => ['endpoint' => '%env(NOPE)%']]], 'fakeWebServer' => 'nginx']);
+        $client->disableReboot();
+
+        $crawler = $client->request('GET', '/jmonitor/stack', server: self::NGINX);
+
+        static::assertResponseStatusCodeSame(200);
+        static::assertCount(1, $crawler->filter('[data-jm-component="php"]'));
+        static::assertCount(0, $crawler->filter('[data-jm-component="nginx"]'));
+        static::assertSame(0, self::statusPages($client)->calls);
+    }
+
+    public function testTheStackOffReadsNoStatusPage(): void
+    {
+        $client = $this->client(['jmonitor' => ['stack' => false], 'fakeWebServer' => 'nginx']);
+        $client->disableReboot();
+
+        $client->request('GET', '/jmonitor/stack', server: self::NGINX);
+        static::assertResponseStatusCodeSame(404);
+        $client->request('GET', '/jmonitor/requests', server: self::NGINX);
+        static::assertResponseIsSuccessful();
+
+        static::assertSame(0, self::statusPages($client)->calls);
+    }
+
+    private static function statusPages(KernelBrowser $client): FakeStatusPages
+    {
+        $pages = $client->getContainer()->get(FakeStatusPages::class);
+        static::assertInstanceOf(FakeStatusPages::class, $pages);
+
+        return $pages;
+    }
+
     /**
-     * @param array{jmonitor?: array<string, mixed>, doctrine?: bool, internals?: bool} $options
+     * @param array{jmonitor?: array<string, mixed>, doctrine?: bool, internals?: bool, fakeWebServer?: string} $options
      */
     private function client(array $options = []): KernelBrowser
     {
@@ -285,7 +321,7 @@ final class StackScreenTest extends WebTestCase
     }
 
     /**
-     * @param array{jmonitor?: array<string, mixed>, doctrine?: bool, internals?: bool} $options
+     * @param array{jmonitor?: array<string, mixed>, doctrine?: bool, internals?: bool, fakeWebServer?: string} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -295,6 +331,7 @@ final class StackScreenTest extends WebTestCase
             $options['jmonitor'] ?? [],
             withDoctrine: $options['doctrine'] ?? true,
             withPublicInternals: $options['internals'] ?? false,
+            fakeWebServer: $options['fakeWebServer'] ?? null,
         );
         self::$varDirs[] = $kernel->getVarDir();
 

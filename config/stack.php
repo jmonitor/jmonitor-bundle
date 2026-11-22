@@ -6,7 +6,10 @@ use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
@@ -82,6 +85,23 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             param('jmonitor.stack.end_of_life'),
         ])
         ->tag('jmonitor.stack.detector', ['index' => Component::Symfony->value]);
+
+    $services->set(FrankenPhpDetector::class)
+        ->args([param('jmonitor.stack.frankenphp.endpoint'), service(ProcessRunner::class)])
+        ->tag('jmonitor.stack.detector', ['index' => Component::FrankenPhp->value]);
+
+    $services->set(ApacheDetector::class)
+        ->args([param('jmonitor.stack.apache.endpoint'), service('request_stack'), param('jmonitor.stack.end_of_life')])
+        ->tag('jmonitor.stack.detector', ['index' => Component::Apache->value]);
+
+    $services->set(NginxDetector::class)
+        ->args([
+            param('jmonitor.stack.nginx.endpoint'),
+            service('request_stack'),
+            service(ProcessRunner::class),
+            param('jmonitor.stack.end_of_life'),
+        ])
+        ->tag('jmonitor.stack.detector', ['index' => Component::Nginx->value]);
 
     $services->set(ComponentRegistry::class)
         ->args([tagged_locator('jmonitor.stack.detector', 'index'), param('jmonitor.stack.components')])

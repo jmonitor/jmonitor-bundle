@@ -79,7 +79,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
     {
         $component = Component::tryFrom($id);
 
-        if ($component === null) {
+        if ($component === null || !$this->details->has($component->value)) {
             return null;
         }
 

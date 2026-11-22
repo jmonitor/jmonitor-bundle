@@ -104,6 +104,7 @@ final class StackChecks
                 Component::System => self::server(ServerReading::of($snapshot), $raise),
                 Component::Php => $this->php(PhpReading::of($snapshot, $now), $snapshot, $raise),
                 Component::Symfony => self::symfony(SymfonyReading::of($snapshot, $now), $raise),
+                Component::FrankenPhp, Component::Apache, Component::Nginx => [],
             },
         ];
     }
