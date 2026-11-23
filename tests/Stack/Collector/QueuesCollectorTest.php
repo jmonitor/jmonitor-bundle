@@ -68,10 +68,10 @@ final class QueuesCollectorTest extends TestCase
 
         self::assertSame([
             'transports' => [
-                'async' => ['count' => 12, 'reason' => null],
-                'failed' => ['count' => 0, 'reason' => null],
-                'reports' => ['count' => null, 'reason' => 'Connection refused'],
-                'batch' => ['count' => null, 'reason' => 'this transport cannot count'],
+                ['name' => 'async', 'count' => 12, 'reason' => null],
+                ['name' => 'failed', 'count' => 0, 'reason' => null],
+                ['name' => 'reports', 'count' => null, 'reason' => 'Connection refused'],
+                ['name' => 'batch', 'count' => null, 'reason' => 'this transport cannot count'],
             ],
             'complete' => true,
         ], $this->collect($output));
@@ -90,8 +90,8 @@ final class QueuesCollectorTest extends TestCase
 
         self::assertSame([
             'transports' => [
-                'async' => ['count' => null, 'reason' => 'this transport cannot count'],
-                'failed' => ['count' => null, 'reason' => 'this transport cannot count'],
+                ['name' => 'async', 'count' => null, 'reason' => 'this transport cannot count'],
+                ['name' => 'failed', 'count' => null, 'reason' => 'this transport cannot count'],
             ],
             'complete' => true,
         ], $this->collect($output), 'a negative or non-integer count is no count, the first answer of a transport is its answer');
@@ -104,20 +104,34 @@ final class QueuesCollectorTest extends TestCase
             . "{\"name\":\"now\",\"skip\":true}\n"
             . "{\"name\":\"async\",\"count\":2}\n";
 
-        self::assertSame(['transports' => ['async' => ['count' => 2, 'reason' => null]], 'complete' => true], $this->collect($output));
+        self::assertSame(['transports' => [['name' => 'async', 'count' => 2, 'reason' => null]], 'complete' => true], $this->collect($output));
+    }
+
+    public function testATransportWithANumericNameKeepsItsName(): void
+    {
+        $output = "{\"transports\":[\"2024\",\"1\"]}\n{\"name\":\"2024\",\"count\":3}\n{\"name\":\"1\",\"count\":4}\n";
+
+        self::assertSame([
+            'transports' => [
+                ['name' => '2024', 'count' => 3, 'reason' => null],
+                ['name' => '1', 'count' => 4, 'reason' => null],
+            ],
+            'complete' => true,
+        ], $this->collect($output));
     }
 
     public function testATransportWithoutLineAfterATimeoutDidNotAnswerInTime(): void
     {
-        $runner = (new FakeProcessRunner())->answer(null, "{\"transports\":[\"async\",\"reports\"]}\n{\"name\":\"async\",\"count\":1}\n", null, timedOut: true);
+        $runner = (new FakeProcessRunner())->answer(null, "{\"transports\":[\"async\",\"reports\",\"batch\"]}\n{\"name\":\"async\",\"count\":1}\n", null, timedOut: true);
 
         self::assertSame([
             'transports' => [
-                'async' => ['count' => 1, 'reason' => null],
-                'reports' => ['count' => null, 'reason' => 'did not answer in time'],
+                ['name' => 'async', 'count' => 1, 'reason' => null],
+                ['name' => 'reports', 'count' => null, 'reason' => 'did not answer in time'],
+                ['name' => 'batch', 'count' => null, 'reason' => 'not counted: an earlier transport did not answer in time'],
             ],
             'complete' => false,
-        ], $this->collector($runner)->collect());
+        ], $this->collector($runner)->collect(), 'the transports are counted one after the other: the first without a line is the one that hung');
     }
 
     public function testATransportWithoutLineOtherwiseGaveNoAnswer(): void
@@ -125,7 +139,7 @@ final class QueuesCollectorTest extends TestCase
         $runner = (new FakeProcessRunner())->answer(null, "{\"transports\":[\"async\"]}\n", 255, 'PHP Fatal error:  Allowed memory size exhausted');
 
         self::assertSame(
-            ['transports' => ['async' => ['count' => null, 'reason' => 'no answer']], 'complete' => true],
+            ['transports' => [['name' => 'async', 'count' => null, 'reason' => 'no answer']], 'complete' => true],
             $this->collector($runner)->collect(),
         );
     }
@@ -143,16 +157,46 @@ final class QueuesCollectorTest extends TestCase
         self::assertLessThanOrEqual(500, mb_strlen($e->getMessage()));
     }
 
+    public function testAnUnknownExitCodeIsSaidSo(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, '', null, 'Killed');
+
+        $e = Failures::thrownBy(fn() => $this->collector($runner)->collect());
+
+        self::assertInstanceOf(\RuntimeException::class, $e);
+        self::assertStringContainsString('exit code: unknown', $e->getMessage());
+        self::assertStringNotContainsString('NULL', $e->getMessage());
+    }
+
+    public function testAConsoleThatDoesNotStartInTimeIsAFailure(): void
+    {
+        foreach (['', '{"transp'] as $output) {
+            $runner = (new FakeProcessRunner())->answer(null, $output, null, timedOut: true);
+
+            $e = Failures::thrownBy(fn() => $this->collector($runner)->collect());
+
+            self::assertInstanceOf(\RuntimeException::class, $e);
+            self::assertStringContainsString('did not answer in time', $e->getMessage());
+        }
+    }
+
     public function testAReasonIsCleanedAgain(): void
     {
         $output = "{\"transports\":[\"orders\"]}\n"
             . json_encode(['name' => 'orders', 'error' => 'Cannot reach amqp://guest:s3cret@broker ' . str_repeat('x', 600)]) . "\n";
 
-        $reason = $this->collect($output)['transports']['orders']['reason'];
+        $reason = $this->collect($output)['transports'][0]['reason'];
 
         self::assertIsString($reason);
         self::assertStringStartsWith('Cannot reach amqp://broker ', $reason);
         self::assertSame(500, mb_strlen($reason));
+    }
+
+    public function testAnEmptyReasonIsSaidSo(): void
+    {
+        $output = "{\"transports\":[\"orders\"]}\n{\"name\":\"orders\",\"error\":\"\"}\n";
+
+        self::assertSame([['name' => 'orders', 'count' => null, 'reason' => 'no reason given']], $this->collect($output)['transports']);
     }
 
     public function testNamesAreBounded(): void
@@ -165,8 +209,8 @@ final class QueuesCollectorTest extends TestCase
         $transports = $this->collect($output)['transports'];
 
         self::assertCount(50, $transports);
-        self::assertSame(['count' => 9, 'reason' => null], $transports[str_repeat('n', 200)]);
-        self::assertSame(array_slice($names, 0, 49), array_slice(array_keys($transports), 1));
+        self::assertSame(['name' => str_repeat('n', 200), 'count' => 9, 'reason' => null], $transports[0]);
+        self::assertSame(array_slice($names, 0, 49), array_column(array_slice($transports, 1), 'name'));
     }
 
     public function testWithoutConsoleItIsAMissingPrerequisite(): void

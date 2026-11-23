@@ -16,8 +16,10 @@ final readonly class QueuesCollector implements CollectorInterface
     private const MAX_TRANSPORTS = 50;
     private const MAX_NAME_LENGTH = 200;
     private const TIMED_OUT = 'did not answer in time';
+    private const AFTER_TIMED_OUT = 'not counted: an earlier transport did not answer in time';
     private const NO_ANSWER = 'no answer';
     private const UNCOUNTABLE = 'this transport cannot count';
+    private const NO_REASON = 'no reason given';
 
     public function __construct(
         private ProcessRunner $runner,
@@ -28,7 +30,7 @@ final readonly class QueuesCollector implements CollectorInterface
     ) {}
 
     /**
-     * @return array{transports: array<string, array{count: ?int, reason: ?string}>, complete: bool}
+     * @return array{transports: list<array{name: string, count: ?int, reason: ?string}>, complete: bool} in the order of the command
      *
      * @throws MissingPrerequisiteException the console or the PHP of the command line cannot be found
      * @throws \RuntimeException            the command did not list the transports
@@ -53,19 +55,26 @@ final readonly class QueuesCollector implements CollectorInterface
         if ($names === null) {
             throw new \RuntimeException(ErrorMessage::clean($run['timed_out']
                 ? 'The command counting the queues did not answer in time.'
-                : sprintf('The command counting the queues failed (exit code: %s): %s', var_export($run['exit_code'], true), trim($run['error_output']))));
+                : sprintf('The command counting the queues failed (exit code: %s): %s', $run['exit_code'] ?? 'unknown', trim($run['error_output']))));
         }
 
         $transports = [];
+        $listed = [];
+        $silent = $run['timed_out'] ? self::TIMED_OUT : self::NO_ANSWER;
 
         foreach ($names as $name) {
             $answer = $answers[$name] ?? null;
 
-            if (($answer['skip'] ?? null) === true) {
+            if (isset($listed[$name]) || ($answer['skip'] ?? null) === true) {
                 continue;
             }
 
-            $transports[mb_substr($name, 0, self::MAX_NAME_LENGTH)] = self::transport($answer, $run['timed_out']);
+            $listed[$name] = true;
+            $transports[] = ['name' => mb_substr($name, 0, self::MAX_NAME_LENGTH), ...self::transport($answer, $silent)];
+
+            if ($answer === null && $silent === self::TIMED_OUT) {
+                $silent = self::AFTER_TIMED_OUT;
+            }
         }
 
         return ['transports' => $transports, 'complete' => !$run['timed_out']];
@@ -82,7 +91,7 @@ final readonly class QueuesCollector implements CollectorInterface
     }
 
     /**
-     * @return array{?list<string>, array<string, array<mixed>>} the names of the first "transports" line, and the first answer of each
+     * @return array{?list<string>, array<array-key, array<mixed>>} the names of the first "transports" line, and the first answer of each
      */
     private static function read(string $output): array
     {
@@ -108,17 +117,18 @@ final readonly class QueuesCollector implements CollectorInterface
 
     /**
      * @param ?array<mixed> $answer
+     * @param string        $silent the reason of a transport without line
      *
      * @return array{count: ?int, reason: ?string}
      */
-    private static function transport(?array $answer, bool $timedOut): array
+    private static function transport(?array $answer, string $silent): array
     {
         if ($answer === null) {
-            return ['count' => null, 'reason' => $timedOut ? self::TIMED_OUT : self::NO_ANSWER];
+            return ['count' => null, 'reason' => $silent];
         }
 
         if (is_string($answer['error'] ?? null)) {
-            return ['count' => null, 'reason' => ErrorMessage::clean($answer['error'])];
+            return ['count' => null, 'reason' => trim($answer['error']) === '' ? self::NO_REASON : ErrorMessage::clean($answer['error'])];
         }
 
         $count = $answer['count'] ?? null;

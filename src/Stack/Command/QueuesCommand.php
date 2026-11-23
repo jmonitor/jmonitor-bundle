@@ -64,7 +64,9 @@ final class QueuesCommand extends Command
 
             return ['count' => $transport instanceof MessageCountAwareInterface ? $transport->getMessageCount() : null];
         } catch (\Throwable $e) {
-            return ['error' => ErrorMessage::clean(ErrorMessage::of($e))];
+            $reason = ErrorMessage::clean(ErrorMessage::of($e));
+
+            return ['error' => trim($reason) === '' ? (new \ReflectionClass($e))->getShortName() : $reason];
         }
     }
 

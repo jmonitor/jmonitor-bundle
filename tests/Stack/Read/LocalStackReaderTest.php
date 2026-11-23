@@ -599,7 +599,7 @@ final class LocalStackReaderTest extends TestCase
         self::assertCount(1, $symfony->instances);
         self::assertSame(['queues', null, null], [$symfony->instances[0]->id, $symfony->instances[0]->detail, $symfony->instances[0]->error]);
         self::assertSame(
-            ['transports' => ['async' => ['count' => 4, 'reason' => null]], 'complete' => true],
+            ['transports' => [['name' => 'async', 'count' => 4, 'reason' => null]], 'complete' => true],
             $symfony->instances[0]->snapshot?->data('queues'),
         );
         self::assertCount(1, $runner->calls);

@@ -114,7 +114,7 @@ final class QueuesCommandTest extends KernelTestCase
         self::assertInstanceOf(FakeProcessRunner::class, $runner);
         self::assertCount(1, $runner->calls);
         self::assertSame(
-            ['transports' => ['async' => ['count' => 7, 'reason' => null]], 'complete' => true],
+            ['transports' => [['name' => 'async', 'count' => 7, 'reason' => null]], 'complete' => true],
             $state?->component(Component::Symfony)?->instances[0]->snapshot?->data('queues'),
         );
     }

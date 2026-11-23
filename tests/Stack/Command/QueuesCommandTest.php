@@ -57,6 +57,20 @@ final class QueuesCommandTest extends TestCase
         self::assertStringNotContainsString('guest', $tester->getDisplay());
     }
 
+    public function testAFailureWithoutMessageGivesTheNameOfItsClass(): void
+    {
+        $tester = self::execute([
+            'orders' => static fn(): CountedTransport => new CountedTransport(0, ''),
+            'reports' => static fn(): never => throw new \RuntimeException(),
+        ]);
+
+        self::assertSame([
+            '{"transports":["orders","reports"]}',
+            '{"name":"orders","error":"TransportException"}',
+            '{"name":"reports","error":"RuntimeException"}',
+        ], self::lines($tester));
+    }
+
     public function testSchedulerAndSyncTransportsAreMarkedToBeSkipped(): void
     {
         $tester = self::execute([
