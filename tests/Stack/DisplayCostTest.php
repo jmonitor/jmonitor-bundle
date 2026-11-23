@@ -22,8 +22,11 @@ use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
 use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
+use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
+use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
@@ -42,6 +45,7 @@ use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FakeHostUrls;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeDatabase;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
@@ -58,6 +62,7 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Cache\Adapter\NullAdapter;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\HttpFoundation\Request;
@@ -74,6 +79,7 @@ final class DisplayCostTest extends TestCase
     private const BETWEEN_DISPLAYS = 0.2;
     private const BETWEEN_REFRESHES = 0.18;
     private const BETWEEN_QUEUE_DISPLAYS = 0.58;
+    private const MYSQL = ['driver' => 'pdo_mysql', 'host' => 'db.internal', 'port' => null, 'user' => 'root', 'password' => 's3cr3t', 'dbname' => 'shop'];
     private const QUEUES = '{"transports":["async"]}' . "\n" . '{"name":"async","count":12}' . "\n";
 
     private MockClock $clock;
@@ -416,6 +422,58 @@ final class DisplayCostTest extends TestCase
         self::assertSame(['warning The summary of the live stack could not be read: Connection refused'], $logger->messages);
     }
 
+    public function testFiftyDisplaysOfADeadDatabaseAskItOnce(): void
+    {
+        $container = new class extends Container {
+            public int $asked = 0;
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+
+                throw new \RuntimeException('SQLSTATE[HY000] [2002] Connection refused');
+            }
+        };
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->mysqlReader($container, ['default' => self::MYSQL], $cache);
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(59 / self::DISPLAYS);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertLessThan(self::START + 60, $this->clock->now()->getTimestamp());
+        self::assertSame(1, $container->asked);
+        self::assertSame(ResultState::Failed, $state->component(Component::Mysql)?->instances[0]->snapshot?->result('mysql')?->state);
+
+        $this->clock->sleep(self::START + 61 - $this->clock->now()->getTimestamp());
+        $reader()->overview(ReadMode::Fragment);
+
+        self::assertSame(2, $container->asked);
+    }
+
+    public function testTwoConnectionsOnOneServerReadItsStatusOnce(): void
+    {
+        $container = new Container();
+        $databases = [];
+        foreach (['default', 'reporting'] as $name) {
+            $container->set('doctrine.dbal.' . $name . '_connection', $databases[$name] = new FakeDatabase(['@@performance_schema' => [['enabled' => '1']]]));
+        }
+        $cache = new CountingCachePool();
+
+        $this->mysqlReader($container, ['default' => self::MYSQL, 'reporting' => ['dbname' => 'reports'] + self::MYSQL], $cache)->overview(ReadMode::Page);
+        $state = $this->mysqlReader($container, ['default' => self::MYSQL, 'reporting' => ['dbname' => 'reports'] + self::MYSQL], $cache)->overview(ReadMode::Fragment);
+
+        self::assertFalse($state->isReading());
+        self::assertCount(2, $state->component(Component::Mysql)->instances ?? []);
+        $statusQueries = array_filter(
+            [...$databases['default']->queries, ...$databases['reporting']->queries],
+            static fn(string $query): bool => str_contains($query, 'SHOW GLOBAL STATUS WHERE'),
+        );
+        self::assertCount(1, $statusQueries);
+    }
+
     /**
      * @param \Closure(): LocalStackReader $reader the reader of each display
      */
@@ -450,6 +508,28 @@ final class DisplayCostTest extends TestCase
         );
 
         return $this->reader(new CountingCachePool());
+    }
+
+    /**
+     * A reader of the MySQL servers of these connections only, detected again as each request does.
+     *
+     * @param array<string, array<string, mixed>> $params the parameters of each connection
+     */
+    private function mysqlReader(Container $container, array $params, CacheItemPoolInterface $cache): LocalStackReader
+    {
+        $names = array_map(strval(...), array_keys($params));
+        $instances = new DatabaseInstances(
+            new DoctrineConnections(new ServiceLocator(array_map(static fn(array $connection): \Closure => static fn(): \ArrayObject => new \ArrayObject($connection), $params)), $names),
+            $container,
+            array_combine($names, array_map(static fn(string $name): string => 'doctrine.dbal.' . $name . '_connection', $names)),
+            [],
+        );
+        $this->registry = Detectors::registry(
+            [Component::Mysql->value => new MysqlDetector($instances, [], false)],
+            [Component::Mysql->value => ['enabled' => 'auto']],
+        );
+
+        return $this->reader($cache);
     }
 
     /**

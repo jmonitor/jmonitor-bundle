@@ -1605,7 +1605,7 @@ class JmonitorBundleTest extends TestCase
         static::assertSame(['default' => [], 'my-legacy' => []], $named->getParameter('jmonitor.stack.mysql.connections'));
         static::assertSame([['index' => 'mysql']], $default->getDefinition(MysqlDetector::class)->getTag('jmonitor.stack.detector'));
         static::assertSame(
-            [DatabaseInstances::class, '%jmonitor.stack.mysql.connections%'],
+            [DatabaseInstances::class, '%jmonitor.stack.mysql.connections%', '%jmonitor.stack.end_of_life%'],
             array_map(strval(...), $default->getDefinition(MysqlDetector::class)->getArguments()),
         );
     }

@@ -116,7 +116,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->tag('jmonitor.stack.detector', ['index' => Component::Nginx->value]);
 
     $services->set(MysqlDetector::class)
-        ->args([service(DatabaseInstances::class), param('jmonitor.stack.mysql.connections')])
+        ->args([service(DatabaseInstances::class), param('jmonitor.stack.mysql.connections'), param('jmonitor.stack.end_of_life')])
         ->tag('jmonitor.stack.detector', ['index' => Component::Mysql->value]);
 
     $services->set(DoctrineConnections::class)
