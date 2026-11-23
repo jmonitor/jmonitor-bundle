@@ -288,7 +288,7 @@ final class StackChecksTest extends TestCase
         self::assertSame(Verdict::Critical, $stale->verdict(Component::System), 'an outdated value is still judged');
         self::assertNull(self::find($fresh, 'system.memory')?->age);
         self::assertSame(120, self::find($renewalFailed, 'system.memory')?->age);
-        self::assertNull(self::find($renewalFailed, 'system.failed'), 'a failed renewal is no failure: the value is still there');
+        self::assertSame(120, self::find($renewalFailed, 'system.failed')?->age, 'the value is still there, its renewal failed');
     }
 
     public function testNoFindingOnAMissingValue(): void
@@ -545,6 +545,38 @@ final class StackChecksTest extends TestCase
 
         self::assertSame([], $health->findings);
         self::assertSame(Verdict::Healthy, $health->verdict(Component::Apache));
+    }
+
+    public function testAValueThatCouldNotBeReadAgainRaisesItsFailure(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(
+            new ComponentSnapshot(Component::Php, ['php' => new CollectorResult('php', self::php(), ResultState::Stale, 'The PHP endpoint answered 502.', Snapshots::NOW - 120, expiresAt: Snapshots::NOW + 300)]),
+            new ComponentSnapshot(Component::Nginx, ['nginx' => new CollectorResult('nginx', WebServerPayloads::nginxStatus(), ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 90, expiresAt: Snapshots::NOW + 30)]),
+        ));
+
+        $php = self::find($health, 'php.failed');
+        self::assertSame(Severity::Warning, $php?->severity);
+        self::assertSame('PHP could not be read again: The PHP endpoint answered 502.', $php->sentence);
+        self::assertSame(120, $php->age);
+        self::assertSame(Verdict::Warning, $health->verdict(Component::Php), 'the value is still shown');
+
+        $nginx = self::find($health, 'nginx.failed');
+        self::assertSame(Severity::Info, $nginx?->severity);
+        self::assertStringContainsString('could not be read again: Nothing answers.', $nginx->sentence);
+        self::assertSame(90, $nginx->age);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Nginx));
+    }
+
+    public function testAnOutdatedValueStillBeingRenewedRaisesNothing(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::Php, ['php' => self::php()], ['php' => ResultState::Stale]),
+            Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus()], ['nginx' => ResultState::Stale]),
+        ));
+
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Php));
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Nginx));
     }
 
     /**

@@ -123,7 +123,19 @@ final class StackChecks
     {
         $findings = [];
 
+        $mainSeverity = $component->isWebServer() ? Severity::Info : Severity::Warning;
+
         foreach ($snapshot->results as $name => $result) {
+            if ($name === $component->value && $result->state === ResultState::Stale && $result->error !== null) {
+                $findings[] = $raise(
+                    $name . '.failed',
+                    $mainSeverity,
+                    sprintf('%s could not be read again: %s', self::subject($component), $result->error),
+                    'What is shown is the last value read, and the checks judge it until it can be read again. Fix the cause given, then refresh.',
+                    $name,
+                );
+            }
+
             if ($result->state !== ResultState::Failed || str_starts_with($name, 'eol.')) {
                 continue;
             }
@@ -132,7 +144,7 @@ final class StackChecks
             $findings[] = match ($name) {
                 $component->value => $raise(
                     $name . '.failed',
-                    $component->isWebServer() ? Severity::Info : Severity::Warning,
+                    $mainSeverity,
                     sprintf('%s could not be read: %s', self::subject($component), $reason),
                     match ($component) {
                         Component::FrankenPhp => 'FrankenPHP serves this page, so it is running: only its metrics cannot be read, which leaves its checks without values. Follow the reason given, then refresh.',
