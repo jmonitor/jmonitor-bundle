@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Collector;
 
 use Jmonitor\JmonitorBundle\Stack\Collector\ErrorMessage;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class ErrorMessageTest extends TestCase
@@ -57,5 +58,61 @@ final class ErrorMessageTest extends TestCase
         self::assertSame(ErrorMessage::MAX_LENGTH, mb_strlen($message));
         self::assertStringEndsWith('…', $message);
         self::assertTrue(mb_check_encoding($message, 'UTF-8'));
+    }
+
+    /**
+     * @return iterable<string, array{string, string, string}>
+     */
+    public static function secrets(): iterable
+    {
+        yield 'a slash in the password' => ['Cannot reach mysql://jmonitor:Zq/sl4sh@127.0.0.1:3306/db', 'Zq/sl4sh', '127.0.0.1:3306/db'];
+        yield 'a question mark in the password' => ['Cannot reach mysql://jmonitor:Zq?qm4rk@127.0.0.1:3306/db', 'Zq?qm4rk', '127.0.0.1:3306/db'];
+        yield 'a hash in the password' => ['Cannot reach mysql://jmonitor:Zq#h4sh@127.0.0.1:3306/db', 'Zq#h4sh', '127.0.0.1:3306/db'];
+        yield 'an at sign in the password' => ['Cannot reach mysql://jmonitor:Zq@4t@127.0.0.1:3306/db', 'Zq@4t', '127.0.0.1:3306/db'];
+        yield 'a space in a quoted url' => ['The "mysql://jmonitor:Zq sp4ce@127.0.0.1/db" DSN is invalid.', 'sp4ce', '127.0.0.1/db'];
+        yield 'an auth parameter' => ['Cannot reach redis://127.0.0.1:6379?auth=s3cr3t', 's3cr3t', '127.0.0.1:6379'];
+        yield 'the keys of a queue' => ['sqs://default/queue?access_key=AKIAEXAMPLE&secret_key=SeCr3t%2FKey&region=eu-west-1', 'AKIAEXAMPLE', 'region=eu-west-1'];
+        yield 'the secret key of a queue' => ['sqs://default/queue?access_key=AKIAEXAMPLE&secret_key=SeCr3t%2FKey&region=eu-west-1', 'SeCr3t', 'region=eu-west-1'];
+        yield 'a PDO password' => ['mysql:host=db;dbname=app;password=Zqs3cr3t', 'Zqs3cr3t', 'dbname=app'];
+        yield 'a libpq password' => ['host=db password=Zqs3cr3t dbname=app', 'Zqs3cr3t', 'dbname=app'];
+        yield 'an encoded slash without scheme' => ['//jmonitor:Zq%2Fsl4sh@127.0.0.1:3306/db', 'Zq%2Fsl4sh', '127.0.0.1:3306/db'];
+        yield 'an option name Messenger copies' => ['Invalid option(s) "r3tTail" passed to the Redis Messenger transport.', 'r3tTail', 'passed to the Redis Messenger transport'];
+        yield 'an unknown option in a DSN' => ['Unknown option found in DSN: [Tail0fKey]. Allowed options are [buffer_size, wait_time].', 'Tail0fKey', 'buffer_size'];
+    }
+
+    #[DataProvider('secrets')]
+    public function testASecretNeverSurvives(string $message, string $secret, string $kept): void
+    {
+        $clean = ErrorMessage::clean($message);
+
+        self::assertStringNotContainsString($secret, $clean);
+        self::assertStringContainsString($kept, $clean);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function ordinaryMessages(): iterable
+    {
+        yield 'a refused connection' => ['connection to server at "127.0.0.1", port 36999 failed: Connection refused'];
+        yield 'a denied user' => ["Access denied for user 'jmonitor'@'172.22.0.1' (using password: YES)"];
+        yield 'an unknown database' => ["SQLSTATE[HY000] [1049] Unknown database 'app'"];
+        yield 'a missing file' => ['SQLSTATE[HY000] [2002] No such file or directory'];
+    }
+
+    #[DataProvider('ordinaryMessages')]
+    public function testAnOrdinaryMessageIsLeftAlone(string $message): void
+    {
+        self::assertSame($message, ErrorMessage::clean($message));
+    }
+
+    public function testAnAddressWithoutCredentialsKeepsItsHost(): void
+    {
+        self::assertSame('Nothing answered at http://localhost/server-status', ErrorMessage::clean('Nothing answered at http://localhost/server-status'));
+    }
+
+    public function testAMessageThatCannotBeCleanedIsNotShown(): void
+    {
+        self::assertSame(ErrorMessage::UNREADABLE, ErrorMessage::clean("password=\xFF\xFE"));
     }
 }

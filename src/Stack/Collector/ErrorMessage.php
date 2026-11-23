@@ -7,6 +7,17 @@ namespace Jmonitor\JmonitorBundle\Stack\Collector;
 final class ErrorMessage
 {
     public const MAX_LENGTH = 500;
+    public const UNREADABLE = 'The reason cannot be shown.';
+
+    private const SECRET_PARAMETERS = 'password|passwd|pwd|pass|auth|secret|secret_key|access_key|session_token|token|key';
+
+    private const RULES = [
+        '~(["\'])((?:[a-z][a-z0-9+.-]*:)?//)[^"\']*@~iu' => '$1$2',
+        '~(?<![\w+.:/-])((?:[a-z][a-z0-9+.-]*:)?//)\S*@~iu' => '$1',
+        '~(?<![a-z0-9])(' . self::SECRET_PARAMETERS . ')=[^&;"\'\s]*~iu' => '$1=…',
+        '~Invalid option\(s\) ".*?" passed to~su' => 'Invalid option(s) passed to',
+        '~Unknown option found( in DSN)?: \[.*?\]\.(?=\s+Allowed options are \[|\z)~su' => 'Unknown option found$1.',
+    ];
 
     /**
      * The message, followed by its cause when the message does not already say it.
@@ -24,11 +35,18 @@ final class ErrorMessage
     }
 
     /**
-     * Drops the user and the password of the URLs in a message, and cuts it to MAX_LENGTH characters.
+     * Drops what a message carries of a secret, the credentials of an address, the value of a password or key
+     * parameter, the option names a transport copies, and cuts it to MAX_LENGTH characters.
      */
     public static function clean(string $message): string
     {
-        $message = preg_replace('~\b([a-z][a-z0-9+.-]*://)[^\s/?#]*@~i', '$1', $message) ?? $message;
+        foreach (self::RULES as $pattern => $replacement) {
+            $message = preg_replace($pattern, $replacement, $message);
+
+            if ($message === null) {
+                return self::UNREADABLE;
+            }
+        }
 
         return mb_strlen($message) > self::MAX_LENGTH ? mb_substr($message, 0, self::MAX_LENGTH - 1) . '…' : $message;
     }
