@@ -76,7 +76,7 @@ final class QueuesBlocks implements BlockSourceInterface
         if ($snapshot === null || $result === null || $result->state === ResultState::Pending || $result->state === ResultState::Busy) {
             return $state->cache === CacheState::OutOfOrder
                 ? [Block::notice(new Notice('warn', 'The queues need a working cache', 'Check the cache.app pool of the application.'))]
-                : [Block::unavailable(Block::FACTS, BlockState::Reading)];
+                : [Block::unavailable(Block::FACTS, BlockState::Reading, 'Counting the queues…', 'The messages waiting in each transport are being counted.')];
         }
 
         $now = $this->parts->now();

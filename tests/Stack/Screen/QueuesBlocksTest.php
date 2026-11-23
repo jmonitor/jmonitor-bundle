@@ -62,11 +62,11 @@ final class QueuesBlocksTest extends TestCase
         foreach ([ResultState::Pending, ResultState::Busy] as $state) {
             $blocks = $this->blocks(new FakeStackReader(self::stack(null), self::queues(new CollectorResult('queues', [], $state))));
 
-            self::assertEquals([Block::unavailable(Block::FACTS, BlockState::Reading)], $blocks, $state->name);
+            self::assertEquals([self::counting()], $blocks, $state->name);
             self::assertTrue($blocks[0]->reading);
         }
 
-        self::assertEquals([Block::unavailable(Block::FACTS, BlockState::Reading)], $this->blocks(new FakeStackReader(self::stack(null), self::queues(null))));
+        self::assertEquals([self::counting()], $this->blocks(new FakeStackReader(self::stack(null), self::queues(null))));
     }
 
     public function testAFailureWithoutValueSaysWhyAndWhenItIsTriedAgain(): void
@@ -195,6 +195,11 @@ final class QueuesBlocksTest extends TestCase
         (new QueuesBlocks($services, new MockClock('@' . self::NOW)))->blocks(new ScreenRequest(self::NOW));
 
         self::assertSame([StackReaderInterface::class], $asked);
+    }
+
+    private static function counting(): Block
+    {
+        return Block::unavailable(Block::FACTS, BlockState::Reading, 'Counting the queues…', 'The messages waiting in each transport are being counted.');
     }
 
     /**

@@ -266,6 +266,19 @@ final class TemplatesTest extends TestCase
         static::assertStringContainsString('<p class="jm-rest"><a data-jm-rest href="/host/page/probe?menu=3&amp;rest=1">Load the rest</a></p>', $html);
     }
 
+    public function testAReadingStateCanNameWhatItReads(): void
+    {
+        $page = new Page(new StubBlockScreen(), [Block::unavailable(Block::FACTS, BlockState::Reading, '<b>Counting', '<b>Text')], null, '', '', []);
+
+        $html = $this->render('_screen.html.twig', ['page' => $page, 'path' => 'probe', 'badges' => []]);
+
+        static::assertStringContainsString('<div class="jm-state jm-state--info" data-jm-reading>', $html);
+        static::assertStringContainsString('<h2 class="jm-state__title">&lt;b&gt;Counting</h2>', $html);
+        static::assertStringContainsString('<p class="jm-state__text">&lt;b&gt;Text</p>', $html);
+        static::assertStringNotContainsString('<b>', $html);
+        static::assertStringNotContainsString('Reading…', $html);
+    }
+
     public function testTheLinkToTheRestKeepsThePeriodAndTheSort(): void
     {
         $screen = new StubScreen('messages');

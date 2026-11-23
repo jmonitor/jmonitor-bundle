@@ -871,6 +871,10 @@ body.jm .jm-header {
     text-align: center;
 }
 
+.jm-state:has(+ :not(.jm-rest):not(template)) {
+    margin-bottom: 20px;
+}
+
 .jm-state__icon {
     width: 36px;
     height: 36px;
@@ -955,7 +959,7 @@ body.jm .jm-header {
 }
 
 .jm .jm-rest {
-    margin-top: 4px;
+    margin-top: 20px;
     color: var(--jm-muted);
     font-size: 13px;
     text-align: center;

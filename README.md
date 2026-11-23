@@ -529,7 +529,7 @@ A check is a `Warning` unless the table says otherwise. A component that was rea
 
 At the top of the Messages screen, the `Queues` block shows how many messages wait in each Messenger transport. Like the Stack screen, it is read live: it needs neither a database nor the recording. Without them, the screen still shows, with this block. Below it, the recorded messages; when they are not recorded, the screen says `Messages are not recorded` when the storage is there, and otherwise the state of the storage (`No storage configured`, `Recording is off`).
 
-The count is kept 30 seconds, shared by all your web servers through the cache: however many people watch the screen, the transports are counted at most once every 30 seconds. The first count starts a second or two after the page opens, which shows `Reading…` until then.
+The count is kept 30 seconds, shared by all your web servers through the cache: however many people watch the screen, the transports are counted at most once every 30 seconds. The first count starts a second or two after the page opens, which shows `Counting the queues…` until then.
 
 A transport that cannot be counted shows `Uncountable`, with the reason under it:
 
