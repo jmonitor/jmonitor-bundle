@@ -286,44 +286,44 @@ Defaults, all optional:
 # config/packages/jmonitor.yaml
 jmonitor:
     recording:
-        enabled: ~            # default: true, except in the "test" environment
-        flush_interval: 10    # seconds between two writes to the database (3600 maximum)
-        slow_threshold: 1000  # ms above which a request counts as slow
-        ignore_routes: []     # route names not recorded, fnmatch patterns allowed (e.g. 'app_health*')
-        buffer_dir: ~         # where the buffer gets its private subdirectory, must exist and be writable by every user running PHP; default: the system temporary directory
+        enabled: ~               # default: true, except in the "test" environment
+        flush_interval: 10       # seconds between two writes to the database (3600 maximum)
+        slow_threshold: 1000     # ms above which a request counts as slow
+        ignore_routes: []        # route names not recorded, fnmatch patterns allowed (e.g. 'app_health*')
+        buffer_dir: ~            # where the buffer gets its private subdirectory, must exist and be writable by every user running PHP; default: the system temporary directory
         sql:
             enabled: true             # record the SQL queries run through Doctrine DBAL
             slow_threshold: 100       # ms from which a query counts as slow
             n_plus_one_threshold: 10  # executions of the same SELECT within one request, command, message or task that make an N+1
-        exceptions: true      # count the exceptions behind 5xx responses and those thrown by commands, message handlers and scheduled tasks
-        users: true           # record the requests of each signed-in user (needs the SecurityBundle)
-        http_client: true     # record the outgoing calls of the http_client service and the scoped clients
-        cache: true           # count the reads, writes and deletes of cache.app and of the pools you declare
+        exceptions: true         # count the exceptions behind 5xx responses and those thrown by commands, message handlers and scheduled tasks
+        users: true              # record the requests of each signed-in user (needs the SecurityBundle)
+        http_client: true        # record the outgoing calls of the http_client service and the scoped clients
+        cache: true              # count the reads, writes and deletes of cache.app and of the pools you declare
         commands:
-            enabled: true     # record the console commands
-            ignore: []        # command names not recorded on top of the default ones, fnmatch patterns allowed (e.g. 'app:sync-*')
-        messenger: true       # record the messages handled by the Messenger workers and the messages sent (needs Messenger)
-        scheduler: true       # record the scheduled tasks run by the Messenger workers (needs the Scheduler)
+            enabled: true        # record the console commands
+            ignore: []           # command names not recorded on top of the default ones, fnmatch patterns allowed (e.g. 'app:sync-*')
+        messenger: true          # record the messages handled by the Messenger workers and the messages sent (needs Messenger)
+        scheduler: true          # record the scheduled tasks run by the Messenger workers (needs the Scheduler)
     storage:
-        connection: 'default' # name of the Doctrine DBAL connection
-        retention: 604800     # seconds the data is kept (7 days, 3600 minimum)
+        connection: 'default'    # name of the Doctrine DBAL connection
+        retention: 604800        # seconds the data is kept (7 days, 3600 minimum)
     dashboard:
-        enabled: true         # false: the /jmonitor page answers 404
-        permission: ~         # role or voter attribute required to see the page
+        enabled: true            # false: the /jmonitor page answers 404
+        permission: ~            # role or voter attribute required to see the page
     easyadmin:
-        enabled: false        # show the screens inside EasyAdmin
-        permission: ~         # role or voter attribute required to see them there
-    stack:                    # the Stack screen, see "The live stack" below
+        enabled: false           # show the screens inside EasyAdmin
+        permission: ~            # role or voter attribute required to see them there
+    stack:                       # the Stack screen, see "The live stack" below
         enabled: true
-        end_of_life: true     # look up support dates on endoflife.date
-        ignore_checks: []     # identifiers of the checks to silence
-        exclude_connections: [] # Doctrine connections never read, fnmatch patterns allowed
+        end_of_life: true        # look up support dates on endoflife.date
+        ignore_checks: []        # identifiers of the checks to silence
+        exclude_connections: []  # Doctrine connections never read, fnmatch patterns allowed
         system: auto
         php: auto
         symfony:
             enabled: auto
-            flex: true        # run `composer recipes` to list the outdated Flex recipes
-            messenger: true   # count the messages waiting in each transport
+            flex: true           # run `composer recipes` to list the outdated Flex recipes
+            messenger: true      # count the messages waiting in each transport
         frankenphp:
             enabled: auto
             endpoint: 'http://localhost:2019/metrics'
@@ -335,7 +335,7 @@ jmonitor:
             endpoint: 'http://localhost/nginx_status'
         mysql:
             enabled: auto
-            connections: []   # names of the Doctrine connections to read; all of them when empty
+            connections: []      # names of the Doctrine connections to read; all of them when empty
 ```
 
 `recording.enabled` can come from an environment variable, read at runtime, to switch recording off without a new deployment:
@@ -446,9 +446,9 @@ The same servers are set in two places: under `collectors.*` for the worker that
 
 #### The databases
 
-Every Doctrine DBAL connection of your application whose driver is MySQL (`pdo_mysql`, `mysqli`, or a `mysql://` URL) is read, whether the server behind it is MySQL or MariaDB. Where a connection leads is read from the parameters DoctrineBundle gives it, not by building it: no connection is built, and none is opened, to learn its server. A connection whose parameters cannot be read, such as one whose environment variable is missing, shows as unavailable with the reason, and the others are read. A URL whose password holds a `/`, `?` or `#` that is not encoded cannot be read: encode the password (`%2F`, `%3F`, `%23`).
+Every Doctrine DBAL connection of your application whose driver is MySQL (`pdo_mysql`, `mysqli`, a `driverClass` that extends the MySQL driver of DBAL, or a `mysql://` or `mysql2://` URL) is read, whether the server behind it is MySQL or MariaDB. Where a connection leads is read from the parameters DoctrineBundle gives it, not by building it: no connection is built, and none is opened, to learn its server. A connection whose parameters cannot be read, such as one whose environment variable is missing, shows as unavailable with the reason when it is listed under `stack.mysql.connections`; otherwise it is left out, and the reason shows on the `Not detected` line when no MySQL connection is found. A URL whose password holds a `/`, `?` or `#` that is not encoded cannot be read: encode the password (`%2F`, `%3F`, `%23`).
 
-`stack.mysql.connections` names the connections to read; empty, every MySQL connection is read. A name that is not a Doctrine connection shows as unavailable, with `Unknown Doctrine connection`. `stack.exclude_connections` leaves out every connection whose name matches one of its patterns (`*` and `?`), such as a replica or a backup the screen should never open; a connection both listed and excluded stops the container build. An application without a MySQL connection has no MySQL card, and the `Not detected` line says `MySQL: No MySQL Doctrine connection found.`
+`stack.mysql.connections` names the connections to read; empty, every MySQL connection is read. A name that is not a Doctrine connection shows as unavailable, with `Unknown Doctrine connection`. `stack.exclude_connections` leaves out every connection whose name matches one of its patterns (`*` and `?`), such as a replica or a backup the screen should never open; a connection both listed and excluded stops the container build. An application without a MySQL connection has no MySQL card, and the `Not detected` line says `MySQL: No MySQL Doctrine connection found.`, or `MySQL: No Doctrine DBAL connection is configured.` without DoctrineBundle.
 
 **One card per server.** The connections that lead to one server share a card, which names the first of them and says how many lead there (`2 connections`). Two connections lead to one server when their configuration gives the same host and port: `localhost` and `127.0.0.1` count as two servers, and so do a host name and its address, since nothing tells PHP that they are the same. A Unix socket is a server of its own. The overview reads the first connection of each server, up to 8 servers, and says how many more there are.
 
@@ -473,16 +473,19 @@ The slowest queries are the digests of `performance_schema`, the 10 slowest on a
 
 On MySQL 8, `information_schema` keeps the sizes in a cache of its own for a day (`information_schema_stats_expiry`): they can be up to a day old, and the detail says so. The query that renews that cache takes longer: 4 to 7 seconds for 2,000 tables, measured on MySQL 8.4 and 8.0.
 
-A connection the screen opened, by building it or by trying again after it was lost, is closed at the end of the read, and its wait for an answer is bounded to 10 seconds; a connection your application had already opened is used as it is and left open. Under the worker mode of FrankenPHP, nothing stays open from one request to the next.
+A connection the screen opened, by building it or by trying again after it was lost, is closed at the end of the read, and its wait for an answer is bounded to 10 seconds; a connection your application had already opened is used as it is and left open. Under the worker mode of FrankenPHP, nothing the screen opened stays open from one request to the next.
 
 A server that cannot be reached raises a `Critical` check, `MySQL cannot be reached`, with the reason, and its card keeps its last reading, if it had one. The reason never shows the password, the database user nor the URL of the connection. What it costs depends on how the server fails:
 
 - a closed port, such as a stopped server on a host that answers: nothing, the refusal comes at once;
-- a host name that no longer resolves: the time the resolver takes to say so;
-- a server that accepts the connection and then stops answering: 10 seconds;
-- a host that drops the packets: up to 30 seconds.
+- a host that does not answer at all: a display waits up to 30 seconds;
+- a server that accepts the connection and then stops answering: a display waits 10 seconds, when the screen opens the connection itself.
 
-Only one display waits: up to 10 seconds for a server that accepts the connection and then stops answering, up to 30 seconds for a host that drops the packets. The server is then not tried again for five times that wait, one minute at least and ten at most, and no display waits in between, on the card or on the detail. `Refresh` tries again at once.
+A connection your application already holds open, as under the worker mode of FrankenPHP once a request has used it, is used as it is, with the timeouts of your application: a server that stops answering can then keep a display waiting much longer.
+
+After such a wait, none of the readings of that connection is asked again for five times the wait, one minute at least and ten at most, and its card says why. `Refresh` asks again at once.
+
+The wait is for each connection shown. The overview reads one connection per server, so a server that does not answer makes one display wait; the detail of another connection of that server waits once too. A connection that fails for a reason of its own, such as a refused password, does not make the other connections of its server show as failed.
 
 #### Configuration
 
@@ -492,28 +495,28 @@ Defaults, all optional:
 # config/packages/jmonitor.yaml
 jmonitor:
     stack:
-        enabled: true         # false: no Stack screen and nothing read; `stack: false` does the same
-        end_of_life: true     # look up the support dates of PHP, Symfony, Apache, Nginx, MySQL and MariaDB on endoflife.date, once a day
-        ignore_checks: []     # identifiers of the checks to silence, e.g. ['symfony.flex_recipes']
-        exclude_connections: [] # Doctrine connections never read, as fnmatch patterns, e.g. ['*_replica']
-        system: auto          # auto: read when found, otherwise the reason shows on the "Not detected" line; true: its card stays, with the reason, when it cannot be read; false: never read
-        php: auto             # same values
+        enabled: true            # false: no Stack screen and nothing read; `stack: false` does the same
+        end_of_life: true        # look up the support dates of PHP, Symfony, Apache, Nginx, MySQL and MariaDB on endoflife.date, once a day
+        ignore_checks: []        # identifiers of the checks to silence, e.g. ['symfony.flex_recipes']
+        exclude_connections: []  # Doctrine connections never read, as fnmatch patterns, e.g. ['*_replica']
+        system: auto             # auto: read when found, otherwise the reason shows on the "Not detected" line; true: its card stays, with the reason, when it cannot be read; false: never read
+        php: auto                # same values
         symfony:
-            enabled: auto     # same values; `symfony: false` does the same
-            flex: true        # run `composer recipes` once an hour to list the outdated Flex recipes
-            messenger: true   # count the messages waiting in each transport, on the Messages screen
+            enabled: auto        # same values; `symfony: false` does the same
+            flex: true           # run `composer recipes` once an hour to list the outdated Flex recipes
+            messenger: true      # count the messages waiting in each transport, on the Messages screen
         frankenphp:
-            enabled: auto     # same values; `frankenphp: false` does the same
+            enabled: auto        # same values; `frankenphp: false` does the same
             endpoint: 'http://localhost:2019/metrics'
         apache:
-            enabled: auto     # same values; `apache: false` does the same
+            enabled: auto        # same values; `apache: false` does the same
             endpoint: 'http://localhost/server-status'
         nginx:
-            enabled: auto     # same values; `nginx: false` does the same
+            enabled: auto        # same values; `nginx: false` does the same
             endpoint: 'http://localhost/nginx_status'
         mysql:
-            enabled: auto     # same values; `mysql: false` does the same
-            connections: []   # names of the Doctrine connections to read, e.g. ['default', 'reports']; all of them when empty
+            enabled: auto        # same values; `mysql: false` does the same
+            connections: []      # names of the Doctrine connections to read, e.g. ['default', 'reports']; all of them when empty
 ```
 
 What the stack reads outside the process of PHP, each with its switch under `stack`:
