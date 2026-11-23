@@ -16,6 +16,7 @@ final class FakeStackReader implements StackReaderInterface
 
     public function __construct(
         private readonly StackState $state,
+        private readonly ?StackState $queues = null,
     ) {}
 
     public function overview(ReadMode $mode): StackState
@@ -30,6 +31,13 @@ final class FakeStackReader implements StackReaderInterface
         $this->calls[] = 'component ' . $component->value . ' ' . $mode->name;
 
         return $this->state;
+    }
+
+    public function queues(ReadMode $mode): ?StackState
+    {
+        $this->calls[] = 'queues ' . $mode->name;
+
+        return $this->queues;
     }
 
     public function refresh(?Component $component = null): bool

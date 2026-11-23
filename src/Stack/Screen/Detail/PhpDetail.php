@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Gauge;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
+use Jmonitor\JmonitorBundle\Stack\Check\Severity;
 use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Metric\Rate;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
@@ -126,23 +127,38 @@ final class PhpDetail implements DetailInterface
                 hint: Figures::span($requests, $elapsed),
             ),
             new Fact('Queue', Sections::value($php->fpmQueue === null ? null : (string) $php->fpmQueue), Sections::mark($findings, 'php.fpm_queue')),
-            new Fact(
-                'pm.max_children reached',
-                match ($php->fpmMaxChildrenReached) {
-                    null => Sections::MISSING,
-                    0 => 'never',
-                    1 => 'once',
-                    default => Sections::unbroken($php->fpmMaxChildrenReached . ' times'),
-                },
-                Sections::mark($findings, 'php.fpm_max_children'),
-                $php->fpmMaxChildrenReached === null ? null : PhpReading::SINCE_FPM_START,
-            ),
+            self::maxChildren($php, $findings, $elapsed),
             new Fact(
                 'Slow requests',
                 Sections::value($php->fpmSlowRequests === null ? null : (string) $php->fpmSlowRequests),
                 hint: $php->fpmSlowRequests === null ? null : PhpReading::SINCE_FPM_START,
             ),
         ];
+    }
+
+    /**
+     * @param list<Finding> $findings
+     */
+    private static function maxChildren(PhpReading $php, array $findings, ?int $elapsed): Fact
+    {
+        $finding = Sections::finding($findings, 'php.fpm_max_children');
+        $recent = $finding?->severity === Severity::Warning && $elapsed !== null && $php->fpmMaxChildrenReachedRecently !== null;
+        $count = $recent ? (int) $php->fpmMaxChildrenReachedRecently : $php->fpmMaxChildrenReached;
+
+        return new Fact(
+            'pm.max_children reached',
+            match ($count) {
+                null => Sections::MISSING,
+                0 => 'never',
+                default => Sections::unbroken(Figures::times($count)),
+            },
+            $finding === null ? null : Marks::severity($finding->severity),
+            match (true) {
+                $count === null => null,
+                $recent => Figures::lastSeconds((int) $elapsed),
+                default => PhpReading::SINCE_FPM_START,
+            },
+        );
     }
 
     private static function onOff(?bool $value): string

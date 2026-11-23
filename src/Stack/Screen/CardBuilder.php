@@ -11,11 +11,18 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
+use Jmonitor\JmonitorBundle\Stack\Metric\Rate;
 use Jmonitor\JmonitorBundle\Stack\Metric\SupportStatus;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
+use Jmonitor\JmonitorBundle\Stack\Reading\ApacheReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\FrankenPhpReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ApacheDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\Sections;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
@@ -81,6 +88,9 @@ final class CardBuilder
             Component::System => self::server(ServerReading::of($snapshot), $main),
             Component::Php => self::php(PhpReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Symfony => self::symfony(SymfonyReading::of($snapshot, $this->clock->now()), $snapshot, $main, $reading),
+            Component::FrankenPhp => self::frankenPhp(FrankenPhpReading::of($snapshot), $main),
+            Component::Apache => self::apache(ApacheReading::of($snapshot, $this->clock->now()), $snapshot, $main),
+            Component::Nginx => self::nginx(NginxReading::of($snapshot, $this->clock->now()), $snapshot, $main),
         };
     }
 
@@ -147,6 +157,72 @@ final class CardBuilder
         }
 
         return [$symfony->version, $vitals, $symfony->support, null];
+    }
+
+    /**
+     * @param \Closure(?string): string $main
+     *
+     * @return array{?string, list<Vital>, ?SupportStatus, ?string}
+     */
+    private static function frankenPhp(FrankenPhpReading $frankenPhp, \Closure $main): array
+    {
+        return [
+            $frankenPhp->version,
+            [
+                new Vital('Threads', $main(FrankenPhpDetail::threads($frankenPhp))),
+                new Vital('Queue', $main($frankenPhp->queue === null ? null : (string) $frankenPhp->queue)),
+            ],
+            null,
+            match ($frankenPhp->mode) {
+                'worker' => 'Worker mode',
+                'classic' => 'Classic mode',
+                default => null,
+            },
+        ];
+    }
+
+    /**
+     * @param \Closure(?string): string $main
+     *
+     * @return array{?string, list<Vital>, ?SupportStatus, ?string}
+     */
+    private static function apache(ApacheReading $apache, ComponentSnapshot $snapshot, \Closure $main): array
+    {
+        return [
+            $apache->version,
+            [
+                new Vital('Workers', $main(ApacheDetail::workers($apache))),
+                self::requests($apache->requestsPerSecond, $snapshot->delta('apache')?->elapsed, $main),
+            ],
+            $apache->support,
+            null,
+        ];
+    }
+
+    /**
+     * @param \Closure(?string): string $main
+     *
+     * @return array{?string, list<Vital>, ?SupportStatus, ?string}
+     */
+    private static function nginx(NginxReading $nginx, ComponentSnapshot $snapshot, \Closure $main): array
+    {
+        return [
+            $nginx->version,
+            [
+                new Vital('Connections', $main(NginxDetail::connections($nginx))),
+                self::requests($nginx->requestsPerSecond, $snapshot->delta('nginx')?->elapsed, $main),
+            ],
+            $nginx->support,
+            null,
+        ];
+    }
+
+    /**
+     * @param \Closure(?string): string $main
+     */
+    private static function requests(Rate $rate, ?int $elapsed, \Closure $main): Vital
+    {
+        return new Vital('Requests', $main(Sections::rate($rate)), Figures::span($rate, $elapsed));
     }
 
     /**

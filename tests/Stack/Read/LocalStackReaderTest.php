@@ -9,10 +9,13 @@ use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
 use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
 use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
+use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
+use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
+use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
@@ -25,6 +28,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\BreakingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\Detectors;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\StaticDetector;
@@ -44,6 +48,7 @@ use Symfony\Component\ErrorHandler\BufferingLogger;
 final class LocalStackReaderTest extends TestCase
 {
     private const START = 1_791_799_200;
+    private const QUEUES = "{\"transports\":[\"async\"]}\n{\"name\":\"async\",\"count\":4}\n";
 
     private CountingCachePool $cache;
     private MockClock $clock;
@@ -561,6 +566,140 @@ final class LocalStackReaderTest extends TestCase
         self::assertStringNotContainsString('app:', serialize($state));
     }
 
+    public function testTheQueuesAreNeverCountedOnAPage(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $reader = $this->reader(Detectors::registry([], self::settings()), queues: self::queues($runner));
+        $this->warm();
+
+        $state = $reader->queues(ReadMode::Page);
+
+        self::assertSame([], $runner->calls);
+        self::assertSame(ResultState::Pending, $state?->component(Component::Symfony)?->instances[0]->snapshot?->result('queues')?->state);
+    }
+
+    public function testAFragmentCountsThemAndThirtySecondsOfDisplaysReuseTheCount(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $reader = $this->reader(Detectors::registry([], self::settings()), queues: self::queues($runner));
+        $this->warm();
+
+        $state = $reader->queues(ReadMode::Fragment);
+
+        self::assertNotNull($state);
+        self::assertSame('web-1', $state->node);
+        self::assertSame(self::START, $state->readAt);
+        self::assertSame(CacheState::Working, $state->cache);
+        self::assertNull($state->error);
+        self::assertSame([], $state->notDetected);
+        self::assertCount(1, $state->components);
+        $symfony = $state->components[0];
+        self::assertSame(Component::Symfony, $symfony->component);
+        self::assertSame(0, $symfony->unread);
+        self::assertCount(1, $symfony->instances);
+        self::assertSame(['queues', null, null], [$symfony->instances[0]->id, $symfony->instances[0]->detail, $symfony->instances[0]->error]);
+        self::assertSame(
+            ['transports' => [['name' => 'async', 'count' => 4, 'reason' => null]], 'complete' => true],
+            $symfony->instances[0]->snapshot?->data('queues'),
+        );
+        self::assertCount(1, $runner->calls);
+
+        for ($i = 0; $i < 20; ++$i) {
+            $this->clock->sleep(1.45);
+            $reader->queues($i % 2 === 0 ? ReadMode::Fragment : ReadMode::Page);
+        }
+
+        self::assertCount(1, $runner->calls);
+
+        $this->clock->sleep(2);
+        $later = $reader->queues(ReadMode::Fragment);
+
+        self::assertCount(2, $runner->calls);
+        self::assertSame(ResultState::Fresh, $later?->component(Component::Symfony)?->instances[0]->snapshot?->result('queues')?->state);
+    }
+
+    public function testACacheOutOfOrderNeverCounts(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $reader = $this->reader(Detectors::registry([], self::settings()), new ArrayAdapter(), queues: self::queues($runner));
+
+        $state = $reader->queues(ReadMode::Fragment);
+        $reader->queues(ReadMode::Fragment);
+
+        self::assertSame([], $runner->calls);
+        self::assertSame(CacheState::OutOfOrder, $state?->cache);
+        self::assertSame(ResultState::Pending, $state->component(Component::Symfony)?->instances[0]->snapshot?->result('queues')?->state);
+    }
+
+    public function testAFailedCountIsKeptTenMinutes(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, 'Fatal error', 255, 'Cannot reach redis://app:s3cret@cache');
+        $reader = $this->reader(Detectors::registry([], self::settings()), queues: self::queues($runner));
+        $this->warm();
+
+        $state = $reader->queues(ReadMode::Fragment);
+        $result = $state?->component(Component::Symfony)?->instances[0]->snapshot?->result('queues');
+
+        self::assertSame(ResultState::Failed, $result?->state);
+        self::assertStringContainsString('255', (string) $result->error);
+        self::assertStringNotContainsString('s3cret', (string) $result->error);
+
+        $this->clock->sleep(599);
+        $reader->queues(ReadMode::Fragment);
+
+        self::assertCount(1, $runner->calls);
+
+        $this->clock->sleep(1);
+        $reader->queues(ReadMode::Fragment);
+
+        self::assertCount(2, $runner->calls);
+    }
+
+    public function testWithoutSourceThereAreNoQueues(): void
+    {
+        $reader = $this->reader(Detectors::registry([], self::settings()));
+        $this->warm();
+
+        self::assertNull($reader->queues(ReadMode::Fragment));
+        self::assertNull($reader->queues(ReadMode::Page));
+    }
+
+    public function testTheOverviewAndTheSymfonyDetailNeverCount(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $kernel = new FakeCollector('symfony.kernel');
+        $registry = Detectors::registry(['symfony' => self::detector(Component::Symfony, self::spec($kernel))], self::settings());
+        $reader = $this->reader($registry, queues: self::queues($runner));
+        $this->warm();
+
+        $overview = $reader->overview(ReadMode::Fragment);
+        $detail = $reader->component(Component::Symfony, null, ReadMode::Fragment);
+        $named = $reader->component(Component::Symfony, 'queues', ReadMode::Fragment);
+
+        self::assertSame([], $runner->calls);
+        self::assertSame(1, $kernel->collects);
+        self::assertSame([null], array_map(static fn(InstanceState $instance): ?string => $instance->id, $overview->component(Component::Symfony)->instances ?? []));
+        self::assertSame([null], array_map(static fn(InstanceState $instance): ?string => $instance->id, $detail->component(Component::Symfony)->instances ?? []));
+        self::assertSame([], $named->components);
+    }
+
+    public function testRefreshingSymfonyDoesNotForgetTheQueues(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $registry = Detectors::registry(['symfony' => self::detector(Component::Symfony, self::spec(new FakeCollector('symfony.kernel')))], self::settings());
+        $reader = $this->reader($registry, queues: self::queues($runner));
+        $this->warm();
+        $reader->queues(ReadMode::Fragment);
+
+        self::assertTrue($reader->refresh(Component::Symfony));
+        self::assertTrue($reader->refresh());
+
+        $state = $reader->queues(ReadMode::Fragment);
+
+        self::assertCount(1, $runner->calls);
+        self::assertSame(ResultState::Fresh, $state?->component(Component::Symfony)?->instances[0]->snapshot?->result('queues')?->state);
+    }
+
     /**
      * @param array<string, 'auto'|bool> $components
      *
@@ -592,7 +731,7 @@ final class LocalStackReaderTest extends TestCase
         $settings = [];
 
         foreach (Component::cases() as $component) {
-            $settings[$component->value] = ['enabled' => $overrides[$component->value] ?? 'auto'];
+            $settings[$component->value] = ['enabled' => $overrides[$component->value] ?? ($component->isWebServer() ? false : 'auto')];
         }
 
         return $settings;
@@ -616,12 +755,17 @@ final class LocalStackReaderTest extends TestCase
         (new CacheProbe($this->cache, $this->clock))->state();
     }
 
-    private function reader(ComponentRegistry $registry, ?CacheItemPoolInterface $cache = null, ?LoggerInterface $logger = null, string $node = 'web-1'): LocalStackReader
+    private static function queues(FakeProcessRunner $runner): QueuesInstance
+    {
+        return new QueuesInstance(new QueuesCollector($runner, new PhpCli(static fn(): string => '/usr/local/bin/php'), \dirname(__DIR__, 2) . '/Fixtures/App', 'prod', false));
+    }
+
+    private function reader(ComponentRegistry $registry, ?CacheItemPoolInterface $cache = null, ?LoggerInterface $logger = null, string $node = 'web-1', ?QueuesInstance $queues = null): LocalStackReader
     {
         $cache ??= $this->cache;
         $webNode = new WebNode($node);
         $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, $webNode);
 
-        return new LocalStackReader($registry, $snapshots, new CacheProbe($cache, $this->clock), $cache, $this->clock, $webNode, $logger);
+        return new LocalStackReader($registry, $snapshots, new CacheProbe($cache, $this->clock), $cache, $this->clock, $webNode, $logger, $queues);
     }
 }

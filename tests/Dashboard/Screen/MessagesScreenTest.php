@@ -9,11 +9,15 @@ use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Percentile;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\BlockSourceInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
+use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
@@ -22,6 +26,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class MessagesScreenTest extends TestCase
@@ -31,7 +36,7 @@ final class MessagesScreenTest extends TestCase
 
     public function testTheScreenDeclaresItself(): void
     {
-        $screen = new MessagesScreen(true);
+        $screen = new MessagesScreen(true, true);
 
         static::assertSame('messages', $screen->id());
         static::assertSame('Messages', $screen->label());
@@ -49,15 +54,65 @@ final class MessagesScreenTest extends TestCase
 
     public function testTheScreenFollowsItsAvailability(): void
     {
-        static::assertFalse((new MessagesScreen(false))->isAvailable());
-        static::assertTrue((new MessagesScreen(true))->isAvailable());
+        static::assertFalse((new MessagesScreen(false, true))->isAvailable());
+        static::assertTrue((new MessagesScreen(true, true))->isAvailable());
+    }
+
+    /**
+     * @return iterable<string, array{bool, bool, bool, bool}>
+     */
+    public static function presence(): iterable
+    {
+        foreach ([true, false] as $messenger) {
+            foreach ([true, false] as $recorded) {
+                foreach ([true, false] as $counted) {
+                    $name = sprintf('%s, %s, %s', $messenger ? 'messenger' : 'no messenger', $recorded ? 'recorded' : 'not recorded', $counted ? 'counted' : 'not counted');
+
+                    yield $name => [$messenger, $recorded, $counted, $messenger && ($recorded || $counted)];
+                }
+            }
+        }
+    }
+
+    #[DataProvider('presence')]
+    public function testItIsThereWhenMessengerIsAndSomethingIsShown(bool $messenger, bool $recorded, bool $counted, bool $available): void
+    {
+        static::assertSame($available, (new MessagesScreen($messenger, $recorded, $counted ? self::queues() : null))->isAvailable());
+    }
+
+    public function testWithoutRecordingItReadsNoStorageAndSaysSo(): void
+    {
+        $reader = new FixedReader();
+        $screen = new MessagesScreen(true, false, self::queues());
+
+        $view = $screen->build($reader, Period::OneHour, self::NOW, 'handled', 'desc');
+
+        static::assertSame([], $reader->queries);
+        static::assertTrue($view->isEmpty());
+        static::assertSame([
+            'title' => 'Messages are not recorded',
+            'text' => 'Recording the messages is off (jmonitor.recording.messenger). The queues are still counted.',
+        ], $screen->emptyState());
+        static::assertSame('Messages sent and handled per class', $screen->heading());
+        static::assertSame(array_keys((new MessagesScreen(true, true))->sorts()), array_keys($screen->sorts()));
+    }
+
+    public function testItsBlocksAreThoseOfItsSource(): void
+    {
+        $request = new ScreenRequest(self::NOW, true);
+        $notice = Block::notice(new Notice('info', 'No transport to count'));
+        $queues = self::queues($notice);
+
+        static::assertSame([$notice], (new MessagesScreen(true, true, $queues))->blocks($request));
+        static::assertSame([$request], $queues->requests);
+        static::assertSame([], (new MessagesScreen(true, true))->blocks($request));
     }
 
     public function testTheScreenReadsTheMessageFamilyOnceWithItsSeries(): void
     {
-        foreach (array_keys((new MessagesScreen(true))->sorts()) as $sort) {
+        foreach (array_keys((new MessagesScreen(true, true))->sorts()) as $sort) {
             $reader = new FixedReader();
-            (new MessagesScreen(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
+            (new MessagesScreen(true, true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
@@ -133,7 +188,7 @@ final class MessagesScreenTest extends TestCase
             'sql' => ['App\A', 'App\C', 'App\B'],
         ];
 
-        static::assertSame(array_keys((new MessagesScreen(true))->sorts()), array_keys($descending));
+        static::assertSame(array_keys((new MessagesScreen(true, true))->sorts()), array_keys($descending));
 
         foreach ($descending as $sort => $expected) {
             static::assertSame($expected, $this->names($this->build($rows, $sort, 'desc')), $sort . ' desc');
@@ -208,13 +263,36 @@ final class MessagesScreenTest extends TestCase
      */
     private function build(array $rows, string $sort = 'handled', string $direction = 'desc', ?ReportRow $other = null, Period $period = Period::OneHour, array $series = []): ScreenView
     {
-        return (new MessagesScreen(true))->build(
+        return (new MessagesScreen(true, true))->build(
             new FixedReader(static fn(ReportQuery $query): Report => new Report($rows, $other, \count($rows), $series)),
             $period,
             self::NOW,
             $sort,
             $direction,
         );
+    }
+
+    /**
+     * @return BlockSourceInterface&object{requests: list<ScreenRequest>}
+     */
+    private static function queues(Block ...$blocks): BlockSourceInterface
+    {
+        return new class (array_values($blocks)) implements BlockSourceInterface {
+            /** @var list<ScreenRequest> */
+            public array $requests = [];
+
+            /** @param list<Block> $blocks */
+            public function __construct(
+                private readonly array $blocks,
+            ) {}
+
+            public function blocks(ScreenRequest $request): array
+            {
+                $this->requests[] = $request;
+
+                return $this->blocks;
+            }
+        };
     }
 
     private function table(ScreenView $view): Table

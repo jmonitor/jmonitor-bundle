@@ -6,7 +6,10 @@ namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
@@ -42,6 +45,9 @@ final class StackEngineTest extends WebTestCase
         SystemDetector::class,
         PhpDetector::class,
         SymfonyDetector::class,
+        FrankenPhpDetector::class,
+        ApacheDetector::class,
+        NginxDetector::class,
     ];
 
     private string $bufferDir;
@@ -90,8 +96,28 @@ final class StackEngineTest extends WebTestCase
             self::assertFreshValues($component);
         }
         if ($linux) {
-            static::assertSame([], $state->notDetected);
+            static::assertSame(['frankenphp', 'apache', 'nginx'], array_keys($state->notDetected));
         }
+    }
+
+    public function testUnderTheCommandLineNoWebServerIsDetected(): void
+    {
+        $reader = self::bootKernel()->getContainer()->get(StackReaderInterface::class);
+        static::assertInstanceOf(StackReaderInterface::class, $reader);
+
+        $state = $reader->overview(ReadMode::Page);
+
+        foreach ([Component::FrankenPhp, Component::Apache, Component::Nginx] as $webServer) {
+            static::assertNull($state->component($webServer), $webServer->value);
+        }
+        static::assertSame(
+            [
+                'frankenphp' => 'FrankenPHP is not serving this page.',
+                'apache' => 'Apache is not serving this page.',
+                'nginx' => 'Nginx is not serving this page.',
+            ],
+            array_diff_key($state->notDetected, [Component::System->value => true]),
+        );
     }
 
     public function testNothingOfTheStackIsBuiltBeforeARead(): void

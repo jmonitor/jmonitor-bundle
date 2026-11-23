@@ -24,6 +24,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
 use Jmonitor\JmonitorBundle\Stack\Screen\ComponentScreen;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
@@ -36,6 +37,7 @@ use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FakeStackReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\DependencyInjection\ServiceLocator;
@@ -193,6 +195,113 @@ final class StackScreenTest extends TestCase
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame(['Server: Server metrics are only read on Linux, this server runs on Darwin.', 'Symfony: No kernel'], $cards->notDetected);
+    }
+
+    public function testWebServersThatDoNotServeThePageAreLeftOutWhenOneDoes(): void
+    {
+        $nginx = Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(), 'nginx.config' => WebServerPayloads::nginxConfig()]);
+        $state = new StackState('web-1', Snapshots::NOW, CacheState::Working, [...self::healthy()->components, ...Snapshots::stack($nginx)->components], [
+            'frankenphp' => 'FrankenPHP is not serving this page.',
+            'apache' => 'Apache is not serving this page.',
+        ]);
+
+        $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
+        $cards = $blocks[2]->content;
+
+        self::assertInstanceOf(ComponentCards::class, $cards);
+        self::assertSame([], $cards->notDetected);
+        self::assertSame(['system', 'php', 'symfony', 'nginx'], array_map(static fn(ComponentCard $card): string => $card->id, $cards->cards));
+        self::assertSame('stack/nginx', $cards->cards[3]->path);
+
+        $state = new StackState('web-1', Snapshots::NOW, CacheState::Working, Snapshots::stack($nginx)->components, [
+            'system' => 'Server metrics are only read on Linux, this server runs on Darwin.',
+            'frankenphp' => 'FrankenPHP is not serving this page.',
+            'apache' => 'Apache is not serving this page.',
+        ]);
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+
+        self::assertInstanceOf(ComponentCards::class, $cards);
+        self::assertSame(['Server: Server metrics are only read on Linux, this server runs on Darwin.'], $cards->notDetected);
+    }
+
+    public function testWithoutAnyWebServerOneEntrySaysSo(): void
+    {
+        $state = new StackState('web-1', Snapshots::NOW, CacheState::Working, self::healthy()->components, [
+            'frankenphp' => 'FrankenPHP is not serving this page.',
+            'apache' => 'Apache is not serving this page.',
+            'nginx' => 'Nginx is not serving this page.',
+        ]);
+
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+
+        self::assertInstanceOf(ComponentCards::class, $cards);
+        self::assertSame(['Web server: FrankenPHP, Apache and Nginx were not found serving this page'], $cards->notDetected);
+
+        $state = new StackState('web-1', Snapshots::NOW, CacheState::Working, [], [
+            'system' => 'Server metrics are only read on Linux, this server runs on Darwin.',
+            'frankenphp' => 'FrankenPHP is not serving this page.',
+            'apache' => 'Apache is not serving this page.',
+            'nginx' => 'Nginx is not serving this page.',
+        ]);
+
+        $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertEquals(new ComponentCards([], [
+            'Server: Server metrics are only read on Linux, this server runs on Darwin.',
+            'Web server: FrankenPHP, Apache and Nginx were not found serving this page',
+        ]), $blocks[2]->content);
+    }
+
+    public function testAWebServerTurnedOffIsNotCalledMissing(): void
+    {
+        $state = new StackState('web-1', Snapshots::NOW, CacheState::Working, self::healthy()->components, [
+            'apache' => 'Apache is not serving this page.',
+            'nginx' => 'Nginx is not serving this page.',
+        ]);
+
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+
+        self::assertInstanceOf(ComponentCards::class, $cards);
+        self::assertSame(['Apache: Apache is not serving this page.', 'Nginx: Nginx is not serving this page.'], $cards->notDetected);
+    }
+
+    public function testAnIncompleteReadDoesNotReplaceTheSummaryOfACompleteOne(): void
+    {
+        $this->screen(new FakeStackReader(self::troubled()))->blocks(new ScreenRequest(Snapshots::NOW));
+        $complete = $this->summary()->last();
+        $this->clock->sleep(30);
+
+        $this->screen(new FakeStackReader(self::reading()))->blocks(new ScreenRequest(Snapshots::NOW, true));
+
+        self::assertNotNull($complete);
+        self::assertSame($complete, $this->summary()->last());
+
+        $this->screen(new FakeStackReader(self::healthy()))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame(
+            ['at' => Snapshots::NOW + 30, 'critical' => 0, 'warning' => 0, 'components' => ['system' => 'healthy', 'php' => 'healthy', 'symfony' => 'healthy']],
+            $this->summary()->last(),
+        );
+    }
+
+    public function testAFirstReadStillWritesASummary(): void
+    {
+        $this->screen(new FakeStackReader(self::reading()))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame(['at' => Snapshots::NOW, 'critical' => 0, 'warning' => 0, 'components' => ['php' => 'healthy', 'symfony' => 'healthy']], $this->summary()->last());
+    }
+
+    public function testAWebServerHasItsDetailOnceWired(): void
+    {
+        $screen = $this->screen(new FakeStackReader(self::healthy()), [
+            'nginx' => static fn(): NginxDetail => new NginxDetail(),
+        ]);
+
+        $child = $screen->child('nginx');
+
+        self::assertInstanceOf(ComponentScreen::class, $child);
+        self::assertSame('Nginx', $child->label());
+        self::assertNull($screen->child('apache'));
     }
 
     public function testInstancesBeyondTheEighthAreCountedNotRead(): void
@@ -452,6 +561,20 @@ final class StackScreenTest extends TestCase
         ));
     }
 
+    /**
+     * PHP read, the Flex recipes of Symfony still read.
+     */
+    private static function reading(): StackState
+    {
+        $php = Snapshots::php();
+        unset($php['fpm']);
+
+        return self::withNode(Snapshots::stack(
+            Snapshots::of(Component::Php, ['php' => $php]),
+            Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()], ['symfony.flex' => ResultState::Pending]),
+        ));
+    }
+
     private static function withNode(StackState $state): StackState
     {
         return new StackState('web-1', $state->readAt, $state->cache, $state->components, $state->notDetected, $state->error);
@@ -462,7 +585,10 @@ final class StackScreenTest extends TestCase
         return new StackSummary(new ServiceLocator(['cache' => fn(): CountingCachePool => $this->pool]), new WebNode('web-1'), $this->clock);
     }
 
-    private function screen(StackReaderInterface $reader): StackScreen
+    /**
+     * @param array<string, \Closure(): object> $details added to those of Server, PHP and Symfony
+     */
+    private function screen(StackReaderInterface $reader, array $details = []): StackScreen
     {
         $summary = $this->summary();
         $services = [
@@ -480,6 +606,7 @@ final class StackScreenTest extends TestCase
             'system' => static fn(): ServerDetail => new ServerDetail(),
             'php' => static fn(): PhpDetail => new PhpDetail(),
             'symfony' => static fn(): SymfonyDetail => new SymfonyDetail(),
+            ...$details,
         ]));
     }
 }

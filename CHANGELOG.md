@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` Stack screen: the server, PHP and Symfony read live, with what to check and a detail per component.
 - `stack` option: turns the live stack, one of its components or one of its two outgoing calls off, and silences a check with `ignore_checks`.
 - The `/jmonitor` page opens on the Stack screen when nothing is recorded.
+- `/jmonitor` Stack screen: FrankenPHP, Apache and Nginx read live from their status page, with what to check and a detail each.
+- `/jmonitor` Messages screen: the messages waiting in each Messenger transport, shown even without storage or recording.
+- `stack` options `frankenphp`, `apache`, `nginx` and `symfony.messenger`: turn a web server or the queue count off, or set the address of a status page.
 
 ### Changed
 - Requires PHP 8.2.

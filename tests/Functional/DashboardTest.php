@@ -511,6 +511,22 @@ final class DashboardTest extends WebTestCase
         static::assertSame('Messages', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
     }
 
+    public function testTheNavigationIsTheSameWithTheQueuesCounted(): void
+    {
+        $counting = ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => true]]];
+        $client = static::createClient(['jmonitor' => $this->recording() + $counting, 'messenger' => true]);
+        $expected = ['Requests', 'Queries', 'Commands', 'Messages', 'HTTP client', 'Cache', 'Exceptions', 'Stack'];
+
+        $home = $client->request('GET', '/jmonitor/');
+        static::assertResponseIsSuccessful();
+        static::assertSame($expected, $home->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame('Requests', $home->filter('.jm-nav__item[aria-current="page"]')->text());
+
+        $messages = $client->request('GET', '/jmonitor/messages');
+        static::assertResponseIsSuccessful();
+        static::assertSame($expected, $messages->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+    }
+
     public function testTheMessagesScreenIsAbsentWithoutMessageRecording(): void
     {
         $client = static::createClient(['jmonitor' => ['recording' => ['messenger' => false] + $this->recording()['recording']], 'messenger' => true]);

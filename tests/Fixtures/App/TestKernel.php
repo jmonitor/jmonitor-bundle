@@ -14,7 +14,12 @@ use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
+use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
+use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
+use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
@@ -35,9 +40,12 @@ use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\GalleryScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\ProbeScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPing;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPingHandler;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\CountedTransportFactory;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\PingHandler;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\QueueTransportFactory;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use Psr\Log\LogLevel;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -46,6 +54,7 @@ use Symfony\Bundle\TwigBundle\TwigBundle;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\HttpKernel\Log\Logger;
 use Symfony\Component\Routing\Loader\Configurator\RouteConfigurator;
@@ -67,8 +76,12 @@ final class TestKernel extends Kernel
     /** @var array<string, mixed> */
     private readonly array $jmonitorConfig;
 
+    private bool $countsInAProcess = false;
+
     /**
-     * @param array<string, mixed> $jmonitorConfig without a `stack` key, the stack calls neither endoflife.date nor composer
+     * @param array<string, mixed>  $jmonitorConfig without a `stack` key, the stack calls neither endoflife.date nor composer, nor counts the queues
+     * @param array<string, string> $transports     name => DSN, added to the transports of Messenger
+     * @param ?string               $queuesOutput   what the command counting the queues prints, never started but by fromEnvironment()
      */
     public function __construct(
         string $environment,
@@ -90,6 +103,9 @@ final class TestKernel extends Kernel
         private readonly bool $withOpenBackOffice = false,
         private readonly ?string $cacheApp = null,
         private readonly bool $withGallery = false,
+        private readonly ?string $fakeWebServer = null,
+        private readonly array $transports = [],
+        private readonly ?string $queuesOutput = null,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
@@ -97,14 +113,20 @@ final class TestKernel extends Kernel
         if ($withEasyAdmin && !$withTwig) {
             throw new \LogicException('The EasyAdmin back office needs Twig.');
         }
+        if ($transports !== [] && !$withMessenger && !$withScheduler) {
+            throw new \LogicException('Transports need Messenger.');
+        }
+        if ($fakeWebServer !== null && !\in_array($fakeWebServer, ['frankenphp', 'apache', 'nginx'], true)) {
+            throw new \InvalidArgumentException(\sprintf('Unknown fake web server "%s".', $fakeWebServer));
+        }
 
         parent::__construct($environment, $debug);
 
         $this->withSecurity = $withSecurity || $withEasyAdmin;
-        $this->jmonitorConfig = ($jmonitorConfig ?: $this->environmentConfig()) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false]]];
+        $this->jmonitorConfig = ($jmonitorConfig ?: self::environmentConfig($withEasyAdmin)) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => false]]];
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery]));
+            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer, $transports, $queuesOutput]));
     }
 
     public static function fromEnvironment(): self
@@ -113,21 +135,34 @@ final class TestKernel extends Kernel
         $debug = self::environmentValue('APP_DEBUG');
         $features = array_filter(array_map(trim(...), explode(',', self::environmentValue('JMONITOR_FIXTURE_FEATURES'))));
 
-        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'scheduler', 'security']);
+        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'queues', 'scheduler', 'security']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
         }
 
-        return new self(
+        $withEasyAdmin = \in_array('easyadmin', $features, true);
+        $countsQueues = \in_array('queues', $features, true);
+        $stack = ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => $countsQueues]];
+        $frankenPhpEndpoint = self::environmentValue('JMONITOR_FIXTURE_FRANKENPHP_ENDPOINT');
+        if ($frankenPhpEndpoint !== '') {
+            $stack['frankenphp'] = ['endpoint' => $frankenPhpEndpoint];
+        }
+
+        $kernel = new self(
             $environment !== '' ? $environment : 'dev',
             $debug !== '' ? filter_var($debug, \FILTER_VALIDATE_BOOL) : true,
+            self::environmentConfig($withEasyAdmin) + ($countsQueues || $frankenPhpEndpoint !== '' ? ['stack' => $stack] : []),
             withSecurity: \in_array('security', $features, true),
-            withMessenger: \in_array('messenger', $features, true),
+            withMessenger: $countsQueues || \in_array('messenger', $features, true),
             withScheduler: \in_array('scheduler', $features, true),
             withEmbedHost: \in_array('embed', $features, true),
-            withEasyAdmin: \in_array('easyadmin', $features, true),
+            withEasyAdmin: $withEasyAdmin,
             withGallery: \in_array('gallery', $features, true),
+            transports: $countsQueues ? ['counted' => 'counted://3', 'hanging' => 'counted://hanging'] : [],
         );
+        $kernel->countsInAProcess = true;
+
+        return $kernel;
     }
 
     private static function environmentValue(string $name): string
@@ -174,7 +209,7 @@ final class TestKernel extends Kernel
 
     public function getCacheDir(): string
     {
-        return $this->varDir . '/cache/' . $this->environment;
+        return $this->varDir . '/cache/' . $this->environment . ($this->countsInAProcess ? '-processes' : '');
     }
 
     public function getLogDir(): string
@@ -203,6 +238,53 @@ final class TestKernel extends Kernel
             }
         });
 
+        if (!$this->countsInAProcess) {
+            $container->addCompilerPass(new class ($this->queuesOutput ?? '') implements CompilerPassInterface {
+                public function __construct(
+                    private readonly string $output,
+                ) {}
+
+                public function process(ContainerBuilder $container): void
+                {
+                    if (!$container->hasDefinition(QueuesCollector::class)) {
+                        return;
+                    }
+                    $container->register('jmonitor.tests.queues_runner', FakeProcessRunner::class)
+                        ->addMethodCall('answer', [null, $this->output])
+                        ->setPublic(true);
+                    $container->getDefinition(QueuesCollector::class)->setArgument(0, new Reference('jmonitor.tests.queues_runner'));
+                }
+            });
+        }
+
+        if ($this->fakeWebServer !== null) {
+            $container->addCompilerPass(new class ($this->fakeWebServer) implements CompilerPassInterface {
+                private const SAPIS = ['frankenphp' => [FrankenPhpDetector::class, 'frankenphp'], 'apache' => [ApacheDetector::class, 'apache2handler']];
+
+                public function __construct(
+                    private readonly string $webServer,
+                ) {}
+
+                public function process(ContainerBuilder $container): void
+                {
+                    foreach ([FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class] as $detector) {
+                        if (!$container->hasDefinition($detector)) {
+                            continue;
+                        }
+                        $definition = $container->getDefinition($detector)->setArgument('$fetcher', new Reference(FakeStatusPages::class));
+                        if ($detector !== ApacheDetector::class) {
+                            $definition->setArgument('$runner', new Reference(FakeProcessRunner::class));
+                        }
+                    }
+
+                    [$detector, $sapi] = self::SAPIS[$this->webServer] ?? [null, null];
+                    if ($detector !== null && $container->hasDefinition($detector)) {
+                        $container->getDefinition($detector)->setArgument('$sapi', $sapi);
+                    }
+                }
+            });
+        }
+
         if ($this->withPublicInternals) {
             $container->addCompilerPass(new class implements CompilerPassInterface {
                 public function process(ContainerBuilder $container): void
@@ -219,7 +301,7 @@ final class TestKernel extends Kernel
                     if ($container->hasDefinition(JmonitorController::class)) {
                         $container->getDefinition(JmonitorController::class)->setPublic(true);
                     }
-                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class, StackChecks::class, StackSummary::class] as $id) {
+                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, ProcessRunner::class, FakeStatusPages::class, FakeProcessRunner::class, StackChecks::class, StackSummary::class] as $id) {
                         if ($container->hasDefinition($id)) {
                             $container->getDefinition($id)->setPublic(true);
                         }
@@ -269,6 +351,7 @@ final class TestKernel extends Kernel
                 'transports' => [
                     'async' => ['dsn' => 'in-memory://', 'retry_strategy' => ['max_retries' => 1, 'delay' => 0]],
                     'batch' => ['dsn' => 'queue://'],
+                    ...array_map(static fn(string $dsn): array => ['dsn' => $dsn], $this->transports),
                 ],
                 'routing' => [Ping::class => 'async', BatchPing::class => 'batch'],
             ]]);
@@ -355,6 +438,10 @@ final class TestKernel extends Kernel
         if ($this->withHttpClient) {
             $services->set(HttpResponses::class);
         }
+        if ($this->fakeWebServer !== null) {
+            $services->set(FakeStatusPages::class)->public();
+            $services->set(FakeProcessRunner::class)->public();
+        }
         $services->set(DemoController::class)
             ->args([
                 service('doctrine.dbal.default_connection')->nullOnInvalid(),
@@ -374,6 +461,8 @@ final class TestKernel extends Kernel
                 ->args([service('doctrine.dbal.default_connection')->nullOnInvalid(), service('messenger.default_bus')])
                 ->tag('messenger.message_handler');
             $services->set(QueueTransportFactory::class)
+                ->tag('messenger.transport_factory');
+            $services->set(CountedTransportFactory::class)
                 ->tag('messenger.transport_factory');
             $services->set(BatchPingHandler::class)
                 ->args([service('doctrine.dbal.default_connection')->nullOnInvalid()])
@@ -426,7 +515,7 @@ final class TestKernel extends Kernel
     /**
      * @return array<string, mixed>
      */
-    private function environmentConfig(): array
+    private static function environmentConfig(bool $withEasyAdmin): array
     {
         $interval = getenv('JMONITOR_FLUSH_INTERVAL');
         $config = [];
@@ -434,7 +523,7 @@ final class TestKernel extends Kernel
             $config['recording'] = ['flush_interval' => (int) $interval];
         }
 
-        return $this->withEasyAdmin ? $config + ['easyadmin' => true] : $config;
+        return $withEasyAdmin ? $config + ['easyadmin' => true] : $config;
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void

@@ -171,6 +171,24 @@ final class StylesheetTest extends TestCase
         static::assertNotContains('.jm-live__switch:checked', $selectors);
     }
 
+    public function testAStateIsSpacedOnlyFromABlockThatFollowsIt(): void
+    {
+        $margins = static function (string $selector): array {
+            $found = [];
+            foreach (self::rules() as $rule) {
+                if (\in_array($selector, $rule['selectors'], true)) {
+                    array_push($found, ...array_filter($rule['declarations'], static fn(array $declaration): bool => str_starts_with($declaration[0], 'margin')));
+                }
+            }
+
+            return $found;
+        };
+
+        static::assertSame([], $margins('.jm-state'));
+        static::assertSame([['margin-bottom', '20px']], $margins('.jm-state:has(+ :not(.jm-rest):not(template))'));
+        static::assertContains(['margin-top', '20px'], $margins('.jm .jm-rest'));
+    }
+
     public function testEveryTagOfTheTemplatesHasItsBrowserDefaultsRestatedForHostPages(): void
     {
         $restated = [];

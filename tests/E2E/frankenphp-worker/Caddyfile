@@ -1,5 +1,6 @@
 {
 	auto_https off
+	metrics
 }
 
 :80 {
@@ -13,7 +14,7 @@
 		php_server {
 			worker {
 				file /app/tests/E2E/frankenphp-worker/worker.php
-				num 1
+				num {$JMONITOR_E2E_WORKERS:1}
 				match *
 			}
 		}

@@ -35,14 +35,19 @@ The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboar
 
 ## Live stack
 
-The engine that reads the server, PHP and Symfony on demand, behind a cache:
+The engine that reads the server, PHP, Symfony and the web server on demand, behind a cache:
 
 - Its code lives in `src/Stack/` and `config/stack.php`. It shares nothing with `src/Collector/` nor the `jmonitor.collectors` services of the worker.
-- Nothing collects outside a call to `StackReaderInterface`: no event listener, command or scheduled task.
+- Nothing collects outside a call to `StackReaderInterface`: no event listener or scheduled task. Its only command, `jmonitor:stack:queues`, is only started by a read of the queues.
+- The queues are only read by `StackReaderInterface::queues()`, never by the overview.
+- A status page is read through `StatusPageFetcher`, a command run through `ProcessRunner`, never through the executor of the library.
+- The main collector of a component carries the name of the component.
+- What a collector of the library returns is filtered before it is kept.
 - Every collector declares a lifetime (`Lifetime`) and a cost class (`CostClass`). A collector that starts a process or calls a service outside the stack over the network is `CostClass::Slow`.
 - Detection touches no server: it only says which components exist and builds their collectors.
 - `jmonitor.stack.cache` is not declared under `framework.cache.pools`, or its reads would be counted on the Cache screen.
-- No test calls the network or `composer`: fake fetchers and process runners stand in for them, and the test kernel turns `stack.end_of_life` and `stack.symfony.flex` off unless a test sets `stack` itself.
+- No test calls the network or `composer`: fake fetchers and process runners stand in for them, and the test kernel turns `stack.end_of_life`, `stack.symfony.flex` and `stack.symfony.messenger` off unless a test sets `stack` itself.
+- No PHPUnit test starts the console in a process: the test kernel plays the command counting the queues (`queuesOutput`) and the web servers with their status pages (`fakeWebServer`). Only the kernel of `TestKernel::fromEnvironment()`, used by the end-to-end runs, starts the real command.
 - Its screens live in `src/Stack/Screen/`: `StackScreen` and `ComponentScreen` get the reader, the checks and the summary through a service locator, read by `StackScreenParts`, so that the reader and the checks are only built when a Stack screen is displayed.
 - An application screen costs the stack one cache read, the summary behind the badge of the navigation, and builds no reader.
 - Only the display of the overview (`StackScreen::blocks()`) writes that summary (`StackSummary::remember()`).

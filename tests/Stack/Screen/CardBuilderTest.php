@@ -15,6 +15,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
@@ -225,6 +226,127 @@ final class CardBuilderTest extends TestCase
     public function testFlexRecipesAreLeftOutWhenTurnedOff(): void
     {
         self::assertSame(['Environment', 'Debug'], array_keys(self::vitals($this->card(Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()])))));
+    }
+
+    public function testTheFrankenPhpCardShowsItsThreadsAndQueue(): void
+    {
+        $card = $this->card(Snapshots::of(Component::FrankenPhp, [
+            'frankenphp' => WebServerPayloads::frankenphpClassic(),
+            'frankenphp.version' => ['version' => '1.13.0'],
+        ]), 'stack/frankenphp');
+
+        self::assertSame('frankenphp', $card->id);
+        self::assertSame('FrankenPHP', $card->name);
+        self::assertSame('1.13.0', $card->version);
+        self::assertEquals(new Mark('ok', 'Healthy'), $card->mark);
+        self::assertSame(['Threads' => '3 / 16', 'Queue' => '0'], self::vitals($card));
+        self::assertSame('Classic mode', $card->note);
+        self::assertSame([], $card->badges);
+        self::assertSame('stack/frankenphp', $card->path);
+        self::assertNull($card->reason);
+
+        $queued = ['queue_depth' => 3] + WebServerPayloads::frankenphpClassic();
+        $card = $this->card(Snapshots::of(Component::FrankenPhp, ['frankenphp' => $queued], ['frankenphp.version' => ResultState::Pending]));
+
+        self::assertNull($card->version);
+        self::assertSame(['Threads' => '3 / 16', 'Queue' => '3'], self::vitals($card));
+        self::assertEquals(new Mark('warn', 'Warning'), $card->mark);
+    }
+
+    public function testInWorkerModeTheCardCountsTheRegularThreads(): void
+    {
+        $card = $this->card(Snapshots::of(Component::FrankenPhp, ['frankenphp' => WebServerPayloads::frankenphpWorker()]));
+
+        self::assertSame(['Threads' => '1 / 4', 'Queue' => '0'], self::vitals($card));
+        self::assertSame('Worker mode', $card->note);
+    }
+
+    public function testTheApacheCardShowsItsWorkersAndRequests(): void
+    {
+        $card = $this->card(Snapshots::of(Component::Apache, ['apache' => WebServerPayloads::apache(), 'eol.apache-http-server' => WebServerPayloads::cycles()]), 'stack/apache');
+
+        self::assertSame('apache', $card->id);
+        self::assertSame('Apache', $card->name);
+        self::assertSame('2.4.62', $card->version);
+        self::assertEquals(new Mark('ok', 'Healthy'), $card->mark);
+        self::assertEquals([new Vital('Workers', '3 / 50'), new Vital('Requests', '—', 'at the next refresh')], array_map(self::readable(...), $card->vitals));
+        self::assertSame([], $card->badges);
+        self::assertNull($card->note);
+
+        $delta = Snapshots::delta(['total_accesses' => 51_880], ['total_accesses' => 52_000]);
+        $card = $this->card(Snapshots::of(Component::Apache, ['apache' => WebServerPayloads::apache()], deltas: ['apache' => $delta]));
+
+        self::assertEquals([new Vital('Workers', '3 / 50'), new Vital('Requests', '2.0 req/s', 'over the last 60' . self::NBSP . 's')], array_map(self::readable(...), $card->vitals));
+    }
+
+    public function testTheNginxCardShowsItsConnectionsAndRequestsWithItsEndOfLife(): void
+    {
+        $card = $this->card(Snapshots::of(Component::Nginx, [
+            'nginx' => WebServerPayloads::nginxStatus(),
+            'nginx.config' => WebServerPayloads::nginxConfig(),
+            'eol.nginx' => WebServerPayloads::cycles(),
+        ]), 'stack/nginx');
+
+        self::assertSame('nginx', $card->id);
+        self::assertSame('Nginx', $card->name);
+        self::assertSame('1.26.2', $card->version);
+        self::assertEquals(new Mark('bad', 'Critical'), $card->mark);
+        self::assertEquals([new Mark('bad', 'End of life')], $card->badges);
+        self::assertEquals([new Vital('Connections', '12 / 3072'), new Vital('Requests', '—', 'at the next refresh')], array_map(self::readable(...), $card->vitals));
+
+        $delta = Snapshots::delta(WebServerPayloads::nginxStatus(requests: 41_080), WebServerPayloads::nginxStatus());
+        $card = $this->card(Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(), 'nginx.config' => WebServerPayloads::nginxConfig()], deltas: ['nginx' => $delta]));
+
+        self::assertEquals([new Vital('Connections', '12 / 3072'), new Vital('Requests', '2.0 req/s', 'over the last 60' . self::NBSP . 's')], array_map(self::readable(...), $card->vitals));
+        self::assertSame([], $card->badges);
+    }
+
+    public function testWithoutAKnownLimitTheCardShowsTheConnectionsAlone(): void
+    {
+        $card = $this->card(Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(), 'nginx.config' => WebServerPayloads::nginxConfigWithoutSettings()]));
+
+        self::assertSame(['Connections' => '12', 'Requests' => '—'], self::vitals($card));
+
+        $card = $this->card(Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus()], ['nginx.config' => ResultState::Failed]));
+
+        self::assertSame(['Connections' => '12', 'Requests' => '—'], self::vitals($card));
+        self::assertNull($card->version);
+    }
+
+    /**
+     * @return iterable<string, array{Component, array<string, array<string, mixed>>}>
+     */
+    public static function webServers(): iterable
+    {
+        yield 'FrankenPHP' => [Component::FrankenPhp, ['frankenphp.version' => ['version' => '1.13.0']]];
+        yield 'Apache' => [Component::Apache, []];
+        yield 'Nginx' => [Component::Nginx, ['nginx.config' => WebServerPayloads::nginxConfig()]];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $others
+     */
+    #[DataProvider('webServers')]
+    public function testACardOfAnUnreadableStatusPageGivesItsReason(Component $component, array $others): void
+    {
+        $card = $this->card(Snapshots::of($component, $others, [$component->value => ResultState::Failed]), 'stack/' . $component->value);
+
+        self::assertSame(Snapshots::FAILURE, $card->reason);
+        self::assertEquals(new Mark('unknown', 'Unknown'), $card->mark);
+        self::assertSame([], $card->vitals);
+        self::assertNull($card->version);
+        self::assertFalse($card->reading);
+        self::assertSame('stack/' . $component->value, $card->path);
+    }
+
+    #[DataProvider('webServers')]
+    public function testAWebServerCardSaysReadingUntilItsStatusPageWasRead(Component $component, array $others): void
+    {
+        $card = $this->card(Snapshots::of($component, $others, [$component->value => ResultState::Pending]));
+
+        self::assertTrue($card->reading);
+        self::assertSame(['Reading…', 'Reading…'], array_values(self::vitals($card)));
+        self::assertSame([null, null], array_map(static fn(Vital $vital): ?string => $vital->hint, $card->vitals));
     }
 
     public function testAnInstanceWithAnIdIsNamedAfterIt(): void

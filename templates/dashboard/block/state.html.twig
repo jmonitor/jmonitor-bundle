@@ -24,8 +24,8 @@
         <h2 class="jm-state__title">No storage configured</h2>
         <p class="jm-state__text">JMonitor needs a Doctrine DBAL connection to store its data. Install doctrine/doctrine-bundle or set <code>jmonitor.storage.connection</code>.</p>
     {% elseif state == 'reading' %}
-        <h2 class="jm-state__title">Reading…</h2>
-        <p class="jm-state__text">JMonitor is reading this section.</p>
+        <h2 class="jm-state__title">{{ block.title ?: 'Reading…' }}</h2>
+        <p class="jm-state__text">{{ block.text ?: 'JMonitor is reading this section.' }}</p>
     {% elseif state == 'error' %}
         <h2 class="jm-state__title">Section unavailable</h2>
         <p class="jm-state__text">JMonitor could not display this section. Check the application logs.</p>

@@ -1,0 +1,36 @@
+localhost
+ServerVersion: Apache/2.4.62 (Debian) OpenSSL/3.0.15
+ServerMPM: event
+Server Built: 2024-07-17T18:57:26
+CurrentTime: Tuesday, 20-Oct-2026 10:15:42 UTC
+RestartTime: Thursday, 08-Oct-2026 09:12:03 UTC
+ParentServerConfigGeneration: 1
+ParentServerMPMGeneration: 0
+ServerUptimeSeconds: 1040619
+ServerUptime: 12 days 1 hour 3 minutes 39 seconds
+Load1: 0.42
+Load5: 0.37
+Load15: 0.31
+Total Accesses: 52000
+Total kBytes: 1300000
+Total Duration: 2080000
+CPUUser: 120.5
+CPUSystem: 40.2
+CPUChildrenUser: 0
+CPUChildrenSystem: 0
+CPULoad: .0154
+Uptime: 1040619
+ReqPerSec: 0.0499702
+BytesPerSec: 1279.27
+BytesPerReq: 25600
+DurationPerReq: 40
+BusyWorkers: 3
+GracefulWorkers: 0
+IdleWorkers: 47
+Processes: 2
+Stopping: 0
+ConnsTotal: 4
+ConnsAsyncWriting: 0
+ConnsAsyncKeepAlive: 1
+ConnsAsyncClosing: 0
+Scoreboard: _W_K____________________R_________________________..............................................................................................................................................................................................................................................................................................................................................................

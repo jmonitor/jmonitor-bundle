@@ -18,6 +18,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\Delta;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
@@ -287,7 +288,7 @@ final class StackChecksTest extends TestCase
         self::assertSame(Verdict::Critical, $stale->verdict(Component::System), 'an outdated value is still judged');
         self::assertNull(self::find($fresh, 'system.memory')?->age);
         self::assertSame(120, self::find($renewalFailed, 'system.memory')?->age);
-        self::assertNull(self::find($renewalFailed, 'system.failed'), 'a failed renewal is no failure: the value is still there');
+        self::assertSame(120, self::find($renewalFailed, 'system.failed')?->age, 'the value is still there, its renewal failed');
     }
 
     public function testNoFindingOnAMissingValue(): void
@@ -384,6 +385,237 @@ final class StackChecksTest extends TestCase
         self::assertSame(Verdict::Critical, $health->verdict(Component::System, 'a'));
         self::assertSame(Verdict::Healthy, $health->verdict(Component::System, 'b'));
         self::assertSame(Verdict::Critical, $health->componentVerdict(Component::System));
+    }
+
+    /**
+     * @return iterable<string, array{Component, array<string, array<string, mixed>>, array<string, Delta>, string, ?Severity}>
+     */
+    public static function webServerThresholds(): iterable
+    {
+        yield 'Apache slots 89.9 %' => [Component::Apache, ['apache' => self::apacheSlots(899)], [], 'apache.workers', null];
+        yield 'Apache slots 90 %' => [Component::Apache, ['apache' => self::apacheSlots(900)], [], 'apache.workers', Severity::Warning];
+        yield 'Apache slots 99.9 %' => [Component::Apache, ['apache' => self::apacheSlots(999)], [], 'apache.workers', Severity::Warning];
+        yield 'Apache slots 100 %' => [Component::Apache, ['apache' => self::apacheSlots(1_000)], [], 'apache.workers', Severity::Critical];
+
+        yield 'Apache with 1 idle worker' => [Component::Apache, ['apache' => self::apacheWorkers(3, 1)], [], 'apache.idle_workers', null];
+        yield 'Apache without idle worker' => [Component::Apache, ['apache' => self::apacheWorkers(3, 0)], [], 'apache.idle_workers', Severity::Info];
+        yield 'Apache without any worker' => [Component::Apache, ['apache' => self::apacheWorkers(0, 0)], [], 'apache.idle_workers', null];
+        yield 'Apache idle workers not told' => [Component::Apache, ['apache' => self::apacheWorkers(3, null)], [], 'apache.idle_workers', null];
+        yield 'Apache busy workers not told' => [Component::Apache, ['apache' => self::apacheWorkers(null, 0)], [], 'apache.idle_workers', null];
+
+        yield 'Nginx connections 84.9 %' => [Component::Nginx, self::nginxConnections(849), [], 'nginx.connections', null];
+        yield 'Nginx connections 85 %' => [Component::Nginx, self::nginxConnections(850), [], 'nginx.connections', Severity::Warning];
+        yield 'Nginx connections 94.9 %' => [Component::Nginx, self::nginxConnections(949), [], 'nginx.connections', Severity::Warning];
+        yield 'Nginx connections 95 %' => [Component::Nginx, self::nginxConnections(950), [], 'nginx.connections', Severity::Critical];
+
+        yield 'Nginx never refused' => [Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(101, 101)], ['nginx' => Snapshots::delta(WebServerPayloads::nginxStatus(100, 100), WebServerPayloads::nginxStatus(101, 101))], 'nginx.refused', null];
+        yield 'Nginx refused 1 between the samples' => [Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(101, 100)], ['nginx' => Snapshots::delta(WebServerPayloads::nginxStatus(100, 100), WebServerPayloads::nginxStatus(101, 100))], 'nginx.refused', Severity::Warning];
+        yield 'Nginx refused since start only' => [Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(101, 100)], ['nginx' => Snapshots::delta(WebServerPayloads::nginxStatus(100, 99), WebServerPayloads::nginxStatus(101, 100))], 'nginx.refused', Severity::Info];
+        yield 'Nginx refused, no second sample' => [Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(101, 100)], [], 'nginx.refused', Severity::Info];
+
+        yield 'FrankenPHP queue empty' => [Component::FrankenPhp, ['frankenphp' => self::frankenphp()], [], 'frankenphp.queue', null];
+        yield 'FrankenPHP queue of 1' => [Component::FrankenPhp, ['frankenphp' => self::frankenphp(queue: 1)], [], 'frankenphp.queue', Severity::Warning];
+
+        yield 'FrankenPHP worker queue empty' => [Component::FrankenPhp, ['frankenphp' => self::frankenphp()], [], 'frankenphp.worker_queue', null];
+        yield 'FrankenPHP worker queue of 1' => [Component::FrankenPhp, ['frankenphp' => self::frankenphp(['worker_queue_depth' => 1])], [], 'frankenphp.worker_queue', Severity::Warning];
+
+        yield 'FrankenPHP workers never crashed' => [Component::FrankenPhp, ['frankenphp' => self::frankenphp()], ['frankenphp' => Snapshots::delta(self::frankenphp(), self::frankenphp())], 'frankenphp.worker_crashes', null];
+        yield 'FrankenPHP worker crash not exported yet' => [Component::FrankenPhp, ['frankenphp' => ['workers' => [['name' => '/srv/probe/worker.php', 'total_workers' => 2]]] + self::frankenphp()], [], 'frankenphp.worker_crashes', null];
+        yield 'FrankenPHP worker crashed between the samples' => [Component::FrankenPhp, ['frankenphp' => self::frankenphp(['worker_crashes' => 1])], ['frankenphp' => Snapshots::delta(self::frankenphp(), self::frankenphp(['worker_crashes' => 1]))], 'frankenphp.worker_crashes', Severity::Warning];
+        yield 'FrankenPHP worker crashed since start only' => [Component::FrankenPhp, ['frankenphp' => self::frankenphp(['worker_crashes' => 1])], ['frankenphp' => Snapshots::delta(self::frankenphp(['worker_crashes' => 1]), self::frankenphp(['worker_crashes' => 1]))], 'frankenphp.worker_crashes', Severity::Info];
+        yield 'FrankenPHP worker crashed, no second sample' => [Component::FrankenPhp, ['frankenphp' => self::frankenphp(['worker_crashes' => 1])], [], 'frankenphp.worker_crashes', Severity::Info];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $data
+     * @param array<string, Delta>                $deltas
+     */
+    #[DataProvider('webServerThresholds')]
+    public function testEachWebServerCheckRisesAtItsThresholdAndNotJustBelow(Component $component, array $data, array $deltas, string $id, ?Severity $expected): void
+    {
+        $this->testEachCheckRisesAtItsThresholdAndNotJustBelow($component, $data, $deltas, $id, $expected);
+    }
+
+    public function testAWebServerSentenceCarriesItsValue(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::Apache, ['apache' => self::apacheSlots(935)]),
+            Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(110, 100)], deltas: ['nginx' => Snapshots::delta(WebServerPayloads::nginxStatus(100, 98), WebServerPayloads::nginxStatus(110, 100), 30)]),
+        ));
+        $connections = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Nginx, self::nginxConnections(905))));
+        $refusedBefore = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(101, 100)])));
+
+        self::assertSame("Apache workers take 93.5\u{00A0}% of the slots (935 of 1000)", self::find($health, 'apache.workers')?->sentence);
+        self::assertSame("Nginx holds 90.5\u{00A0}% of its connections (905 of 1000)", self::find($connections, 'nginx.connections')?->sentence);
+        self::assertSame("Nginx refused 8 connections over the last 30\u{00A0}s", self::find($health, 'nginx.refused')?->sentence);
+        self::assertSame('Nginx refused 1 connection since it started', self::find($refusedBefore, 'nginx.refused')?->sentence);
+        self::assertStringContainsString('MaxRequestWorkers', self::find($health, 'apache.workers')->explanation, 'the scoreboard may hold more slots');
+        self::assertStringContainsString('upstream', self::find($connections, 'nginx.connections')->explanation);
+    }
+
+    public function testNoIdleWorkerIsOnlyInformative(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Apache, ['apache' => self::apacheWorkers(150, 0)])));
+        $one = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Apache, ['apache' => self::apacheWorkers(1, 0)])));
+
+        self::assertSame(Severity::Info, self::find($health, 'apache.idle_workers')?->severity);
+        self::assertSame('Apache has no idle worker, 150 are busy', self::find($health, 'apache.idle_workers')->sentence);
+        self::assertStringContainsString('MaxRequestWorkers', self::find($health, 'apache.idle_workers')->explanation);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Apache));
+        self::assertSame('Apache has no idle worker, 1 is busy', self::find($one, 'apache.idle_workers')?->sentence);
+    }
+
+    public function testAWorkerCheckNamesItsScripts(): void
+    {
+        $data = self::frankenphp(['worker_queue_depth' => 3, 'worker_crashes' => 2]);
+        $data['workers'][1]['worker_queue_depth'] = 1;
+        $data['workers'][1]['worker_crashes'] = 1;
+        $data['workers'][] = ['name' => '/app/bin/quiet.php', 'total_workers' => 1, 'worker_crashes' => 0, 'worker_queue_depth' => 0];
+        $previous = $data;
+        $previous['workers'][0]['worker_crashes'] = 0;
+
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::FrankenPhp, ['frankenphp' => $data], deltas: ['frankenphp' => Snapshots::delta($previous, $data, 20)])));
+        $queue = array_values(array_filter($health->findings, static fn(Finding $finding): bool => $finding->id === 'frankenphp.worker_queue'));
+
+        self::assertCount(1, $queue, 'one finding for every script');
+        self::assertSame('4 requests are waiting for a worker of index.php, api', $queue[0]->sentence);
+        self::assertSame("Workers of index.php crashed 2 times over the last 20\u{00A0}s", self::find($health, 'frankenphp.worker_crashes')?->sentence, 'api crashed before the previous sample');
+        self::assertSame(Severity::Warning, self::find($health, 'frankenphp.worker_crashes')->severity);
+
+        $sinceStart = self::checks()->health(Snapshots::stack(Snapshots::of(Component::FrankenPhp, ['frankenphp' => $data])));
+
+        self::assertSame('Workers of index.php, api crashed 3 times since FrankenPHP started', self::find($sinceStart, 'frankenphp.worker_crashes')?->sentence);
+    }
+
+    public function testASingleCrashIsThatOfOneWorker(): void
+    {
+        $crashed = self::frankenphp(['worker_crashes' => 1]);
+
+        $recent = self::checks()->health(Snapshots::stack(Snapshots::of(Component::FrankenPhp, ['frankenphp' => $crashed], deltas: ['frankenphp' => Snapshots::delta(self::frankenphp(), $crashed, 20)])));
+        $sinceStart = self::checks()->health(Snapshots::stack(Snapshots::of(Component::FrankenPhp, ['frankenphp' => $crashed])));
+
+        self::assertSame("A worker of index.php crashed once over the last 20\u{00A0}s", self::find($recent, 'frankenphp.worker_crashes')?->sentence);
+        self::assertSame('A worker of index.php crashed once since FrankenPHP started', self::find($sinceStart, 'frankenphp.worker_crashes')?->sentence);
+    }
+
+    public function testAStatusPageThatCannotBeReadIsOnlyInformative(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::FrankenPhp, ['frankenphp.version' => ['version' => '1.13.0']], ['frankenphp' => ResultState::Failed]),
+            Snapshots::of(Component::Apache, ['eol.apache-http-server' => WebServerPayloads::cycles()], ['apache' => ResultState::Failed]),
+            Snapshots::of(Component::Nginx, ['nginx.config' => WebServerPayloads::nginxConfig(), 'eol.nginx' => WebServerPayloads::cycles()], ['nginx' => ResultState::Failed]),
+        ));
+
+        foreach ([Component::FrankenPhp, Component::Apache, Component::Nginx] as $component) {
+            $finding = self::find($health, $component->value . '.failed');
+
+            self::assertSame(Severity::Info, $finding?->severity, $component->value);
+            self::assertStringContainsString(Snapshots::FAILURE, $finding->sentence, 'the reason tells how to expose it');
+            self::assertStringContainsString('only', $finding->explanation);
+            self::assertStringContainsString('live figures', $finding->explanation, 'other checks may still be judged');
+            self::assertSame(Verdict::Unknown, $health->verdict($component));
+        }
+
+        self::assertSame(Severity::Critical, self::find($health, 'nginx.end_of_life')?->severity, 'the version comes from a command');
+    }
+
+    public function testACommandThatCannotRunIsOnlyInformative(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::FrankenPhp, ['frankenphp' => self::frankenphp()], ['frankenphp.version' => ResultState::Failed]),
+            Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus()], ['nginx.config' => ResultState::Failed]),
+        ));
+
+        self::assertSame(Severity::Info, self::find($health, 'frankenphp.version.failed')?->severity);
+        self::assertSame(Severity::Info, self::find($health, 'nginx.config.failed')?->severity);
+        self::assertStringStartsWith('The FrankenPHP version could not be read: ', (string) self::find($health, 'frankenphp.version.failed')?->sentence);
+        self::assertStringStartsWith('The Nginx settings could not be read: ', (string) self::find($health, 'nginx.config.failed')?->sentence);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::FrankenPhp));
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Nginx));
+    }
+
+    public function testNoConnectionCheckWithoutAKnownLimit(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Nginx, [
+            'nginx' => WebServerPayloads::nginxStatus(active: 100_000),
+            'nginx.config' => WebServerPayloads::nginxConfigWithoutSettings(),
+        ])));
+
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Nginx));
+    }
+
+    public function testTheSupportOfApacheAndNginxIsJudged(): void
+    {
+        $ended = ['cycles' => ['2.4' => ['eol' => true, 'support' => false]]];
+        $health = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::Apache, ['apache' => WebServerPayloads::apache(), 'eol.apache-http-server' => $ended]),
+            Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(), 'nginx.config' => WebServerPayloads::nginxConfig(), 'eol.nginx' => WebServerPayloads::cycles()]),
+        ));
+        $securityOnly = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(), 'nginx.config' => ['version' => '1.27.4'] + WebServerPayloads::nginxConfig(), 'eol.nginx' => WebServerPayloads::cycles()]),
+        ));
+        $apacheSecurityOnly = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::Apache, ['apache' => WebServerPayloads::apache(), 'eol.apache-http-server' => ['cycles' => ['2.4' => ['eol' => false, 'support' => false]]]]),
+        ));
+        $supported = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::Apache, ['apache' => WebServerPayloads::apache(), 'eol.apache-http-server' => WebServerPayloads::cycles()]),
+            Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(), 'nginx.config' => ['version' => '1.28.0'] + WebServerPayloads::nginxConfig(), 'eol.nginx' => WebServerPayloads::cycles()]),
+        ));
+
+        self::assertSame(Severity::Critical, self::find($health, 'apache.end_of_life')?->severity);
+        self::assertSame('Apache 2.4.62 has reached its end of life', self::find($health, 'apache.end_of_life')->sentence);
+        self::assertSame(Severity::Critical, self::find($health, 'nginx.end_of_life')?->severity);
+        self::assertSame('Nginx 1.26.2 has reached its end of life', self::find($health, 'nginx.end_of_life')->sentence);
+        self::assertSame(Severity::Warning, self::find($securityOnly, 'nginx.security_only')?->severity);
+        self::assertSame('Nginx 1.27.4 only receives security fixes', self::find($securityOnly, 'nginx.security_only')->sentence);
+        self::assertSame(Severity::Warning, self::find($apacheSecurityOnly, 'apache.security_only')?->severity);
+        self::assertSame('Apache 2.4.62 only receives security fixes', self::find($apacheSecurityOnly, 'apache.security_only')->sentence);
+        self::assertSame([], $supported->findings);
+    }
+
+    public function testAnIgnoredWebServerCheckIsDroppedBeforeTheVerdict(): void
+    {
+        $state = Snapshots::stack(Snapshots::of(Component::Apache, ['apache' => self::apacheSlots(1_000)]));
+
+        self::assertSame(Verdict::Critical, self::checks()->health($state)->verdict(Component::Apache));
+
+        $health = self::checks(['apache.workers'])->health($state);
+
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Apache));
+    }
+
+    public function testAValueThatCouldNotBeReadAgainRaisesItsFailure(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(
+            new ComponentSnapshot(Component::Php, ['php' => new CollectorResult('php', self::php(), ResultState::Stale, 'The PHP endpoint answered 502.', Snapshots::NOW - 120, expiresAt: Snapshots::NOW + 300)]),
+            new ComponentSnapshot(Component::Nginx, ['nginx' => new CollectorResult('nginx', WebServerPayloads::nginxStatus(), ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 90, expiresAt: Snapshots::NOW + 30)]),
+        ));
+
+        $php = self::find($health, 'php.failed');
+        self::assertSame(Severity::Warning, $php?->severity);
+        self::assertSame('PHP could not be read again: The PHP endpoint answered 502.', $php->sentence);
+        self::assertSame(120, $php->age);
+        self::assertSame(Verdict::Warning, $health->verdict(Component::Php), 'the value is still shown');
+
+        $nginx = self::find($health, 'nginx.failed');
+        self::assertSame(Severity::Info, $nginx?->severity);
+        self::assertStringContainsString('could not be read again: Nothing answers.', $nginx->sentence);
+        self::assertSame(90, $nginx->age);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Nginx));
+    }
+
+    public function testAnOutdatedValueStillBeingRenewedRaisesNothing(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::Php, ['php' => self::php()], ['php' => ResultState::Stale]),
+            Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus()], ['nginx' => ResultState::Stale]),
+        ));
+
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Php));
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Nginx));
     }
 
     /**
@@ -487,5 +719,50 @@ final class StackChecksTest extends TestCase
             'config' => ['apc.enabled' => $enabled],
             'sma_info' => ['num_seg' => 1, 'seg_size' => 1_000, 'avail_mem' => 1_000 - $usedPerThousand],
         ]]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function apacheWorkers(?int $busy, ?int $idle): array
+    {
+        return ['workers' => array_filter(['busy' => $busy, 'idle' => $idle], static fn(?int $count): bool => $count !== null)] + WebServerPayloads::apache();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function apacheSlots(int $usedPerThousand): array
+    {
+        return ['scoreboard' => ['_' => 1_000 - $usedPerThousand, 'W' => $usedPerThousand]] + WebServerPayloads::apache();
+    }
+
+    /**
+     * @return array<string, array<string, mixed>> the status page and the settings of an Nginx that holds 1000 connections
+     */
+    private static function nginxConnections(int $active): array
+    {
+        $config = WebServerPayloads::nginxConfig();
+        $config['config']['worker_processes'] = '1';
+        $config['config']['worker_connections'] = 1_000;
+
+        return ['nginx' => WebServerPayloads::nginxStatus(active: $active), 'nginx.config' => $config];
+    }
+
+    /**
+     * FrankenPHP in worker mode with nothing waiting and no crash, the values of its first worker replaced.
+     *
+     * @param array<string, mixed> $worker
+     *
+     * @return array<string, mixed>
+     */
+    private static function frankenphp(array $worker = [], int $queue = 0): array
+    {
+        $data = WebServerPayloads::frankenphpWorker();
+        $data['queue_depth'] = $queue;
+        $data['workers'][0] = array_replace($data['workers'][0], ['worker_crashes' => 0], $worker);
+        $data['workers'][1]['worker_queue_depth'] = 0;
+
+        return $data;
     }
 }

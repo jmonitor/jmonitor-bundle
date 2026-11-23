@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\Exception\SuspiciousOperationException;
+use Symfony\Component\HttpFoundation\IpUtils;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\Event\TerminateEvent;
@@ -18,9 +19,12 @@ final class RequestRecorder implements EventSubscriberInterface
     private const STARTED_AT = '_jmonitor_started_at';
     public const UNIT = '_jmonitor_unit';
     public const NOT_RECORDED = '_jmonitor';
+    public const PROBE_HEADER = 'X-Jmonitor-Probe';
     private const MAX_REQUEST_AGE = 300;
     private const INTERNAL_ROUTE_PREFIXES = ['_wdt', '_profiler', 'jmonitor_'];
     private const STANDARD_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+    private const RELAY_HEADERS = ['X-Forwarded-For', 'Forwarded', 'X-Real-IP', 'Via', 'X-Forwarded-Proto', 'X-Forwarded-Host', 'CF-Connecting-IP', 'True-Client-IP'];
+    private const LOCAL_NETWORKS = ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10', '::1/128', 'fc00::/7', 'fe80::/10'];
 
     private int $handledRequests = 0;
     private bool $failureLogged = false;
@@ -139,7 +143,7 @@ final class RequestRecorder implements EventSubscriberInterface
         }
 
         if (!\is_string($route)) {
-            return false;
+            return self::isLocalProbe($request);
         }
 
         foreach (self::INTERNAL_ROUTE_PREFIXES as $prefix) {
@@ -155,6 +159,32 @@ final class RequestRecorder implements EventSubscriberInterface
         }
 
         return false;
+    }
+
+    /**
+     * A status page probe of the stack that fell on the application. Anyone can send the header: the request
+     * must also come straight from this machine or its private network, not relayed by a proxy, behind which
+     * every visitor has a local address.
+     */
+    private static function isLocalProbe(Request $request): bool
+    {
+        if (!$request->headers->has(self::PROBE_HEADER)) {
+            return false;
+        }
+
+        foreach (self::RELAY_HEADERS as $header) {
+            if ($request->headers->has($header)) {
+                return false;
+            }
+        }
+
+        $client = $request->server->get('REMOTE_ADDR');
+
+        if (!\is_string($client) || $client === '') {
+            return false;
+        }
+
+        return IpUtils::checkIp($client, self::LOCAL_NETWORKS) || $client === $request->server->get('SERVER_ADDR');
     }
 
     private function logFailure(\Throwable $e): void

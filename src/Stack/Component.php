@@ -9,6 +9,9 @@ enum Component: string
     case System = 'system';
     case Php = 'php';
     case Symfony = 'symfony';
+    case FrankenPhp = 'frankenphp';
+    case Apache = 'apache';
+    case Nginx = 'nginx';
 
     public function label(): string
     {
@@ -16,6 +19,17 @@ enum Component: string
             self::System => 'Server',
             self::Php => 'PHP',
             self::Symfony => 'Symfony',
+            self::FrankenPhp => 'FrankenPHP',
+            self::Apache => 'Apache',
+            self::Nginx => 'Nginx',
+        };
+    }
+
+    public function isWebServer(): bool
+    {
+        return match ($this) {
+            self::FrankenPhp, self::Apache, self::Nginx => true,
+            self::System, self::Php, self::Symfony => false,
         };
     }
 

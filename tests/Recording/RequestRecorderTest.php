@@ -227,6 +227,104 @@ final class RequestRecorderTest extends TestCase
         static::assertSame([], $this->buffer->entries[0]->children);
     }
 
+    /**
+     * @param array<string, string> $server
+     */
+    #[DataProvider('probesFromTheMachineItself')]
+    public function testAProbeFromTheMachineItselfOnNoRouteIsNotRecorded(array $server): void
+    {
+        $this->handle($this->recorder(), self::probe($server), null, 404);
+
+        static::assertSame([], $this->buffer->entries);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, string>}>
+     */
+    public static function probesFromTheMachineItself(): iterable
+    {
+        yield 'loopback' => [['REMOTE_ADDR' => '127.0.0.1', 'SERVER_ADDR' => '127.0.0.1']];
+        yield 'another loopback address' => [['REMOTE_ADDR' => '127.0.0.53']];
+        yield 'IPv6 loopback' => [['REMOTE_ADDR' => '::1', 'SERVER_ADDR' => '::1']];
+        yield 'IPv6 loopback without server address' => [['REMOTE_ADDR' => '::1']];
+        yield 'the address of the server' => [['REMOTE_ADDR' => '198.51.100.20', 'SERVER_ADDR' => '198.51.100.20']];
+        yield 'a neighbour container' => [['REMOTE_ADDR' => '172.23.0.2', 'SERVER_ADDR' => '172.23.0.3']];
+        yield 'a private network' => [['REMOTE_ADDR' => '10.0.0.5']];
+        yield 'another private network' => [['REMOTE_ADDR' => '192.168.1.10']];
+        yield 'a link-local address' => [['REMOTE_ADDR' => '169.254.10.1']];
+        yield 'a shared address space' => [['REMOTE_ADDR' => '100.64.0.1']];
+        yield 'an IPv6 unique local address' => [['REMOTE_ADDR' => 'fc00::1']];
+        yield 'an IPv6 link-local address' => [['REMOTE_ADDR' => 'fe80::1']];
+    }
+
+    /**
+     * @param array<string, string> $server
+     */
+    #[DataProvider('probeHeadersFromElsewhere')]
+    public function testAProbeHeaderFromElsewhereIsRecorded(array $server): void
+    {
+        $request = self::probe($server);
+        if (!isset($server['REMOTE_ADDR'])) {
+            $request->server->remove('REMOTE_ADDR');
+        }
+
+        $this->handle($this->recorder(), $request, null, 404);
+
+        static::assertCount(1, $this->buffer->entries);
+        static::assertSame('GET (unmatched)', $this->buffer->entries[0]->key);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, string>}>
+     */
+    public static function probeHeadersFromElsewhere(): iterable
+    {
+        yield 'a public address' => [['REMOTE_ADDR' => '203.0.113.7', 'SERVER_ADDR' => '198.51.100.20']];
+        yield 'a public address claiming to be forwarded for the loopback' => [['REMOTE_ADDR' => '203.0.113.7', 'SERVER_ADDR' => '198.51.100.20', 'HTTP_X_FORWARDED_FOR' => '127.0.0.1']];
+        yield 'a 6to4 address' => [['REMOTE_ADDR' => '2002:cb00:7107::1', 'SERVER_ADDR' => '198.51.100.20']];
+        yield 'just below the 172.16.0.0/12 network' => [['REMOTE_ADDR' => '172.15.255.255']];
+        yield 'just above the 172.16.0.0/12 network' => [['REMOTE_ADDR' => '172.32.0.1']];
+        yield 'no remote address' => [[]];
+        yield 'an empty remote address' => [['REMOTE_ADDR' => '']];
+        yield 'a remote address that is not one' => [['REMOTE_ADDR' => 'unknown']];
+    }
+
+    /**
+     * @param array<string, string> $server
+     */
+    #[DataProvider('requestsRelayedByAProxy')]
+    public function testAProbeHeaderRelayedByAProxyIsRecorded(array $server): void
+    {
+        $this->handle($this->recorder(), self::probe(['REMOTE_ADDR' => '127.0.0.1'] + $server), null, 404);
+
+        static::assertCount(1, $this->buffer->entries);
+        static::assertSame('GET (unmatched)', $this->buffer->entries[0]->key);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, string>}>
+     */
+    public static function requestsRelayedByAProxy(): iterable
+    {
+        yield 'X-Forwarded-For' => [['HTTP_X_FORWARDED_FOR' => '203.0.113.7']];
+        yield 'Forwarded' => [['HTTP_FORWARDED' => 'for=203.0.113.7']];
+        yield 'X-Real-IP' => [['HTTP_X_REAL_IP' => '203.0.113.7']];
+        yield 'Via' => [['HTTP_VIA' => '1.1 varnish']];
+        yield 'X-Forwarded-Proto' => [['HTTP_X_FORWARDED_PROTO' => 'https']];
+        yield 'X-Forwarded-Host' => [['HTTP_X_FORWARDED_HOST' => 'example.com']];
+        yield 'CF-Connecting-IP' => [['HTTP_CF_CONNECTING_IP' => '203.0.113.7']];
+        yield 'True-Client-IP' => [['HTTP_TRUE_CLIENT_IP' => '203.0.113.7']];
+        yield 'an empty X-Forwarded-For' => [['HTTP_X_FORWARDED_FOR' => '']];
+    }
+
+    public function testAProbeHeaderOnAMatchedRouteIsRecorded(): void
+    {
+        $this->handle($this->recorder(), self::probe(['REMOTE_ADDR' => '127.0.0.1']), 'app_home', 200);
+
+        static::assertCount(1, $this->buffer->entries);
+        static::assertSame('GET app_home', $this->buffer->entries[0]->key);
+    }
+
     public function testStaleRequestTimeFallsBackToNow(): void
     {
         $request = Request::create('/', server: ['REQUEST_TIME_FLOAT' => microtime(true) - 7200]);
@@ -320,6 +418,14 @@ final class RequestRecorderTest extends TestCase
 
             public function purge(int $now): void {}
         };
+    }
+
+    /**
+     * @param array<string, string> $server
+     */
+    private static function probe(array $server): Request
+    {
+        return Request::create('/nginx_status', server: ['HTTP_' . strtoupper(strtr(RequestRecorder::PROBE_HEADER, '-', '_')) => '1'] + $server);
     }
 
     /**

@@ -71,6 +71,40 @@ final class RecordingTest extends WebTestCase
         static::assertArrayNotHasKey('ZZZ app_hello', $routes);
     }
 
+    public function testAProbeThatFallsOnTheApplicationLeavesNoLineInRequests(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+        $probe = ['HTTP_X_JMONITOR_PROBE' => '1', 'REMOTE_ADDR' => '127.0.0.1'];
+
+        $client->request('GET', '/nginx_status', server: $probe);
+        static::assertResponseStatusCodeSame(404);
+        $client->request('GET', '/hello/world');
+        $this->flush();
+
+        $requests = self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET app_hello"]');
+        static::assertCount(1, $requests->filter('tr[data-jm-route="GET app_hello"]'));
+        static::assertCount(0, $requests->filter('tr[data-jm-route="GET (unmatched)"]'));
+
+        $client->request('GET', '/nginx_status', server: ['REMOTE_ADDR' => '127.0.0.1']);
+        static::assertResponseStatusCodeSame(404);
+        $this->flush();
+
+        $requests = self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET (unmatched)"]');
+        static::assertCount(1, $requests->filter('tr[data-jm-route="GET (unmatched)"]'));
+    }
+
+    public function testAVisitorBehindAProxyCannotHideBehindTheProbeHeader(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/nginx_status', server: ['HTTP_X_JMONITOR_PROBE' => '1', 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.7']);
+        static::assertResponseStatusCodeSame(404);
+        $this->flush();
+
+        $requests = self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET (unmatched)"]');
+        static::assertCount(1, $requests->filter('tr[data-jm-route="GET (unmatched)"]'));
+    }
+
     public function testTheReaderOfTheKernelSeesEveryFlush(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);

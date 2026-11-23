@@ -277,6 +277,21 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertCount(1, $crawler->filter('.jm-nav__item[aria-current="page"] [data-jm-slot="nav-gallery"] .jm-nav__badge'));
     }
 
+    public function testTheGalleryShowsANotedFactList(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+
+        static::assertResponseIsSuccessful();
+        $queues = $crawler->filter('.jm-facts[aria-label="Queues"]');
+        static::assertCount(1, $queues);
+        static::assertSame("Messages waiting in each transport, counted 12\u{00A0}s ago", $queues->filter('.jm-panel__header .jm-panel__note')->text());
+        static::assertSame(['1,234', 'Uncountable'], $queues->filter('.jm-fact__value')->each(static fn(Crawler $value): string => $value->text()));
+        static::assertCount(1, $queues->filter('.jm-fact__hint'));
+        static::assertCount(1, $crawler->filter('.jm-panel__note'));
+    }
+
     public function testTheGalleryMovesOnEveryRequest(): void
     {
         $client = static::createClient(['gallery' => true]);

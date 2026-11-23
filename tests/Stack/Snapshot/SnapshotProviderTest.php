@@ -929,7 +929,7 @@ final class SnapshotProviderTest extends TestCase
     public function testACommitThatFailsStillLiftsTheWitnesses(): void
     {
         $logger = new BufferingLogger();
-        $pool = new RefusingCachePool(refusesSave: false);
+        $pool = new RefusingCachePool(maxBytes: 64);
         $main = new FakeCollector('symfony', ['env' => 'prod']);
         $legacy = new FakeCollector('symfony', ['env' => 'prod']);
         $instances = [
@@ -1003,6 +1003,200 @@ final class SnapshotProviderTest extends TestCase
         $provider->forget([$instance]);
 
         self::assertNotSame([], $logger->cleanLogs());
+    }
+
+    public function testTheWitnessOfEveryInstanceIsTakenBeforeTheFirstNetworkCollectorRuns(): void
+    {
+        $witnesses = ['jmonitor.stack.collecting.%node.web-1.symfony.main', 'jmonitor.stack.collecting.%node.web-1.symfony.legacy'];
+        $found = null;
+        $first = self::collector('symfony.network', function () use ($witnesses, &$found): array {
+            $found = array_map(fn(string $witness): bool => $this->recording->hasItem($witness), $witnesses);
+
+            return ['ok' => true];
+        });
+        $main = self::instance([new CollectorSpec($first, Lifetime::Dynamic, CostClass::Network)], 'main', Component::Symfony);
+        $legacy = self::instance([self::spec(new FakeCollector('symfony.network', ['ok' => true]), cost: CostClass::Network)], 'legacy', Component::Symfony);
+
+        $this->provider()->read([$main, $legacy], CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame([true, true], $found);
+        self::assertFalse($this->recording->hasItem($witnesses[0]));
+        self::assertFalse($this->recording->hasItem($witnesses[1]));
+    }
+
+    public function testNoWitnessIsTakenWhenTheBudgetAllowsNothing(): void
+    {
+        $slow = new FakeCollector('php.slow', ['a' => 1]);
+        $instance = self::instance([self::spec(new FakeCollector('php', ['a' => 1]), Lifetime::Static), self::spec($slow, cost: CostClass::Slow)]);
+        $provider = $this->provider();
+        $this->read($provider, $instance, CollectBudget::page($this->clock));
+        $this->cache->reset();
+        $this->recording->ttls = [];
+
+        $snapshot = $this->read($provider, $instance, CollectBudget::page($this->clock));
+
+        self::assertSame(0, $slow->collects);
+        self::assertSame(ResultState::Pending, $snapshot->result('php.slow')?->state);
+        self::assertSame(['getItems' => 1], $this->cache->calls);
+        self::assertArrayNotHasKey('jmonitor.stack.collecting.%node.web-1.php', $this->recording->ttls);
+    }
+
+    public function testAPoolThatThrowsCostsOneAttemptToLiftTheWitnesses(): void
+    {
+        $broken = false;
+        $afterTheCollects = [];
+        $pool = new BreakingCachePool(static function (string $method) use (&$broken, &$afterTheCollects): bool {
+            $broken = $broken || $method === 'commit';
+
+            if ($broken) {
+                $afterTheCollects[] = $method;
+            }
+
+            return $broken;
+        });
+        $instances = [];
+
+        foreach (['main', 'legacy', 'admin'] as $id) {
+            $instances[] = self::instance([self::spec(new FakeCollector('symfony', ['env' => 'prod']))], $id, Component::Symfony);
+        }
+
+        $snapshots = $this->provider(cache: $pool)->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame(['commit', 'getItem'], $afterTheCollects, 'one write, then one witness to lift');
+
+        foreach (['main', 'legacy', 'admin'] as $id) {
+            self::assertSame(ResultState::Fresh, $snapshots['symfony.' . $id]->result('symfony')?->state);
+            self::assertTrue($pool->inner->hasItem('jmonitor.stack.collecting.%node.web-1.symfony.' . $id), 'it expires on its own');
+        }
+    }
+
+    public function testAPoolThatRefusesStillLiftsEveryWitness(): void
+    {
+        $pool = new RefusingCachePool(refusesSave: false);
+        $instances = [];
+
+        foreach (['main', 'legacy', 'admin'] as $id) {
+            $instances[] = self::instance([self::spec(new FakeCollector('symfony', ['env' => 'prod']))], $id, Component::Symfony);
+        }
+
+        $this->provider(cache: $pool)->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        foreach (['main', 'legacy', 'admin'] as $id) {
+            self::assertFalse($pool->inner->hasItem('jmonitor.stack.collecting.%node.web-1.symfony.' . $id), $id);
+        }
+    }
+
+    public function testAValueTheCacheRefusesIsNotCollectedAgainAtEveryDisplay(): void
+    {
+        $logger = new BufferingLogger();
+        $large = new FakeCollector('php.network', ['page' => str_repeat('x', 2000)]);
+        $small = new FakeCollector('php', ['requests' => 1]);
+        $instance = self::instance([self::spec($large, cost: CostClass::Network), self::spec($small, Lifetime::Static)]);
+        $provider = $this->provider(logger: $logger, cache: new RefusingCachePool(inner: $this->recording, maxBytes: 1000));
+
+        $first = $this->read($provider, $instance);
+        $this->clock->sleep(4.5);
+        $second = $this->read($provider, $instance);
+        $this->clock->sleep(4.5);
+        $this->read($provider, $instance);
+
+        self::assertSame(1, $large->collects);
+        self::assertSame(1, $small->collects, 'the other values are kept');
+        self::assertSame(ResultState::Fresh, $first->result('php.network')?->state);
+        self::assertSame(['page' => str_repeat('x', 2000)], $first->data('php.network'));
+        self::assertSame(ResultState::Failed, $second->result('php.network')?->state);
+        self::assertSame('The cache refused to keep this value, it may be too large.', $second->result('php.network')->error);
+        self::assertSame(self::START + 10, $second->result('php.network')->expiresAt);
+        self::assertSame(10, $this->recording->ttls['jmonitor.stack.failure.%node.web-1.php.php.network']);
+        self::assertCount(1, $logger->cleanLogs());
+
+        $this->clock->sleep(1);
+        $this->read($provider, $instance);
+
+        self::assertSame(2, $large->collects, 'collected again once its failure expires');
+        self::assertCount(1, $logger->cleanLogs());
+    }
+
+    public function testWhenOnlyTheGroupedWriteIsRefusedEachValueIsStillKept(): void
+    {
+        $logger = new BufferingLogger();
+        $network = new FakeCollector('php.network', ['a' => 1]);
+        $immediate = new FakeCollector('php', ['requests' => 1]);
+        $instance = self::instance([self::spec($network, cost: CostClass::Network), self::spec($immediate)]);
+        $provider = $this->provider(logger: $logger, cache: new RefusingCachePool(refusesSave: false, inner: $this->recording));
+
+        $first = $this->read($provider, $instance);
+        $firstLogs = $logger->cleanLogs();
+        $this->clock->sleep(5);
+        $second = $this->read($provider, $instance);
+
+        self::assertSame([1, 1], [$network->collects, $immediate->collects]);
+        self::assertSame(ResultState::Fresh, $first->result('php.network')?->state);
+        self::assertSame(ResultState::Fresh, $second->result('php.network')?->state);
+        self::assertSame(ResultState::Fresh, $second->result('php')?->state);
+        self::assertCount(1, $firstLogs);
+        self::assertSame([], $logger->cleanLogs());
+        self::assertFalse($this->recording->hasItem('jmonitor.stack.failure.%node.web-1.php.php.network'));
+        self::assertFalse($this->recording->hasItem('jmonitor.stack.failure.%node.web-1.php.php'));
+    }
+
+    public function testARefusedSlowValueIsKeptAsAFailureForTenMinutes(): void
+    {
+        $slow = new FakeCollector('php.slow', ['page' => str_repeat('x', 2000)]);
+        $instance = self::instance([self::spec($slow, Lifetime::Static, CostClass::Slow)]);
+        $provider = $this->provider(cache: new RefusingCachePool(inner: $this->recording, maxBytes: 1000));
+
+        $this->read($provider, $instance);
+        $this->clock->sleep(599);
+        $kept = $this->read($provider, $instance);
+
+        self::assertSame(1, $slow->collects);
+        self::assertSame(ResultState::Failed, $kept->result('php.slow')?->state);
+        self::assertSame(600, $this->recording->ttls['jmonitor.stack.failure.%node.web-1.php.php.slow']);
+    }
+
+    public function testARefusedImmediateValueLeavesNoFailure(): void
+    {
+        $large = new FakeCollector('php', ['page' => str_repeat('x', 2000)]);
+        $instance = self::instance([self::spec($large)]);
+        $provider = $this->provider(cache: new RefusingCachePool(inner: $this->recording, maxBytes: 1000));
+
+        $first = $this->read($provider, $instance);
+        $this->clock->sleep(1);
+        $second = $this->read($provider, $instance);
+
+        self::assertSame(2, $large->collects);
+        self::assertSame(ResultState::Fresh, $first->result('php')?->state);
+        self::assertSame(ResultState::Fresh, $second->result('php')?->state);
+        self::assertFalse($this->recording->hasItem('jmonitor.stack.failure.%node.web-1.php.php'));
+    }
+
+    /**
+     * @param \Closure(): array<string, mixed> $collect
+     */
+    private static function collector(string $name, \Closure $collect): CollectorInterface
+    {
+        return new class ($name, $collect) implements CollectorInterface {
+            public function __construct(
+                private readonly string $name,
+                private readonly \Closure $collect,
+            ) {}
+
+            public function collect(): array
+            {
+                return ($this->collect)();
+            }
+
+            public function getVersion(): int
+            {
+                return 1;
+            }
+
+            public function getName(): string
+            {
+                return $this->name;
+            }
+        };
     }
 
     /**

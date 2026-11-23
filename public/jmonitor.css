@@ -600,6 +600,14 @@ body.jm .jm-header {
     font-variant-numeric: tabular-nums;
 }
 
+.jm-panel__note {
+    min-width: 0;
+    color: var(--jm-faint);
+    font-size: 12.5px;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
 .jm-panel__footer {
     padding: 10px 18px;
     border-top: 1px solid var(--jm-border);
@@ -680,6 +688,11 @@ body.jm .jm-header {
 
 .jm-col-query {
     min-width: 360px;
+}
+
+.jm-table .jm-col-worker {
+    min-width: 160px;
+    overflow-wrap: anywhere;
 }
 
 .jm-table .jm-col-query.jm-zero {
@@ -863,6 +876,10 @@ body.jm .jm-header {
     text-align: center;
 }
 
+.jm-state:has(+ :not(.jm-rest):not(template)) {
+    margin-bottom: 20px;
+}
+
 .jm-state__icon {
     width: 36px;
     height: 36px;
@@ -947,7 +964,7 @@ body.jm .jm-header {
 }
 
 .jm .jm-rest {
-    margin-top: 4px;
+    margin-top: 20px;
     color: var(--jm-muted);
     font-size: 13px;
     text-align: center;
@@ -1623,6 +1640,17 @@ body.jm .jm-header {
 
     .jm-fact__hint {
         grid-column: 1;
+    }
+}
+
+@media (max-width: 400px) {
+    .jm-panel__header:has(> .jm-panel__note) {
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .jm-panel__note {
+        text-align: left;
     }
 }
 

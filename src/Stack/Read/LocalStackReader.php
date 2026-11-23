@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Stack\Detection\Availability;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentStatus;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
+use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectBudget;
@@ -40,6 +41,7 @@ final readonly class LocalStackReader implements StackReaderInterface
         private ClockInterface $clock,
         private WebNode $node,
         ?LoggerInterface $logger = null,
+        private ?QueuesInstance $queues = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
     }
@@ -82,6 +84,31 @@ final readonly class LocalStackReader implements StackReaderInterface
             $snapshots = $this->snapshots->read([$read], $this->budget($mode), $cache);
 
             return $this->state($cache, [self::componentState($status, $snapshots)], []);
+        } catch (\Throwable $e) {
+            return $this->failed($e, $cache);
+        }
+    }
+
+    public function queues(ReadMode $mode): ?StackState
+    {
+        if ($this->queues === null) {
+            return null;
+        }
+
+        $cache = CacheState::OutOfOrder;
+
+        try {
+            $cache = $this->probe->state();
+            $instance = $this->queues->instance();
+            $snapshots = $this->snapshots->read([$instance], $this->budget($mode), $cache);
+            $state = new InstanceState(
+                $instance->id,
+                null,
+                $instance->error === null ? null : ErrorMessage::clean($instance->error),
+                $snapshots[$instance->key()] ?? null,
+            );
+
+            return $this->state($cache, [new ComponentState(Component::Symfony, [$state], 0)], []);
         } catch (\Throwable $e) {
             return $this->failed($e, $cache);
         }

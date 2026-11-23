@@ -4,19 +4,30 @@ declare(strict_types=1);
 
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
+use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
 use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
+use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
+use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ApacheDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
 use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
@@ -24,6 +35,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\Messenger\Transport\Receiver\MessageCountAwareInterface;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
@@ -83,6 +95,49 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ])
         ->tag('jmonitor.stack.detector', ['index' => Component::Symfony->value]);
 
+    $services->set(FrankenPhpDetector::class)
+        ->args([param('jmonitor.stack.frankenphp.endpoint'), service(ProcessRunner::class)])
+        ->tag('jmonitor.stack.detector', ['index' => Component::FrankenPhp->value]);
+
+    $services->set(ApacheDetector::class)
+        ->args([param('jmonitor.stack.apache.endpoint'), service('request_stack'), param('jmonitor.stack.end_of_life')])
+        ->tag('jmonitor.stack.detector', ['index' => Component::Apache->value]);
+
+    $services->set(NginxDetector::class)
+        ->args([
+            param('jmonitor.stack.nginx.endpoint'),
+            service('request_stack'),
+            service(ProcessRunner::class),
+            param('jmonitor.stack.end_of_life'),
+        ])
+        ->tag('jmonitor.stack.detector', ['index' => Component::Nginx->value]);
+
+    if ($builder->getParameter('jmonitor.stack.symfony.messenger') && interface_exists(MessageCountAwareInterface::class)) {
+        $services->set(QueuesCommand::class)
+            ->args([service_locator([]), []])
+            ->tag('console.command');
+
+        $services->set(PhpCli::class);
+
+        $services->set(QueuesCollector::class)
+            ->args([
+                service(ProcessRunner::class),
+                service(PhpCli::class),
+                param('kernel.project_dir'),
+                param('kernel.environment'),
+                param('kernel.debug'),
+            ]);
+
+        $services->set(QueuesInstance::class)
+            ->args([service(QueuesCollector::class)]);
+
+        $services->set(QueuesBlocks::class)
+            ->args([
+                service_locator([StackReaderInterface::class => service(StackReaderInterface::class)]),
+                service('jmonitor.clock'),
+            ]);
+    }
+
     $services->set(ComponentRegistry::class)
         ->args([tagged_locator('jmonitor.stack.detector', 'index'), param('jmonitor.stack.components')])
         ->tag('kernel.reset', ['method' => 'reset']);
@@ -96,6 +151,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service('jmonitor.clock'),
             service(WebNode::class),
             $logger,
+            service(QueuesInstance::class)->nullOnInvalid(),
         ]);
 
     if ($customLogger === null) {
@@ -126,6 +182,9 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(ServerDetail::class);
     $services->set(PhpDetail::class);
     $services->set(SymfonyDetail::class);
+    $services->set(FrankenPhpDetail::class);
+    $services->set(ApacheDetail::class);
+    $services->set(NginxDetail::class);
 
     $services->set(StackScreen::class)
         ->args([
@@ -140,6 +199,9 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                 Component::System->value => service(ServerDetail::class),
                 Component::Php->value => service(PhpDetail::class),
                 Component::Symfony->value => service(SymfonyDetail::class),
+                Component::FrankenPhp->value => service(FrankenPhpDetail::class),
+                Component::Apache->value => service(ApacheDetail::class),
+                Component::Nginx->value => service(NginxDetail::class),
             ]),
         ])
         ->tag('jmonitor.screen', ['priority' => 10]);

@@ -237,6 +237,34 @@ final class EasyAdminPageTest extends WebTestCase
         }
     }
 
+    public function testTheQueuesShowUnderEasyAdmin(): void
+    {
+        $client = $this->client([
+            'jmonitor' => ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => true]]],
+            'messenger' => true,
+            'queuesOutput' => '{"transports":["async"]}' . "\n" . '{"name":"async","count":12}' . "\n",
+        ]);
+
+        $crawler = $client->request('GET', '/admin/jmonitor/messages');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('body.ea'));
+        static::assertCount(1, $crawler->filter('.jm .jm-screen > .jm-state[data-jm-reading]'));
+        $rest = (string) $crawler->filter('.jm a[data-jm-rest]')->attr('href');
+        static::assertStringStartsWith('/admin/jmonitor/messages?', $rest);
+        static::assertStringContainsString('period=1h', $rest);
+
+        $client->request('GET', '/admin/jmonitor/_fragment/messages');
+        static::assertResponseIsSuccessful();
+        $crawler = $client->request('GET', '/admin/jmonitor/messages');
+
+        static::assertSame('Queues', $crawler->filter('.jm .jm-screen > .jm-facts .jm-panel__title')->text());
+        static::assertSame('12', $crawler->filter('.jm .jm-facts .jm-fact__value')->text());
+        foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
+            static::assertStringStartsWith('/admin/jmonitor', $url);
+        }
+    }
+
     public function testADetailShowsUnderEasyAdmin(): void
     {
         $client = $this->client(['jmonitor' => ['stack' => self::STACK]]);
@@ -256,6 +284,30 @@ final class EasyAdminPageTest extends WebTestCase
         $client->request('POST', '/admin/jmonitor/_action/stack/php', ['action' => 'refresh'], server: self::SAME_ORIGIN);
         static::assertResponseStatusCodeSame(303);
         static::assertResponseRedirects('/admin/jmonitor/stack/php');
+    }
+
+    public function testAWebServerShowsUnderEasyAdmin(): void
+    {
+        $client = $this->client(['jmonitor' => ['stack' => self::STACK], 'fakeWebServer' => 'nginx']);
+        $client->setServerParameters(self::ADMIN + ['SERVER_SOFTWARE' => 'nginx/1.26.2']);
+
+        $client->request('GET', '/admin/jmonitor/stack');
+        $crawler = $client->request('GET', '/admin/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('/admin/jmonitor/stack/nginx', $crawler->filter('.jm [data-jm-component="nginx"] a')->attr('href'));
+
+        $crawler = $client->request('GET', '/admin/jmonitor/stack/nginx');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('body.ea'));
+        static::assertCount(1, $crawler->filter('.jm [data-jm-component="nginx"]'));
+        static::assertSame('/admin/jmonitor/stack', $crawler->filter('.jm .jm-nav__item[aria-current="page"]')->attr('href'));
+        static::assertSame('/admin/jmonitor/stack/nginx', $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->attr('href'));
+        static::assertContains('Connections', $crawler->filter('.jm .jm-panel__title')->each(static fn(Crawler $title): string => $title->text()));
+        foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
+            static::assertStringStartsWith('/admin/jmonitor', $url);
+        }
     }
 
     public function testRefreshWorksThroughEasyAdmin(): void
@@ -456,7 +508,7 @@ final class EasyAdminPageTest extends WebTestCase
     }
 
     /**
-     * @param array{jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool} $options
+     * @param array{jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool, fakeWebServer?: string, queuesOutput?: string} $options
      */
     private function client(array $options = []): KernelBrowser
     {
@@ -471,7 +523,7 @@ final class EasyAdminPageTest extends WebTestCase
     }
 
     /**
-     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool} $options
+     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool, fakeWebServer?: string, queuesOutput?: string} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -486,6 +538,8 @@ final class EasyAdminPageTest extends WebTestCase
             withEasyAdmin: true,
             withCspNonce: $options['nonce'] ?? false,
             withOpenBackOffice: $options['open'] ?? false,
+            fakeWebServer: $options['fakeWebServer'] ?? null,
+            queuesOutput: $options['queuesOutput'] ?? null,
         );
         self::$varDirs[] = $kernel->getVarDir();
 
