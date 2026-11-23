@@ -261,7 +261,7 @@ The bundle can also record the HTTP requests your application serves, its consol
 - **Cache** (`/jmonitor/cache`): hits, misses, hit rate, writes and deletes, per cache pool.
 - **Exceptions** (`/jmonitor/exceptions`): count and last occurrence per exception class, and per class and route, command, message or task.
 - **Users** (`/jmonitor/users`): requests, total and average time, slow requests and 5xx errors, per signed-in user.
-- **Stack** (`/jmonitor/stack`): the server, PHP, Symfony and the web server (FrankenPHP, Apache or Nginx), read live rather than recorded, with what to check; see [The live stack](#the-live-stack).
+- **Stack** (`/jmonitor/stack`): the server, PHP, Symfony, the web server (FrankenPHP, Apache or Nginx) and the MySQL or MariaDB servers of your Doctrine connections, read live rather than recorded, with what to check; see [The live stack](#the-live-stack).
 
 A screen only appears when its component is installed and its recording option is on: HTTP client needs the `http_client` service of the framework, Users needs the SecurityBundle, Messages needs `symfony/messenger` and Scheduler needs `symfony/scheduler`, each enabled in the framework configuration. Messages also appears when its recording is off, as long as the queues are counted.
 
@@ -317,6 +317,7 @@ jmonitor:
         enabled: true
         end_of_life: true     # look up support dates on endoflife.date
         ignore_checks: []     # identifiers of the checks to silence
+        exclude_connections: [] # Doctrine connections never read, fnmatch patterns allowed
         system: auto
         php: auto
         symfony:
@@ -332,6 +333,9 @@ jmonitor:
         nginx:
             enabled: auto
             endpoint: 'http://localhost/nginx_status'
+        mysql:
+            enabled: auto
+            connections: []   # names of the Doctrine connections to read; all of them when empty
 ```
 
 `recording.enabled` can come from an environment variable, read at runtime, to switch recording off without a new deployment:
@@ -376,17 +380,17 @@ Recording is off by default in the `test` environment. Forcing it on with a test
 
 ### The live stack
 
-The **Stack** screen (`/jmonitor/stack`) tells whether the server, PHP, Symfony and the web server that answers are fine right now, and where to look when they are not. Nothing is stored in the database: they are read when the screen is displayed.
+The **Stack** screen (`/jmonitor/stack`) tells whether the server, PHP, Symfony, the web server that answers and the MySQL or MariaDB servers of your application are fine right now, and where to look when they are not. Nothing is stored in the database: they are read when the screen is displayed.
 
 - **To check**: what needs attention, each line with its severity (`Critical`, `Warning` or `Info`), the component it concerns and, under `Why and what to do`, what to change.
-- **One card per component**, with its verdict (`Healthy`, `Warning`, `Critical` or `Unknown`) and its main figures: load, memory and disk for Server; version, OPcache memory and hit rate, and PHP-FPM workers for PHP; version, environment, debug mode and Flex recipes for Symfony; version, busy threads, queue and mode for FrankenPHP; version, busy workers and requests per second for Apache; version, connections and requests per second for Nginx. A version past its end of life, or that only receives security fixes, says so.
-- **One detail per component**, reached from its card or from the second navigation: `/jmonitor/stack/system`, `/jmonitor/stack/php`, `/jmonitor/stack/symfony`, `/jmonitor/stack/frankenphp`, `/jmonitor/stack/apache` and `/jmonitor/stack/nginx`, with the gauges and settings behind the card (OPcache, APCu, PHP-FPM, bundles, outdated recipes, FrankenPHP workers, Apache scoreboard, Nginx settings…).
+- **One card per component**, with its verdict (`Healthy`, `Warning`, `Critical` or `Unknown`) and its main figures: load, memory and disk for Server; version, OPcache memory and hit rate, and PHP-FPM workers for PHP; version, environment, debug mode and Flex recipes for Symfony; version, busy threads, queue and mode for FrankenPHP; version, busy workers and requests per second for Apache; version, connections and requests per second for Nginx; version, connections, queries per second and buffer pool hit rate for each MySQL or MariaDB server. A version past its end of life, or that only receives security fixes, says so.
+- **One detail per component**, reached from its card or from the second navigation: `/jmonitor/stack/system`, `/jmonitor/stack/php`, `/jmonitor/stack/symfony`, `/jmonitor/stack/frankenphp`, `/jmonitor/stack/apache`, `/jmonitor/stack/nginx` and `/jmonitor/stack/mysql`, with the gauges and settings behind the card (OPcache, APCu, PHP-FPM, bundles, outdated recipes, FrankenPHP workers, Apache scoreboard, Nginx settings, the size and slowest queries of a database…).
 
 Server is read on Linux only; on another system, the screen says so in place of its card. In a container, the load is the one of the host node, so a high load is only an `Info` there.
 
 The `Stack` entry of the navigation carries the number of critical and warning checks found at the last display of the Stack screen, for 15 minutes. When the application records nothing, because `recording.enabled` is off or there is no Doctrine DBAL connection, the `/jmonitor` page opens on the Stack screen. Under EasyAdmin, the Stack screen shows too.
 
-Nothing is read while nobody looks at it: no listener or scheduled task reads the stack, and the other screens only read the count of their badge from the cache. Its only console command, `jmonitor:stack:queues`, is started by a display of the Messages screen. What is read is kept in the cache for a lifetime of its own, 10 seconds for the figures of the server, PHP, Symfony and the web server: however many people watch the screen, each web server reads them at most once every 10 seconds. A value that takes longer to read shows `Reading…` and fills in within a few seconds, or with the `Load the rest` link. `Refresh` forgets what the cache holds and reads it again, the status page of the web server included, apart from the end-of-life dates; on a detail screen it only reads that component. It works at most once every 10 seconds for the same screen: a click within that time changes nothing.
+Nothing is read while nobody looks at it: no listener or scheduled task reads the stack, and the other screens only read the count of their badge from the cache. Its only console command, `jmonitor:stack:queues`, is started by a display of the Messages screen. What is read is kept in the cache for a lifetime of its own, 10 seconds for the figures of the server, PHP, Symfony, the web server and the databases: however many people watch the screen, each web server reads them at most once every 10 seconds, and a database is read at most once every 10 seconds for all your web servers. A value that takes longer to read shows `Reading…` and fills in within a few seconds, or with the `Load the rest` link. `Refresh` forgets what the cache holds and reads it again, the status page of the web server included, apart from the end-of-life dates; on a detail screen it only reads that component. It works at most once every 10 seconds for the same screen: a click within that time changes nothing.
 
 #### The web server
 
@@ -440,6 +444,46 @@ A status page that cannot be read leaves the card `Unknown`, with the reason and
 
 The same servers are set in two places: under `collectors.*` for the worker that sends the metrics to Jmonitor, and under `stack.*` for this screen.
 
+#### The databases
+
+Every Doctrine DBAL connection of your application whose driver is MySQL (`pdo_mysql`, `mysqli`, or a `mysql://` URL) is read, whether the server behind it is MySQL or MariaDB. Where a connection leads is read from the parameters DoctrineBundle gives it, not by building it: no connection is built, and none is opened, to learn its server. A connection whose parameters cannot be read, such as one whose environment variable is missing, shows as unavailable with the reason, and the others are read. A URL whose password holds a `/`, `?` or `#` that is not encoded cannot be read: encode the password (`%2F`, `%3F`, `%23`).
+
+`stack.mysql.connections` names the connections to read; empty, every MySQL connection is read. A name that is not a Doctrine connection shows as unavailable, with `Unknown Doctrine connection`. `stack.exclude_connections` leaves out every connection whose name matches one of its patterns (`*` and `?`), such as a replica or a backup the screen should never open; a connection both listed and excluded stops the container build. An application without a MySQL connection has no MySQL card, and the `Not detected` line says `MySQL: No MySQL Doctrine connection found.`
+
+**One card per server.** The connections that lead to one server share a card, which names the first of them and says how many lead there (`2 connections`). Two connections lead to one server when their configuration gives the same host and port: `localhost` and `127.0.0.1` count as two servers, and so do a host name and its address, since nothing tells PHP that they are the same. A Unix socket is a server of its own. The overview reads the first connection of each server, up to 8 servers, and says how many more there are.
+
+**One detail per connection**, at `/jmonitor/stack/mysql?connection=<name>`, reached from the card. Its selector lists the servers and, for the server shown, the connections that lead there with their database. It shows the connections, traffic, InnoDB, temporary tables, locks and settings of the server, then the size of the database of the connection and its slowest queries.
+
+| What | How often | Where |
+|---|---|---|
+| The status of the server (`SHOW GLOBAL STATUS`): connections, queries, buffer pool, temporary tables, locks | at most once every 10 seconds for each server, shared by all your web servers through the cache | cards and details |
+| Its settings (`SHOW GLOBAL VARIABLES`): version, `max_connections`, `innodb_buffer_pool_size`… | once an hour for each server | cards and details |
+| The size of the data and of the indexes of the database (`information_schema.TABLES`) | once an hour for each connection | detail only |
+| The slowest queries of the database (`performance_schema.events_statements_summary_by_digest`) | once a minute for each connection | detail only |
+
+The status and the settings need no privilege. The size counts the tables the database user of the connection can see. The slowest queries need `SELECT` on `performance_schema.events_statements_summary_by_digest`; without it the detail says the user may not read that table, and the rest is read as usual:
+
+```sql
+GRANT SELECT ON performance_schema.events_statements_summary_by_digest TO 'app'@'%';
+```
+
+MariaDB turns `performance_schema` off by default: set `performance_schema = ON` in the configuration of the server and restart it, or the detail says it is off and shows no slowest query.
+
+The slowest queries are the digests of `performance_schema`, the 10 slowest on average: every value is replaced by `?`, so no value of your data shows. Their counts and times add up since the server started. The queries that name `performance_schema` or `information_schema` are left out, those of the screen among them, and so are the queries of your application that name them, such as the introspection of Doctrine Migrations.
+
+On MySQL 8, `information_schema` keeps the sizes in a cache of its own for a day (`information_schema_stats_expiry`): they can be up to a day old, and the detail says so. The query that renews that cache takes longer: 4 to 7 seconds for 2,000 tables, measured on MySQL 8.4 and 8.0.
+
+A connection the screen opened, by building it or by trying again after it was lost, is closed at the end of the read, and its wait for an answer is bounded to 10 seconds; a connection your application had already opened is used as it is and left open. Under the worker mode of FrankenPHP, nothing stays open from one request to the next.
+
+A server that cannot be reached raises a `Critical` check, `MySQL cannot be reached`, with the reason, and its card keeps its last reading, if it had one. The reason never shows the password, the database user nor the URL of the connection. What it costs depends on how the server fails:
+
+- a closed port, such as a stopped server on a host that answers: nothing, the refusal comes at once;
+- a host name that no longer resolves: the time the resolver takes to say so;
+- a server that accepts the connection and then stops answering: 10 seconds;
+- a host that drops the packets: up to 30 seconds.
+
+Only the display that tries waits. The server is then not tried again for five times that wait, one minute at least and ten at most, and the displays in between do not wait. The status and the settings are read each at its own pace, so a server never read before can cost that wait twice, to two displays. `Refresh` tries again at once.
+
 #### Configuration
 
 Defaults, all optional:
@@ -449,8 +493,9 @@ Defaults, all optional:
 jmonitor:
     stack:
         enabled: true         # false: no Stack screen and nothing read; `stack: false` does the same
-        end_of_life: true     # look up the support dates of PHP, Symfony, Apache and Nginx on endoflife.date, once a day
+        end_of_life: true     # look up the support dates of PHP, Symfony, Apache, Nginx, MySQL and MariaDB on endoflife.date, once a day
         ignore_checks: []     # identifiers of the checks to silence, e.g. ['symfony.flex_recipes']
+        exclude_connections: [] # Doctrine connections never read, as fnmatch patterns, e.g. ['*_replica']
         system: auto          # auto: read when found, otherwise the reason shows on the "Not detected" line; true: its card stays, with the reason, when it cannot be read; false: never read
         php: auto             # same values
         symfony:
@@ -466,6 +511,9 @@ jmonitor:
         nginx:
             enabled: auto     # same values; `nginx: false` does the same
             endpoint: 'http://localhost/nginx_status'
+        mysql:
+            enabled: auto     # same values; `mysql: false` does the same
+            connections: []   # names of the Doctrine connections to read, e.g. ['default', 'reports']; all of them when empty
 ```
 
 What the stack reads outside the process of PHP, each with its switch under `stack`:
@@ -473,11 +521,12 @@ What the stack reads outside the process of PHP, each with its switch under `sta
 | What | Time limit | How often | Switch |
 |---|---|---|---|
 | The status page of the web server | 2 s | at most once every 10 seconds on each web server | `frankenphp`, `apache`, `nginx` |
-| An HTTPS request to `endoflife.date` for PHP, Symfony, Apache and Nginx | 3 s | once a day for each, shared by all your web servers through the cache | `end_of_life` |
+| An HTTPS request to `endoflife.date` for PHP, Symfony, Apache, Nginx, MySQL and MariaDB | 3 s | once a day for each, shared by all your web servers through the cache | `end_of_life` |
 | `composer recipes`, in the project directory, when `symfony/flex` is installed | 5 s | once an hour on each web server | `symfony.flex` |
 | `nginx -V`, `nginx -T` and `getconf _NPROCESSORS_ONLN`, when Nginx serves the page | 3 s each | once an hour on each web server | `nginx` |
 | `frankenphp version`, when FrankenPHP serves the page | 3 s | once an hour on each web server | `frankenphp` |
 | The console of your application, `bin/console jmonitor:stack:queues`, when the Messages screen is displayed | 3 s | at most once every 30 seconds, shared by all your web servers through the cache | `symfony.messenger` |
+| The MySQL or MariaDB server of each Doctrine connection, as described in [The databases](#the-databases) | 10 s without an answer; opening a connection to a host that drops the packets, up to 30 s | its status at most once every 10 seconds, shared by all your web servers through the cache; the rest once a minute to once an hour | `mysql` |
 
 A command runs in the environment of PHP, without the headers of the web request (the `HTTP_*` variables), as its user, who must be able to run it. When it cannot, the screen says so: a check on the Stack screen, or a notice in the `Queues` block or in the detail of Nginx. A command that cannot be found is tried again an hour later. Turned off, `end_of_life` shows versions without their support status and skips the end-of-life and security-fixes checks; `symfony.flex` hides the Flex recipes.
 
@@ -487,7 +536,7 @@ None of these delays the first display of the screen: they run when the page rea
 
 The values live in the `jmonitor.stack.cache` pool, built on `cache.app` with keys of their own. It shows in `cache:pool:list` and in the Cache panel of the profiler, `cache:pool:clear jmonitor.stack.cache` empties it, and its reads are not counted on the Cache screen. The stack needs a cache that keeps its values from one request to the next: with `cache.app` on the `array` or `null` adapter, or a cache that is down, the screen says so and only shows what PHP reads in its own process, without the end-of-life dates, the Flex recipes or the queues, and `Refresh` does nothing.
 
-Each web server keeps its own figures in that cache, under its host name, and the screen names the one that answered. In containers, give each web server its own host name: two containers that share one, through a fixed `hostname` in Compose for instance, mix their values. The badge of the navigation and the figures of the server, PHP, Symfony and the web server are those of the web server that answered, while the 10-second bound of `Refresh` is shared by all the web servers that share the cache.
+Each web server keeps its own figures in that cache, under its host name, and the screen names the one that answered. In containers, give each web server its own host name: two containers that share one, through a fixed `hostname` in Compose for instance, mix their values. The badge of the navigation and the figures of the server, PHP, Symfony and the web server are those of the web server that answered, those of the databases are shared by all of them, while the 10-second bound of `Refresh` is shared by all the web servers that share the cache.
 
 #### Checks
 
@@ -515,21 +564,27 @@ To silence a check, add its identifier to `ignore_checks`: it is no longer shown
 | `apache.idle_workers` | no worker is idle (`Info`) |
 | `nginx.connections` | open connections reach 85% of `worker_processes` × `worker_connections` (`Critical` from 95%); needs the settings from `nginx -T` |
 | `nginx.refused` | Nginx refused connections between two readings (`Info` when only since it started) |
-| `php.end_of_life`, `symfony.end_of_life`, `apache.end_of_life`, `nginx.end_of_life` | the version has reached its end of life (`Critical`) |
-| `php.security_only`, `symfony.security_only`, `apache.security_only`, `nginx.security_only` | the version only receives security fixes |
+| `mysql.connections` | the server holds 80% of its `max_connections` or more (`Critical` from 95%) |
+| `mysql.buffer_pool_hit_rate` | the buffer pool hit rate is below 95%, over at least 1,000 reads between two readings, otherwise since the server started once it has run an hour |
+| `mysql.disk_temporary_tables` | 25% or more of the temporary tables were written to disk, over at least 100 tables between two readings, otherwise since the server started once it has run an hour |
+| `mysql.table_lock_waits` | 5% or more of the table locks had to wait, over at least 100 locks between two readings |
+| `php.end_of_life`, `symfony.end_of_life`, `apache.end_of_life`, `nginx.end_of_life`, `mysql.end_of_life` | the version has reached its end of life (`Critical`) |
+| `php.security_only`, `symfony.security_only`, `apache.security_only`, `nginx.security_only`, `mysql.security_only` | the version only receives security fixes |
 | `system.failed`, `php.failed`, `symfony.failed` | the component could not be read |
+| `mysql.failed` | the server cannot be reached (`Critical`), or could not be read |
 | `frankenphp.failed`, `apache.failed`, `nginx.failed` | the metrics or the status page could not be read (`Info`; a `Warning` when the component itself could not be read) |
 | `symfony.flex.failed` | `composer recipes` could not run (`Info`) |
 | `nginx.config.failed` | `nginx -V` or `nginx -T` ran longer than its time limit (`Info`) |
 | `frankenphp.version.failed` | `frankenphp version` could not run (`Info`) |
+| `mysql.variables.failed`, `mysql.sizes.failed`, `mysql.slow_queries.failed` | the settings of the server, the size of the database or its slowest queries could not be read (`Info`) |
 
-A check is a `Warning` unless the table says otherwise. A component that was read before but cannot be read again keeps its last reading on its card, and its `.failed` check says why.
+A check is a `Warning` unless the table says otherwise. A component that was read before but cannot be read again keeps its last reading on its card, and its `.failed` check says why. A database server that cannot be reached is `Critical`: the application cannot reach it either. The support status of MySQL and MariaDB is not looked up for Percona Server, TiDB and Aurora, whose versions follow cycles of their own.
 
 ### The queues of the Messages screen
 
 At the top of the Messages screen, the `Queues` block shows how many messages wait in each Messenger transport. Like the Stack screen, it is read live: it needs neither a database nor the recording. Without them, the screen still shows, with this block. Below it, the recorded messages; when they are not recorded, the screen says `Messages are not recorded` when the storage is there, and otherwise the state of the storage (`No storage configured`, `Recording is off`).
 
-The count is kept 30 seconds, shared by all your web servers through the cache: however many people watch the screen, the transports are counted at most once every 30 seconds. The first count starts a second or two after the page opens, which shows `Counting the queues…` until then.
+The count is kept 30 seconds, shared by all your web servers through the cache: however many people watch the screen, the transports are counted at most once every 30 seconds. `Refresh` on the Stack screen forgets the count too, so the next display of the Messages screen counts them again. The first count starts a second or two after the page opens, which shows `Counting the queues…` until then.
 
 A transport that cannot be counted shows `Uncountable`, with the reason under it:
 
@@ -613,11 +668,13 @@ composer require jmonitor/jmonitor-bundle
 | `components.system.enabled`, `components.php.enabled`, `components.symfony.enabled`, `components.symfony.flex` | `jmonitor.stack.system`, `jmonitor.stack.php`, `jmonitor.stack.symfony.enabled`, `jmonitor.stack.symfony.flex` |
 | `components.frankenphp`, `components.apache`, `components.nginx` (`enabled` and `endpoint`) | `jmonitor.stack.frankenphp`, `jmonitor.stack.apache`, `jmonitor.stack.nginx` (`enabled` and `endpoint`) |
 | `components.symfony.messenger` | `jmonitor.stack.symfony.messenger` |
-| `cache_pool`, `polling_interval`, `static_ttl`, `exclude_connections`, the other `components.*` | no equivalent |
+| `components.mysql.enabled`, `components.mysql.connections` | `jmonitor.stack.mysql.enabled`, `jmonitor.stack.mysql.connections` |
+| `exclude_connections` | `jmonitor.stack.exclude_connections` |
+| `cache_pool`, `polling_interval`, `static_ttl`, the other `components.*` | no equivalent |
 
-The menu link and its route name, `admin_jmonitor_index` for a dashboard whose route is `admin`, do not change. The addresses of the former tabs, such as `/admin/jmonitor/mysql`, answer 404.
+The menu link and its route name, `admin_jmonitor_index` for a dashboard whose route is `admin`, do not change. The addresses of the former tabs, such as `/admin/jmonitor/mysql`, answer 404: the detail of MySQL is now at `/admin/jmonitor/stack/mysql`.
 
-The pages show the screens of your application listed above: requests, queries, commands, messages, scheduler, HTTP client, cache, exceptions and users. The System, PHP, Symfony, FrankenPHP, Apache and Nginx tabs of `jmonitor/easyadmin-bundle` 1.x have their equivalent on the Stack screen (see [The live stack](#the-live-stack)), and its Messenger transports are counted on the Messages screen (see [The queues of the Messages screen](#the-queues-of-the-messages-screen)). Its database tabs (MySQL, PostgreSQL) and Redis tab have no equivalent yet, nor has its Cloudflare tab.
+The pages show the screens of your application listed above: requests, queries, commands, messages, scheduler, HTTP client, cache, exceptions and users. The System, PHP, Symfony, FrankenPHP, Apache, Nginx and MySQL tabs of `jmonitor/easyadmin-bundle` 1.x have their equivalent on the Stack screen (see [The live stack](#the-live-stack) and [The databases](#the-databases)), and its Messenger transports are counted on the Messages screen (see [The queues of the Messages screen](#the-queues-of-the-messages-screen)). Its PostgreSQL and Redis tabs have no equivalent yet, nor has its Cloudflare tab.
 
 Recording starts by default and creates the `jmonitor_aggregates` and `jmonitor_keys` tables in the default Doctrine connection; `recording.enabled: false` prevents it.
 

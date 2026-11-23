@@ -55,6 +55,11 @@ The engine that reads the server, PHP, Symfony and the web server on demand, beh
 - The percentages and byte sizes a check judges and a screen shows are formatted by `Figures`, so that both show the same value.
 - A block of `src/Dashboard/View/` names no type of `src/Stack/`.
 - A `Mark` always carries a word: a verdict or a severity is never told by colour alone.
+- Where a Doctrine connection leads is read by `DoctrineConnections`, from its parameters, never by building the connection.
+- A database collector queries through the `DbalLink` of its instance, which alone asks the container for the connection, and closes it at the end of the read when it opened it.
+- A collector only read on the detail is `detailOnly`; a value shared by the connections of one server is `perServer`.
+- A test only reaches the databases of `tests/compose.yaml`, and skips without `JMONITOR_TEST_MYSQL_URL`, or a closed port of the machine (`127.0.0.1:1`) to play a server that is down.
+- A failure keeps its kind (`FailureKind`): an unreachable server, a missing prerequisite or another error are kept and judged apart.
 
 ## CHANGELOG
 
