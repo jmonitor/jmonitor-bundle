@@ -119,7 +119,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->tag('kernel.reset', ['method' => 'reset']);
 
     $services->set(DatabaseInstances::class)
-        ->args([service(DoctrineConnections::class), service_locator([]), param('jmonitor.stack.exclude_connections')]);
+        ->args([service(DoctrineConnections::class), service('service_container'), [], param('jmonitor.stack.exclude_connections')]);
 
     if ($builder->getParameter('jmonitor.stack.symfony.messenger') && interface_exists(MessageCountAwareInterface::class)) {
         $services->set(QueuesCommand::class)

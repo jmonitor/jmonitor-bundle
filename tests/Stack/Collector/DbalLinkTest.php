@@ -157,14 +157,19 @@ final class DbalLinkTest extends TestCase
     {
         $open = new FakeDatabase(['SHOW' => [['Value' => '42']]], connected: true);
         $open->failNext(self::connectionLost());
+        $link = self::link($open);
 
-        self::assertSame([['Value' => '42']], self::link($open)->fetchAllAssociative("SHOW GLOBAL STATUS LIKE 'Uptime'"));
+        self::assertSame([['Value' => '42']], $link->fetchAllAssociative("SHOW GLOBAL STATUS LIKE 'Uptime'"));
         self::assertSame(2, $open->calls());
+        $link->release();
+        self::assertSame(1, $open->closes);
 
         $lostTwice = new FakeDatabase(connected: true);
         $lostTwice->failNext(self::connectionLost())->failNext($second = self::connectionLost());
 
-        self::assertSame($second, Failures::thrownBy(static fn() => self::link($lostTwice)->fetchAllAssociative('SELECT 1')));
+        $failure = Failures::thrownBy(static fn() => self::link($lostTwice)->fetchAllAssociative('SELECT 1'));
+        self::assertInstanceOf(UnreachableServerException::class, $failure);
+        self::assertSame($second, $failure->getPrevious());
         self::assertSame(2, $lostTwice->calls());
 
         $opening = new FakeDatabase();
@@ -204,6 +209,71 @@ final class DbalLinkTest extends TestCase
         $link->fetchAllAssociative('SELECT 1');
 
         self::assertTrue($connection->isConnectedToPrimary());
+        $link->release();
+        self::assertFalse($connection->isConnected());
+    }
+
+    public function testAConnectionKilledUnderTheApplicationIsReopenedThenClosedOnRelease(): void
+    {
+        $connection = self::mysql();
+        $id = $connection->fetchOne('SELECT CONNECTION_ID()');
+        self::assertIsNumeric($id);
+        self::mysql()->executeStatement('KILL ' . (int) $id);
+        $link = new DbalLink(static fn(): Connection => $connection, 2);
+
+        self::assertEquals([['one' => 1]], $link->fetchAllAssociative('SELECT 1 AS one'));
+        self::assertNotEquals($id, $connection->fetchOne('SELECT CONNECTION_ID()'));
+        $link->release();
+
+        self::assertFalse($connection->isConnected());
+        self::assertEquals(1, $connection->fetchOne('SELECT SLEEP(3) + 1'));
+    }
+
+    public function testAConnectionItsRequestOpenedIsClosedOnRelease(): void
+    {
+        $built = new FakeDatabase(connected: true);
+        $link = new DbalLink(static fn(): Connection => $built, built: static fn(): bool => false);
+        $link->fetchAllAssociative('SELECT 1');
+        $link->release();
+
+        $alreadyBuilt = new FakeDatabase(connected: true);
+        $kept = new DbalLink(static fn(): Connection => $alreadyBuilt, built: static fn(): bool => true);
+        $kept->fetchAllAssociative('SELECT 1');
+        $kept->release();
+
+        self::assertSame(1, $built->closes);
+        self::assertSame(0, $alreadyBuilt->closes);
+    }
+
+    public function testTheReadTimeoutIsInForceWhileTheConnectionIsAskedFor(): void
+    {
+        $initial = ini_get(self::READ_TIMEOUT);
+        if ($initial === false) {
+            self::markTestSkipped('mysqlnd is not loaded.');
+        }
+        ini_set(self::READ_TIMEOUT, '31');
+
+        try {
+            $whileAsked = [];
+            $link = new DbalLink(static function () use (&$whileAsked): Connection {
+                $whileAsked[] = ini_get(self::READ_TIMEOUT);
+
+                return new FakeDatabase(connected: true);
+            }, built: static fn(): bool => false);
+            $link->fetchAllAssociative('SELECT 1');
+
+            $failing = new DbalLink(static function () use (&$whileAsked): never {
+                $whileAsked[] = ini_get(self::READ_TIMEOUT);
+
+                throw new \RuntimeException('SQLSTATE[HY000] [2002] Connection refused');
+            });
+            Failures::thrownBy(static fn() => $failing->fetchAllAssociative('SELECT 1'));
+
+            self::assertSame(['10', '10'], $whileAsked);
+            self::assertSame('31', ini_get(self::READ_TIMEOUT));
+        } finally {
+            ini_set(self::READ_TIMEOUT, $initial);
+        }
     }
 
     public function testTheReadTimeoutIsSetWhileOpeningAndPutBack(): void

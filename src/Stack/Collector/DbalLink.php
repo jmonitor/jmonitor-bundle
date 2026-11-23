@@ -30,10 +30,12 @@ final class DbalLink implements DatabaseAdapterInterface
     /**
      * @param \Closure(): Connection $connect
      * @param int                    $readTimeout seconds a query waits for a server that stopped answering, set while the connection opens
+     * @param ?\Closure(): bool      $built       whether the connection was built before this link asked for it; without it, it was
      */
     public function __construct(
         private readonly \Closure $connect,
         private readonly int $readTimeout = 10,
+        private readonly ?\Closure $built = null,
     ) {}
 
     /**
@@ -50,7 +52,7 @@ final class DbalLink implements DatabaseAdapterInterface
         }
 
         try {
-            $connection = $this->connection ??= ($this->connect)();
+            $connection = $this->connection ??= $this->connect();
         } catch (\Throwable $e) {
             throw $this->failure = new UnreachableServerException($e->getMessage(), 0, $e);
         }
@@ -69,8 +71,6 @@ final class DbalLink implements DatabaseAdapterInterface
             }
         } catch (\Throwable $e) {
             throw $this->failed($connection, $e);
-        } finally {
-            $this->opened = $this->opened || (!$wasConnected && self::isConnected($connection));
         }
     }
 
@@ -86,6 +86,18 @@ final class DbalLink implements DatabaseAdapterInterface
     }
 
     /**
+     * A connection that building it opened, to read the server version, counts as opened by this link.
+     */
+    private function connect(): Connection
+    {
+        $built = $this->built === null || ($this->built)();
+        $connection = $this->bounded($this->connect);
+        $this->opened = !$built && self::isConnected($connection);
+
+        return $connection;
+    }
+
+    /**
      * @param array<mixed> $params
      *
      * @return list<array<string, mixed>>
@@ -96,15 +108,34 @@ final class DbalLink implements DatabaseAdapterInterface
             return $connection->fetchAllAssociative($query, $params);
         }
 
-        // Bounds the wait on a server that accepts the connection and then stops answering, for the life of the connection.
+        try {
+            return $this->bounded(static function () use ($connection, $query, $params): array {
+                if ($connection instanceof PrimaryReadReplicaConnection) {
+                    $connection->ensureConnectedToPrimary();
+                }
+
+                return $connection->fetchAllAssociative($query, $params);
+            });
+        } finally {
+            $this->opened = $this->opened || self::isConnected($connection);
+        }
+    }
+
+    /**
+     * Bounds the wait on a server that accepts the connection and then stops answering, for the life of a connection opened meanwhile.
+     *
+     * @template T
+     *
+     * @param \Closure(): T $call
+     *
+     * @return T
+     */
+    private function bounded(\Closure $call): mixed
+    {
         $previous = ini_set(self::READ_TIMEOUT, (string) $this->readTimeout);
 
         try {
-            if ($connection instanceof PrimaryReadReplicaConnection) {
-                $connection->ensureConnectedToPrimary();
-            }
-
-            return $connection->fetchAllAssociative($query, $params);
+            return $call();
         } finally {
             if ($previous !== false) {
                 ini_set(self::READ_TIMEOUT, $previous);
@@ -120,6 +151,7 @@ final class DbalLink implements DatabaseAdapterInterface
         }
 
         if ($lost) {
+            $this->opened = false;
             $connection->close();
         } elseif (self::isConnected($connection)) {
             return $e;

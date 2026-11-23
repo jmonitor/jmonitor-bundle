@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Doctrine\DBAL\Connection;
+use Jmonitor\JmonitorBundle\Stack\Collector\DbalLink;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\ConnectionTarget;
 use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
 use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
@@ -103,6 +105,29 @@ final class StackConnectionsTest extends TestCase
         self::assertFalse($container->initialized('doctrine.dbal.default_connection'));
     }
 
+    public function testAConnectionTheLinkBuiltIsClosedOnRelease(): void
+    {
+        $container = $this->openingConnection();
+
+        self::readAndRelease($container);
+
+        $connection = $container->get('doctrine.dbal.e_connection');
+        self::assertInstanceOf(Connection::class, $connection);
+        self::assertFalse($connection->isConnected());
+    }
+
+    public function testAConnectionTheApplicationBuiltIsLeftOpen(): void
+    {
+        $container = $this->openingConnection();
+        $connection = $container->get('doctrine.dbal.e_connection');
+        self::assertInstanceOf(Connection::class, $connection);
+        self::assertTrue($connection->isConnected());
+
+        self::readAndRelease($container);
+
+        self::assertTrue($connection->isConnected());
+    }
+
     public function testWithoutDoctrineNoConnectionIsConfigured(): void
     {
         $kernel = $this->kernels[] = new TestKernel('test', true, withDoctrine: false, withPublicInternals: true);
@@ -132,6 +157,37 @@ final class StackConnectionsTest extends TestCase
     private function kernel(array $connections): TestKernel
     {
         return $this->kernels[] = new TestKernel('test', true, withPublicInternals: true, connections: $connections);
+    }
+
+    /**
+     * A connection that its construction opens, to read the server version its mapping types need.
+     */
+    private function openingConnection(): ContainerInterface
+    {
+        if (!\is_string(getenv('JMONITOR_TEST_MYSQL_URL'))) {
+            self::markTestSkipped('JMONITOR_TEST_MYSQL_URL is not set.');
+        }
+
+        $container = $this->container(['e' => ['url' => '%env(JMONITOR_TEST_MYSQL_URL)%', 'mapping_types' => ['enum' => 'string']]]);
+        self::assertFalse($container->initialized('doctrine.dbal.e_connection'));
+
+        return $container;
+    }
+
+    private static function readAndRelease(ContainerInterface $container): void
+    {
+        $instances = $container->get(DatabaseInstances::class);
+        self::assertInstanceOf(DatabaseInstances::class, $instances);
+        $links = [];
+        $set = $instances->detect(Component::System, 'mysql', 'MySQL', ['e' => []], static function (ConnectionTarget $target, DbalLink $link) use (&$links): array {
+            $links[] = $link;
+
+            return [];
+        }, true, 3306)->instances[0]->collectors;
+        self::assertNotNull($set);
+
+        self::assertEquals([['one' => 1]], $links[0]->fetchAllAssociative('SELECT 1 AS one'));
+        $set->release();
     }
 
     private static function detect(ContainerInterface $container): Detection

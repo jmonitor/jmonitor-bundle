@@ -41,7 +41,7 @@ final class StackConnectionsPassTest extends TestCase
         }
         self::assertSame(
             ['default' => 'doctrine.dbal.default_connection', '2024' => 'doctrine.dbal.2024_connection'],
-            self::locator($container, $container->getDefinition(DatabaseInstances::class)->getArgument(1)),
+            $container->getDefinition(DatabaseInstances::class)->getArgument(2),
         );
 
         $definition->setPublic(true);
@@ -114,7 +114,7 @@ final class StackConnectionsPassTest extends TestCase
 
     private static function databaseInstances(): Definition
     {
-        return new Definition(DatabaseInstances::class, [new Reference(DoctrineConnections::class), new ServiceLocatorArgument([]), []]);
+        return new Definition(DatabaseInstances::class, [new Reference(DoctrineConnections::class), new Reference('service_container'), [], []]);
     }
 
     /**

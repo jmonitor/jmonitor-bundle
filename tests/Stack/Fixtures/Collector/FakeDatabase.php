@@ -6,10 +6,11 @@ namespace Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Driver\PDO\MySQL\Driver;
+use Doctrine\DBAL\Exception\ConnectionLost;
 
 /**
  * A connection that answers each query by the first fragment it contains. A query that succeeds
- * opens it; one that fails leaves it as it was, open or not.
+ * opens it; a lost connection closes it, as DBAL does; another failure leaves it as it was.
  */
 final class FakeDatabase extends Connection
 {
@@ -65,7 +66,7 @@ final class FakeDatabase extends Connection
         $this->readTimeouts[] = ini_get('mysqlnd.net_read_timeout');
 
         if ($this->next !== []) {
-            throw array_shift($this->next);
+            $this->fail(array_shift($this->next));
         }
 
         $answer = [];
@@ -77,7 +78,7 @@ final class FakeDatabase extends Connection
         }
 
         if ($answer instanceof \Throwable) {
-            throw $answer;
+            $this->fail($answer);
         }
 
         $this->connected = true;
@@ -94,5 +95,14 @@ final class FakeDatabase extends Connection
     {
         ++$this->closes;
         $this->connected = false;
+    }
+
+    private function fail(\Throwable $e): never
+    {
+        if ($e instanceof ConnectionLost) {
+            $this->connected = false;
+        }
+
+        throw $e;
     }
 }

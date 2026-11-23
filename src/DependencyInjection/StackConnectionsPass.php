@@ -27,14 +27,14 @@ final class StackConnectionsPass implements CompilerPassInterface
         /** @var array<string, string> $connections */
         $connections = $container->getParameter('doctrine.connections');
         $params = [];
-        $services = [];
+        $ids = [];
 
         foreach ($connections as $name => $id) {
             if (!$container->hasDefinition($id)) {
                 continue;
             }
 
-            $services[(string) $name] = new Reference($id);
+            $ids[(string) $name] = $id;
 
             $paramsId = 'jmonitor.stack.connection_params.' . $name;
             $container->setDefinition($paramsId, (new Definition(\ArrayObject::class, [$container->getDefinition($id)->getArgument(0)]))->setPublic(false));
@@ -47,6 +47,6 @@ final class StackConnectionsPass implements CompilerPassInterface
             ->replaceArgument(2, new Reference('doctrine.dbal.connection_factory.dsn_parser', ContainerInterface::NULL_ON_INVALID_REFERENCE));
 
         $container->getDefinition(DatabaseInstances::class)
-            ->replaceArgument(1, ServiceLocatorTagPass::register($container, $services));
+            ->replaceArgument(2, $ids);
     }
 }

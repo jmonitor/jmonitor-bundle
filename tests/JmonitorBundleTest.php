@@ -1613,7 +1613,7 @@ class JmonitorBundleTest extends TestCase
         static::assertSame([], $default->getParameter('jmonitor.stack.exclude_connections'));
         static::assertSame(['shard_*'], $single->getParameter('jmonitor.stack.exclude_connections'));
         static::assertSame(['*_backup', 'legacy?'], $list->getParameter('jmonitor.stack.exclude_connections'));
-        static::assertSame('%jmonitor.stack.exclude_connections%', $default->getDefinition(DatabaseInstances::class)->getArgument(2));
+        static::assertSame('%jmonitor.stack.exclude_connections%', $default->getDefinition(DatabaseInstances::class)->getArgument(3));
     }
 
     public function testAnEmptyPatternIsRefused(): void

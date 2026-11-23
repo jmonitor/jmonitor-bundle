@@ -9,7 +9,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
 use Jmonitor\JmonitorBundle\Stack\Collector\DbalLink;
 use Jmonitor\JmonitorBundle\Stack\Component;
-use Psr\Container\ContainerInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * The instances of a database component, one per Doctrine connection, found without building any.
@@ -21,12 +21,14 @@ final readonly class DatabaseInstances
     private const UNREADABLE_SHOWN = 3;
 
     /**
-     * @param ContainerInterface $services the Doctrine connections under their name
-     * @param list<string>       $exclude  fnmatch patterns of connections to leave out
+     * @param ContainerInterface    $container where the Doctrine connections are built
+     * @param array<string, string> $ids       the service id of each Doctrine connection, under its name
+     * @param list<string>          $exclude   fnmatch patterns of connections to leave out
      */
     public function __construct(
         private DoctrineConnections $connections,
-        private ContainerInterface $services,
+        private ContainerInterface $container,
+        private array $ids,
         private array $exclude,
     ) {}
 
@@ -113,14 +115,18 @@ final readonly class DatabaseInstances
      */
     private function found(Component $component, ConnectionTarget $target, array $options, \Closure $collectors, bool $byServer, int $defaultPort): Instance
     {
-        $services = $this->services;
+        $container = $this->container;
         $name = $target->name;
-        $link = new DbalLink(static function () use ($services, $name): Connection {
-            $connection = $services->get($name);
-            \assert($connection instanceof Connection);
+        $id = $this->ids[$name] ?? $name;
+        $link = new DbalLink(
+            static function () use ($container, $id): Connection {
+                $connection = $container->get($id);
+                \assert($connection instanceof Connection);
 
-            return $connection;
-        });
+                return $connection;
+            },
+            built: static fn(): bool => $container->initialized($id),
+        );
 
         return Instance::found(
             $component,

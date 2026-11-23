@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Detection;
 
-use Doctrine\DBAL\Connection;
 use Jmonitor\JmonitorBundle\Stack\Collector\DbalLink;
 use Jmonitor\JmonitorBundle\Stack\Collector\UnreachableServerException;
 use Jmonitor\JmonitorBundle\Stack\Component;
@@ -17,6 +16,10 @@ use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\Failures;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeDatabase;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Exception\EnvNotFoundException;
+use Symfony\Component\DependencyInjection\Container;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Exception\ServiceNotFoundException;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 
 final class DatabaseInstancesTest extends TestCase
@@ -50,7 +53,7 @@ final class DatabaseInstancesTest extends TestCase
 
     public function testTheErrorsOfAConfiguredConnection(): void
     {
-        $none = (new DatabaseInstances(new DoctrineConnections(new ServiceLocator([]), []), new ServiceLocator([]), []))
+        $none = (new DatabaseInstances(new DoctrineConnections(new ServiceLocator([]), []), new Container(), [], []))
             ->detect(Component::System, 'mysql', 'MySQL', ['default' => []], self::noCollector(), false, 3306);
         $instances = self::instances(['default' => self::MYSQL, 'sqlite' => self::SQLITE], ['broken' => static fn(): never => throw new EnvNotFoundException('Environment variable not found: "NOPE_URL".')]);
         $detection = $instances->detect(Component::System, 'mysql', 'MySQL', ['missing' => [], 'broken' => [], 'sqlite' => []], self::noCollector(), false, 3306);
@@ -83,10 +86,17 @@ final class DatabaseInstancesTest extends TestCase
 
     public function testExcludedConnectionsAreNeverRead(): void
     {
-        $excluded = static fn(): never => throw new \LogicException('An excluded connection is never read.');
+        $reads = 0;
+        $excluded = static function () use (&$reads): \ArrayObject {
+            ++$reads;
+
+            return new \ArrayObject(self::MYSQL);
+        };
         $instances = self::instances(['default' => self::MYSQL, 's001' => self::MYSQL], ['s001_backup' => $excluded, 'legacy' => $excluded], ['*_backup', 'legacy']);
 
         self::assertSame(['default', 's001'], self::ids($instances->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), false, 3306)));
+        self::assertSame(0, $reads);
+        self::assertSame(['default', 's001', 's001_backup', 'legacy'], self::ids(self::instances(['default' => self::MYSQL, 's001' => self::MYSQL], ['s001_backup' => $excluded, 'legacy' => $excluded])->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), false, 3306)));
     }
 
     public function testAnUnreadableConnectionIsLeftAside(): void
@@ -103,7 +113,7 @@ final class DatabaseInstancesTest extends TestCase
         $onlyBroken = self::instances(['default' => self::SQLITE], ['broken' => self::unreadable()]);
         $many = self::instances([], array_fill_keys(['s1', 's2', 's3', 's4', 's5'], self::unreadable()));
         $excluded = self::instances(['default' => self::MYSQL], exclude: ['*']);
-        $none = new DatabaseInstances(new DoctrineConnections(new ServiceLocator([]), []), new ServiceLocator([]), []);
+        $none = new DatabaseInstances(new DoctrineConnections(new ServiceLocator([]), []), new Container(), [], []);
 
         self::assertSame('No MySQL Doctrine connection found. Connection "broken" could not be read: ' . $missing, self::error($onlyBroken));
         self::assertSame(\sprintf('No MySQL Doctrine connection found. Connection "s1" could not be read: %1$s Connection "s2" could not be read: %1$s Connection "s3" could not be read: %1$s 2 more could not be read.', $missing), self::error($many));
@@ -164,7 +174,8 @@ final class DatabaseInstancesTest extends TestCase
         $given = [];
         $instances = new DatabaseInstances(
             new DoctrineConnections(new ServiceLocator(['default' => static fn(): \ArrayObject => new \ArrayObject(['dbname' => 'shop'] + self::MYSQL)]), ['default']),
-            new ServiceLocator(['default' => static fn(): never => throw new \LogicException('Detecting asks for no connection.')]),
+            new Container(),
+            ['default' => 'doctrine.dbal.default_connection'],
             [],
         );
 
@@ -178,18 +189,59 @@ final class DatabaseInstancesTest extends TestCase
         self::assertCount(1, $given);
         $failure = Failures::thrownBy(static fn() => $given[0]->fetchAllAssociative('SELECT 1'));
         self::assertInstanceOf(UnreachableServerException::class, $failure);
-        self::assertSame('Detecting asks for no connection.', $failure->getMessage());
+        self::assertInstanceOf(ServiceNotFoundException::class, $failure->getPrevious());
     }
 
     public function testTheSetReleasesWhatItsLinkOpened(): void
     {
         $connection = new FakeDatabase();
-        $links = [];
-        $instances = new DatabaseInstances(
+        $container = new Container();
+        $container->set('doctrine.dbal.default_connection', $connection);
+
+        self::readAndRelease(self::single($container));
+
+        self::assertSame(1, $connection->closes);
+    }
+
+    public function testAConnectionOpenedByItsConstructionIsClosedOnlyWhenTheLinkBuiltIt(): void
+    {
+        $builtByTheLink = self::builder();
+        self::readAndRelease(self::single($builtByTheLink));
+
+        $builtByTheApplication = self::builder();
+        $application = $builtByTheApplication->get('doctrine.dbal.default_connection');
+        self::readAndRelease(self::single($builtByTheApplication));
+
+        $closedByTheLink = $builtByTheLink->get('doctrine.dbal.default_connection');
+        self::assertInstanceOf(FakeDatabase::class, $closedByTheLink);
+        self::assertSame(1, $closedByTheLink->closes);
+        self::assertInstanceOf(FakeDatabase::class, $application);
+        self::assertSame(0, $application->closes);
+        self::assertTrue($application->isConnected());
+    }
+
+    private static function builder(): ContainerBuilder
+    {
+        $container = new ContainerBuilder();
+        $container->setDefinition('doctrine.dbal.default_connection', (new Definition(FakeDatabase::class, [[], true]))->setPublic(true));
+        $container->compile();
+
+        return $container;
+    }
+
+    private static function single(Container $container): DatabaseInstances
+    {
+        return new DatabaseInstances(
             new DoctrineConnections(new ServiceLocator(['default' => static fn(): \ArrayObject => new \ArrayObject(self::MYSQL)]), ['default']),
-            new ServiceLocator(['default' => static fn(): Connection => $connection]),
+            $container,
+            ['default' => 'doctrine.dbal.default_connection'],
             [],
         );
+    }
+
+    private static function readAndRelease(DatabaseInstances $instances): void
+    {
+        $links = [];
         $set = $instances->detect(Component::System, 'mysql', 'MySQL', [], static function (ConnectionTarget $target, DbalLink $link) use (&$links): array {
             $links[] = $link;
 
@@ -199,8 +251,6 @@ final class DatabaseInstancesTest extends TestCase
 
         $links[0]->fetchAllAssociative('SELECT 1');
         $set->release();
-
-        self::assertSame(1, $connection->closes);
     }
 
     /**
@@ -214,7 +264,8 @@ final class DatabaseInstancesTest extends TestCase
 
         return new DatabaseInstances(
             new DoctrineConnections(new ServiceLocator($factories), array_map(strval(...), array_keys($factories))),
-            new ServiceLocator(array_map(static fn(): \Closure => static fn(): never => throw new \LogicException('No connection is built.'), $factories)),
+            new Container(),
+            array_map(static fn(int|string $name): string => 'doctrine.dbal.' . $name . '_connection', array_combine(array_keys($factories), array_keys($factories))),
             $exclude,
         );
     }
