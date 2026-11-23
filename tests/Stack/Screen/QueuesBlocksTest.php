@@ -44,7 +44,7 @@ final class QueuesBlocksTest extends TestCase
         $state = new StackState('web-1', self::NOW, CacheState::Working, [], [], 'Cannot reach redis://cache:6379');
 
         self::assertEquals(
-            [Block::notice(new Notice('warn', 'The queues could not be counted', 'Cannot reach redis://cache:6379'))],
+            [Block::notice(new Notice('warn', 'The queues could not be counted', 'Cannot reach redis://cache:6379. Turn the count off with jmonitor.stack.symfony.messenger: false.'))],
             $this->blocks(new FakeStackReader(self::stack(null), $state)),
         );
     }
@@ -74,7 +74,7 @@ final class QueuesBlocksTest extends TestCase
         $result = new CollectorResult('queues', [], ResultState::Failed, 'The command counting the queues failed (exit code: 255): Fatal error', expiresAt: self::NOW + 9 * 60);
 
         self::assertEquals(
-            [Block::notice(new Notice('warn', 'The queues could not be counted', 'The command counting the queues failed (exit code: 255): Fatal error — next try in 9' . self::NBSP . 'min'))],
+            [Block::notice(new Notice('warn', 'The queues could not be counted', 'The command counting the queues failed (exit code: 255): Fatal error — next try in 9' . self::NBSP . 'min. Turn the count off with jmonitor.stack.symfony.messenger: false.'))],
             $this->blocks(new FakeStackReader(self::stack(null), self::queues($result))),
         );
     }
@@ -85,7 +85,7 @@ final class QueuesBlocksTest extends TestCase
         $state = new StackState('web-1', self::NOW, CacheState::Working, [new ComponentState(Component::Symfony, [new InstanceState('queues', null, null, $snapshot)], 0)], []);
 
         self::assertEquals(
-            [Block::notice(new Notice('warn', 'The queues could not be counted', 'The console was not found.'))],
+            [Block::notice(new Notice('warn', 'The queues could not be counted', 'The console was not found. Turn the count off with jmonitor.stack.symfony.messenger: false.'))],
             $this->blocks(new FakeStackReader(self::stack(null), $state)),
         );
     }

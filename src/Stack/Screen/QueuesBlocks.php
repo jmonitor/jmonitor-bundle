@@ -60,7 +60,7 @@ final class QueuesBlocks implements BlockSourceInterface
     private function of(StackState $state): array
     {
         if ($state->error !== null) {
-            return [Block::notice(new Notice('warn', self::FAILED, $state->error))];
+            return [self::failed($state->error)];
         }
 
         $instance = $state->component(Component::Symfony)?->instances[0] ?? null;
@@ -68,7 +68,7 @@ final class QueuesBlocks implements BlockSourceInterface
         $error = $instance->error ?? $snapshot->error ?? null;
 
         if ($error !== null) {
-            return [Block::notice(new Notice('warn', self::FAILED, $error))];
+            return [self::failed($error)];
         }
 
         $result = $snapshot?->result('queues');
@@ -84,7 +84,7 @@ final class QueuesBlocks implements BlockSourceInterface
         if ($result->state === ResultState::Failed) {
             $reason = $result->error ?? 'no reason given';
 
-            return [Block::notice(new Notice('warn', self::FAILED, $result->expiresAt === null ? $reason : $reason . ' — ' . self::nextTry($result->expiresAt, $now)))];
+            return [self::failed($result->expiresAt === null ? $reason : $reason . ' — ' . self::nextTry($result->expiresAt, $now))];
         }
 
         $reading = QueuesReading::of($snapshot);
@@ -102,6 +102,11 @@ final class QueuesBlocks implements BlockSourceInterface
                 : new Fact($transport['name'], Format::number($transport['count'])),
             $reading->transports,
         ), self::note($result, $now)))];
+    }
+
+    private static function failed(string $reason): Block
+    {
+        return Block::notice(new Notice('warn', self::FAILED, rtrim($reason, '.') . '. Turn the count off with jmonitor.stack.symfony.messenger: false.'));
     }
 
     private static function note(CollectorResult $result, int $now): string

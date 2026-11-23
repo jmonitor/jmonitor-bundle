@@ -193,6 +193,7 @@ final class MessagesQueuesTest extends WebTestCase
         self::assertCount(1, $notice);
         self::assertStringContainsString('The queues could not be counted', $notice->text());
         self::assertStringContainsString('exit code: 255', $notice->text());
+        self::assertStringContainsString('Turn the count off with jmonitor.stack.symfony.messenger: false.', $notice->text());
     }
 
     public function testATransportNameIsEscaped(): void
