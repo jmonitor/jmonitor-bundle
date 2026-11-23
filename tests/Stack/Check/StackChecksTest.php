@@ -555,6 +555,9 @@ final class StackChecksTest extends TestCase
         $securityOnly = self::checks()->health(Snapshots::stack(
             Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(), 'nginx.config' => ['version' => '1.27.4'] + WebServerPayloads::nginxConfig(), 'eol.nginx' => WebServerPayloads::cycles()]),
         ));
+        $apacheSecurityOnly = self::checks()->health(Snapshots::stack(
+            Snapshots::of(Component::Apache, ['apache' => WebServerPayloads::apache(), 'eol.apache-http-server' => ['cycles' => ['2.4' => ['eol' => false, 'support' => false]]]]),
+        ));
         $supported = self::checks()->health(Snapshots::stack(
             Snapshots::of(Component::Apache, ['apache' => WebServerPayloads::apache(), 'eol.apache-http-server' => WebServerPayloads::cycles()]),
             Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(), 'nginx.config' => ['version' => '1.28.0'] + WebServerPayloads::nginxConfig(), 'eol.nginx' => WebServerPayloads::cycles()]),
@@ -566,6 +569,8 @@ final class StackChecksTest extends TestCase
         self::assertSame('Nginx 1.26.2 has reached its end of life', self::find($health, 'nginx.end_of_life')->sentence);
         self::assertSame(Severity::Warning, self::find($securityOnly, 'nginx.security_only')?->severity);
         self::assertSame('Nginx 1.27.4 only receives security fixes', self::find($securityOnly, 'nginx.security_only')->sentence);
+        self::assertSame(Severity::Warning, self::find($apacheSecurityOnly, 'apache.security_only')?->severity);
+        self::assertSame('Apache 2.4.62 only receives security fixes', self::find($apacheSecurityOnly, 'apache.security_only')->sentence);
         self::assertSame([], $supported->findings);
     }
 
