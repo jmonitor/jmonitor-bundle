@@ -22,7 +22,6 @@ final class QueuesReadingTest extends TestCase
                 ['name' => '2024', 'count' => 0, 'reason' => null],
                 ['name' => 'failed', 'count' => null, 'reason' => 'this transport cannot count'],
             ],
-            'complete' => false,
         ]));
 
         self::assertSame([
@@ -30,8 +29,6 @@ final class QueuesReadingTest extends TestCase
             ['name' => '2024', 'count' => 0, 'reason' => null],
             ['name' => 'failed', 'count' => null, 'reason' => 'this transport cannot count'],
         ], $reading->transports);
-        self::assertFalse($reading->complete);
-        self::assertTrue(QueuesReading::of(self::snapshot(['transports' => [], 'complete' => true]))->complete);
     }
 
     /**
@@ -40,7 +37,7 @@ final class QueuesReadingTest extends TestCase
     public static function unknownShapes(): iterable
     {
         yield 'nothing' => [[]];
-        yield 'transports that are not a list' => [['transports' => 'async', 'complete' => 'yes']];
+        yield 'transports that are not a list' => [['transports' => 'async']];
         yield 'transports keyed by name' => [['transports' => ['async' => 12]]];
         yield 'transports without name' => [['transports' => [['count' => 3], null, 7, ['name' => 12, 'count' => 1]]]];
     }
