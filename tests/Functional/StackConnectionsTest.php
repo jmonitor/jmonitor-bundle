@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Doctrine\DBAL\Connection;
+use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
+use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
 use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\Failures;
@@ -77,6 +80,10 @@ final class StackConnectionsTest extends TestCase
         $failure = Failures::thrownBy(static fn() => $connections->target('broken'));
         self::assertInstanceOf(\RuntimeException::class, $failure);
         self::assertSame('The parameters of this connection cannot be read: an environment variable is missing ("NOPE_URL").', $failure->getMessage());
+        self::assertSame(
+            'No MySQL Doctrine connection found. Connection "broken" could not be read: The parameters of this connection cannot be read: an environment variable is missing ("NOPE_URL").',
+            self::detect($kernel->getContainer())->error,
+        );
     }
 
     public function testReadingTheTargetsBuildsNoConnection(): void
@@ -89,8 +96,20 @@ final class StackConnectionsTest extends TestCase
         }
 
         self::assertSame(1, $connections->target('e')->port);
+        $detection = self::detect($container);
+        self::assertSame('e', $detection->instances[0]->id);
+        self::assertSame('127.0.0.1:1', $detection->instances[0]->server?->key);
         self::assertFalse($container->initialized('doctrine.dbal.e_connection'));
         self::assertFalse($container->initialized('doctrine.dbal.default_connection'));
+    }
+
+    public function testWithoutDoctrineNoConnectionIsConfigured(): void
+    {
+        $kernel = $this->kernels[] = new TestKernel('test', true, withDoctrine: false, withPublicInternals: true);
+        $kernel->boot();
+
+        self::assertSame([], self::connections($kernel->getContainer())->names());
+        self::assertSame('No Doctrine DBAL connection is configured.', self::detect($kernel->getContainer())->error);
     }
 
     /**
@@ -113,6 +132,14 @@ final class StackConnectionsTest extends TestCase
     private function kernel(array $connections): TestKernel
     {
         return $this->kernels[] = new TestKernel('test', true, withPublicInternals: true, connections: $connections);
+    }
+
+    private static function detect(ContainerInterface $container): Detection
+    {
+        $instances = $container->get(DatabaseInstances::class);
+        self::assertInstanceOf(DatabaseInstances::class, $instances);
+
+        return $instances->detect(Component::System, 'mysql', 'MySQL', [], static fn(): array => [], true, 3306);
     }
 
     private static function connections(ContainerInterface $container): DoctrineConnections

@@ -53,6 +53,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
 use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
@@ -1601,6 +1602,26 @@ class JmonitorBundleTest extends TestCase
         $this->expectExceptionMessage('"jmonitor.stack.ignore_checks');
 
         $this->loadBundle(['stack' => ['ignore_checks' => [['a']]]]);
+    }
+
+    public function testTheExcludedConnectionsAreAListOfPatterns(): void
+    {
+        $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+        $single = $this->loadBundle(['stack' => ['exclude_connections' => 'shard_*']]);
+        $list = $this->loadBundle(['stack' => ['exclude_connections' => ['*_backup', 'legacy?']]]);
+
+        static::assertSame([], $default->getParameter('jmonitor.stack.exclude_connections'));
+        static::assertSame(['shard_*'], $single->getParameter('jmonitor.stack.exclude_connections'));
+        static::assertSame(['*_backup', 'legacy?'], $list->getParameter('jmonitor.stack.exclude_connections'));
+        static::assertSame('%jmonitor.stack.exclude_connections%', $default->getDefinition(DatabaseInstances::class)->getArgument(2));
+    }
+
+    public function testAnEmptyPatternIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.exclude_connections');
+
+        $this->loadBundle(['stack' => ['exclude_connections' => ['legacy', '']]]);
     }
 
     public function testAnUnknownComponentSettingIsRefused(): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\DependencyInjection;
 
 use Jmonitor\JmonitorBundle\DependencyInjection\StackConnectionsPass;
+use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
 use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
@@ -38,6 +39,10 @@ final class StackConnectionsPassTest extends TestCase
             self::assertSame(\ArrayObject::class, $container->getDefinition($id)->getClass());
             self::assertFalse($container->getDefinition($id)->isPublic());
         }
+        self::assertSame(
+            ['default' => 'doctrine.dbal.default_connection', '2024' => 'doctrine.dbal.2024_connection'],
+            self::locator($container, $container->getDefinition(DatabaseInstances::class)->getArgument(1)),
+        );
 
         $definition->setPublic(true);
         $container->compile();
@@ -66,6 +71,7 @@ final class StackConnectionsPassTest extends TestCase
     {
         $container = new ContainerBuilder();
         $container->setDefinition(DoctrineConnections::class, self::doctrineConnections());
+        $container->setDefinition(DatabaseInstances::class, self::databaseInstances());
         $before = $container->getDefinitions();
 
         (new StackConnectionsPass())->process($container);
@@ -98,11 +104,17 @@ final class StackConnectionsPassTest extends TestCase
         }
         $container->setParameter('doctrine.connections', $ids);
         $container->setDefinition(DoctrineConnections::class, self::doctrineConnections());
+        $container->setDefinition(DatabaseInstances::class, self::databaseInstances());
     }
 
     private static function doctrineConnections(): Definition
     {
         return new Definition(DoctrineConnections::class, [new ServiceLocatorArgument([]), [], null]);
+    }
+
+    private static function databaseInstances(): Definition
+    {
+        return new Definition(DatabaseInstances::class, [new Reference(DoctrineConnections::class), new ServiceLocatorArgument([]), []]);
     }
 
     /**

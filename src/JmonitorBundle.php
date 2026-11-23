@@ -113,6 +113,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.stack.symfony.flex', $config['stack']['symfony']['flex']);
         $builder->setParameter('jmonitor.stack.symfony.messenger', $config['stack']['symfony']['messenger']);
         $builder->setParameter('jmonitor.stack.ignore_checks', $config['stack']['ignore_checks']);
+        $builder->setParameter('jmonitor.stack.exclude_connections', $config['stack']['exclude_connections']);
         $builder->setParameter('jmonitor.stack.components', [
             'system' => ['enabled' => $config['stack']['system']],
             'php' => ['enabled' => $config['stack']['php']],
@@ -445,6 +446,19 @@ final class JmonitorBundle extends AbstractBundle
                             ->validate()
                                 ->ifTrue(static fn(array $ids): bool => array_filter($ids, static fn(mixed $id): bool => !\is_string($id)) !== [])
                                 ->thenInvalid('The "ignore_checks" option takes a list of strings.')
+                            ->end()
+                        ->end()
+                        ->arrayNode('exclude_connections')
+                            ->info('Doctrine connections the Stack screen never reads, as shell patterns (*, ?).')
+                            ->beforeNormalization()
+                                ->ifString()
+                                ->then(static fn(string $pattern): array => [$pattern])
+                            ->end()
+                            ->scalarPrototype()->cannotBeEmpty()->end()
+                            ->defaultValue([])
+                            ->validate()
+                                ->ifTrue(static fn(array $patterns): bool => array_filter($patterns, static fn(mixed $pattern): bool => !\is_string($pattern)) !== [])
+                                ->thenInvalid('The "exclude_connections" option takes a list of shell patterns.')
                             ->end()
                         ->end()
                         ->enumNode('system')->values(['auto', true, false])->defaultValue('auto')->end()
