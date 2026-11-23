@@ -246,4 +246,29 @@ if printf '%s\n' "$page" | grep -q 'back_office_'; then
     fail "the Requests screen lists a request to an embedded page"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it counts the queues in a process that ends, without recording it"
+# Two workers, so that the probe of the status page is not left waiting for the worker that sends it.
+export JMONITOR_E2E_WORKERS=2 JMONITOR_FIXTURE_FRANKENPHP_ENDPOINT=http://localhost/no-status-page
+start 1
+status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/jmonitor/stack")"
+[ "$status" = 200 ] || fail "GET /jmonitor/stack answered $status instead of 200 with a status page that is an address of the application"
+probed=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
+    frankenphp="$(card "$page" frankenphp)"
+    if [ -n "$frankenphp" ] && ! printf '%s\n' "$frankenphp" | grep -q 'data-jm-reading'; then
+        probed=1
+        break
+    fi
+    sleep 1
+done
+[ "$probed" = 1 ] || fail "the FrankenPHP card was still read 30 s after a status page that is an address of the application: $frankenphp"
+printf '%s\n' "$frankenphp" | grep -q 'data-jm-verdict="unknown"' || fail "the FrankenPHP card is not unknown when its status page is an address of the application: $frankenphp"
+printf '%s\n' "$frankenphp" | grep -q 'http://localhost/no-status-page answered HTTP 404' || fail "the FrankenPHP card does not say that the application answered HTTP 404: $frankenphp"
+status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/teapot")"
+[ "$status" = 418 ] || fail "GET /teapot answered $status instead of 418"
+expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests screen did not list "GET app_teapot" after the probe of an address of the application'
+if printf '%s\n' "$page" | grep -q '(unmatched)'; then
+    fail "the Requests screen lists the probe of an address of the application"
+fi
+
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"

@@ -142,11 +142,16 @@ final class TestKernel extends Kernel
 
         $withEasyAdmin = \in_array('easyadmin', $features, true);
         $countsQueues = \in_array('queues', $features, true);
+        $stack = ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => $countsQueues]];
+        $frankenPhpEndpoint = self::environmentValue('JMONITOR_FIXTURE_FRANKENPHP_ENDPOINT');
+        if ($frankenPhpEndpoint !== '') {
+            $stack['frankenphp'] = ['endpoint' => $frankenPhpEndpoint];
+        }
 
         $kernel = new self(
             $environment !== '' ? $environment : 'dev',
             $debug !== '' ? filter_var($debug, \FILTER_VALIDATE_BOOL) : true,
-            self::environmentConfig($withEasyAdmin) + ($countsQueues ? ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => true]]] : []),
+            self::environmentConfig($withEasyAdmin) + ($countsQueues || $frankenPhpEndpoint !== '' ? ['stack' => $stack] : []),
             withSecurity: \in_array('security', $features, true),
             withMessenger: $countsQueues || \in_array('messenger', $features, true),
             withScheduler: \in_array('scheduler', $features, true),

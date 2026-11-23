@@ -14,7 +14,7 @@ use Symfony\Component\Filesystem\Filesystem;
 
 final class FixtureFeaturesTest extends TestCase
 {
-    private const VARIABLES = ['APP_ENV', 'APP_DEBUG', 'JMONITOR_FIXTURE_FEATURES'];
+    private const VARIABLES = ['APP_ENV', 'APP_DEBUG', 'JMONITOR_FIXTURE_FEATURES', 'JMONITOR_FIXTURE_FRANKENPHP_ENDPOINT'];
 
     /** @var array<string, mixed> */
     private array $saved = [];
@@ -67,6 +67,32 @@ final class FixtureFeaturesTest extends TestCase
         self::assertInstanceOf(QueuesCommand::class, $command);
 
         self::assertSame(['async', 'batch', 'counted', 'hanging'], (new \ReflectionProperty(QueuesCommand::class, 'names'))->getValue($command));
+    }
+
+    public function testTheEndpointOfFrankenPhpCanBeSetWithoutCallingOut(): void
+    {
+        $_SERVER['JMONITOR_FIXTURE_FRANKENPHP_ENDPOINT'] = 'http://localhost/no-status-page';
+        $container = $this->boot('queues');
+
+        self::assertSame('http://localhost/no-status-page', $container->getParameter('jmonitor.stack.frankenphp.endpoint'));
+        self::assertTrue($container->getParameter('jmonitor.stack.symfony.messenger'));
+        self::assertFalse($container->getParameter('jmonitor.stack.end_of_life'));
+        self::assertFalse($container->getParameter('jmonitor.stack.symfony.flex'));
+
+        $this->kernel?->shutdown();
+        (new Filesystem())->remove((string) $this->kernel?->getVarDir());
+        $container = $this->boot('');
+
+        self::assertSame('http://localhost/no-status-page', $container->getParameter('jmonitor.stack.frankenphp.endpoint'));
+        self::assertFalse($container->getParameter('jmonitor.stack.symfony.messenger'));
+        self::assertFalse($container->getParameter('jmonitor.stack.end_of_life'));
+    }
+
+    public function testTheEndpointOfFrankenPhpIsTheDefaultOneUnlessSet(): void
+    {
+        unset($_SERVER['JMONITOR_FIXTURE_FRANKENPHP_ENDPOINT']);
+
+        self::assertSame('http://localhost:2019/metrics', $this->boot('')->getParameter('jmonitor.stack.frankenphp.endpoint'));
     }
 
     public function testWithoutTheQueuesFeatureTheQueuesAreNotCounted(): void
