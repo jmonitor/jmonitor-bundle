@@ -15,6 +15,7 @@ use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\JmonitorBundle;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
+use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
@@ -39,6 +40,7 @@ use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\GalleryScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\ProbeScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPing;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPingHandler;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\CountedTransportFactory;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\PingHandler;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\QueueTransportFactory;
@@ -74,8 +76,12 @@ final class TestKernel extends Kernel
     /** @var array<string, mixed> */
     private readonly array $jmonitorConfig;
 
+    private bool $countsInAProcess = false;
+
     /**
-     * @param array<string, mixed> $jmonitorConfig without a `stack` key, the stack calls neither endoflife.date nor composer
+     * @param array<string, mixed>  $jmonitorConfig without a `stack` key, the stack calls neither endoflife.date nor composer, nor counts the queues
+     * @param array<string, string> $transports     name => DSN, added to the transports of Messenger
+     * @param ?string               $queuesOutput   what the command counting the queues prints, never started but by fromEnvironment()
      */
     public function __construct(
         string $environment,
@@ -98,12 +104,17 @@ final class TestKernel extends Kernel
         private readonly ?string $cacheApp = null,
         private readonly bool $withGallery = false,
         private readonly ?string $fakeWebServer = null,
+        private readonly array $transports = [],
+        private readonly ?string $queuesOutput = null,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
         }
         if ($withEasyAdmin && !$withTwig) {
             throw new \LogicException('The EasyAdmin back office needs Twig.');
+        }
+        if ($transports !== [] && !$withMessenger && !$withScheduler) {
+            throw new \LogicException('Transports need Messenger.');
         }
         if ($fakeWebServer !== null && !\in_array($fakeWebServer, ['frankenphp', 'apache', 'nginx'], true)) {
             throw new \InvalidArgumentException(\sprintf('Unknown fake web server "%s".', $fakeWebServer));
@@ -112,10 +123,10 @@ final class TestKernel extends Kernel
         parent::__construct($environment, $debug);
 
         $this->withSecurity = $withSecurity || $withEasyAdmin;
-        $this->jmonitorConfig = ($jmonitorConfig ?: $this->environmentConfig()) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false]]];
+        $this->jmonitorConfig = ($jmonitorConfig ?: $this->environmentConfig()) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => false]]];
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer]));
+            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer, $transports, $queuesOutput]));
     }
 
     public static function fromEnvironment(): self
@@ -129,7 +140,7 @@ final class TestKernel extends Kernel
             throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
         }
 
-        return new self(
+        $kernel = new self(
             $environment !== '' ? $environment : 'dev',
             $debug !== '' ? filter_var($debug, \FILTER_VALIDATE_BOOL) : true,
             withSecurity: \in_array('security', $features, true),
@@ -139,6 +150,9 @@ final class TestKernel extends Kernel
             withEasyAdmin: \in_array('easyadmin', $features, true),
             withGallery: \in_array('gallery', $features, true),
         );
+        $kernel->countsInAProcess = true;
+
+        return $kernel;
     }
 
     private static function environmentValue(string $name): string
@@ -185,7 +199,7 @@ final class TestKernel extends Kernel
 
     public function getCacheDir(): string
     {
-        return $this->varDir . '/cache/' . $this->environment;
+        return $this->varDir . '/cache/' . $this->environment . ($this->countsInAProcess ? '-processes' : '');
     }
 
     public function getLogDir(): string
@@ -213,6 +227,25 @@ final class TestKernel extends Kernel
                 }
             }
         });
+
+        if (!$this->countsInAProcess) {
+            $container->addCompilerPass(new class ($this->queuesOutput ?? '') implements CompilerPassInterface {
+                public function __construct(
+                    private readonly string $output,
+                ) {}
+
+                public function process(ContainerBuilder $container): void
+                {
+                    if (!$container->hasDefinition(QueuesCollector::class)) {
+                        return;
+                    }
+                    $container->register('jmonitor.tests.queues_runner', FakeProcessRunner::class)
+                        ->addMethodCall('answer', [null, $this->output])
+                        ->setPublic(true);
+                    $container->getDefinition(QueuesCollector::class)->setArgument(0, new Reference('jmonitor.tests.queues_runner'));
+                }
+            });
+        }
 
         if ($this->fakeWebServer !== null) {
             $container->addCompilerPass(new class ($this->fakeWebServer) implements CompilerPassInterface {
@@ -308,6 +341,7 @@ final class TestKernel extends Kernel
                 'transports' => [
                     'async' => ['dsn' => 'in-memory://', 'retry_strategy' => ['max_retries' => 1, 'delay' => 0]],
                     'batch' => ['dsn' => 'queue://'],
+                    ...array_map(static fn(string $dsn): array => ['dsn' => $dsn], $this->transports),
                 ],
                 'routing' => [Ping::class => 'async', BatchPing::class => 'batch'],
             ]]);
@@ -417,6 +451,8 @@ final class TestKernel extends Kernel
                 ->args([service('doctrine.dbal.default_connection')->nullOnInvalid(), service('messenger.default_bus')])
                 ->tag('messenger.message_handler');
             $services->set(QueueTransportFactory::class)
+                ->tag('messenger.transport_factory');
+            $services->set(CountedTransportFactory::class)
                 ->tag('messenger.transport_factory');
             $services->set(BatchPingHandler::class)
                 ->args([service('doctrine.dbal.default_connection')->nullOnInvalid()])

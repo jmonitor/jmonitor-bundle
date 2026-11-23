@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
+use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
 use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
+use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
+use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
@@ -30,6 +34,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\Messenger\Transport\Receiver\MessageCountAwareInterface;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
@@ -106,6 +111,26 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ])
         ->tag('jmonitor.stack.detector', ['index' => Component::Nginx->value]);
 
+    if ($builder->getParameter('jmonitor.stack.symfony.messenger') && interface_exists(MessageCountAwareInterface::class)) {
+        $services->set(QueuesCommand::class)
+            ->args([service_locator([]), []])
+            ->tag('console.command');
+
+        $services->set(PhpCli::class);
+
+        $services->set(QueuesCollector::class)
+            ->args([
+                service(ProcessRunner::class),
+                service(PhpCli::class),
+                param('kernel.project_dir'),
+                param('kernel.environment'),
+                param('kernel.debug'),
+            ]);
+
+        $services->set(QueuesInstance::class)
+            ->args([service(QueuesCollector::class)]);
+    }
+
     $services->set(ComponentRegistry::class)
         ->args([tagged_locator('jmonitor.stack.detector', 'index'), param('jmonitor.stack.components')])
         ->tag('kernel.reset', ['method' => 'reset']);
@@ -119,6 +144,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service('jmonitor.clock'),
             service(WebNode::class),
             $logger,
+            service(QueuesInstance::class)->nullOnInvalid(),
         ]);
 
     if ($customLogger === null) {

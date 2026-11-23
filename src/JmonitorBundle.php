@@ -109,6 +109,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.stack.enabled', $stackEnabled);
         $builder->setParameter('jmonitor.stack.end_of_life', $config['stack']['end_of_life']);
         $builder->setParameter('jmonitor.stack.symfony.flex', $config['stack']['symfony']['flex']);
+        $builder->setParameter('jmonitor.stack.symfony.messenger', $config['stack']['symfony']['messenger']);
         $builder->setParameter('jmonitor.stack.ignore_checks', $config['stack']['ignore_checks']);
         $builder->setParameter('jmonitor.stack.components', [
             'system' => ['enabled' => $config['stack']['system']],
@@ -455,6 +456,7 @@ final class JmonitorBundle extends AbstractBundle
                             ->children()
                                 ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
                                 ->booleanNode('flex')->defaultTrue()->info('Run "composer recipes" once an hour to list outdated recipes.')->end()
+                                ->booleanNode('messenger')->defaultTrue()->info('Count the messages waiting in each Messenger transport, with a command run in a separate process.')->end()
                             ->end()
                         ->end()
                         ->append(self::webServerNode('frankenphp', 'http://localhost:2019/metrics', 'URL of the Caddy metrics, served by its admin API.'))

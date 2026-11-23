@@ -47,11 +47,16 @@ use Jmonitor\JmonitorBundle\Recording\Sql\Dbal\Middleware;
 use Jmonitor\JmonitorBundle\Recording\Sql\LabelStore;
 use Jmonitor\JmonitorBundle\Recording\Sql\QueryDigester;
 use Jmonitor\JmonitorBundle\Recording\UserRecorder;
+use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
+use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
+use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
+use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
 use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
@@ -1665,5 +1670,41 @@ class JmonitorBundleTest extends TestCase
 
         static::assertFalse($off->hasDefinition(LocalStackReader::class));
         static::assertFalse($off->hasAlias(StackReaderInterface::class));
+    }
+
+    public function testTheQueueCountHasItsSwitch(): void
+    {
+        $framework = ['FrameworkBundle' => FrameworkBundle::class];
+        $queues = [QueuesCommand::class, PhpCli::class, QueuesCollector::class, QueuesInstance::class];
+        $declared = static fn(ContainerBuilder $container): array => array_map($container->hasDefinition(...), $queues);
+
+        $default = $this->loadBundle([], bundles: $framework);
+
+        static::assertTrue($default->getParameter('jmonitor.stack.symfony.messenger'));
+        static::assertSame([true, true, true, true], $declared($default));
+        static::assertTrue($default->getDefinition(QueuesCommand::class)->hasTag('console.command'));
+        static::assertSame(
+            [ProcessRunner::class, PhpCli::class, '%kernel.project_dir%', '%kernel.environment%', '%kernel.debug%'],
+            array_map(static fn(mixed $argument): string => (string) $argument, $default->getDefinition(QueuesCollector::class)->getArguments()),
+        );
+        static::assertSame([QueuesCollector::class], array_map(strval(...), $default->getDefinition(QueuesInstance::class)->getArguments()));
+        $source = $default->getDefinition(LocalStackReader::class)->getArgument(7);
+        static::assertInstanceOf(Reference::class, $source);
+        static::assertSame(QueuesInstance::class, (string) $source);
+        static::assertSame(ContainerInterface::NULL_ON_INVALID_REFERENCE, $source->getInvalidBehavior());
+
+        $off = $this->loadBundle(['stack' => ['symfony' => ['messenger' => false]]], bundles: $framework);
+
+        static::assertFalse($off->getParameter('jmonitor.stack.symfony.messenger'));
+        static::assertSame([false, false, false, false], $declared($off));
+
+        $symfonyOff = $this->loadBundle(['stack' => ['symfony' => false]], bundles: $framework);
+
+        static::assertTrue($symfonyOff->getParameter('jmonitor.stack.symfony.messenger'));
+        static::assertSame([true, true, true, true], $declared($symfonyOff), 'the count does not depend on the Symfony card');
+
+        $stackOff = $this->loadBundle(['stack' => false], bundles: $framework);
+
+        static::assertSame([false, false, false, false], $declared($stackOff));
     }
 }
