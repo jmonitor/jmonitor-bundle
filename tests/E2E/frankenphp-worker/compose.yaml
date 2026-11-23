@@ -2,7 +2,11 @@ name: jmonitor-bundle-e2e-worker
 
 services:
   app:
-    image: dunglas/frankenphp:1.13.0-php8.4
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM dunglas/frankenphp:1.13.0-php8.4
+        RUN install-php-extensions pdo_mysql
     working_dir: /app
     environment:
       APP_ENV: dev
@@ -10,9 +14,33 @@ services:
       JMONITOR_FLUSH_INTERVAL: "${JMONITOR_FLUSH_INTERVAL:-1}"
       JMONITOR_FIXTURE_FEATURES: "${JMONITOR_FIXTURE_FEATURES:-}"
       JMONITOR_FIXTURE_FRANKENPHP_ENDPOINT: "${JMONITOR_FIXTURE_FRANKENPHP_ENDPOINT:-}"
+      JMONITOR_FIXTURE_MYSQL_URL: mysql://jmonitor:jmonitor@database:${JMONITOR_E2E_MYSQL_PORT:-33307}/jmonitor
       JMONITOR_E2E_WORKERS: "${JMONITOR_E2E_WORKERS:-1}"
     ports:
       - "${JMONITOR_E2E_PORT:-8090}:80"
     volumes:
       - ../../..:/app:ro
       - ./Caddyfile:/etc/frankenphp/Caddyfile:ro
+    # Reached through its published port, a stopped server leaves a closed port; under its service name, it would leave a name that the resolver of Docker can take seconds to deny.
+    extra_hosts:
+      - "database:host-gateway"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: jmonitor
+      MYSQL_USER: jmonitor
+      MYSQL_PASSWORD: jmonitor
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "${JMONITOR_E2E_MYSQL_PORT:-33307}:3306"
+    volumes:
+      - ../../mysql-init.sql:/docker-entrypoint-initdb.d/mysql-init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ujmonitor", "-pjmonitor"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

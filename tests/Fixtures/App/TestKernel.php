@@ -143,7 +143,7 @@ final class TestKernel extends Kernel
         $debug = self::environmentValue('APP_DEBUG');
         $features = array_filter(array_map(trim(...), explode(',', self::environmentValue('JMONITOR_FIXTURE_FEATURES'))));
 
-        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'queues', 'scheduler', 'security']);
+        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'mysql', 'queues', 'scheduler', 'security']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
         }
@@ -155,6 +155,7 @@ final class TestKernel extends Kernel
         if ($frankenPhpEndpoint !== '') {
             $stack['frankenphp'] = ['endpoint' => $frankenPhpEndpoint];
         }
+        $mysql = ['url' => '%env(JMONITOR_FIXTURE_MYSQL_URL)%'];
 
         $kernel = new self(
             $environment !== '' ? $environment : 'dev',
@@ -167,6 +168,7 @@ final class TestKernel extends Kernel
             withEasyAdmin: $withEasyAdmin,
             withGallery: \in_array('gallery', $features, true),
             transports: $countsQueues ? ['counted' => 'counted://3', 'hanging' => 'counted://hanging'] : [],
+            connections: \in_array('mysql', $features, true) ? ['main' => $mysql, 'reports' => $mysql] : [],
         );
         $kernel->countsInAProcess = true;
 

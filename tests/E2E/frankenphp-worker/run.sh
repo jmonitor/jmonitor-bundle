@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 PORT="${JMONITOR_E2E_PORT:-8090}"
 export JMONITOR_E2E_PORT="$PORT"
-export JMONITOR_FIXTURE_FEATURES=embed,easyadmin,queues
+export JMONITOR_FIXTURE_FEATURES=embed,easyadmin,queues,mysql
 BASE="http://127.0.0.1:$PORT"
 ADMIN=admin:test
 COMPOSE="docker compose -p jmonitor-bundle-e2e-worker -f compose.yaml"
@@ -24,7 +24,7 @@ fail() {
 
 start() {
     counter=0
-    JMONITOR_FLUSH_INTERVAL="$1" $COMPOSE up --detach --force-recreate --quiet-pull
+    JMONITOR_FLUSH_INTERVAL="$1" $COMPOSE up --detach --force-recreate --quiet-pull app
     ready=0
     for _ in $(seq 1 60); do
         if curl -sf -o /dev/null "$BASE/jmonitor/"; then
@@ -72,6 +72,8 @@ captures_round() {
     expect_page /jmonitor/exceptions 'data-jm-exception="RuntimeException" data-jm-count="2"' "round $1: the Exceptions screen did not list 2 RuntimeException"
 }
 
+$COMPOSE build --quiet app
+
 # The readiness check flushed, so no flush is due for an hour and the lines stay in the buffer files.
 start 3600
 
@@ -114,7 +116,27 @@ css="$(curl -s -o /dev/null -w '%{http_code}' "$BASE$css_path")"
 [ "$css" = 200 ] || fail "$css_path answered $css"
 
 cards_of() {
-    printf '%s\n' "$1" | grep -o 'data-jm-component="[a-z]*"' | sed 's/.*="\(.*\)"/\1/' | sort | tr '\n' ' '
+    printf '%s\n' "$1" | grep -o 'data-jm-component="[^"]*"' | sed 's/.*="\([a-z]*\).*/\1/' | sort | tr '\n' ' '
+}
+
+read_at() {
+    printf '%s\n' "$1" | sed -n 's/.*data-jm-read-at="\([0-9]*\)".*/\1/p' | head -n 1
+}
+
+timed() {
+    answer="$(curl -s ${2:+-u "$2"} -w '\n%{http_code} %{time_total}' "$BASE$1")" || fail "GET $1 failed"
+    took="$(printf '%s\n' "$answer" | tail -n 1)"
+    page="$(printf '%s\n' "$answer" | sed '$d')"
+    [ "${took%% *}" = 200 ] || fail "GET $1 answered ${took%% *} instead of 200"
+    took="${took#* }"
+}
+
+faster_than() {
+    awk -v took="$took" -v limit="$1" 'BEGIN { exit !(took < limit) }'
+}
+
+mysql_sessions() {
+    $COMPOSE exec -T -e MYSQL_PWD=root mysql mysql -uroot -N -B -e "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE USER = 'jmonitor'" || fail "the sessions of the MySQL server could not be counted"
 }
 
 card() {
@@ -133,13 +155,19 @@ hit /jmonitor/stack 200
 complete=0
 for _ in $(seq 1 30); do
     page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
-    if [ "$(cards_of "$page")" = 'frankenphp php symfony system ' ] && ! printf '%s\n' "$page" | grep -q 'data-jm-reading'; then
+    if [ "$(cards_of "$page")" = 'frankenphp mysql php symfony system ' ] && ! printf '%s\n' "$page" | grep -q 'data-jm-reading'; then
         complete=1
         break
     fi
     sleep 1
 done
-[ "$complete" = 1 ] || fail "the Stack screen did not show the frankenphp, system, php and symfony cards without data-jm-reading within 30 s: $(cards_of "$page")"
+[ "$complete" = 1 ] || fail "the Stack screen did not show the frankenphp, mysql, system, php and symfony cards without data-jm-reading within 30 s: $(cards_of "$page")"
+mysql="$(card "$page" mysql.main)"
+[ "$(printf '%s\n' "$page" | grep -c 'data-jm-component="mysql\.')" = 1 ] || fail "the two connections of one MySQL server do not share one card: $(cards_of "$page")"
+printf '%s\n' "$mysql" | grep -Eq 'class="jm-component__version">MySQL [0-9]+\.[0-9]+\.[0-9]+<' || fail "the MySQL card shows no version: $mysql"
+if printf '%s\n' "$mysql" | grep -q 'data-jm-verdict="unknown"'; then
+    fail "the MySQL card is unknown: $mysql"
+fi
 frankenphp="$(card "$page" frankenphp)"
 if printf '%s\n' "$frankenphp" | grep -q 'data-jm-verdict="unknown"'; then
     fail "the FrankenPHP card is unknown: $frankenphp"
@@ -169,7 +197,55 @@ printf '%s\n' "$detail" | grep -q '/app/tests/E2E/frankenphp-worker/worker.php' 
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/stack")" || fail "GET /admin/jmonitor/stack failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/stack answered $status instead of 200"
-[ "$(cards_of "$admin")" = 'frankenphp php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
+[ "$(cards_of "$admin")" = 'frankenphp mysql php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
+
+hit '/jmonitor/stack/mysql?connection=reports&rest=1' 200
+detail="$(curl -sf "$BASE/jmonitor/stack/mysql?connection=reports&rest=1")" || fail "GET /jmonitor/stack/mysql?connection=reports&rest=1 did not return 2xx"
+instances="$(printf '%s\n' "$detail" | tr '\n' ' ' | sed -n 's|.*\(<div class="jm-instances".*\)|\1|p' | sed 's|</div>.*||')"
+printf '%s\n' "$instances" | grep -q 'href="/jmonitor/stack/mysql?connection=main"' || fail "the selector of the MySQL detail does not link to main: $instances"
+printf '%s\n' "$instances" | grep -q 'href="/jmonitor/stack/mysql?connection=reports" aria-current="true"' || fail "the selector of the MySQL detail does not show reports as the current connection: $instances"
+printf '%s\n' "$detail" | grep -q 'aria-label="Database · jmonitor"' || fail "the MySQL detail of reports has no Database section"
+status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" "$BASE/admin/jmonitor/stack/mysql?connection=reports")"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor/stack/mysql?connection=reports answered $status instead of 200"
+
+sleep 10
+[ "$(mysql_sessions)" = 0 ] || fail "the MySQL server still holds $(mysql_sessions) sessions of the application 10 s after the last display"
+
+$COMPOSE stop mysql >/dev/null 2>&1 || fail "the MySQL server could not be stopped"
+timed '/jmonitor/stack?rest=1'
+faster_than 3 || fail "the Stack screen took $took s with a stopped MySQL server"
+echo "the Stack screen with a stopped MySQL server: $took s"
+mysql="$(card "$page" mysql.main)"
+before="$(read_at "$mysql")"
+printf '%s\n' "$mysql" | grep -q 'data-jm-verdict="bad"' || fail "the MySQL card is not critical with a stopped server: $mysql"
+printf '%s\n' "$mysql" | grep -q '>Critical<' || fail "the MySQL card does not say Critical with a stopped server: $mysql"
+printf '%s\n' "$page" | grep -q 'MySQL cannot be reached' || fail "the Stack screen does not say that MySQL cannot be reached"
+timed '/jmonitor/stack?rest=1'
+faster_than 1 || fail "the display after a stopped MySQL server took $took s"
+echo "the next display: $took s"
+printf '%s\n' "$(card "$page" mysql.main)" | grep -q 'data-jm-verdict="bad"' || fail "the MySQL card is no longer critical on the next display"
+hit /teapot 418
+expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests screen did not list "GET app_teapot" after the stopped MySQL server'
+printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the stopped MySQL server'
+if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
+    fail "the Requests screen lists a request to a JMonitor screen after the stopped MySQL server"
+fi
+
+$COMPOSE up --detach --wait mysql >/dev/null 2>&1 || fail "the MySQL server could not be started again"
+status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' --data 'action=refresh' "$BASE/jmonitor/_action/stack")"
+[ "$status" = 303 ] || fail "POST /jmonitor/_action/stack answered $status instead of 303"
+readable=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
+    mysql="$(card "$page" mysql.main)"
+    after="$(read_at "$mysql")"
+    if [ -n "$after" ] && [ "$after" -gt "$before" ] && ! printf '%s\n' "$mysql" | grep -Eq 'data-jm-verdict="(bad|unknown)"'; then
+        readable=1
+        break
+    fi
+    sleep 1
+done
+[ "$readable" = 1 ] || fail "the MySQL card was not read again within 30 s of a refresh, once the server was back: $mysql"
 
 hit /jmonitor/messages 200
 counted=0
@@ -190,6 +266,7 @@ printf '%s\n' "$processes" | grep -q 'frankenphp' || fail "the process list of t
 if printf '%s\n' "$processes" | grep -q 'bin/console'; then
     fail "a console process still runs 10 s after the queues were counted: $(printf '%s\n' "$processes" | grep 'bin/console')"
 fi
+[ "$(mysql_sessions)" = 0 ] || fail "the MySQL server still holds $(mysql_sessions) sessions of the application once it was read again"
 
 sleep 2
 hit /teapot 418
@@ -271,4 +348,4 @@ if printf '%s\n' "$page" | grep -q '(unmatched)'; then
     fail "the Requests screen lists the probe of an address of the application"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server and a detail per connection, closes what it opened, says at once and once only that a stopped server cannot be reached, and reads it again once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
