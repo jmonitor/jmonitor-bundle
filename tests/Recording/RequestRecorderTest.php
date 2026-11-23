@@ -250,6 +250,11 @@ final class RequestRecorderTest extends TestCase
         yield 'the address of the server' => [['REMOTE_ADDR' => '198.51.100.20', 'SERVER_ADDR' => '198.51.100.20']];
         yield 'a neighbour container' => [['REMOTE_ADDR' => '172.23.0.2', 'SERVER_ADDR' => '172.23.0.3']];
         yield 'a private network' => [['REMOTE_ADDR' => '10.0.0.5']];
+        yield 'another private network' => [['REMOTE_ADDR' => '192.168.1.10']];
+        yield 'a link-local address' => [['REMOTE_ADDR' => '169.254.10.1']];
+        yield 'a shared address space' => [['REMOTE_ADDR' => '100.64.0.1']];
+        yield 'an IPv6 unique local address' => [['REMOTE_ADDR' => 'fc00::1']];
+        yield 'an IPv6 link-local address' => [['REMOTE_ADDR' => 'fe80::1']];
     }
 
     /**
@@ -277,9 +282,35 @@ final class RequestRecorderTest extends TestCase
         yield 'a public address' => [['REMOTE_ADDR' => '203.0.113.7', 'SERVER_ADDR' => '198.51.100.20']];
         yield 'a public address claiming to be forwarded for the loopback' => [['REMOTE_ADDR' => '203.0.113.7', 'SERVER_ADDR' => '198.51.100.20', 'HTTP_X_FORWARDED_FOR' => '127.0.0.1']];
         yield 'a 6to4 address' => [['REMOTE_ADDR' => '2002:cb00:7107::1', 'SERVER_ADDR' => '198.51.100.20']];
+        yield 'just below the 172.16.0.0/12 network' => [['REMOTE_ADDR' => '172.15.255.255']];
+        yield 'just above the 172.16.0.0/12 network' => [['REMOTE_ADDR' => '172.32.0.1']];
         yield 'no remote address' => [[]];
         yield 'an empty remote address' => [['REMOTE_ADDR' => '']];
         yield 'a remote address that is not one' => [['REMOTE_ADDR' => 'unknown']];
+    }
+
+    /**
+     * @param array<string, string> $server
+     */
+    #[DataProvider('requestsRelayedByAProxy')]
+    public function testAProbeHeaderRelayedByAProxyIsRecorded(array $server): void
+    {
+        $this->handle($this->recorder(), self::probe(['REMOTE_ADDR' => '127.0.0.1'] + $server), null, 404);
+
+        static::assertCount(1, $this->buffer->entries);
+        static::assertSame('GET (unmatched)', $this->buffer->entries[0]->key);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, string>}>
+     */
+    public static function requestsRelayedByAProxy(): iterable
+    {
+        yield 'X-Forwarded-For' => [['HTTP_X_FORWARDED_FOR' => '203.0.113.7']];
+        yield 'Forwarded' => [['HTTP_FORWARDED' => 'for=203.0.113.7']];
+        yield 'X-Real-IP' => [['HTTP_X_REAL_IP' => '203.0.113.7']];
+        yield 'Via' => [['HTTP_VIA' => '1.1 varnish']];
+        yield 'an empty X-Forwarded-For' => [['HTTP_X_FORWARDED_FOR' => '']];
     }
 
     public function testAProbeHeaderOnAMatchedRouteIsRecorded(): void

@@ -23,6 +23,7 @@ final class RequestRecorder implements EventSubscriberInterface
     private const MAX_REQUEST_AGE = 300;
     private const INTERNAL_ROUTE_PREFIXES = ['_wdt', '_profiler', 'jmonitor_'];
     private const STANDARD_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+    private const RELAY_HEADERS = ['X-Forwarded-For', 'Forwarded', 'X-Real-IP', 'Via'];
     private const LOCAL_NETWORKS = ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10', '::1/128', 'fc00::/7', 'fe80::/10'];
 
     private int $handledRequests = 0;
@@ -162,12 +163,19 @@ final class RequestRecorder implements EventSubscriberInterface
 
     /**
      * A status page probe of the stack that fell on the application. Anyone can send the header: the request
-     * must also come from this machine or its private network.
+     * must also come straight from this machine or its private network, not relayed by a proxy, behind which
+     * every visitor has a local address.
      */
     private static function isLocalProbe(Request $request): bool
     {
         if (!$request->headers->has(self::PROBE_HEADER)) {
             return false;
+        }
+
+        foreach (self::RELAY_HEADERS as $header) {
+            if ($request->headers->has($header)) {
+                return false;
+            }
         }
 
         $client = $request->server->get('REMOTE_ADDR');
