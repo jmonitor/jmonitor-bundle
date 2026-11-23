@@ -117,15 +117,19 @@ final readonly class DatabaseInstances
     {
         $container = $this->container;
         $name = $target->name;
-        $id = $this->ids[$name] ?? $name;
+        $id = $this->ids[$name] ?? null;
         $link = new DbalLink(
-            static function () use ($container, $id): Connection {
+            static function () use ($container, $id, $name): Connection {
+                if ($id === null) {
+                    throw new \LogicException(\sprintf('No service is known for the Doctrine connection "%s".', $name));
+                }
+
                 $connection = $container->get($id);
                 \assert($connection instanceof Connection);
 
                 return $connection;
             },
-            built: static fn(): bool => $container->initialized($id),
+            built: static fn(): bool => $id !== null && $container->initialized($id),
         );
 
         return Instance::found(

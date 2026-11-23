@@ -192,6 +192,30 @@ final class DatabaseInstancesTest extends TestCase
         self::assertInstanceOf(ServiceNotFoundException::class, $failure->getPrevious());
     }
 
+    public function testAConnectionWithoutAServiceIdIsUnreachable(): void
+    {
+        $namesake = new FakeDatabase();
+        $container = new Container();
+        $container->set('default', $namesake);
+        $links = [];
+        $instances = new DatabaseInstances(
+            new DoctrineConnections(new ServiceLocator(['default' => static fn(): \ArrayObject => new \ArrayObject(self::MYSQL)]), ['default']),
+            $container,
+            [],
+            [],
+        );
+        $instances->detect(Component::System, 'mysql', 'MySQL', [], static function (ConnectionTarget $target, DbalLink $link) use (&$links): array {
+            $links[] = $link;
+
+            return [];
+        }, false, 3306);
+
+        $failure = Failures::thrownBy(static fn() => $links[0]->fetchAllAssociative('SELECT 1'));
+
+        self::assertInstanceOf(UnreachableServerException::class, $failure);
+        self::assertSame(0, $namesake->calls());
+    }
+
     public function testTheSetReleasesWhatItsLinkOpened(): void
     {
         $connection = new FakeDatabase();

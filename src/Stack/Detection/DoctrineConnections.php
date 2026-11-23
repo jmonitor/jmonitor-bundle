@@ -108,7 +108,7 @@ final class DoctrineConnections implements ResetInterface
     }
 
     /**
-     * @return ?array<mixed> null when the credentials of its URL slipped into the rest of it
+     * @return ?array<mixed> null when the credentials of its URL were cut short
      */
     private function params(string $name): ?array
     {
@@ -132,18 +132,29 @@ final class DoctrineConnections implements ResetInterface
             throw new \UnexpectedValueException();
         }
 
-        $url = ($this->parser ??= new DsnParser(self::SCHEMES))->parse($params['url']);
-
-        // A password that is not URL-encoded ends the credentials early: the rest of them becomes a host, a port or a database.
-        if ((str_contains($params['url'], '@') && !isset($url['user'])) || strpbrk((string) ($url['dbname'] ?? ''), '@:/') !== false) {
+        if (self::isCutShort($params['url'])) {
             return null;
         }
+
+        $url = ($this->parser ??= new DsnParser(self::SCHEMES))->parse($params['url']);
 
         if (isset($url['driver'])) {
             unset($params['driverClass']);
         }
 
         return array_merge($params, $url);
+    }
+
+    /**
+     * A password that is not URL-encoded and holds a "/", "?" or "#" ends the address of the server early:
+     * the "@" that closes the credentials then comes after it, and the parser would read part of the password as a host.
+     */
+    private static function isCutShort(string $url): bool
+    {
+        $scheme = strpos($url, '://');
+        $start = $scheme === false ? 0 : $scheme + 3;
+
+        return str_contains(substr($url, $start + strcspn($url, '/?#', $start)), '@');
     }
 
     /**

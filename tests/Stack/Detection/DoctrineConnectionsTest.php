@@ -12,6 +12,7 @@ use Doctrine\DBAL\Tools\DsnParser;
 use Jmonitor\JmonitorBundle\Stack\Detection\ConnectionTarget;
 use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\Failures;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Exception\EnvNotFoundException;
 use Symfony\Component\DependencyInjection\ServiceLocator;
@@ -139,21 +140,48 @@ final class DoctrineConnectionsTest extends TestCase
         }
     }
 
-    public function testAPasswordThatSlippedIntoTheDatabaseIsRefused(): void
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function urlsCutShort(): iterable
     {
-        $connections = self::connections([
-            'slash' => ['url' => 'mysql://jmonitor:12/s3cr3t@127.0.0.1:36999/jmonitor'] + self::DEFAULTS,
-            'question_mark' => ['url' => 'mysql://admin:12?s3cr3t@db.internal/app'] + self::DEFAULTS,
-            'hash' => ['url' => 'mysql://admin:12#s3cr3t@db.internal/app'] + self::DEFAULTS,
-        ]);
+        yield 'slash' => ['mysql://jmonitor:12/s3cr3t@127.0.0.1:36999/jmonitor'];
+        yield 'question mark' => ['mysql://admin:12?s3cr3t@db.internal/app'];
+        yield 'hash' => ['mysql://admin:12#s3cr3t@db.internal/app'];
+        yield 'at sign, then question mark' => ['mysql://admin:pa@ss?x@db.internal/app'];
+        yield 'at sign, then hash' => ['mysql://admin:pa@ss#x@db.internal/app'];
+        yield 'slash in the password' => ['mysql://admin:pa/ss@db.internal/app'];
+    }
 
-        foreach ($connections->names() as $name) {
-            $failure = Failures::thrownBy(static fn() => $connections->target($name));
+    #[DataProvider('urlsCutShort')]
+    public function testAUrlWhoseCredentialsWereCutShortIsRefused(string $url): void
+    {
+        $connections = self::connections(['default' => ['url' => $url] + self::DEFAULTS]);
 
-            self::assertInstanceOf(\RuntimeException::class, $failure, $name);
-            self::assertSame('The URL of this connection cannot be read.', $failure->getMessage(), $name);
-            self::assertNull($failure->getPrevious(), $name);
-        }
+        $failure = Failures::thrownBy(static fn() => $connections->target('default'));
+
+        self::assertInstanceOf(\RuntimeException::class, $failure);
+        self::assertSame('The URL of this connection cannot be read.', $failure->getMessage());
+        self::assertNull($failure->getPrevious());
+    }
+
+    /**
+     * @return iterable<string, array{string, string, ?string, ?string}>
+     */
+    public static function wellFormedUrls(): iterable
+    {
+        yield 'encoded slash' => ['mysql://admin:pa%2Fss@db.internal/app', 'db.internal', 'app', null];
+        yield 'at sign in the password' => ['mysql://admin:pa@ss@db.internal/app', 'db.internal', 'app', null];
+        yield 'no credentials' => ['mysql://db.internal/app', 'db.internal', 'app', null];
+        yield 'socket' => ['mysql://admin:p@localhost/app?unix_socket=/run/mysqld/mysqld.sock', 'localhost', 'app', '/run/mysqld/mysqld.sock'];
+    }
+
+    #[DataProvider('wellFormedUrls')]
+    public function testAWellFormedUrlIsRead(string $url, string $host, ?string $database, ?string $socket): void
+    {
+        $target = self::connections(['default' => ['url' => $url] + self::DEFAULTS])->target('default');
+
+        self::assertSame([$host, $database, $socket], [$target->host, $target->database, $target->socket]);
     }
 
     public function testADiscreteDatabaseIsTakenAsItIs(): void
