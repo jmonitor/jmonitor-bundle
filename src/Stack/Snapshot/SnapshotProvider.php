@@ -8,9 +8,8 @@ use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
 use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
 use Jmonitor\JmonitorBundle\Stack\Collector\ErrorMessage;
+use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
-use Jmonitor\JmonitorBundle\Stack\Collector\MissingPrerequisiteException;
-use Jmonitor\JmonitorBundle\Stack\Collector\UnreachableServerException;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Psr\Cache\CacheItemInterface;
@@ -188,7 +187,7 @@ final readonly class SnapshotProvider
             if ($value !== null && $value->isFresh($spec->lifetime, $now)) {
                 $read->results[$spec->name] = $this->shown($spec, $value, $now);
             } elseif ($failure !== null) {
-                $read->results[$spec->name] = $this->shown($spec, $value, $now, ResultState::Failed, $failure->error, $failure->until);
+                $read->results[$spec->name] = $this->shown($spec, $value, $now, ResultState::Failed, $failure);
             }
         }
 
@@ -208,7 +207,7 @@ final readonly class SnapshotProvider
         }
 
         $startedAt = $this->seconds();
-        $result = $this->collect($read, $spec, $guard);
+        $result = $this->collect($read, $spec, $guard, $startedAt);
         $budget->ran($spec->cost, $this->seconds() - $startedAt);
 
         return $result;
@@ -240,7 +239,7 @@ final readonly class SnapshotProvider
         return $spec->cost === CostClass::Immediate || ($cache === CacheState::Working && $guard->works());
     }
 
-    private function collect(InstanceRead $read, CollectorSpec $spec, CacheGuard $guard): CollectorResult
+    private function collect(InstanceRead $read, CollectorSpec $spec, CacheGuard $guard, float $startedAt): CollectorResult
     {
         $read->ran = true;
 
@@ -248,11 +247,12 @@ final readonly class SnapshotProvider
             $data = $this->runner->run($spec->collector);
         } catch (\Throwable $e) {
             $now = $this->now();
-            $kept = self::keptFor($e, $spec->cost);
-            $failure = new StoredFailure(self::describe($e), $now + $kept, $read->forgotten);
+            $kind = FailureKind::of($e);
+            $kept = self::keptFor($kind, $spec->cost, $this->seconds() - $startedAt);
+            $failure = new StoredFailure(self::describe($e), $now + $kept, $read->forgotten, $kind);
             $read->write($spec, $this->keys->failure($read->instance, $spec), $failure->toCache(), $kept, value: false);
 
-            return $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $failure->error, $failure->until);
+            return $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $failure);
         }
 
         $now = $this->now();
@@ -358,10 +358,10 @@ final readonly class SnapshotProvider
         });
     }
 
-    private function shown(CollectorSpec $spec, ?StoredValue $value, int $now, ResultState $withoutValue = ResultState::Pending, ?string $error = null, ?int $retryAt = null): CollectorResult
+    private function shown(CollectorSpec $spec, ?StoredValue $value, int $now, ResultState $withoutValue = ResultState::Pending, ?StoredFailure $failure = null): CollectorResult
     {
         if ($value === null) {
-            return new CollectorResult($spec->name, [], $withoutValue, $error, expiresAt: $retryAt);
+            return new CollectorResult($spec->name, [], $withoutValue, $failure?->error, expiresAt: $failure?->until, failure: $failure?->kind);
         }
 
         // a web server whose clock is ahead may have dated it in the future
@@ -369,10 +369,11 @@ final readonly class SnapshotProvider
             $spec->name,
             $value->data,
             $value->isFresh($spec->lifetime, $now) ? ResultState::Fresh : ResultState::Stale,
-            $error,
+            $failure?->error,
             min($value->collectedAt, $now),
             $value->delta,
-            $retryAt ?? $value->collectedAt + $spec->lifetime->seconds(),
+            $failure->until ?? $value->collectedAt + $spec->lifetime->seconds(),
+            $failure?->kind,
         );
     }
 
@@ -387,22 +388,14 @@ final readonly class SnapshotProvider
 
     /**
      * As long as retrying costs: a missing prerequisite does not come back soon, an unreachable server
-     * makes each attempt wait.
+     * is not asked again sooner than it made the read wait.
      */
-    private static function keptFor(\Throwable $e, CostClass $cost): int
+    private static function keptFor(FailureKind $kind, CostClass $cost, float $waited): int
     {
-        $causes = [];
-
-        for ($cause = $e; $cause !== null; $cause = $cause->getPrevious()) {
-            $causes[] = $cause::class;
-        }
-
-        $has = static fn(string $class): bool => array_filter($causes, static fn(string $cause): bool => is_a($cause, $class, true)) !== [];
-
-        return match (true) {
-            $has(MissingPrerequisiteException::class) => 3600,
-            $has(UnreachableServerException::class) => 60,
-            default => self::keptAfterFailure($cost),
+        return match ($kind) {
+            FailureKind::MissingPrerequisite => 3600,
+            FailureKind::Unreachable => min(600, max(60, (int) ceil(5 * $waited))),
+            FailureKind::Other => self::keptAfterFailure($cost),
         };
     }
 

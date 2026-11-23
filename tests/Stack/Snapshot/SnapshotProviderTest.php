@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
 use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
+use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
 use Jmonitor\JmonitorBundle\Stack\Collector\MissingPrerequisiteException;
 use Jmonitor\JmonitorBundle\Stack\Collector\UnreachableServerException;
@@ -624,7 +625,7 @@ final class SnapshotProviderTest extends TestCase
         yield 'missing prerequisite' => [CostClass::Network, new MissingPrerequisiteException('No status page here'), 3600];
         yield 'missing prerequisite behind an unreachable server' => [CostClass::Slow, new UnreachableServerException('Not readable', 0, new MissingPrerequisiteException('composer: not found')), 3600];
         yield 'network that waits as long as it is kept' => [CostClass::Network, new \RuntimeException('Timed out'), 10, 10.0];
-        yield 'unreachable server after its timeout' => [CostClass::Network, new UnreachableServerException('Connection timed out'), 60, 60.0];
+        yield 'unreachable server after its timeout' => [CostClass::Network, new UnreachableServerException('Connection timed out'), 300, 60.0];
     }
 
     #[DataProvider('failures')]
@@ -646,6 +647,87 @@ final class SnapshotProviderTest extends TestCase
         $this->read($provider, $instance);
 
         self::assertSame(2, $collector->collects);
+    }
+
+    public function testAFailureKeepsItsKind(): void
+    {
+        $collector = new FakeCollector('php.status', collectFailure: new BootFailedException('Not readable', new UnreachableServerException('Connection refused')));
+        $instance = self::instance([self::spec($collector, cost: CostClass::Network)]);
+        $provider = $this->provider();
+
+        $failed = $this->read($provider, $instance);
+        $this->clock->sleep(1);
+        $kept = $this->read($provider, $instance);
+
+        self::assertSame(1, $collector->collects);
+
+        foreach ([$failed, $kept] as $snapshot) {
+            self::assertSame(ResultState::Failed, $snapshot->result('php.status')?->state);
+            self::assertSame(FailureKind::Unreachable, $snapshot->result('php.status')->failure);
+        }
+
+        self::assertSame('unreachable', $this->recording->getItem('jmonitor.stack.failure.%node.web-1.php.php.status')->get()['kind'] ?? null);
+    }
+
+    public function testAnOutdatedValueThatCouldNotBeRenewedTellsTheKind(): void
+    {
+        $provider = $this->provider();
+        $fresh = $this->read($provider, self::instance([self::spec(new FakeCollector('php.status', ['requests' => 100]), cost: CostClass::Network)]));
+        $failing = new FakeCollector('php.status', collectFailure: new UnreachableServerException('Connection timed out'));
+        $instance = self::instance([self::spec($failing, cost: CostClass::Network)]);
+
+        $this->clock->sleep(15);
+        $outdated = $this->read($provider, $instance);
+        $this->clock->sleep(1);
+        $kept = $this->read($provider, $instance);
+
+        self::assertNull($fresh->result('php.status')?->failure);
+        self::assertSame(1, $failing->collects);
+
+        foreach ([$outdated, $kept] as $snapshot) {
+            self::assertSame(ResultState::Stale, $snapshot->result('php.status')?->state);
+            self::assertSame(['requests' => 100], $snapshot->data('php.status'));
+            self::assertSame('Connection timed out', $snapshot->result('php.status')->error);
+            self::assertSame(FailureKind::Unreachable, $snapshot->result('php.status')->failure);
+        }
+    }
+
+    public function testAFailureStoredWithoutAKindIsOther(): void
+    {
+        $collector = new FakeCollector('php.status', ['requests' => 100]);
+        $this->recording->save($this->recording->getItem('jmonitor.stack.failure.%node.web-1.php.php.status')->set(['error' => 'Timed out', 'until' => self::START + 60, 'forgotten' => null]));
+
+        $snapshot = $this->read($this->provider(), self::instance([self::spec($collector, cost: CostClass::Network)]));
+
+        self::assertSame(0, $collector->collects);
+        self::assertSame(ResultState::Failed, $snapshot->result('php.status')?->state);
+        self::assertSame('Timed out', $snapshot->result('php.status')->error);
+        self::assertSame(FailureKind::Other, $snapshot->result('php.status')->failure);
+    }
+
+    public function testAnUnreachableServerThatMadeTheReadWaitIsKeptFiveTimesAsLong(): void
+    {
+        foreach (['quick' => [0.2, 60], 'timed out' => [30.0, 150], 'frozen' => [200.0, 600]] as $id => [$waited, $kept]) {
+            $collector = new FakeCollector('symfony.status', collectFailure: new UnreachableServerException('Connection timed out'), clock: $this->clock, duration: $waited);
+            $instance = self::instance([self::spec($collector, cost: CostClass::Network)], $id, Component::Symfony);
+            $provider = $this->provider();
+
+            $failed = $this->read($provider, $instance);
+            $failedAt = $this->clock->now()->getTimestamp();
+
+            self::assertSame($kept, $this->recording->ttls['jmonitor.stack.failure.%node.web-1.' . $instance->key() . '.symfony.status'], $id);
+            self::assertSame($failedAt + $kept, $failed->result('symfony.status')?->expiresAt, $id);
+
+            $this->clock->sleep($kept - 1);
+            $this->read($provider, $instance);
+
+            self::assertSame(1, $collector->collects, $id . ': not asked again during the wait it made');
+
+            $this->clock->sleep(1);
+            $this->read($provider, $instance);
+
+            self::assertSame(2, $collector->collects, $id);
+        }
     }
 
     public function testAForgetForgetsFailuresAndKeepsDayLongValues(): void
