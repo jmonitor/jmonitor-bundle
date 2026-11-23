@@ -83,6 +83,11 @@ final class ErrorMessageTest extends TestCase
         yield 'an at sign in an auth parameter' => ['Cannot reach redis://host?auth=p@ss', 'ss', 'host?auth='];
         yield 'an at sign in a quoted auth parameter' => ['Redis connection "redis://host?auth=p@ss" failed', 'ss', 'host?auth='];
         yield 'an unknown option in a DSN' => ['Unknown option found in DSN: [Tail0fKey]. Allowed options are [buffer_size, wait_time].', 'Tail0fKey', 'buffer_size'];
+        yield 'the account of a denied user' => ["SQLSTATE[HY000] [1045] Access denied for user 'jmonitor'@'172.22.0.1' (using password: YES)", 'jmonitor', 'Access denied for user … (using password: YES)'];
+        yield 'the client address of a denied user' => ["SQLSTATE[HY000] [1045] Access denied for user 'jmonitor'@'172.22.0.1' (using password: YES)", '172.22.0.1', 'Access denied for user … (using password: YES)'];
+        yield 'the account denied a database' => ["SQLSTATE[HY000] [1044] Access denied for user 'jmonitor'@'%' to database 'mysql'", 'jmonitor', "Access denied for user … to database 'mysql'"];
+        yield 'the account denied a table' => ["SQLSTATE[42000]: Syntax error or access violation: 1142 SELECT command denied to user 'jmonitor'@'172.22.0.1' for table 'events_statements_summary_by_digest'", 'jmonitor', "SELECT command denied to user … for table 'events_statements_summary_by_digest'"];
+        yield 'the account of a PostgreSQL user' => ['SQLSTATE[08006] [7] connection to server at "127.0.0.1", port 5432 failed: FATAL:  password authentication failed for user "jmonitor"', 'jmonitor', 'password authentication failed for user …'];
     }
 
     #[DataProvider('secrets')]
@@ -100,7 +105,6 @@ final class ErrorMessageTest extends TestCase
     public static function ordinaryMessages(): iterable
     {
         yield 'a refused connection' => ['connection to server at "127.0.0.1", port 36999 failed: Connection refused'];
-        yield 'a denied user' => ["Access denied for user 'jmonitor'@'172.22.0.1' (using password: YES)"];
         yield 'an unknown database' => ["SQLSTATE[HY000] [1049] Unknown database 'app'"];
         yield 'a missing file' => ['SQLSTATE[HY000] [2002] No such file or directory'];
     }
