@@ -310,6 +310,31 @@ final class EasyAdminPageTest extends WebTestCase
         }
     }
 
+    public function testTheMysqlDetailShowsUnderEasyAdminWithItsConnection(): void
+    {
+        $url = 'mysql://jmonitor:jmonitor@127.0.0.1:1/';
+        $client = $this->client(['jmonitor' => ['stack' => self::STACK], 'connections' => ['shop' => ['url' => $url . 'shop'], 'a/b é' => ['url' => $url . 'reports']]]);
+
+        $crawler = $client->request('GET', '/admin/jmonitor/stack/mysql?connection=a/b%20%C3%A9');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('body.ea'));
+        static::assertCount(1, $crawler->filter('.jm [data-jm-component="mysql.a/b é"]'));
+        static::assertSame('/admin/jmonitor/stack/mysql', $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->attr('href'));
+        static::assertSame(
+            ['/admin/jmonitor/stack/mysql?connection=shop', '/admin/jmonitor/stack/mysql?connection=a/b%20%C3%A9'],
+            $crawler->filter('.jm [data-jm-instances] a')->each(static fn(Crawler $link): string => (string) $link->attr('href')),
+        );
+        static::assertSame('/admin/jmonitor/_fragment/stack/mysql?connection=a/b%20%C3%A9', $crawler->filter('.jm [data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+        static::assertSame('a/b é', $crawler->filter('.jm form[action="/admin/jmonitor/_action/stack/mysql"] input[name="connection"]')->attr('value'));
+        foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
+            static::assertStringStartsWith('/admin/jmonitor', $url);
+        }
+
+        $client->request('POST', '/admin/jmonitor/_action/stack/mysql', ['action' => 'refresh', 'connection' => 'a/b é'], server: self::SAME_ORIGIN);
+        static::assertResponseRedirects('/admin/jmonitor/stack/mysql?connection=a/b%20%C3%A9');
+    }
+
     public function testRefreshWorksThroughEasyAdmin(): void
     {
         $client = $this->client(['jmonitor' => ['stack' => self::STACK]]);
@@ -508,7 +533,7 @@ final class EasyAdminPageTest extends WebTestCase
     }
 
     /**
-     * @param array{jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool, fakeWebServer?: string, queuesOutput?: string} $options
+     * @param array{jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool, fakeWebServer?: string, queuesOutput?: string, connections?: array<string, array<string, mixed>>} $options
      */
     private function client(array $options = []): KernelBrowser
     {
@@ -523,7 +548,7 @@ final class EasyAdminPageTest extends WebTestCase
     }
 
     /**
-     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool, fakeWebServer?: string, queuesOutput?: string} $options
+     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, messenger?: bool, scheduler?: bool, csrf?: bool, nonce?: bool, open?: bool, fakeWebServer?: string, queuesOutput?: string, connections?: array<string, array<string, mixed>>} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -540,6 +565,7 @@ final class EasyAdminPageTest extends WebTestCase
             withOpenBackOffice: $options['open'] ?? false,
             fakeWebServer: $options['fakeWebServer'] ?? null,
             queuesOutput: $options['queuesOutput'] ?? null,
+            connections: $options['connections'] ?? [],
         );
         self::$varDirs[] = $kernel->getVarDir();
 

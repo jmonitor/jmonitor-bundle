@@ -5,7 +5,7 @@
 <section class="jm-panel" aria-labelledby="{{ title_id }}">
     <div class="jm-panel__header">
         <h2 class="jm-panel__title" id="{{ title_id }}">{{ table.title }}</h2>
-        <p class="jm-panel__meta">{{ shown|jmonitor_number }} {{ table.nounFor(shown) }}</p>
+        <p class="jm-panel__meta">{{ shown|jmonitor_number }} {{ table.nounFor(shown) }}{% if table.note is not null %}, {{ table.note }}{% endif %}</p>
     </div>
     <div class="jm-table-wrap" id="jm-{{ table.id }}-wrap" role="region" aria-labelledby="{{ title_id }}" tabindex="0">
         <table class="jm-table">

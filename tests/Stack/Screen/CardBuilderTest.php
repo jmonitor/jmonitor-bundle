@@ -8,12 +8,15 @@ use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
+use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\Server;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -369,6 +372,68 @@ final class CardBuilderTest extends TestCase
 
         self::assertSame('php.www', $card->id);
         self::assertSame('PHP · www', $card->name);
+    }
+
+    public function testTheMysqlCardNamesItsProductAndItsFigures(): void
+    {
+        $variables = ['version' => '11.4.10-MariaDB-ubu2404', 'version_comment' => 'mariadb.org binary distribution'] + DatabasePayloads::mysqlVariables();
+        $previous = ['Questions' => '550', 'Innodb_buffer_pool_read_requests' => '100000', 'Innodb_buffer_pool_reads' => '1000'];
+        $snapshot = Snapshots::of(Component::Mysql, [
+            'mysql' => DatabasePayloads::mysqlStatus(),
+            'mysql.variables' => $variables,
+            'eol.mariadb' => ['cycles' => ['11.4' => ['eol' => '2029-05-29', 'support' => '2026-01-01']]],
+        ], deltas: ['mysql' => Snapshots::delta($previous, DatabasePayloads::mysqlStatus())]);
+
+        $card = $this->cardOf(Component::Mysql, new InstanceState('main', 'shop', null, $snapshot, new Server('db1:3306', 'db1:3306'), 1), 'stack/mysql');
+
+        self::assertSame('mysql.main', $card->id);
+        self::assertSame('MySQL · main', $card->name);
+        self::assertSame('MariaDB 11.4.10', $card->version);
+        self::assertEquals([new Mark('warn', 'Security fixes only')], $card->badges);
+        self::assertEquals(new Mark('warn', 'Warning'), $card->mark);
+        self::assertEquals([
+            new Vital('Connections', '30 / 100'),
+            new Vital('Queries', '10.0 q/s', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Buffer pool hit rate', '99 %', 'over the last 60' . self::NBSP . 's'),
+        ], array_map(self::readable(...), $card->vitals));
+        self::assertSame('db1:3306 · 2 connections', $card->note);
+        self::assertSame(['connection' => 'main'], $card->query);
+
+        $alone = $this->cardOf(Component::Mysql, new InstanceState('main', 'shop', null, Snapshots::of(Component::Mysql, ['mysql' => DatabasePayloads::mysqlStatus()]), new Server('db1:3306', 'db1:3306')));
+
+        self::assertSame('db1:3306', $alone->note);
+        self::assertNull($alone->version);
+        self::assertSame(['Connections' => '30', 'Queries' => '—', 'Buffer pool hit rate' => '99 %'], self::vitals($alone));
+        self::assertSame('since the server started', $alone->vitals[2]->hint);
+    }
+
+    public function testAnUnreachableMysqlCardGivesTheReasonAndIsCritical(): void
+    {
+        $snapshot = new ComponentSnapshot(Component::Mysql, [
+            'mysql' => new CollectorResult('mysql', [], ResultState::Failed, 'SQLSTATE[HY000] [2002] Connection refused', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            'mysql.variables' => new CollectorResult('mysql.variables', DatabasePayloads::mysqlVariables(), ResultState::Stale, 'SQLSTATE[HY000] [2002] Connection refused', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ]);
+
+        $card = $this->cardOf(Component::Mysql, new InstanceState('main', 'shop', null, $snapshot, new Server('db1:3306', 'db1:3306')), 'stack/mysql');
+
+        self::assertSame('SQLSTATE[HY000] [2002] Connection refused', $card->reason);
+        self::assertEquals(new Mark('bad', 'Critical'), $card->mark);
+        self::assertFalse($card->reading);
+        self::assertSame('MySQL 8.4.0', $card->version);
+        self::assertSame('db1:3306', $card->note);
+        self::assertNull($card->readAt);
+    }
+
+    public function testAMysqlCardWaitsForItsFirstReading(): void
+    {
+        $snapshot = Snapshots::of(Component::Mysql, [], ['mysql' => ResultState::Pending, 'mysql.variables' => ResultState::Pending]);
+
+        $card = $this->cardOf(Component::Mysql, new InstanceState('main', 'shop', null, $snapshot, new Server('db1:3306', 'db1:3306')), 'stack/mysql');
+
+        self::assertTrue($card->reading);
+        self::assertNull($card->reason);
+        self::assertSame(['Connections' => 'Reading…', 'Queries' => 'Reading…', 'Buffer pool hit rate' => 'Reading…'], self::vitals($card));
+        self::assertEquals(new Mark('unknown', 'Unknown'), $card->mark);
     }
 
     private function card(ComponentSnapshot $snapshot, ?string $path = null): ComponentCard

@@ -26,6 +26,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ApacheDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\MysqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
@@ -199,6 +200,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(FrankenPhpDetail::class);
     $services->set(ApacheDetail::class);
     $services->set(NginxDetail::class);
+    $services->set(MysqlDetail::class);
 
     $services->set(StackScreen::class)
         ->args([
@@ -216,6 +218,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                 Component::FrankenPhp->value => service(FrankenPhpDetail::class),
                 Component::Apache->value => service(ApacheDetail::class),
                 Component::Nginx->value => service(NginxDetail::class),
+                Component::Mysql->value => service(MysqlDetail::class),
             ]),
         ])
         ->tag('jmonitor.screen', ['priority' => 10]);

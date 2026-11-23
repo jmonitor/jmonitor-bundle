@@ -9,6 +9,7 @@ final class Table
     /**
      * @param list<Column> $columns
      * @param list<Row>    $rows
+     * @param ?string      $note what the figures cover, beside the count
      */
     public function __construct(
         public readonly string $id,
@@ -18,6 +19,7 @@ final class Table
         public readonly int $remaining = 0,
         public readonly string $noun = 'row',
         private readonly ?string $pluralNoun = null,
+        public readonly ?string $note = null,
     ) {}
 
     public function nounFor(int $count): string

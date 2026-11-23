@@ -31,6 +31,7 @@ final class StackScreenTest extends WebTestCase
     private const STACK = ['end_of_life' => false, 'symfony' => ['flex' => false]];
     private const SAME_ORIGIN = ['HTTP_SEC_FETCH_SITE' => 'same-origin'];
     private const NGINX = ['SERVER_SOFTWARE' => 'nginx/1.26.2'];
+    private const MYSQL_URL = 'JMONITOR_TEST_MYSQL_URL';
 
     private string $bufferDir;
 
@@ -232,12 +233,12 @@ final class StackScreenTest extends WebTestCase
     {
         $client = $this->client();
 
-        foreach (['/jmonitor/stack/mysql', '/jmonitor/stack/php/x', '/jmonitor/_fragment/stack/mysql'] as $url) {
+        foreach (['/jmonitor/stack/redis', '/jmonitor/stack/php/x', '/jmonitor/_fragment/stack/redis'] as $url) {
             $client->request('GET', $url);
             static::assertResponseStatusCodeSame(404, $url);
         }
 
-        $client->request('POST', '/jmonitor/_action/stack/mysql', ['action' => 'refresh'], server: self::SAME_ORIGIN);
+        $client->request('POST', '/jmonitor/_action/stack/redis', ['action' => 'refresh'], server: self::SAME_ORIGIN);
         static::assertResponseStatusCodeSame(404);
 
         $client->request('POST', '/jmonitor/_action/stack/php', ['action' => 'forget'], server: self::SAME_ORIGIN);
@@ -447,6 +448,110 @@ final class StackScreenTest extends WebTestCase
         static::assertSame(0, self::statusPages($client)->calls);
     }
 
+    public function testTheOverviewShowsOneMysqlCardForTheTwoConnections(): void
+    {
+        $client = $this->client(['connections' => self::twoConnections()]);
+
+        $client->request('GET', '/jmonitor/stack');
+        $crawler = self::requestUntil($client, '/jmonitor/stack', '[data-jm-component="mysql.main"][data-jm-read-at]');
+
+        static::assertResponseIsSuccessful();
+        $card = $crawler->filter('[data-jm-component="mysql.main"]');
+        static::assertCount(1, $card);
+        static::assertCount(0, $crawler->filter('[data-jm-component="mysql.reports"]'));
+        static::assertSame('MySQL · main', $card->filter('.jm-component__name')->text());
+        static::assertSame('/jmonitor/stack/mysql?connection=main', $card->filter('.jm-component__name a')->attr('href'));
+        static::assertMatchesRegularExpression('/^(MySQL|MariaDB) \d+\.\d+/', $card->filter('.jm-component__version')->text());
+        static::assertStringEndsWith(' · 2 connections', $card->filter('.jm-component__note')->text());
+        static::assertSame(['Connections', 'Queries', 'Buffer pool hit rate'], array_keys(self::vitals($card)));
+        static::assertNull($crawler->filter('.jm-components__more')->getNode(0));
+        static::assertSame('/jmonitor/stack/mysql', $crawler->filter('.jm-subnav__item')->last()->attr('href'));
+    }
+
+    public function testTheDetailOfTheSecondConnectionShowsItsDatabase(): void
+    {
+        $client = $this->client(['connections' => self::twoConnections()]);
+        $database = trim((string) parse_url((string) getenv(self::MYSQL_URL), \PHP_URL_PATH), '/');
+
+        $client->request('GET', '/jmonitor/stack/mysql?connection=reports');
+        $crawler = self::requestUntil($client, '/jmonitor/stack/mysql?connection=reports&rest=1', '.jm-facts[aria-label="Database · ' . $database . '"]');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('JMonitor — MySQL', $crawler->filter('title')->text());
+        static::assertCount(1, $crawler->filter('[data-jm-component="mysql.reports"]'));
+        static::assertCount(1, $crawler->filter('.jm-facts[aria-label="Database · ' . $database . '"]'));
+        static::assertSame(['Usage', 'Traffic', 'InnoDB', 'Temporary tables and locks', 'Settings', 'Database · ' . $database], $crawler->filter('.jm-gauges, .jm-facts')->each(static fn(Crawler $section): string => (string) $section->attr('aria-label')));
+        static::assertCount(1, $crawler->filter('#jm-mysql-slow-queries-title, .jm-state__title:contains("No query of this database"), .jm-notice__title:contains("The slowest queries could not be read")'));
+
+        $selector = $crawler->filter('.jm-subbar + [data-jm-instances]');
+        static::assertSame(['Databases'], $selector->filter('nav')->each(static fn(Crawler $row): string => (string) $row->attr('aria-label')));
+        static::assertSame(['/jmonitor/stack/mysql?connection=main', '/jmonitor/stack/mysql?connection=reports'], $selector->filter('a')->each(static fn(Crawler $link): string => (string) $link->attr('href')));
+        static::assertSame('reports', $selector->filter('a[aria-current="true"] .jm-instances__name')->text());
+        static::assertSame('/jmonitor/_fragment/stack/mysql?connection=reports', $crawler->filter('[data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+        static::assertSame('reports', $crawler->filter('form[action="/jmonitor/_action/stack/mysql"] input[name="connection"]')->attr('value'));
+
+        $client->request('GET', '/jmonitor/_fragment/stack/mysql?connection=reports');
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, (new Crawler((string) $client->getResponse()->getContent()))->filter('[data-jm-component="mysql.reports"]'));
+
+        $client->request('POST', '/jmonitor/_action/stack/mysql', ['action' => 'refresh', 'connection' => 'reports'], server: self::SAME_ORIGIN);
+        static::assertResponseRedirects('/jmonitor/stack/mysql?connection=reports');
+    }
+
+    public function testADeadMysqlIsCriticalAndTheNextDisplayDoesNotWait(): void
+    {
+        self::needsMysql();
+        $client = $this->client(['internals' => true, 'connections' => ['dead' => ['url' => 'mysql://jmonitor:jmonitor@127.0.0.1:1/jmonitor']]]);
+
+        $client->request('GET', '/jmonitor/stack');
+        $client->request('GET', '/jmonitor/_fragment/stack');
+        static::assertResponseIsSuccessful();
+        static::assertTrue($client->getKernel()->getContainer()->initialized('doctrine.dbal.dead_connection'), 'the server was tried once');
+
+        $crawler = $client->request('GET', '/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertFalse($client->getKernel()->getContainer()->initialized('doctrine.dbal.dead_connection'), 'the failure is kept: nothing is tried again');
+        $card = $crawler->filter('[data-jm-component="mysql.dead"]');
+        static::assertSame('bad', $card->attr('data-jm-verdict'));
+        static::assertSame('Critical', $card->filter('.jm-component__marks .jm-mark')->first()->text());
+        static::assertStringContainsString('Connection refused', $card->filter('.jm-component__reason')->text());
+        static::assertSame('127.0.0.1:1', $card->filter('.jm-component__note')->text());
+        $check = $crawler->filter('[data-jm-check="mysql.failed"]');
+        static::assertSame('bad', $check->attr('data-jm-severity'));
+        static::assertStringStartsWith('MySQL cannot be reached: ', $check->filter('.jm-check__sentence')->text());
+        static::assertSame('/jmonitor/stack/mysql?connection=dead', $check->filter('.jm-check__where a')->attr('href'));
+        static::assertSame('1', $crawler->filter('[data-jm-slot="nav-stack"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent);
+
+        $crawler = $client->request('GET', '/jmonitor/stack/mysql?connection=dead');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('bad', $crawler->filter('[data-jm-component="mysql.dead"]')->attr('data-jm-verdict'));
+        static::assertFalse($client->getKernel()->getContainer()->initialized('doctrine.dbal.dead_connection'));
+    }
+
+    public function testTheDetailOfMysqlIsNotRecorded(): void
+    {
+        $client = $this->client(['connections' => self::twoConnections(), 'jmonitor' => ['recording' => ['flush_interval' => 1]]]);
+
+        $client->request('GET', '/jmonitor/stack/mysql?connection=main');
+        for ($i = 0; $i < 2; ++$i) {
+            $client->request('GET', '/jmonitor/stack/mysql?connection=main&rest=1');
+            static::assertResponseIsSuccessful();
+        }
+        $client->request('GET', '/jmonitor/_fragment/stack/mysql?connection=main');
+        $client->request('GET', '/hello/world');
+
+        $requests = self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET app_hello"]');
+        static::assertCount(1, $requests->filter('tr[data-jm-route="GET app_hello"]'));
+        static::assertSame([], preg_grep('/jmonitor/', $requests->filter('tr[data-jm-route]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-route'))));
+
+        $queries = $client->request('GET', '/jmonitor/queries')->filter('.jm-screen')->text();
+        foreach (['GLOBAL STATUS', 'GLOBAL VARIABLES', 'performance_schema', 'information_schema'] as $sql) {
+            static::assertStringNotContainsStringIgnoringCase($sql, $queries);
+        }
+    }
+
     /**
      * @return array<string, string> label => value, with ordinary spaces
      */
@@ -491,7 +596,24 @@ final class StackScreenTest extends WebTestCase
     }
 
     /**
-     * @param array{jmonitor?: array<string, mixed>, doctrine?: bool, internals?: bool, fakeWebServer?: string} $options
+     * @return array<string, array<string, mixed>>
+     */
+    private static function twoConnections(): array
+    {
+        self::needsMysql();
+
+        return ['main' => ['url' => '%env(' . self::MYSQL_URL . ')%'], 'reports' => ['url' => '%env(' . self::MYSQL_URL . ')%']];
+    }
+
+    private static function needsMysql(): void
+    {
+        if (!\is_string(getenv(self::MYSQL_URL))) {
+            static::markTestSkipped(self::MYSQL_URL . ' is not set.');
+        }
+    }
+
+    /**
+     * @param array{jmonitor?: array<string, mixed>, doctrine?: bool, internals?: bool, fakeWebServer?: string, connections?: array<string, array<string, mixed>>} $options
      */
     private function client(array $options = []): KernelBrowser
     {
@@ -504,7 +626,7 @@ final class StackScreenTest extends WebTestCase
     }
 
     /**
-     * @param array{jmonitor?: array<string, mixed>, doctrine?: bool, internals?: bool, fakeWebServer?: string} $options
+     * @param array{jmonitor?: array<string, mixed>, doctrine?: bool, internals?: bool, fakeWebServer?: string, connections?: array<string, array<string, mixed>>} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -515,6 +637,7 @@ final class StackScreenTest extends WebTestCase
             withDoctrine: $options['doctrine'] ?? true,
             withPublicInternals: $options['internals'] ?? false,
             fakeWebServer: $options['fakeWebServer'] ?? null,
+            connections: $options['connections'] ?? [],
         );
         self::$varDirs[] = $kernel->getVarDir();
 

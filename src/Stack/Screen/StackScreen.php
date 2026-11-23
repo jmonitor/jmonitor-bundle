@@ -20,6 +20,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
+use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\DetailInterface;
@@ -168,10 +169,11 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
     private function componentCards(StackState $state, StackHealth $health): ComponentCards
     {
         $cards = [];
-        $unread = 0;
+        $unread = ['connection' => 0, 'server' => 0];
 
         foreach ($state->components as $component) {
-            $unread += $component->unread;
+            $byServer = array_filter($component->instances, static fn(InstanceState $instance): bool => $instance->server !== null) !== [];
+            $unread[$byServer ? 'server' : 'connection'] += $component->unread;
 
             foreach ($component->instances as $instance) {
                 if ($instance->snapshot !== null) {
@@ -180,16 +182,17 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             }
         }
 
-        return new ComponentCards(
-            $cards,
-            self::notDetected($state),
-            $state->node,
-            match ($unread) {
+        $more = array_map(
+            static fn(string $noun, int $count): ?string => match ($count) {
                 0 => null,
-                1 => '1 more connection',
-                default => $unread . ' more connections',
+                1 => '1 more ' . $noun,
+                default => $count . ' more ' . $noun . 's',
             },
+            array_keys($unread),
+            array_values($unread),
         );
+
+        return new ComponentCards($cards, self::notDetected($state), $state->node, implode(', ', array_filter($more)) ?: null);
     }
 
     /**
