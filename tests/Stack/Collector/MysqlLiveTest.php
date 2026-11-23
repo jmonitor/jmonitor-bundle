@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Stack\Collector;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Jmonitor\JmonitorBundle\Stack\Collector\DbalLink;
+use Jmonitor\JmonitorBundle\Stack\Collector\MissingPrerequisiteException;
 use Jmonitor\JmonitorBundle\Stack\Collector\MysqlSizesCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\MysqlSlowQueriesCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\MysqlStatusCollector;
@@ -17,6 +18,9 @@ use PHPUnit\Framework\TestCase;
 final class MysqlLiveTest extends TestCase
 {
     private const TABLE = 'jmonitor_stack_notes';
+
+    /** Slower than any query the rest of the suite leaves on the server, so that it ranks among the slowest kept. */
+    private const PLAYED_SECONDS = 0.1;
 
     private Connection $connection;
 
@@ -70,15 +74,21 @@ final class MysqlLiveTest extends TestCase
         $literal = 'jm-literal-' . bin2hex(random_bytes(6));
 
         for ($i = 0; $i < 10; ++$i) {
-            $this->connection->fetchAllAssociative('SELECT id, note FROM ' . self::TABLE . " WHERE note = '" . $literal . "'");
+            $this->connection->fetchAllAssociative('SELECT SLEEP(' . self::PLAYED_SECONDS . ') AS waited, (SELECT COUNT(*) FROM ' . self::TABLE . " WHERE note = '" . $literal . "') AS notes");
         }
 
-        $queries = (new MysqlSlowQueriesCollector($this->link(), $this->database))->collect()['queries'];
+        try {
+            $queries = (new MysqlSlowQueriesCollector($this->link(), $this->database))->collect()['queries'];
+        } catch (MissingPrerequisiteException $e) {
+            self::markTestSkipped($e->getMessage() . ' Recreate the test database: docker compose -f tests/compose.yaml up -d --wait --force-recreate --renew-anon-volumes mysql');
+        }
+        $played = array_filter($queries, static fn(array $query): bool => str_contains($query['text'], self::TABLE) && str_contains($query['text'], '?'));
 
-        self::assertNotSame([], $queries);
+        self::assertCount(1, $played, implode("\n", array_column($queries, 'text')));
         foreach ($queries as $query) {
             self::assertStringNotContainsString($literal, $query['text']);
             self::assertStringNotContainsStringIgnoringCase('performance_schema', $query['text']);
+            self::assertStringNotContainsStringIgnoringCase('UNIX_TIMESTAMP', $query['text']);
         }
     }
 

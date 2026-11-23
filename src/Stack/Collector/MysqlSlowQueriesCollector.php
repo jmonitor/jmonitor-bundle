@@ -19,7 +19,10 @@ final readonly class MysqlSlowQueriesCollector implements CollectorInterface
     private const KEPT = 10;
 
     /** The queries of the collectors of the stack, which would otherwise rank among the slowest. */
-    private const OWN = ['performance_schema', 'information_schema'];
+    private const OWN_SCHEMAS = ['performance_schema', 'information_schema'];
+
+    /** The clock of the server, read by the variables collector: its digest without backticks nor spaces. */
+    private const OWN_QUERIES = ['selectunix_timestamp()asts'];
 
     public function __construct(
         private DatabaseAdapterInterface $db,
@@ -88,13 +91,13 @@ final readonly class MysqlSlowQueriesCollector implements CollectorInterface
 
     private static function isOwn(string $text): bool
     {
-        foreach (self::OWN as $schema) {
+        foreach (self::OWN_SCHEMAS as $schema) {
             if (stripos($text, $schema) !== false) {
                 return true;
             }
         }
 
-        return false;
+        return \in_array(strtolower(str_replace(['`', ' '], '', $text)), self::OWN_QUERIES, true);
     }
 
     private static function int(mixed $value): int

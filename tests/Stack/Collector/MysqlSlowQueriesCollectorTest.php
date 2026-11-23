@@ -51,12 +51,16 @@ final class MysqlSlowQueriesCollectorTest extends TestCase
         $database = self::database([
             DatabasePayloads::digest('SELECT SUM ( `DATA_LENGTH` ) AS `data_length` , SUM ( `INDEX_LENGTH` ) AS `index_length` FROM `information_schema` . `TABLES` WHERE `TABLE_SCHEMA` = ?', 3, 900),
             DatabasePayloads::digest('SELECT LEFT ( `DIGEST_TEXT` , ? ) AS `query_sample` , `COUNT_STAR` AS `exec_count` FROM `performance_schema` . `events_statements_summary_by_digest` WHERE `SCHEMA_NAME` = ?', 3, 800),
+            DatabasePayloads::digest('SELECT `UNIX_TIMESTAMP` ( ) AS `ts`', 8, 700),
+            DatabasePayloads::digest('SELECT UNIX_TIMESTAMP ( ) AS `ts`', 8, 600),
+            DatabasePayloads::digest('SELECT @@`performance_schema` AS `enabled`', 7, 500),
+            DatabasePayloads::digest('SELECT `UNIX_TIMESTAMP` ( `created_at` ) AS `ts` FROM `order`', 4, 20),
             DatabasePayloads::digest('SELECT * FROM `product` WHERE `id` = ?', 40, 12),
         ]);
 
         $queries = (new MysqlSlowQueriesCollector(new DbalLink(static fn() => $database), 'shop'))->collect()['queries'];
 
-        self::assertSame(['SELECT * FROM `product` WHERE `id` = ?'], array_column($queries, 'text'));
+        self::assertSame(['SELECT `UNIX_TIMESTAMP` ( `created_at` ) AS `ts` FROM `order`', 'SELECT * FROM `product` WHERE `id` = ?'], array_column($queries, 'text'));
     }
 
     public function testOnlyTenAreKept(): void
