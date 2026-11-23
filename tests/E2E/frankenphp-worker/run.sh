@@ -199,8 +199,9 @@ fi
 if printf '%s\n' "$page" | grep -q '(unmatched)'; then
     fail "the Requests screen lists a request that matched no route"
 fi
-commands="$(curl -sf "$BASE/jmonitor/commands")" || fail "GET /jmonitor/commands did not return 2xx"
-if printf '%s\n' "$commands" | grep -q 'jmonitor:stack:queues'; then
+$COMPOSE exec -T app php tests/Fixtures/App/bin/console app:work || fail "app:work failed"
+expect_page /jmonitor/commands 'data-jm-command="app:work"' 'the Commands screen did not list app:work, run after the queues were counted'
+if printf '%s\n' "$page" | grep -q 'jmonitor:stack:queues'; then
     fail "the Commands screen lists jmonitor:stack:queues"
 fi
 
