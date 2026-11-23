@@ -219,10 +219,10 @@ final class MessagesQueuesTest extends WebTestCase
         foreach (Period::cases() as $period) {
             $crawler = $client->request('GET', '/jmonitor/messages', ['period' => $period->label()]);
             self::assertResponseIsSuccessful();
-            $seen[$period->label()] = $crawler->filter(self::QUEUES)->outerHtml();
+            $seen[$period->label()] = $crawler->filter(self::QUEUES . ' .jm-fact')->each(static fn(Crawler $fact): string => $fact->text());
         }
 
-        self::assertCount(1, array_unique($seen));
+        self::assertSame([['async 12', 'batch Uncountable this transport cannot count']], array_values(array_unique($seen, \SORT_REGULAR)));
         self::assertCount(1, self::runner($client)->calls);
     }
 
