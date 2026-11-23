@@ -56,6 +56,11 @@ final class CardBuilder
         $waiting = $reading && $reason === null && ($main === null || $main->state === ResultState::Pending || $main->state === ResultState::Busy);
         [$version, $vitals, $support, $note] = $snapshot === null || $reason !== null ? [null, [], null, null] : $this->figures($component, $snapshot, $reading);
 
+        if ($reason !== null && $snapshot !== null && $component === Component::Apache) {
+            $apache = ApacheReading::of($snapshot, $this->clock->now());
+            [$version, $support] = [$apache->version, $apache->support];
+        }
+
         if ($reason === null && $main?->state === ResultState::Stale) {
             $note = implode(' · ', array_filter([$note, $this->age($main)]));
         }

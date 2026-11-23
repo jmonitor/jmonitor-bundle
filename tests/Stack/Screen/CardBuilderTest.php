@@ -279,6 +279,20 @@ final class CardBuilderTest extends TestCase
         self::assertEquals([new Vital('Workers', '3 / 50'), new Vital('Requests', '2.0 req/s', 'over the last 60' . self::NBSP . 's')], array_map(self::readable(...), $card->vitals));
     }
 
+    public function testAnApacheWithoutStatusPageStillShowsItsVersionAndItsSupport(): void
+    {
+        $card = $this->card(Snapshots::of(Component::Apache, [
+            'apache.software' => ['version' => '1.26.2'],
+            'eol.apache-http-server' => WebServerPayloads::cycles(),
+        ], ['apache' => ResultState::Failed]), 'stack/apache');
+
+        self::assertSame('1.26.2', $card->version);
+        self::assertSame('Apache', $card->name);
+        self::assertSame(Snapshots::FAILURE, $card->reason);
+        self::assertEquals([new Mark('bad', 'End of life')], $card->badges);
+        self::assertSame([], $card->vitals);
+    }
+
     public function testTheNginxCardShowsItsConnectionsAndRequestsWithItsEndOfLife(): void
     {
         $card = $this->card(Snapshots::of(Component::Nginx, [
