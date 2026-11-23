@@ -690,6 +690,11 @@ body.jm .jm-header {
     min-width: 360px;
 }
 
+.jm-table .jm-col-worker {
+    min-width: 160px;
+    overflow-wrap: anywhere;
+}
+
 .jm-table .jm-col-query.jm-zero {
     font-style: italic;
 }
