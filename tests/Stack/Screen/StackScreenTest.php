@@ -265,6 +265,32 @@ final class StackScreenTest extends TestCase
         self::assertSame(['Apache: Apache is not serving this page.', 'Nginx: Nginx is not serving this page.'], $cards->notDetected);
     }
 
+    public function testAnIncompleteReadDoesNotReplaceTheSummaryOfACompleteOne(): void
+    {
+        $this->screen(new FakeStackReader(self::troubled()))->blocks(new ScreenRequest(Snapshots::NOW));
+        $complete = $this->summary()->last();
+        $this->clock->sleep(30);
+
+        $this->screen(new FakeStackReader(self::reading()))->blocks(new ScreenRequest(Snapshots::NOW, true));
+
+        self::assertNotNull($complete);
+        self::assertSame($complete, $this->summary()->last());
+
+        $this->screen(new FakeStackReader(self::healthy()))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame(
+            ['at' => Snapshots::NOW + 30, 'critical' => 0, 'warning' => 0, 'components' => ['system' => 'healthy', 'php' => 'healthy', 'symfony' => 'healthy']],
+            $this->summary()->last(),
+        );
+    }
+
+    public function testAFirstReadStillWritesASummary(): void
+    {
+        $this->screen(new FakeStackReader(self::reading()))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame(['at' => Snapshots::NOW, 'critical' => 0, 'warning' => 0, 'components' => ['php' => 'healthy', 'symfony' => 'healthy']], $this->summary()->last());
+    }
+
     public function testAWebServerHasItsDetailOnceWired(): void
     {
         $screen = $this->screen(new FakeStackReader(self::healthy()), [
@@ -532,6 +558,20 @@ final class StackScreenTest extends TestCase
             Snapshots::of(Component::System, ['system' => $system], ['system' => ResultState::Stale]),
             Snapshots::of(Component::Php, ['php' => Snapshots::php()]),
             Snapshots::of(Component::Symfony, ['symfony' => ['debug' => true] + Snapshots::symfony()]),
+        ));
+    }
+
+    /**
+     * PHP read, the Flex recipes of Symfony still read.
+     */
+    private static function reading(): StackState
+    {
+        $php = Snapshots::php();
+        unset($php['fpm']);
+
+        return self::withNode(Snapshots::stack(
+            Snapshots::of(Component::Php, ['php' => $php]),
+            Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()], ['symfony.flex' => ResultState::Pending]),
         ));
     }
 

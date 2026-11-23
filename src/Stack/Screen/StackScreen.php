@@ -109,7 +109,11 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
         }
 
         $health = $this->parts->checks()->health($state);
-        $this->parts->summary()->remember($state, $health);
+        $summary = $this->parts->summary();
+
+        if (!$state->isReading() || $summary->last() === null) {
+            $summary->remember($state, $health);
+        }
 
         $blocks = [Block::subnav(self::subnav($state, $health))];
 
