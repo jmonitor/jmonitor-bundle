@@ -386,7 +386,7 @@ Server is read on Linux only; on another system, the screen says so in place of 
 
 The `Stack` entry of the navigation carries the number of critical and warning checks found at the last display of the Stack screen, for 15 minutes. When the application records nothing, because `recording.enabled` is off or there is no Doctrine DBAL connection, the `/jmonitor` page opens on the Stack screen. Under EasyAdmin, the Stack screen shows too.
 
-Nothing is read while nobody looks at it: no listener or scheduled task reads the stack, the only command of the stack, `jmonitor:stack:queues`, is started by a display of the Messages screen, and the other screens only read the count of their badge from the cache. What is read is kept in the cache for a lifetime of its own, 10 seconds for the figures of the server, PHP, Symfony and the web server: however many people watch the screen, each web server reads them at most once every 10 seconds. A value that takes longer to read shows `Reading…` and fills in within a few seconds, or with the `Load the rest` link. `Refresh` forgets what the cache holds and reads it again, the status page of the web server included, apart from the end-of-life dates; on a detail screen it only reads that component. It works at most once every 10 seconds for the same screen: a click within that time changes nothing.
+Nothing is read while nobody looks at it: no listener or scheduled task reads the stack, and the other screens only read the count of their badge from the cache. Its only console command, `jmonitor:stack:queues`, is started by a display of the Messages screen. What is read is kept in the cache for a lifetime of its own, 10 seconds for the figures of the server, PHP, Symfony and the web server: however many people watch the screen, each web server reads them at most once every 10 seconds. A value that takes longer to read shows `Reading…` and fills in within a few seconds, or with the `Load the rest` link. `Refresh` forgets what the cache holds and reads it again, the status page of the web server included, apart from the end-of-life dates; on a detail screen it only reads that component. It works at most once every 10 seconds for the same screen: a click within that time changes nothing.
 
 #### The web server
 
@@ -409,15 +409,20 @@ Its figures come from its status page, which you expose. PHP reads it with `allo
 </Location>
 ```
 
+If a `.htaccess` sends every address without a file to `index.php`, as the one of `symfony/apache-pack` does, `/server-status` may reach your application instead. Leave the page out of the rewriting with `RewriteCond %{REQUEST_URI} !=/server-status` before its `RewriteRule`.
+
 **Nginx**: add a `stub_status` location to the `server` block that answers `http://localhost`. It is read at `http://localhost/nginx_status`:
 
 ```nginx
 location = /nginx_status {
     stub_status;
     allow 127.0.0.1;
+    allow ::1;
     deny all;
 }
 ```
+
+When PHP and the web server run in two containers, the request comes from the address of the PHP container, which `Require local` and `allow 127.0.0.1` refuse. Open the page to that address, or to its network, and set `endpoint` to the name of the web server, such as `http://nginx/nginx_status`.
 
 Its version and settings (`worker_processes`, `worker_connections`, `keepalive_timeout`, `gzip`…) come from `nginx -V` and `nginx -T`, and the CPU count from `getconf _NPROCESSORS_ONLN`, run on the machine or in the container of PHP. Only the version and those settings are kept, never the rest of the configuration. `nginx -T` only gives the settings when PHP is allowed to run it, as root in practice; otherwise the detail says the settings could not be read, its connections gauge says `connection limit unknown`, and the `nginx.connections` check cannot run.
 
@@ -431,7 +436,7 @@ Its version and settings (`worker_processes`, `worker_connections`, `keepalive_t
 
 Its version comes from `frankenphp version`.
 
-A status page that cannot be read leaves the card `Unknown`, with the reason and what to do. An address that answers something else than a status page (a 404 or a redirection to a login page of your application, for instance) is tried again an hour later; one where nothing answers, a minute later. That probe leaves no line on the Requests screen, unless your application has a catch-all route: a request is not recorded when it carries the `X-Jmonitor-Probe` header, matches no route, comes from a loopback or private address (or from the address of the server), and carries no relay header (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `Via`). Behind a proxy that adds none of these headers, a visitor can thus hide their requests to addresses that do not exist.
+A status page that cannot be read leaves the card `Unknown`, with the reason and what to do. An address that answers something other than a status page (a 404 or a redirection to a login page of your application, for instance) is tried again an hour later; one where nothing answers, a minute later. That probe leaves no line on the Requests screen, unless your application has a catch-all route: a request is not recorded when it carries the `X-Jmonitor-Probe` header, matches no route, comes from a loopback or private address (or from the address of the server), and carries no relay header (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `Via`). Behind a proxy that adds none of these headers, a visitor can thus hide their requests to addresses that do not exist.
 
 The same servers are set in two places: under `collectors.*` for the worker that sends the metrics to Jmonitor, and under `stack.*` for this screen.
 
@@ -474,7 +479,7 @@ What the stack reads outside the process of PHP, each with its switch under `sta
 | `frankenphp version`, when FrankenPHP serves the page | 3 s | once an hour on each web server | `frankenphp` |
 | The console of your application, `bin/console jmonitor:stack:queues`, when the Messages screen is displayed | 3 s | at most once every 30 seconds, shared by all your web servers through the cache | `symfony.messenger` |
 
-A command runs in the environment of PHP, as its user, who must be able to run it, or a check says it could not run. A command that cannot be found is tried again an hour later. Turned off, `end_of_life` shows versions without their support status and skips the end-of-life and security-fixes checks; `symfony.flex` hides the Flex recipes.
+A command runs in the environment of PHP, as its user, who must be able to run it. When it cannot, the screen says so: a check on the Stack screen, or a notice in the `Queues` block or in the detail of Nginx. A command that cannot be found is tried again an hour later. Turned off, `end_of_life` shows versions without their support status and skips the end-of-life and security-fixes checks; `symfony.flex` hides the Flex recipes.
 
 None of these delays the first display of the screen: they run when the page reads what it still lacks or what has gone out of date.
 
@@ -528,7 +533,7 @@ The count is kept 30 seconds, shared by all your web servers through the cache: 
 
 A transport that cannot be counted shows `Uncountable`, with the reason under it:
 
-- `this transport cannot count`: it does not implement `MessageCountAwareInterface`, as the in-memory transport;
+- `this transport cannot count`: it does not implement `MessageCountAwareInterface`, like the in-memory transport;
 - the error of the transport, such as a broker that cannot be reached, without the credentials of the addresses it names;
 - `did not answer in time`: the count took longer than 3 seconds;
 - `not counted: an earlier transport did not answer in time`.
