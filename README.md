@@ -545,7 +545,9 @@ The transports are counted by the console of your application, `bin/console jmon
 
 Counting a transport connects to it as `messenger:stats` does: a Doctrine transport left with `auto_setup` creates its table on the first count, and an AMQP transport left with `auto_setup` declares its queues. The scheduler and `sync://` transports are left out, and at most 50 transports are counted.
 
-Set `stack.symfony.messenger: false` to turn the count off: the block goes, and the command is never started. With the count off and `recording.messenger: false`, the Messages screen goes too.
+A count that fails as a whole, because the command fails or lists nothing within 3 seconds, shows `The queues could not be counted` with the reason and the time of the next try: 10 minutes later, or an hour later when `bin/console` or the PHP of the command line is missing. `cache:pool:clear jmonitor.stack.cache` asks again at once.
+
+Set `stack.symfony.messenger: false` to turn the count off: the block goes, and the command is never started. The same holds when Messenger has no transport to count. Without the block and with `recording.messenger: false`, the Messages screen goes too.
 
 ### Showing the screens inside EasyAdmin
 
