@@ -33,11 +33,7 @@ final readonly class CacheKeys
      */
     public function suffix(Instance $instance, CollectorSpec $spec): string
     {
-        $owner = $spec->perServer && $instance->server !== null
-            ? $instance->component->value . '.%server.' . self::segment($instance->server->key)
-            : $instance->key();
-
-        return ($spec->shared ? '' : $this->nodePrefix($instance)) . $owner . '.' . $spec->name;
+        return ($spec->shared ? '' : $this->nodePrefix($instance)) . self::owner($instance, $spec->perServer) . '.' . $spec->name;
     }
 
     /**
@@ -52,11 +48,17 @@ final readonly class CacheKeys
     }
 
     /**
-     * Without the name of the server: a forget outdates the values of every web server.
+     * Without the name of the web server: a forget outdates the values of every web server. A value of the server
+     * has the marker of its server, which every instance of the server reads.
      */
-    public function forgotten(Instance $instance): ?string
+    public function forgotten(Instance $instance, bool $ofServer = false): ?string
     {
-        return $instance->component->isNodeLocal() ? 'jmonitor.stack.forgotten.' . $instance->key() : null;
+        return $instance->component->isNodeLocal() ? 'jmonitor.stack.forgotten.' . self::owner($instance, $ofServer) : null;
+    }
+
+    public function forgottenFor(Instance $instance, CollectorSpec $spec): ?string
+    {
+        return $this->forgotten($instance, $spec->perServer);
     }
 
     /**
@@ -65,6 +67,13 @@ final readonly class CacheKeys
     public static function segment(string $name): string
     {
         return str_replace('.', '%2E', rawurlencode($name));
+    }
+
+    private static function owner(Instance $instance, bool $ofServer): string
+    {
+        return $ofServer && $instance->server !== null
+            ? $instance->component->value . '.%server.' . self::segment($instance->server->key)
+            : $instance->key();
     }
 
     private function nodePrefix(Instance $instance): string

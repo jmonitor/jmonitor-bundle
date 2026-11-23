@@ -389,6 +389,81 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(['version' => '8.4'], $alone->data('symfony.version'));
     }
 
+    public function testAfterAForgetAPerServerValueIsStillSharedByTheInstancesOfTheServer(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $collectors = [new FakeCollector('symfony.version', ['version' => '8.4']), new FakeCollector('symfony.version', ['version' => '8.4'])];
+        $instances = [
+            self::instance([self::spec($collectors[0], Lifetime::Static, perServer: true)], 'main', Component::Symfony, $server),
+            self::instance([self::spec($collectors[1], Lifetime::Static, perServer: true)], 'replica', Component::Symfony, $server),
+        ];
+        $provider = $this->provider();
+
+        $provider->forget($instances);
+
+        for ($i = 0; $i < 5; ++$i) {
+            $snapshots = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+            foreach (['symfony.main', 'symfony.replica'] as $key) {
+                self::assertSame(['version' => '8.4'], $snapshots[$key]->data('symfony.version'), $key);
+            }
+
+            $this->clock->sleep(1);
+        }
+
+        self::assertSame(1, $collectors[0]->collects + $collectors[1]->collects);
+    }
+
+    public function testAfterAForgetAnUnreachableServerIsStillAskedOnceForItsInstances(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $collectors = [];
+        $instances = [];
+
+        foreach (['main', 'replica'] as $id) {
+            $collectors[] = $collector = new FakeCollector('symfony.status', collectFailure: new UnreachableServerException('Connection timed out'), clock: $this->clock, duration: 30.0);
+            $instances[] = self::instance([self::spec($collector, cost: CostClass::Network, perServer: true)], $id, Component::Symfony, $server);
+        }
+
+        $provider = $this->provider();
+
+        $provider->forget($instances);
+
+        for ($i = 0; $i < 5; ++$i) {
+            $snapshots = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+            foreach (['symfony.main', 'symfony.replica'] as $key) {
+                self::assertSame(FailureKind::Unreachable, $snapshots[$key]->result('symfony.status')?->failure, $key);
+            }
+
+            $this->clock->sleep(1);
+        }
+
+        self::assertSame(1, $collectors[0]->collects + $collectors[1]->collects, 'one wait for the server, kept 150 s');
+    }
+
+    public function testForgettingOneInstanceOfAServerKeepsTheValueShared(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $collectors = [new FakeCollector('symfony.version', ['version' => '8.4']), new FakeCollector('symfony.version', ['version' => '8.5'])];
+        $instances = [
+            self::instance([self::spec($collectors[0], Lifetime::Static, perServer: true)], 'main', Component::Symfony, $server),
+            self::instance([self::spec($collectors[1], Lifetime::Static, perServer: true)], 'replica', Component::Symfony, $server),
+        ];
+        $provider = $this->provider();
+        $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        $provider->forget([$instances[1]]);
+
+        for ($i = 0; $i < 5; ++$i) {
+            $this->clock->sleep(1);
+            $snapshots = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+        }
+
+        self::assertSame(2, $collectors[0]->collects + $collectors[1]->collects, 'once before the forget, once after');
+        self::assertSame($snapshots['symfony.main']->data('symfony.version'), $snapshots['symfony.replica']->data('symfony.version'));
+    }
+
     public function testAPerServerValueIsNotSharedAcrossServers(): void
     {
         $first = new FakeCollector('symfony.version', ['version' => '8.4']);
