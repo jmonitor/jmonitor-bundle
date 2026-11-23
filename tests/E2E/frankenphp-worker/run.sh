@@ -175,13 +175,15 @@ hit /jmonitor/messages 200
 counted=0
 for _ in $(seq 1 30); do
     page="$(curl -sf "$BASE/jmonitor/messages?rest=1")" || fail "GET /jmonitor/messages?rest=1 did not return 2xx"
-    if printf '%s\n' "$page" | tr '\n' ' ' | grep -Eq 'aria-label="Queues".*<dt class="jm-fact__label">counted</dt> *<dd class="jm-fact__value"> *<span>3</span>'; then
+    queues="$(printf '%s\n' "$page" | tr '\n' ' ' | sed -n 's|.*aria-label="Queues"\(.*\)|\1|p' | sed 's|</section>.*||')"
+    if printf '%s\n' "$queues" | grep -Eq '<dt class="jm-fact__label">counted</dt> *<dd class="jm-fact__value"> *<span>3</span>'; then
         counted=1
         break
     fi
     sleep 1
 done
 [ "$counted" = 1 ] || fail 'the Messages screen did not count 3 messages in the "counted" transport within 30 s'
+printf '%s\n' "$queues" | grep -Eq '<dt class="jm-fact__label">hanging</dt> *<dd class="jm-fact__value"> *<span>Uncountable</span> *</dd> *<dd class="jm-fact__hint">did not answer in time</dd>' || fail "the \"hanging\" transport of the Messages screen is not Uncountable for not answering in time: $queues"
 sleep 10
 processes="$($COMPOSE exec -T app sh -c 'for f in /proc/[0-9]*/cmdline; do tr "\000" " " < "$f" 2>/dev/null; echo; done')" || fail "the processes of the container could not be listed"
 printf '%s\n' "$processes" | grep -q 'frankenphp' || fail "the process list of the container does not show FrankenPHP: $processes"

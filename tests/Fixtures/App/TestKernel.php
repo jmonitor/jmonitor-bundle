@@ -153,7 +153,7 @@ final class TestKernel extends Kernel
             withEmbedHost: \in_array('embed', $features, true),
             withEasyAdmin: $withEasyAdmin,
             withGallery: \in_array('gallery', $features, true),
-            transports: $countsQueues ? ['counted' => 'counted://3'] : [],
+            transports: $countsQueues ? ['counted' => 'counted://3', 'hanging' => 'counted://hanging'] : [],
         );
         $kernel->countsInAProcess = true;
 

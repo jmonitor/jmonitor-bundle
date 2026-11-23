@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
 use PHPUnit\Framework\TestCase;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Command\LazyCommand;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\Filesystem\Filesystem;
 
@@ -52,6 +55,18 @@ final class FixtureFeaturesTest extends TestCase
         self::assertFalse($container->getParameter('jmonitor.stack.symfony.flex'));
         self::assertTrue($container->has('messenger.default_bus'));
         self::assertFalse($container->has('jmonitor.tests.queues_runner'), 'the kernel of the environment starts the real command');
+    }
+
+    public function testTheQueuesFeatureCountsATransportThatHangsAfterOneThatCounts(): void
+    {
+        $this->boot('queues');
+        \assert($this->kernel !== null);
+
+        $command = (new Application($this->kernel))->find('jmonitor:stack:queues');
+        $command = $command instanceof LazyCommand ? $command->getCommand() : $command;
+        self::assertInstanceOf(QueuesCommand::class, $command);
+
+        self::assertSame(['async', 'batch', 'counted', 'hanging'], (new \ReflectionProperty(QueuesCommand::class, 'names'))->getValue($command));
     }
 
     public function testWithoutTheQueuesFeatureTheQueuesAreNotCounted(): void
