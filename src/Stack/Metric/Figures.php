@@ -38,6 +38,22 @@ final class Figures
         return (str_ends_with($shown, '.0') ? substr($shown, 0, -2) : $shown) . self::NBSP . self::BYTE_UNITS[$unit];
     }
 
+    public static function rate(float $value, string $unit): string
+    {
+        $shown = number_format($value, match (true) {
+            abs($value) < 1 => 2,
+            abs($value) < 100 => 1,
+            default => 0,
+        });
+
+        return $unit === '' ? $shown : $shown . self::NBSP . $unit;
+    }
+
+    public static function times(int $count): string
+    {
+        return $count === 1 ? 'once' : $count . ' times';
+    }
+
     /**
      * The span a rate covers, or when it comes.
      */

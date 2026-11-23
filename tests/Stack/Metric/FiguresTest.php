@@ -29,4 +29,23 @@ final class FiguresTest extends TestCase
     {
         self::assertSame(str_replace(' ', Figures::NBSP, $expected), Figures::bytes($bytes));
     }
+
+    /**
+     * @return iterable<string, array{float, string, string}>
+     */
+    public static function rates(): iterable
+    {
+        yield 'two decimals below 1' => [0.049, 'req/s', '0.05 req/s'];
+        yield 'one decimal below 100' => [3.14159, 'req/s', '3.1 req/s'];
+        yield 'no decimal from 100' => [250.4, 'req/s', '250 req/s'];
+        yield 'thousands' => [12_345.6, 'req/s', '12,346 req/s'];
+        yield 'zero' => [0.0, 's', '0.00 s'];
+        yield 'without unit' => [2.233062, '', '2.2'];
+    }
+
+    #[DataProvider('rates')]
+    public function testARateKeepsTheDecimalsItsSizeNeeds(float $value, string $unit, string $expected): void
+    {
+        self::assertSame(str_replace(' ', Figures::NBSP, $expected), Figures::rate($value, $unit));
+    }
 }

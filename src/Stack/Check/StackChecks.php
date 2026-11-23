@@ -9,6 +9,9 @@ use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Metric\SupportStatus;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
+use Jmonitor\JmonitorBundle\Stack\Reading\ApacheReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\FrankenPhpReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
@@ -104,7 +107,9 @@ final class StackChecks
                 Component::System => self::server(ServerReading::of($snapshot), $raise),
                 Component::Php => $this->php(PhpReading::of($snapshot, $now), $snapshot, $raise),
                 Component::Symfony => self::symfony(SymfonyReading::of($snapshot, $now), $raise),
-                Component::FrankenPhp, Component::Apache, Component::Nginx => [],
+                Component::FrankenPhp => WebServerChecks::frankenPhp(FrankenPhpReading::of($snapshot), $snapshot, $raise),
+                Component::Apache => self::apache(ApacheReading::of($snapshot, $now), $raise),
+                Component::Nginx => self::nginx(NginxReading::of($snapshot, $now), $snapshot, $raise),
             },
         ];
     }
@@ -127,9 +132,13 @@ final class StackChecks
             $findings[] = match ($name) {
                 $component->value => $raise(
                     $name . '.failed',
-                    Severity::Warning,
-                    sprintf('%s could not be read: %s', $component->label(), $reason),
-                    'None of its checks can run without its values. Fix the cause given, then refresh.',
+                    $component->isWebServer() ? Severity::Info : Severity::Warning,
+                    sprintf('%s could not be read: %s', self::subject($component), $reason),
+                    match ($component) {
+                        Component::FrankenPhp => 'FrankenPHP serves this page, so it is running: only its metrics cannot be read, which leaves its checks without values. Follow the reason given, then refresh.',
+                        Component::Apache, Component::Nginx => sprintf('%s serves this page, so it is running: only its status page cannot be read, which leaves its checks without values. Follow the reason given, then refresh.', $component->label()),
+                        Component::System, Component::Php, Component::Symfony => 'None of its checks can run without its values. Fix the cause given, then refresh.',
+                    },
                 ),
                 'symfony.flex' => $raise(
                     $name . '.failed',
@@ -285,7 +294,7 @@ final class StackChecks
             $findings[] = $raise(
                 'php.fpm_max_children',
                 Severity::Warning,
-                sprintf('PHP-FPM reached pm.max_children %s %s', self::times((int) $php->fpmMaxChildrenReachedRecently), Figures::lastSeconds($elapsed)),
+                sprintf('PHP-FPM reached pm.max_children %s %s', Figures::times((int) $php->fpmMaxChildrenReachedRecently), Figures::lastSeconds($elapsed)),
                 'Requests had to wait for a free worker. Raise pm.max_children if the memory allows it, or find the slow requests that hold the workers.',
                 'php',
             );
@@ -293,7 +302,7 @@ final class StackChecks
             $findings[] = $raise(
                 'php.fpm_max_children',
                 Severity::Info,
-                sprintf('PHP-FPM reached pm.max_children %s %s', self::times($php->fpmMaxChildrenReached), PhpReading::SINCE_FPM_START),
+                sprintf('PHP-FPM reached pm.max_children %s %s', Figures::times($php->fpmMaxChildrenReached), PhpReading::SINCE_FPM_START),
                 'At some point, requests had to wait for a free worker. If it happens again, raise pm.max_children, as far as the memory allows it.',
                 'php',
             );
@@ -319,7 +328,7 @@ final class StackChecks
             );
         }
 
-        array_push($findings, ...self::support('php', 'PHP', $php->version, $php->support, $raise));
+        array_push($findings, ...self::support('php', 'php', 'PHP', $php->version, $php->support, $raise, 'php'));
 
         return $findings;
     }
@@ -331,7 +340,7 @@ final class StackChecks
      */
     private static function symfony(SymfonyReading $symfony, \Closure $raise): array
     {
-        $findings = self::support('symfony', 'Symfony', $symfony->version, $symfony->support, $raise);
+        $findings = self::support('symfony', 'symfony', 'Symfony', $symfony->version, $symfony->support, $raise, 'symfony');
 
         if ($symfony->environment === 'prod' && $symfony->debug === true) {
             $findings[] = $raise(
@@ -363,26 +372,64 @@ final class StackChecks
      *
      * @return list<Finding>
      */
-    private static function support(string $product, string $label, ?string $version, ?SupportStatus $support, \Closure $raise): array
+    private static function apache(ApacheReading $apache, \Closure $raise): array
+    {
+        return [
+            ...WebServerChecks::apache($apache, $raise),
+            ...self::support('apache', 'apache-http-server', 'Apache', $apache->version, $apache->support, $raise, 'apache'),
+        ];
+    }
+
+    /**
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     *
+     * @return list<Finding>
+     */
+    private static function nginx(NginxReading $nginx, ComponentSnapshot $snapshot, \Closure $raise): array
+    {
+        return [
+            ...WebServerChecks::nginx($nginx, $snapshot, $raise),
+            ...self::support('nginx', 'nginx', 'Nginx', $nginx->version, $nginx->support, $raise, 'nginx.config'),
+        ];
+    }
+
+    /**
+     * @param string                                                         $id      the component the findings are named after
+     * @param string                                                         $product its name on endoflife.date
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     * @param string                                                         $source  the collector the version comes from
+     *
+     * @return list<Finding>
+     */
+    private static function support(string $id, string $product, string $label, ?string $version, ?SupportStatus $support, \Closure $raise, string $source): array
     {
         return match ($support) {
             SupportStatus::Ended => [$raise(
-                $product . '.end_of_life',
+                $id . '.end_of_life',
                 Severity::Critical,
                 sprintf('%s %s has reached its end of life', $label, $version),
                 'Security issues found in this version are not fixed anymore. Upgrade to a supported version.',
-                $product,
+                $source,
                 'eol.' . $product,
             )],
             SupportStatus::SecurityOnly => [$raise(
-                $product . '.security_only',
+                $id . '.security_only',
                 Severity::Warning,
                 sprintf('%s %s only receives security fixes', $label, $version),
                 'Bugs are not fixed anymore, and security fixes stop at its end of life. Plan the upgrade to a version under active support.',
-                $product,
+                $source,
                 'eol.' . $product,
             )],
             default => [],
+        };
+    }
+
+    private static function subject(Component $component): string
+    {
+        return match ($component) {
+            Component::FrankenPhp => 'The FrankenPHP metrics',
+            Component::Apache, Component::Nginx => sprintf('The %s status page', $component->label()),
+            Component::System, Component::Php, Component::Symfony => $component->label(),
         };
     }
 
@@ -402,10 +449,5 @@ final class StackChecks
         }
 
         return $ages === [] ? null : max($ages);
-    }
-
-    private static function times(int $count): string
-    {
-        return $count === 1 ? 'once' : $count . ' times';
     }
 }
