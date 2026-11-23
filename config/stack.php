@@ -27,6 +27,7 @@ use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
 use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
@@ -129,6 +130,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
         $services->set(QueuesInstance::class)
             ->args([service(QueuesCollector::class)]);
+
+        $services->set(QueuesBlocks::class)
+            ->args([
+                service_locator([StackReaderInterface::class => service(StackReaderInterface::class)]),
+                service('jmonitor.clock'),
+            ]);
     }
 
     $services->set(ComponentRegistry::class)

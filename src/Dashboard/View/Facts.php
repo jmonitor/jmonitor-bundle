@@ -10,5 +10,6 @@ final class Facts
     public function __construct(
         public readonly string $title,
         public readonly array $facts,
+        public readonly ?string $note = null,
     ) {}
 }

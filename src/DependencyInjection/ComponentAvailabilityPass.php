@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
 use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
+use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\Compiler\ServiceLocatorTagPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -37,7 +38,7 @@ final class ComponentAvailabilityPass implements CompilerPassInterface
 
         $container->removeDefinition(MessengerRecorder::class);
 
-        foreach ([QueuesCommand::class, QueuesInstance::class, QueuesCollector::class, PhpCli::class] as $id) {
+        foreach ([QueuesBlocks::class, QueuesCommand::class, QueuesInstance::class, QueuesCollector::class, PhpCli::class] as $id) {
             $container->removeDefinition($id);
         }
 

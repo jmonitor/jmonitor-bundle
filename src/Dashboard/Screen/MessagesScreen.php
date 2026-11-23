@@ -8,7 +8,10 @@ use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Percentile;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\BlockSourceInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -26,12 +29,20 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
  *
  * @phpstan-type Message array{row: ReportRow, sent: int, handled: int, avg: float, p95: float, max: float, failed: int, retried: int, sql: float, queries: float, hasSql: bool}
  */
-final class MessagesScreen implements StorageScreenInterface
+final class MessagesScreen implements StorageScreenInterface, BlockScreenInterface
 {
     private const LIMIT = 100;
     private const NONE = '—';
 
-    public function __construct(private readonly bool $available) {}
+    /**
+     * @param bool                  $messenger whether Messenger is enabled
+     * @param ?BlockSourceInterface $queues    null when the queues are not counted
+     */
+    public function __construct(
+        private readonly bool $messenger,
+        private readonly bool $recorded,
+        private readonly ?BlockSourceInterface $queues = null,
+    ) {}
 
     public function id(): string
     {
@@ -50,7 +61,7 @@ final class MessagesScreen implements StorageScreenInterface
 
     public function isAvailable(): bool
     {
-        return $this->available;
+        return $this->messenger && ($this->recorded || $this->queues !== null);
     }
 
     public function sorts(): array
@@ -70,14 +81,30 @@ final class MessagesScreen implements StorageScreenInterface
 
     public function emptyState(): array
     {
+        if (!$this->recorded) {
+            return [
+                'title' => 'Messages are not recorded',
+                'text' => 'Recording the messages is off (jmonitor.recording.messenger). The queues are still counted.',
+            ];
+        }
+
         return [
             'title' => 'No messages recorded yet',
             'text' => 'Messages sent to a transport and messages handled by a worker show up here. Messages handled synchronously are part of their request.',
         ];
     }
 
+    public function blocks(ScreenRequest $request): array
+    {
+        return $this->queues?->blocks($request) ?? [];
+    }
+
     public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction): ScreenView
     {
+        if (!$this->recorded) {
+            return new ScreenView();
+        }
+
         $report = $reader->read(new ReportQuery($period, $now, Family::Message, seriesMetric: Metric::MESSAGE_DURATION));
 
         $messages = self::sorted(array_map(self::message(...), $report->rows), $sort, $direction);

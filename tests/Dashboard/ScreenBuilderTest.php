@@ -186,7 +186,7 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame(['error JMonitor could not display the "probe" screen: Probe failed'], $logger->messages);
     }
 
-    public function testAScreenOfBothKindsShowsItsStorageBlocksFirst(): void
+    public function testAScreenOfBothKindsShowsItsOwnBlocksFirst(): void
     {
         $own = Block::unavailable(Block::CARDS, BlockState::Empty, 'Nothing', 'Not yet.');
         $screen = new class ($this->screen(rows: 1), new StubBlockScreen(blocks: [$own])) implements StorageScreenInterface, BlockScreenInterface {
@@ -238,8 +238,8 @@ final class ScreenBuilderTest extends TestCase
 
         $page = $this->builder()->create($screen, '6h', null, null);
 
-        static::assertSame([Block::CARDS, Block::TABLE, Block::CARDS], array_map(static fn(Block $block): string => $block->type, $page->blocks));
-        static::assertSame($own, $page->blocks[2]);
+        static::assertSame([Block::CARDS, Block::CARDS, Block::TABLE], array_map(static fn(Block $block): string => $block->type, $page->blocks));
+        static::assertSame($own, $page->blocks[0]);
         static::assertSame('mixed', $page->state());
         static::assertSame(Period::SixHours, $page->period);
         static::assertSame(['count', 'desc'], [$page->sort, $page->direction]);

@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Stack;
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
@@ -17,15 +18,19 @@ use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
 use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
 use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
 use Jmonitor\JmonitorBundle\Stack\Collector\NginxStatusCollector;
+use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
+use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
+use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
 use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
@@ -36,6 +41,7 @@ use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FakeHostUrls;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\Detectors;
@@ -66,6 +72,8 @@ final class DisplayCostTest extends TestCase
     private const DISPLAYS = 50;
     private const BETWEEN_DISPLAYS = 0.2;
     private const BETWEEN_REFRESHES = 0.18;
+    private const BETWEEN_QUEUE_DISPLAYS = 0.58;
+    private const QUEUES = '{"transports":["async"]}' . "\n" . '{"name":"async","count":12}' . "\n";
 
     private MockClock $clock;
 
@@ -234,6 +242,84 @@ final class DisplayCostTest extends TestCase
         self::assertStringNotContainsString('data-jm-rest', $html);
     }
 
+    public function testFiftyMessagesFragmentsInThirtySecondsStartOneProcess(): void
+    {
+        $cache = new CountingCachePool();
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $html = '';
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $html = (string) $this->renderer($cache, null, $runner)->fragment(Request::create('/'), 'messages', new FakeHostUrls())->getContent();
+            $this->clock->sleep(self::BETWEEN_QUEUE_DISPLAYS);
+        }
+
+        self::assertLessThan(self::START + Lifetime::HalfMinute->seconds(), $this->clock->now()->getTimestamp() - self::BETWEEN_QUEUE_DISPLAYS);
+        self::assertCount(1, $runner->calls);
+        self::assertSame('12', (new Crawler($html))->filter('.jm-facts .jm-fact__value')->text());
+    }
+
+    public function testFiftyMessagesPagesStartNone(): void
+    {
+        $cache = new CountingCachePool();
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $html = '';
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $html = $this->renderer($cache, null, $runner)->page(Request::create('/'), 'messages', new FakeHostUrls())->html;
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+        }
+
+        self::assertSame([], $runner->calls);
+        self::assertStringContainsString('data-jm-rest', $html);
+    }
+
+    /**
+     * @param \Closure(): CacheItemPoolInterface $pool
+     */
+    #[DataProvider('cachesThatKeepNothing')]
+    public function testACacheThatKeepsNothingNeverStartsTheProcess(\Closure $pool, CacheState $cache): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $this->renderer($pool(), null, $runner)->fragment(Request::create('/'), 'messages', new FakeHostUrls());
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+        }
+
+        self::assertSame([], $runner->calls, $cache->name);
+    }
+
+    public function testTheQueuesCostTwoCacheRoundTripsPerDisplay(): void
+    {
+        $cache = new CountingCachePool();
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $this->renderer($cache, null, $runner)->page(Request::create('/'), 'messages', new FakeHostUrls());
+        $this->renderer($cache, null, $runner)->fragment(Request::create('/'), 'messages', new FakeHostUrls());
+        $cache->reset();
+
+        $html = $this->renderer($cache, null, $runner)->page(Request::create('/'), 'messages', new FakeHostUrls())->html;
+
+        self::assertCount(1, $runner->calls);
+        self::assertSame('12', (new Crawler($html))->filter('.jm-facts .jm-fact__value')->text());
+        self::assertSame(1 + 2, $cache->roundTrips(), 'the badge, then the queues: ' . json_encode($cache->calls, \JSON_THROW_ON_ERROR));
+    }
+
+    public function testAnotherApplicationScreenStillCostsOneRoundTrip(): void
+    {
+        $cache = new CountingCachePool();
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $this->renderer($cache, null, $runner)->page(Request::create('/'), 'messages', new FakeHostUrls());
+        $this->renderer($cache, null, $runner)->fragment(Request::create('/'), 'messages', new FakeHostUrls());
+        $cache->reset();
+        $this->built = [];
+
+        $this->renderer($cache, null, $runner)->page(Request::create('/'), 'requests', new FakeHostUrls());
+
+        self::assertSame(['getItem' => 1], $cache->calls);
+        self::assertSame([StackSummary::class], $this->built);
+        self::assertCount(1, $runner->calls);
+    }
+
     public function testAStatusPageThatIsNotOneIsProbedOncePerHour(): void
     {
         $pages = new FakeStatusPages();
@@ -324,32 +410,35 @@ final class DisplayCostTest extends TestCase
         return array_map(static fn(array $collectors): array => array_map(static fn(FakeCollector $collector): int => $collector->collects, $collectors), $this->collectors);
     }
 
-    private function reader(CacheItemPoolInterface $cache): LocalStackReader
+    private function reader(CacheItemPoolInterface $cache, ?FakeProcessRunner $runner = null): LocalStackReader
     {
         $node = new WebNode('web-1');
         $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, $node);
+        $queues = $runner === null ? null : new QueuesInstance(new QueuesCollector($runner, new PhpCli(static fn(): string => '/usr/local/bin/php'), \dirname(__DIR__) . '/Fixtures/App', 'prod', false));
 
-        return new LocalStackReader($this->registry, $snapshots, new CacheProbe($cache, $this->clock), $cache, $this->clock, $node);
+        return new LocalStackReader($this->registry, $snapshots, new CacheProbe($cache, $this->clock), $cache, $this->clock, $node, null, $queues);
     }
 
     /**
      * The page of one request: the Requests and Stack screens on a reader, checks and summary of their own,
-     * which share the collectors and the cache of the test.
+     * which share the collectors and the cache of the test, and the Messages screen when the queues are counted.
      */
-    private function renderer(CacheItemPoolInterface $cache, ?LoggerInterface $logger = null): PageRenderer
+    private function renderer(CacheItemPoolInterface $cache, ?LoggerInterface $logger = null, ?FakeProcessRunner $queues = null): PageRenderer
     {
         $node = new WebNode('web-1');
         $services = [
-            StackReaderInterface::class => fn(): StackReaderInterface => $this->reader($cache),
+            StackReaderInterface::class => fn(): StackReaderInterface => $this->reader($cache, $queues),
             StackChecks::class => fn(): StackChecks => new StackChecks([], false, $this->clock),
             StackSummary::class => fn(): StackSummary => new StackSummary(new ServiceLocator(['cache' => static fn(): CacheItemPoolInterface => $cache]), $node, $this->clock, $logger),
         ];
-        $screen = new StackScreen(new ServiceLocator(array_map(fn(\Closure $factory): \Closure => function () use ($factory): object {
+        $locator = new ServiceLocator(array_map(fn(\Closure $factory): \Closure => function () use ($factory): object {
             $service = $factory();
             $this->built[] = $service instanceof StackReaderInterface ? StackReaderInterface::class : $service::class;
 
             return $service;
-        }, $services)), new CardBuilder($this->clock), $this->clock, new ServiceLocator([]));
+        }, $services));
+        $screen = new StackScreen($locator, new CardBuilder($this->clock), $this->clock, new ServiceLocator([]));
+        $screens = [new RequestsScreen(), ...($queues === null ? [] : [new MessagesScreen(true, true, new QueuesBlocks($locator, $this->clock))]), $screen];
 
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');
@@ -357,7 +446,7 @@ final class DisplayCostTest extends TestCase
         $twig->addExtension(new JmonitorExtension());
 
         return new PageRenderer(
-            new ScreenRegistry([new RequestsScreen(), $screen]),
+            new ScreenRegistry($screens),
             new ScreenBuilder(new FixedReader(), true, $this->clock),
             null,
             $twig,

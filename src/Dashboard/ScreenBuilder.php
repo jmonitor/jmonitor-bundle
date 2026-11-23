@@ -47,7 +47,7 @@ final class ScreenBuilder
         }
 
         if ($screen instanceof BlockScreenInterface) {
-            $blocks = [...$blocks, ...$this->screenBlocks($screen, new ScreenRequest($now, $fragment))];
+            $blocks = [...$this->screenBlocks($screen, new ScreenRequest($now, $fragment)), ...$blocks];
         }
 
         return new Page($screen, $blocks, $period, $sort, $direction, $sorts);

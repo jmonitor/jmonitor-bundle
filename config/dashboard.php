@@ -23,6 +23,7 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
+use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -115,7 +116,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->tag('jmonitor.screen', ['priority' => 80]);
 
     $services->set(MessagesScreen::class)
-        ->args([param('jmonitor.recording.messenger')])
+        ->args([true, param('jmonitor.recording.messenger'), service(QueuesBlocks::class)->nullOnInvalid()])
         ->tag('jmonitor.screen', ['priority' => 70]);
 
     $declaredTasks = $services->set(DeclaredTasks::class)

@@ -600,6 +600,14 @@ body.jm .jm-header {
     font-variant-numeric: tabular-nums;
 }
 
+.jm-panel__note {
+    min-width: 0;
+    color: var(--jm-faint);
+    font-size: 12.5px;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
 .jm-panel__footer {
     padding: 10px 18px;
     border-top: 1px solid var(--jm-border);
@@ -1623,6 +1631,17 @@ body.jm .jm-header {
 
     .jm-fact__hint {
         grid-column: 1;
+    }
+}
+
+@media (max-width: 400px) {
+    .jm-panel__header:has(> .jm-panel__note) {
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .jm-panel__note {
+        text-align: left;
     }
 }
 

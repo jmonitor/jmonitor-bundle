@@ -116,7 +116,7 @@ final class TemplatesTest extends TestCase
         ]);
         $reader = new FixedReader(new Report([$hostile], keyCount: 1));
 
-        foreach ([new CommandsScreen(true), new MessagesScreen(true)] as $screen) {
+        foreach ([new CommandsScreen(true), new MessagesScreen(true, true)] as $screen) {
             $view = $screen->build($reader, Period::OneHour, 1800000000, (string) array_key_first($screen->sorts()), 'desc');
             $page = new Page($screen, $this->blocks($view), Period::OneHour, (string) array_key_first($screen->sorts()), 'desc', $screen->sorts());
 
@@ -264,6 +264,35 @@ final class TemplatesTest extends TestCase
         static::assertStringContainsString('<h2 class="jm-state__title">Reading…</h2>', $html);
         static::assertStringContainsString('<p class="jm-state__text">JMonitor is reading this section.</p>', $html);
         static::assertStringContainsString('<p class="jm-rest"><a data-jm-rest href="/host/page/probe?menu=3&amp;rest=1">Load the rest</a></p>', $html);
+    }
+
+    public function testTheLinkToTheRestKeepsThePeriodAndTheSort(): void
+    {
+        $screen = new StubScreen('messages');
+        $page = new Page($screen, [Block::unavailable(Block::FACTS, BlockState::Reading)], Period::SixHours, 'count', 'asc', $screen->sorts());
+
+        $html = $this->render('_screen.html.twig', ['page' => $page, 'path' => 'messages', 'badges' => []]);
+
+        static::assertStringContainsString('<p class="jm-rest"><a data-jm-rest href="/host/page/messages?menu=3&amp;period=6h&amp;sort=count&amp;dir=asc&amp;rest=1">Load the rest</a></p>', $html);
+    }
+
+    public function testTheLinkToTheRestOfAScreenWithoutPeriodOnlyAsksForTheRest(): void
+    {
+        $page = new Page(new StubBlockScreen('stack'), [Block::unavailable(Block::FACTS, BlockState::Reading)], null, '', '', []);
+
+        $html = $this->render('_screen.html.twig', ['page' => $page, 'path' => 'stack', 'badges' => []]);
+
+        static::assertStringContainsString('<p class="jm-rest"><a data-jm-rest href="/host/page/stack?menu=3&amp;rest=1">Load the rest</a></p>', $html);
+    }
+
+    public function testTheNoteOfAFactListIsEscaped(): void
+    {
+        $html = $this->screen(Block::facts(new Facts('Queues', [new Fact('async', '3')], self::HOSTILE)));
+
+        static::assertStringContainsString('<h2 class="jm-panel__title">Queues</h2>', $html);
+        static::assertStringContainsString('<p class="jm-panel__note">&lt;b&gt;&amp;&quot;x</p>', $html);
+        static::assertStringNotContainsString('<b>', $html);
+        static::assertStringNotContainsString('jm-panel__note', $this->screen(Block::facts(new Facts('Runtime', [new Fact('SAPI', 'cli')]))));
     }
 
     public function testABadgeIsEscaped(): void

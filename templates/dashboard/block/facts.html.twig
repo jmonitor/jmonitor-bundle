@@ -3,6 +3,9 @@
 <section class="jm-panel jm-facts" aria-label="{{ facts.title }}">
     <div class="jm-panel__header">
         <h2 class="jm-panel__title">{{ facts.title }}</h2>
+{% if facts.note is not null %}
+        <p class="jm-panel__note">{{ facts.note }}</p>
+{% endif %}
     </div>
     <dl class="jm-facts__list">
         {% for fact in facts.facts %}

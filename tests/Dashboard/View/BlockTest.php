@@ -101,4 +101,10 @@ final class BlockTest extends TestCase
 
         static::assertSame([$type, BlockState::Ready, $content, true], [$block->type, $block->state, $block->content, $block->reading]);
     }
+
+    public function testAFactListMayCarryANote(): void
+    {
+        static::assertNull((new Facts('Runtime', []))->note);
+        static::assertSame('Messages waiting in each transport, counted just now', (new Facts('Queues', [], 'Messages waiting in each transport, counted just now'))->note);
+    }
 }

@@ -114,6 +114,10 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 new Fact('Loaded extensions', 'Core, date, libxml, openssl, pcre, sqlite3, zlib, ctype, curl, dom, fileinfo, filter, hash, iconv, json, mbstring, SPL, PDO, pdo_mysql, session, posix, Reflection, standard, SimpleXML, Phar, tokenizer, xml, xmlreader, xmlwriter, mysqlnd, apcu, intl, opcache'),
                 new Fact('OPcache', 'off', $critical),
             ])),
+            Block::facts(new Facts('Queues', [
+                new Fact('async', '1,234'),
+                new Fact('failed', 'Uncountable', hint: 'An exception occurred in the driver: SQLSTATE[HY000] [2002] Connection refused while counting the messages waiting in doctrine://default?queue_name=failed'),
+            ], 'Messages waiting in each transport, counted 12 s ago')),
         ];
     }
 
