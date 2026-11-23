@@ -276,6 +276,41 @@ final class LocalStackReaderTest extends TestCase
         self::assertTrue($cold->isReading());
     }
 
+    public function testTheOverviewLeavesOutTheDetailOnlyCollectors(): void
+    {
+        $tables = new FakeCollector('php.tables', ['count' => 12]);
+        $registry = Detectors::registry(['php' => self::detector(
+            Component::Php,
+            self::spec(new FakeCollector('php.status')),
+            new CollectorSpec($tables, Lifetime::Static, CostClass::Slow, detailOnly: true),
+        )], self::settings());
+        $reader = $this->reader($registry);
+        $this->warm();
+
+        $state = $reader->overview(ReadMode::Fragment);
+
+        self::assertSame(0, $tables->collects);
+        self::assertNull($state->component(Component::Php)?->instances[0]->snapshot?->result('php.tables'));
+        self::assertFalse($state->isReading());
+    }
+
+    public function testTheDetailReadsThem(): void
+    {
+        $tables = new FakeCollector('php.tables', ['count' => 12]);
+        $registry = Detectors::registry(['php' => self::detector(
+            Component::Php,
+            self::spec(new FakeCollector('php.status')),
+            new CollectorSpec($tables, Lifetime::Static, CostClass::Slow, detailOnly: true),
+        )], self::settings());
+        $reader = $this->reader($registry);
+        $this->warm();
+
+        $state = $reader->component(Component::Php, null, ReadMode::Fragment);
+
+        self::assertSame(1, $tables->collects);
+        self::assertSame(['count' => 12], $state->component(Component::Php)?->instances[0]->snapshot?->data('php.tables'));
+    }
+
     public function testRefreshForgetsWhatTheScreenShows(): void
     {
         $collectors = [];

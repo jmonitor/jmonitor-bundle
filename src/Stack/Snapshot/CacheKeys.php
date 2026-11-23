@@ -28,11 +28,16 @@ final readonly class CacheKeys
     }
 
     /**
-     * Also names the rate reference of the collector.
+     * Also names the rate reference of the collector. A value of the server is named after the server, under
+     * an unencoded "%server" segment that cannot collide with an encoded id.
      */
     public function suffix(Instance $instance, CollectorSpec $spec): string
     {
-        return ($spec->shared ? '' : $this->nodePrefix($instance)) . $instance->key() . '.' . $spec->name;
+        $owner = $spec->perServer && $instance->server !== null
+            ? $instance->component->value . '.%server.' . self::segment($instance->server->key)
+            : $instance->key();
+
+        return ($spec->shared ? '' : $this->nodePrefix($instance)) . $owner . '.' . $spec->name;
     }
 
     public function witness(Instance $instance): string

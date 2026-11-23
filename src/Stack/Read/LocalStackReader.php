@@ -81,7 +81,7 @@ final readonly class LocalStackReader implements StackReaderInterface
                 return $this->state($cache, [], self::notDetected([$status]));
             }
 
-            $snapshots = $this->snapshots->read([$read], $this->budget($mode), $cache);
+            $snapshots = $this->snapshots->read([$read], $this->budget($mode), $cache, detail: true);
 
             return $this->state($cache, [self::componentState($status, $snapshots)], []);
         } catch (\Throwable $e) {

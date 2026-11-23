@@ -50,10 +50,11 @@ final readonly class SnapshotProvider
 
     /**
      * @param list<Instance> $instances
+     * @param bool           $detail    whether the collectors only read for a detail are read too
      *
      * @return array<string, ComponentSnapshot> keyed by Instance::key()
      */
-    public function read(array $instances, CollectBudget $budget, CacheState $cache): array
+    public function read(array $instances, CollectBudget $budget, CacheState $cache, bool $detail = false): array
     {
         $guard = new CacheGuard($this->logger, $cache !== CacheState::OutOfOrder);
         $now = $this->now();
@@ -62,7 +63,8 @@ final readonly class SnapshotProvider
 
         foreach ($instances as $instance) {
             if ($instance->isFound()) {
-                $reads[$instance->key()] = $this->lookUp($instance, $instance->collectors->specs(), $guard, $now);
+                $specs = array_values(array_filter($instance->collectors->specs(), static fn(CollectorSpec $spec): bool => $detail || !$spec->detailOnly));
+                $reads[$instance->key()] = $this->lookUp($instance, $specs, $guard, $now);
             } else {
                 $errors[$instance->key()] = ErrorMessage::clean((string) $instance->error);
             }
@@ -74,11 +76,22 @@ final readonly class SnapshotProvider
             }
         }
 
+        /** @var array<string, CollectorResult> $ofServers by result key */
+        $ofServers = [];
+
         foreach (CostClass::cases() as $cost) {
             foreach ($reads as $read) {
                 foreach ($read->specs as $spec) {
-                    if ($spec->cost === $cost && !isset($read->results[$spec->name])) {
-                        $read->results[$spec->name] = $this->collectOrLeave($read, $spec, $budget, $cache, $guard, $now);
+                    if ($spec->cost !== $cost || isset($read->results[$spec->name])) {
+                        continue;
+                    }
+
+                    $key = $this->keys->result($read->instance, $spec);
+                    $result = $ofServers[$key] ?? $this->collectOrLeave($read, $spec, $budget, $cache, $guard, $now);
+                    $read->results[$spec->name] = $result;
+
+                    if ($spec->perServer && $result->state !== ResultState::Pending && $result->state !== ResultState::Busy) {
+                        $ofServers[$key] = $result;
                     }
                 }
             }

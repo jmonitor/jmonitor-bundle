@@ -13,12 +13,17 @@ final class RecordingCachePool implements CacheItemPoolInterface
     /** @var array<string, ?int> ttl requested for each key */
     public array $ttls = [];
 
+    /** @var list<string> the keys asked for, in order */
+    public array $asked = [];
+
     public function __construct(
         private readonly CacheItemPoolInterface $inner = new ArrayAdapter(),
     ) {}
 
     public function getItem(string $key): CacheItemInterface
     {
+        $this->asked[] = $key;
+
         return new RecordingCacheItem($this->inner->getItem($key), $this);
     }
 

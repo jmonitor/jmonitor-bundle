@@ -15,6 +15,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\MissingPrerequisiteException;
 use Jmonitor\JmonitorBundle\Stack\Collector\UnreachableServerException;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
+use Jmonitor\JmonitorBundle\Stack\Detection\Server;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectBudget;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
@@ -324,6 +325,116 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame([1, 1], [$first->collects, $second->collects], 'both read again from the cache');
         self::assertSame(['from' => 'a'], $snapshots['symfony.a']->data('b.c'));
         self::assertSame(['from' => 'a.b'], $snapshots['symfony.a%2Eb']->data('c'));
+    }
+
+    public function testAPerServerValueIsSharedByTheInstancesOfTheServer(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $versions = [new FakeCollector('symfony.version', ['version' => '8.4']), new FakeCollector('symfony.version', ['version' => '8.4'])];
+        $statuses = [new FakeCollector('symfony.status', ['n' => 1]), new FakeCollector('symfony.status', ['n' => 2])];
+        $main = self::instance([self::spec($versions[0], perServer: true), self::spec($statuses[0])], 'main', Component::Symfony, $server);
+        $replica = self::instance([self::spec($versions[1], perServer: true), self::spec($statuses[1])], 'replica', Component::Symfony, $server);
+        $provider = $this->provider();
+
+        $snapshots = $provider->read([$main, $replica], CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame([1, 0], [$versions[0]->collects, $versions[1]->collects]);
+        self::assertSame([1, 1], [$statuses[0]->collects, $statuses[1]->collects]);
+
+        foreach (['symfony.main', 'symfony.replica'] as $key) {
+            self::assertSame(ResultState::Fresh, $snapshots[$key]->result('symfony.version')?->state, $key);
+            self::assertSame(['version' => '8.4'], $snapshots[$key]->data('symfony.version'), $key);
+        }
+
+        self::assertSame(['n' => 2], $snapshots['symfony.replica']->data('symfony.status'));
+        self::assertArrayHasKey('jmonitor.stack.result.%node.web-1.symfony.%server.db%2Einternal%3A3306.symfony.version', $this->recording->ttls);
+
+        $this->clock->sleep(1);
+        $alone = $this->read($provider, $replica);
+
+        self::assertSame([1, 0], [$versions[0]->collects, $versions[1]->collects], 'read from the cache');
+        self::assertSame(['version' => '8.4'], $alone->data('symfony.version'));
+    }
+
+    public function testAPerServerValueIsNotSharedAcrossServers(): void
+    {
+        $first = new FakeCollector('symfony.version', ['version' => '8.4']);
+        $second = new FakeCollector('symfony.version', ['version' => '5.7']);
+        $main = self::instance([self::spec($first, perServer: true)], 'main', Component::Symfony, new Server('db-1:3306', 'db-1:3306'));
+        $legacy = self::instance([self::spec($second, perServer: true)], 'legacy', Component::Symfony, new Server('db-2:3306', 'db-2:3306'));
+        $provider = $this->provider();
+
+        $provider->read([$main, $legacy], CollectBudget::fragment($this->clock), CacheState::Working);
+        $this->clock->sleep(1);
+        $snapshots = $provider->read([$main, $legacy], CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame([1, 1], [$first->collects, $second->collects]);
+        self::assertSame(['version' => '8.4'], $snapshots['symfony.main']->data('symfony.version'));
+        self::assertSame(['version' => '5.7'], $snapshots['symfony.legacy']->data('symfony.version'));
+    }
+
+    public function testAPerServerRateHasOneReferenceForTheServer(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $first = new FakeCollector('symfony.status', ['queries' => 100]);
+        $second = new FakeCollector('symfony.status', ['queries' => 250]);
+        $main = self::instance([self::spec($first, trackDelta: true, perServer: true)], 'main', Component::Symfony, $server);
+        $replica = self::instance([self::spec($second, trackDelta: true, perServer: true)], 'replica', Component::Symfony, $server);
+        $provider = $this->provider();
+
+        $this->read($provider, $main);
+        $this->clock->sleep(11);
+        $snapshot = $this->read($provider, $replica);
+
+        self::assertSame([1, 1], [$first->collects, $second->collects]);
+        self::assertSame(150, $snapshot->delta('symfony.status')?->getValue('queries'), 'compared with the sample read through the other instance');
+        self::assertTrue($this->recording->hasItem('jmonitor.stack.previous.%node.web-1.symfony.%server.db%2Einternal%3A3306.symfony.status'));
+    }
+
+    public function testADetailOnlyCollectorIsLeftOutOfAnOverviewRead(): void
+    {
+        $status = new FakeCollector('php.status', ['ok' => true]);
+        $tables = new FakeCollector('php.tables', ['count' => 12]);
+        $instance = self::instance([self::spec($status), self::spec($tables, cost: CostClass::Slow, detailOnly: true)]);
+
+        $snapshot = $this->read($this->provider(), $instance);
+
+        self::assertSame([1, 0], [$status->collects, $tables->collects]);
+        self::assertNull($snapshot->result('php.tables'));
+        self::assertSame(['php.status'], array_keys($snapshot->results));
+        self::assertFalse($snapshot->isReading());
+        self::assertSame([], array_values(array_filter($this->recording->asked, static fn(string $key): bool => str_contains($key, 'php.tables'))));
+    }
+
+    public function testADetailReadRunsIt(): void
+    {
+        $tables = new FakeCollector('php.tables', ['count' => 12]);
+        $instance = self::instance([self::spec(new FakeCollector('php.status', ['ok' => true])), self::spec($tables, cost: CostClass::Slow, detailOnly: true)]);
+        $provider = $this->provider();
+
+        $detail = $this->read($provider, $instance, detail: true);
+        $overview = $this->read($provider, $instance);
+
+        self::assertSame(1, $tables->collects);
+        self::assertSame(ResultState::Fresh, $detail->result('php.tables')?->state);
+        self::assertSame(['count' => 12], $detail->data('php.tables'));
+        self::assertNull($overview->result('php.tables'));
+    }
+
+    public function testAForgetDropsItsValueToo(): void
+    {
+        $tables = new FakeCollector('php.tables', ['count' => 12]);
+        $instance = self::instance([self::spec($tables, cost: CostClass::Slow, detailOnly: true)]);
+        $provider = $this->provider();
+        $this->read($provider, $instance, detail: true);
+
+        $provider->forget([$instance]);
+
+        self::assertFalse($this->recording->hasItem('jmonitor.stack.result.%node.web-1.php.php.tables'));
+
+        $this->read($provider, $instance, detail: true);
+
+        self::assertSame(2, $tables->collects);
     }
 
     public function testForgettingAnInstanceLeavesTheOthers(): void
@@ -1160,9 +1271,9 @@ final class SnapshotProviderTest extends TestCase
     /**
      * @param list<CollectorSpec> $specs
      */
-    private static function instance(array $specs, ?string $id = null, Component $component = Component::Php): Instance
+    private static function instance(array $specs, ?string $id = null, Component $component = Component::Php, ?Server $server = null): Instance
     {
-        return Instance::found($component, new CollectorSet($component, $specs), $id);
+        return Instance::found($component, new CollectorSet($component, $specs), $id, server: $server);
     }
 
     private static function spec(
@@ -1171,8 +1282,10 @@ final class SnapshotProviderTest extends TestCase
         CostClass $cost = CostClass::Immediate,
         bool $trackDelta = false,
         bool $shared = false,
+        bool $detailOnly = false,
+        bool $perServer = false,
     ): CollectorSpec {
-        return new CollectorSpec($collector, $lifetime, $cost, $trackDelta, $shared);
+        return new CollectorSpec($collector, $lifetime, $cost, $trackDelta, $shared, $detailOnly, $perServer);
     }
 
     private function provider(string $node = 'web-1', ?LoggerInterface $logger = null, ?CacheItemPoolInterface $cache = null): SnapshotProvider
@@ -1182,8 +1295,8 @@ final class SnapshotProviderTest extends TestCase
         return new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, new WebNode($node), $logger);
     }
 
-    private function read(SnapshotProvider $provider, Instance $instance, ?CollectBudget $budget = null, CacheState $cache = CacheState::Working): ComponentSnapshot
+    private function read(SnapshotProvider $provider, Instance $instance, ?CollectBudget $budget = null, CacheState $cache = CacheState::Working, bool $detail = false): ComponentSnapshot
     {
-        return $provider->read([$instance], $budget ?? CollectBudget::fragment($this->clock), $cache)[$instance->key()];
+        return $provider->read([$instance], $budget ?? CollectBudget::fragment($this->clock), $cache, $detail)[$instance->key()];
     }
 }

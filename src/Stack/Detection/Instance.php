@@ -22,16 +22,17 @@ final readonly class Instance
         public ?string $detail,
         public ?CollectorSet $collectors,
         public ?string $error,
+        public ?Server $server,
     ) {}
 
-    public static function found(Component $component, CollectorSet $collectors, ?string $id = null, ?string $detail = null): self
+    public static function found(Component $component, CollectorSet $collectors, ?string $id = null, ?string $detail = null, ?Server $server = null): self
     {
-        return new self($component, $id, $detail, $collectors, null);
+        return new self($component, $id, $detail, $collectors, null, $server);
     }
 
-    public static function unavailable(Component $component, string $error, ?string $id = null, ?string $detail = null): self
+    public static function unavailable(Component $component, string $error, ?string $id = null, ?string $detail = null, ?Server $server = null): self
     {
-        return new self($component, $id, $detail, null, $error);
+        return new self($component, $id, $detail, null, $error, $server);
     }
 
     /**
