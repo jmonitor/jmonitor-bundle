@@ -6,9 +6,6 @@ namespace Jmonitor\JmonitorBundle\Stack\Collector;
 
 use Jmonitor\Utils\ShellExecutor;
 
-/**
- * Runs the commands of a library collector through ProcessRunner, each within 3 seconds.
- */
 final class StackShell extends ShellExecutor
 {
     private const TIMEOUT = 3;
