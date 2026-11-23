@@ -38,9 +38,7 @@ final class ComponentAvailabilityPass implements CompilerPassInterface
 
         $container->removeDefinition(MessengerRecorder::class);
 
-        foreach ([QueuesBlocks::class, QueuesCommand::class, QueuesInstance::class, QueuesCollector::class, PhpCli::class] as $id) {
-            $container->removeDefinition($id);
-        }
+        self::withoutQueues($container);
 
         if ($container->hasDefinition(MessagesScreen::class)) {
             $container->getDefinition(MessagesScreen::class)->replaceArgument(0, false);
@@ -59,7 +57,7 @@ final class ComponentAvailabilityPass implements CompilerPassInterface
         foreach ($container->findTaggedServiceIds('messenger.receiver') as $id => $tags) {
             $dsn = $container->hasDefinition($id) ? ($container->getDefinition($id)->getArguments()[0] ?? null) : null;
 
-            if (is_string($dsn) && str_starts_with($dsn, 'schedule://')) {
+            if (is_string($dsn) && (str_starts_with($dsn, 'schedule://') || str_starts_with($dsn, 'sync://'))) {
                 continue;
             }
 
@@ -79,9 +77,22 @@ final class ComponentAvailabilityPass implements CompilerPassInterface
             }
         }
 
+        if ($names === []) {
+            self::withoutQueues($container);
+
+            return;
+        }
+
         $container->getDefinition(QueuesCommand::class)
             ->setArgument(0, ServiceLocatorTagPass::register($container, $receivers))
             ->setArgument(1, $names);
+    }
+
+    private static function withoutQueues(ContainerBuilder $container): void
+    {
+        foreach ([QueuesBlocks::class, QueuesCommand::class, QueuesInstance::class, QueuesCollector::class, PhpCli::class] as $id) {
+            $container->removeDefinition($id);
+        }
     }
 
     private function scheduler(ContainerBuilder $container): void

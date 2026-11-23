@@ -8,12 +8,19 @@ use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
 use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
 use Jmonitor\JmonitorBundle\Recording\MessengerRecorder;
+use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
+use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
+use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
+use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
+use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 
 final class ComponentAvailabilityPassTest extends TestCase
 {
+    private const QUEUES = [QueuesBlocks::class, QueuesInstance::class, QueuesCollector::class, PhpCli::class];
+
     public function testKeepsTheMessengerRecorderWhenMessengerIsEnabled(): void
     {
         $container = $this->container(['messenger.receiver_locator']);
@@ -80,6 +87,35 @@ final class ComponentAvailabilityPassTest extends TestCase
         (new ComponentAvailabilityPass())->process($container);
 
         static::assertFalse($container->hasDefinition(MessengerRecorder::class));
+    }
+
+    public function testTheQueuesAreCountedByNameWithoutTheSchedulerAndSynchronousTransports(): void
+    {
+        $container = $this->container(['messenger.receiver_locator', ...self::QUEUES]);
+        $container->setDefinition(QueuesCommand::class, new Definition(QueuesCommand::class, [null, []]));
+        $container->setDefinition('messenger.transport.async', (new Definition(\stdClass::class, ['%env(MESSENGER_TRANSPORT_DSN)%']))->addTag('messenger.receiver', ['alias' => 'async']));
+        $container->setDefinition('messenger.transport.scheduler_default', (new Definition(\stdClass::class, ['schedule://default']))->addTag('messenger.receiver', ['alias' => 'scheduler_default']));
+        $container->setDefinition('messenger.transport.now', (new Definition(\stdClass::class, ['sync://']))->addTag('messenger.receiver', ['alias' => 'now']));
+        $container->setDefinition('app.receiver', (new Definition(\stdClass::class))->addTag('messenger.receiver'));
+
+        (new ComponentAvailabilityPass())->process($container);
+
+        static::assertSame(['async', 'app.receiver'], $container->getDefinition(QueuesCommand::class)->getArgument(1));
+        static::assertSame([true, true, true, true], array_map($container->hasDefinition(...), self::QUEUES));
+    }
+
+    public function testWithoutATransportToCountTheQueuesAreNotCounted(): void
+    {
+        $container = $this->container(['messenger.receiver_locator', ...self::QUEUES]);
+        $container->setDefinition(QueuesCommand::class, new Definition(QueuesCommand::class, [null, []]));
+        $container->setDefinition('messenger.transport.scheduler_default', (new Definition(\stdClass::class, ['schedule://default']))->addTag('messenger.receiver', ['alias' => 'scheduler_default']));
+        $container->setDefinition('messenger.transport.now', (new Definition(\stdClass::class, ['sync://']))->addTag('messenger.receiver', ['alias' => 'now']));
+
+        (new ComponentAvailabilityPass())->process($container);
+
+        static::assertFalse($container->hasDefinition(QueuesCommand::class));
+        static::assertSame([false, false, false, false], array_map($container->hasDefinition(...), self::QUEUES));
+        static::assertTrue($container->hasDefinition(MessengerRecorder::class));
     }
 
     /**
