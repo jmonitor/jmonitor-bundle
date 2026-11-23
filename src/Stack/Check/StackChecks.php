@@ -161,7 +161,11 @@ final class StackChecks
                 default => $raise(
                     $name . '.failed',
                     Severity::Info,
-                    sprintf('%s could not be read: %s', $name, $reason),
+                    sprintf('%s could not be read: %s', match ($name) {
+                        'nginx.config' => 'The Nginx settings',
+                        'frankenphp.version' => 'The FrankenPHP version',
+                        default => $name,
+                    }, $reason),
                     'What it reads is left out of the checks until it can be read.',
                 ),
             };

@@ -528,6 +528,8 @@ final class StackChecksTest extends TestCase
 
         self::assertSame(Severity::Info, self::find($health, 'frankenphp.version.failed')?->severity);
         self::assertSame(Severity::Info, self::find($health, 'nginx.config.failed')?->severity);
+        self::assertStringStartsWith('The FrankenPHP version could not be read: ', (string) self::find($health, 'frankenphp.version.failed')?->sentence);
+        self::assertStringStartsWith('The Nginx settings could not be read: ', (string) self::find($health, 'nginx.config.failed')?->sentence);
         self::assertSame(Verdict::Healthy, $health->verdict(Component::FrankenPhp));
         self::assertSame(Verdict::Healthy, $health->verdict(Component::Nginx));
     }
