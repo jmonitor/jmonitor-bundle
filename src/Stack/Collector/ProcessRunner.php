@@ -12,6 +12,7 @@ use Symfony\Component\Process\Process;
 class ProcessRunner
 {
     private const ENV = ['SHELL_VERBOSITY' => '0', 'COMPOSER_NO_INTERACTION' => '1'];
+    private const REMOVED = ['HTTP_PROXY' => false];
 
     /**
      * @param list<string>          $command
@@ -62,7 +63,7 @@ class ProcessRunner
     private static function start(array $command, string $workingDirectory, int $timeout, array $env): Process
     {
         try {
-            $process = new Process($command, $workingDirectory, [...self::ENV, ...$env], null, $timeout);
+            $process = new Process($command, $workingDirectory, [...self::ENV, ...$env, ...self::REMOVED], null, $timeout);
             $process->start();
         } catch (ProcessLogicException|ProcessRuntimeException $e) {
             throw new MissingPrerequisiteException(sprintf('"%s" cannot be started: %s', $command[0] ?? '', $e->getMessage()), 0, $e);

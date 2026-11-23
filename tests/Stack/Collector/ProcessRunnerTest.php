@@ -79,6 +79,31 @@ final class ProcessRunnerTest extends TestCase
         self::assertSame('1,0', $runner->runUntil([\PHP_BINARY, '-r', $code], __DIR__, 5, ['JMONITOR_PROBE' => '1'])['output']);
     }
 
+    public function testTheProxyOfAWebRequestNeverReachesTheCommand(): void
+    {
+        $code = 'echo getenv("HTTP_PROXY");';
+        $runner = new ProcessRunner();
+        $previous = getenv('HTTP_PROXY');
+        $server = $_SERVER['HTTP_PROXY'] ?? null;
+        putenv('HTTP_PROXY=http://evil.example');
+        $_SERVER['HTTP_PROXY'] = 'http://evil.example';
+
+        try {
+            self::assertSame('', $runner->run([\PHP_BINARY, '-r', $code], __DIR__, 5)['output']);
+            self::assertSame('', $runner->runUntil([\PHP_BINARY, '-r', $code], __DIR__, 5)['output']);
+            self::assertSame('', $runner->run([\PHP_BINARY, '-r', $code], __DIR__, 5, ['HTTP_PROXY' => 'x'])['output']);
+            self::assertSame('', $runner->runUntil([\PHP_BINARY, '-r', $code], __DIR__, 5, ['HTTP_PROXY' => 'x'])['output']);
+        } finally {
+            putenv($previous === false ? 'HTTP_PROXY' : 'HTTP_PROXY=' . $previous);
+
+            if ($server === null) {
+                unset($_SERVER['HTTP_PROXY']);
+            } else {
+                $_SERVER['HTTP_PROXY'] = $server;
+            }
+        }
+    }
+
     public function testACommandStoppedAtItsTimeLimitGivesWhatItPrinted(): void
     {
         $marker = 'jmonitor-test-' . bin2hex(random_bytes(6));
