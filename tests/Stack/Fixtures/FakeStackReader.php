@@ -14,6 +14,9 @@ final class FakeStackReader implements StackReaderInterface
     /** @var list<string> "overview Page", "component php Fragment", "refresh all"… */
     public array $calls = [];
 
+    /** @var list<?string> the instance asked for by each read of a component */
+    public array $instances = [];
+
     public function __construct(
         private readonly StackState $state,
         private readonly ?StackState $queues = null,
@@ -29,6 +32,7 @@ final class FakeStackReader implements StackReaderInterface
     public function component(Component $component, ?string $instance, ReadMode $mode): StackState
     {
         $this->calls[] = 'component ' . $component->value . ' ' . $mode->name;
+        $this->instances[] = $instance;
 
         return $this->state;
     }

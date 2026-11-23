@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Stack\Screen;
 
 use Jmonitor\JmonitorBundle\Dashboard\Format;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
@@ -79,6 +80,7 @@ final class CardBuilder
             $badge === null ? [] : [$badge],
             $note,
             $main?->ok() === true ? $main->collectedAt : null,
+            $path === null || $instance->id === null ? [] : [ScreenRequest::INSTANCE => $instance->id],
         );
     }
 

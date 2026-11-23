@@ -114,7 +114,9 @@ final class PageRenderer
             $this->logger?->error(sprintf('JMonitor could not run the "%s" action of the "%s" screen: %s', $action, $path, $e->getMessage()), ['exception' => $e]);
         }
 
-        return new RedirectResponse($urls->page($path), Response::HTTP_SEE_OTHER, self::HEADERS);
+        $instance = self::nonEmpty($request->request->all()[ScreenRequest::INSTANCE] ?? null);
+
+        return new RedirectResponse($urls->page($path, $instance === null ? [] : [ScreenRequest::INSTANCE => $instance]), Response::HTTP_SEE_OTHER, self::HEADERS);
     }
 
     private function twig(): Environment
@@ -215,6 +217,7 @@ final class PageRenderer
             self::query($request, 'dir'),
             $storageFailed,
             $fragment,
+            self::nonEmpty(self::query($request, ScreenRequest::INSTANCE)),
         );
     }
 
@@ -223,5 +226,10 @@ final class PageRenderer
         $value = $request->query->all()[$name] ?? null;
 
         return \is_string($value) ? $value : null;
+    }
+
+    private static function nonEmpty(mixed $value): ?string
+    {
+        return \is_string($value) && $value !== '' ? $value : null;
     }
 }

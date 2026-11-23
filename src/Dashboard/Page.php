@@ -12,6 +12,7 @@ final class Page
     /**
      * @param list<Block>                 $blocks
      * @param array<string, 'asc'|'desc'> $sorts
+     * @param array<string, string>       $query  what a link to this page, its fragment or the rest of it carries
      */
     public function __construct(
         public readonly ScreenInterface $screen,
@@ -20,6 +21,7 @@ final class Page
         public readonly string $sort,
         public readonly string $direction,
         public readonly array $sorts,
+        public readonly array $query = [],
     ) {}
 
     public function state(): string

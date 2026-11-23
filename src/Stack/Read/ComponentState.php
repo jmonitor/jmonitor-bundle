@@ -10,7 +10,7 @@ final class ComponentState
 {
     /**
      * @param list<InstanceState> $instances
-     * @param int                 $unread    the instances listed without being read
+     * @param int                 $unread    the instances listed without being read; the servers when its instances reach some
      */
     public function __construct(
         public readonly Component $component,

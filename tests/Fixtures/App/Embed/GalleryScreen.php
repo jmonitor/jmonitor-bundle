@@ -17,6 +17,9 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Fact;
 use Jmonitor\JmonitorBundle\Dashboard\View\Facts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauge;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNav;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavRow;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
@@ -81,6 +84,17 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 new SubNavItem('MySQL', 'gallery', false, $unknown),
                 new SubNavItem('Redis', 'gallery', false, $info),
             ], $this->requests() % 2 === 1 ? 'web-1' : 'web-2')),
+            Block::instances(new InstanceNav([
+                new InstanceNavRow('Servers', [
+                    new InstanceNavItem('default', 'gallery', ['connection' => 'default'], true, 'db-primary.internal:3306'),
+                    new InstanceNavItem('analytics', 'gallery', ['connection' => 'analytics'], false, 'a-very-long-host-name-that-does-not-fit.internal.example:3306'),
+                    new InstanceNavItem('legacy', 'gallery', ['connection' => 'legacy'], false, null, new Mark('warn', 'Unavailable')),
+                ]),
+                new InstanceNavRow('Databases', [
+                    new InstanceNavItem('default', 'gallery', ['connection' => 'default'], true, 'shop', $healthy),
+                    new InstanceNavItem('reporting_read_replica_with_a_long_name', 'gallery', ['connection' => 'reporting_read_replica_with_a_long_name'], false, 'reporting_warehouse_2026'),
+                ]),
+            ])),
             Block::notice(new Notice('bad', 'The stack could not be read', 'Cannot reach redis://cache:6379: Connection refused')),
             Block::notice(new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.')),
             Block::notice(new Notice('info', 'Some figures are still being read from ' . self::HOST)),

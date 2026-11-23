@@ -22,7 +22,7 @@ final class ScreenBuilder
         private readonly ?LoggerInterface $logger = null,
     ) {}
 
-    public function create(ScreenInterface $screen, ?string $period, ?string $sort, ?string $direction, bool $storageFailed = false, bool $fragment = false): Page
+    public function create(ScreenInterface $screen, ?string $period, ?string $sort, ?string $direction, bool $storageFailed = false, bool $fragment = false, ?string $instance = null): Page
     {
         $now = $this->clock->now()->getTimestamp();
         $blocks = [];
@@ -47,10 +47,10 @@ final class ScreenBuilder
         }
 
         if ($screen instanceof BlockScreenInterface) {
-            $blocks = [...$this->screenBlocks($screen, new ScreenRequest($now, $fragment)), ...$blocks];
+            $blocks = [...$this->screenBlocks($screen, new ScreenRequest($now, $fragment, $instance)), ...$blocks];
         }
 
-        return new Page($screen, $blocks, $period, $sort, $direction, $sorts);
+        return new Page($screen, $blocks, $period, $sort, $direction, $sorts, $instance === null ? [] : [ScreenRequest::INSTANCE => $instance]);
     }
 
     public function storageUsable(): bool

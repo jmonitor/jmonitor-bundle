@@ -27,7 +27,7 @@
                     </div>
                     <p class="jm-check__where">
                         {%- if line.path is not null -%}
-                            <a href="{{ urls.page(line.path) }}">{{ line.where }}</a>
+                            <a href="{{ urls.page(line.path, line.query) }}">{{ line.where }}</a>
                         {%- else -%}
                             {{ line.where }}
                         {%- endif -%}

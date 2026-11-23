@@ -11,7 +11,9 @@ interface StackReaderInterface
     public function overview(ReadMode $mode): StackState;
 
     /**
-     * An unknown, disabled or undetected component, or an unknown instance, gives a state without component.
+     * An unknown, disabled or undetected component gives a state without component, and so does an unknown
+     * instance of a component read on the web server. An unknown instance of a remote server, such as a
+     * database, gives its component with every instance, none read.
      */
     public function component(Component $component, ?string $instance, ReadMode $mode): StackState;
 

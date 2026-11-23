@@ -16,12 +16,14 @@ use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
+use Jmonitor\JmonitorBundle\Stack\Detection\Server;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
@@ -203,6 +205,77 @@ final class LocalStackReaderTest extends TestCase
         self::assertSame(['system' => Instance::UNAVAILABLE], $undetected->notDetected);
         self::assertSame([], $disabled->components);
         self::assertSame([], $disabled->notDetected);
+    }
+
+    public function testTheOverviewReadsOneConnectionPerServer(): void
+    {
+        [$registry, $collectors] = $this->connections(['main' => 'db1:3306', 'reports' => 'db1:3306', 'archive' => 'db2:3306']);
+
+        $mysql = $this->reader($registry)->overview(ReadMode::Page)->component(Component::Mysql);
+
+        self::assertNotNull($mysql);
+        self::assertSame(['main', 'reports', 'archive'], array_map(static fn(InstanceState $instance): ?string => $instance->id, $mysql->instances));
+        self::assertSame([['connection' => 'main'], null, ['connection' => 'archive']], array_map(static fn(InstanceState $instance): ?array => $instance->snapshot?->data('mysql'), $mysql->instances));
+        self::assertSame(['main' => 1, 'reports' => 0, 'archive' => 1], array_map(static fn(FakeCollector $collector): int => $collector->collects, $collectors));
+        self::assertSame([1, 1, 0], array_map(static fn(InstanceState $instance): int => $instance->siblings, $mysql->instances));
+        self::assertSame(['db1:3306', 'db1:3306', 'db2:3306'], array_map(static fn(InstanceState $instance): ?string => $instance->server?->key, $mysql->instances));
+        self::assertSame(0, $mysql->unread);
+    }
+
+    public function testTheNinthServerIsCountedNotRead(): void
+    {
+        $servers = ['first' => 'db1:3306', 'second' => 'db1:3306'];
+        foreach (range(2, 9) as $i) {
+            $servers['c' . $i] = 'db' . $i . ':3306';
+        }
+        [$registry, $collectors] = $this->connections($servers);
+
+        $mysql = $this->reader($registry)->overview(ReadMode::Page)->component(Component::Mysql);
+
+        self::assertNotNull($mysql);
+        self::assertCount(10, $mysql->instances);
+        self::assertSame(['first' => 1, 'second' => 0, 'c2' => 1, 'c3' => 1, 'c4' => 1, 'c5' => 1, 'c6' => 1, 'c7' => 1, 'c8' => 1, 'c9' => 0], array_map(static fn(FakeCollector $collector): int => $collector->collects, $collectors));
+        self::assertNull($mysql->instances[9]->snapshot);
+        self::assertSame(1, $mysql->unread);
+    }
+
+    public function testAnUnknownConnectionListsThemAllAndReadsNone(): void
+    {
+        [$registry, $collectors] = $this->connections(['main' => 'db1:3306', 'reports' => 'db1:3306', 'archive' => 'db2:3306']);
+
+        $state = $this->reader($registry)->component(Component::Mysql, 'nope', ReadMode::Fragment);
+        $mysql = $state->component(Component::Mysql);
+
+        self::assertNotNull($mysql);
+        self::assertSame(['main', 'reports', 'archive'], array_map(static fn(InstanceState $instance): ?string => $instance->id, $mysql->instances));
+        self::assertSame([null, null, null], array_map(static fn(InstanceState $instance): ?ComponentSnapshot => $instance->snapshot, $mysql->instances));
+        self::assertSame(['db1:3306', 'db1:3306', 'db2:3306'], array_map(static fn(InstanceState $instance): ?string => $instance->server?->key, $mysql->instances));
+        self::assertSame([], $state->notDetected);
+        self::assertSame(['main' => 0, 'reports' => 0, 'archive' => 0], array_map(static fn(FakeCollector $collector): int => $collector->collects, $collectors));
+    }
+
+    public function testTheDetailOfAConnectionReadsOnlyIt(): void
+    {
+        $tables = [];
+        $instances = [];
+        foreach (['main' => 'db1:3306', 'reports' => 'db1:3306', 'archive' => 'db2:3306'] as $name => $server) {
+            $tables[$name] = new FakeCollector('mysql.sizes', ['database' => $name]);
+            $instances[] = Instance::found(Component::Mysql, new CollectorSet(Component::Mysql, [
+                self::spec(new FakeCollector('mysql', ['connection' => $name])),
+                new CollectorSpec($tables[$name], Lifetime::Static, CostClass::Slow, detailOnly: true),
+            ]), $name, $name, new Server($server, $server));
+        }
+        $registry = Detectors::registry(['mysql' => new StaticDetector(Component::Mysql, Detection::instances($instances))], self::settings(['mysql' => 'auto']));
+        $reader = $this->reader($registry);
+        $this->warm();
+
+        $mysql = $reader->component(Component::Mysql, 'reports', ReadMode::Fragment)->component(Component::Mysql);
+
+        self::assertNotNull($mysql);
+        self::assertSame([null, ['database' => 'reports'], null], array_map(static fn(InstanceState $instance): ?array => $instance->snapshot?->data('mysql.sizes'), $mysql->instances));
+        self::assertSame(['main' => 0, 'reports' => 1, 'archive' => 0], array_map(static fn(FakeCollector $collector): int => $collector->collects, $tables));
+        self::assertSame(['db1:3306', 'db1:3306', 'db2:3306'], array_map(static fn(InstanceState $instance): ?string => $instance->server?->address, $mysql->instances));
+        self::assertSame([1, 1, 0], array_map(static fn(InstanceState $instance): int => $instance->siblings, $mysql->instances));
     }
 
     public function testAPageRunsNoSlowCollectorAndAFragmentDoes(): void
@@ -790,6 +863,24 @@ final class LocalStackReaderTest extends TestCase
             'php' => new StaticDetector(Component::Php, Detection::instances($instances)),
             'symfony' => self::detector(Component::Symfony, self::spec(new FakeCollector('symfony.kernel'))),
         ], self::settings($components)), $collectors];
+    }
+
+    /**
+     * @param array<string, string> $servers the server key of each connection
+     *
+     * @return array{ComponentRegistry, array<string, FakeCollector>} the collector of each connection
+     */
+    private function connections(array $servers): array
+    {
+        $collectors = [];
+        $instances = [];
+
+        foreach ($servers as $name => $server) {
+            $collectors[$name] = $collector = new FakeCollector('mysql', ['connection' => $name]);
+            $instances[] = Instance::found(Component::Mysql, new CollectorSet(Component::Mysql, [self::spec($collector)]), $name, $name, new Server($server, $server));
+        }
+
+        return [Detectors::registry(['mysql' => new StaticDetector(Component::Mysql, Detection::instances($instances))], self::settings(['mysql' => 'auto'])), $collectors];
     }
 
     /**

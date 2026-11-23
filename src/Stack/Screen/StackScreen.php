@@ -108,7 +108,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             ];
         }
 
-        $health = $this->parts->checks()->health($state);
+        $health = $this->parts->health($state);
         $summary = $this->parts->summary();
 
         if (!$state->isReading() || $summary->last() === null) {

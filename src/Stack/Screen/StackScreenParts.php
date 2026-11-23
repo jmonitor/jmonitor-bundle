@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Stack\Screen;
 
 use Jmonitor\JmonitorBundle\Dashboard\Format;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
+use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
+use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
@@ -96,9 +100,24 @@ final class StackScreenParts
             $finding->instance === null ? $finding->component->label() : $finding->component->label() . ' · ' . $finding->instance,
             $linked ? self::path($finding->component) : null,
             $finding->age === null ? null : Format::ago($now - $finding->age, $now),
+            $linked && $finding->instance !== null ? [ScreenRequest::INSTANCE => $finding->instance] : [],
         ), $findings);
 
         return $emptyTitle === null ? new CheckList($lines) : new CheckList($lines, $emptyTitle);
+    }
+
+    /**
+     * The instances listed without being read are left out: they have nothing to judge.
+     */
+    public function health(StackState $state): StackHealth
+    {
+        $components = array_map(static fn(ComponentState $component): ComponentState => new ComponentState(
+            $component->component,
+            array_values(array_filter($component->instances, static fn(InstanceState $instance): bool => $instance->snapshot !== null || $instance->error !== null)),
+            $component->unread,
+        ), $state->components);
+
+        return $this->checks()->health(new StackState($state->node, $state->readAt, $state->cache, $components, $state->notDetected, $state->error));
     }
 
     public function reader(): StackReaderInterface

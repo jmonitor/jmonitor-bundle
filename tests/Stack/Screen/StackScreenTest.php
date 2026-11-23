@@ -17,6 +17,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\Server;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
@@ -35,6 +36,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FakeStackReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
@@ -322,6 +324,30 @@ final class StackScreenTest extends TestCase
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame('1 more connection', $cards->more);
+    }
+
+    public function testTheCardAndItsChecksLinkToTheirConnection(): void
+    {
+        $status = DatabasePayloads::mysqlStatus();
+        $status['Threads_connected'] = '99';
+        $snapshot = Snapshots::of(Component::Mysql, ['mysql' => $status, 'mysql.variables' => DatabasePayloads::mysqlVariables()]);
+        $state = self::withNode(Snapshots::state(['mysql' => [new InstanceState('a/b é', 'app', null, $snapshot, new Server('db1:3306', 'db1:3306'))]]));
+
+        $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertInstanceOf(CheckList::class, $blocks[1]->content);
+        self::assertSame(
+            [['mysql.connections', 'stack/mysql', ['connection' => 'a/b é']]],
+            array_map(static fn(CheckLine $line): array => [$line->id, $line->path, $line->query], $blocks[1]->content->lines),
+        );
+        self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
+        self::assertSame('stack/mysql', $blocks[2]->content->cards[0]->path);
+        self::assertSame(['connection' => 'a/b é'], $blocks[2]->content->cards[0]->query);
+
+        $php = $this->screen(new FakeStackReader(self::healthy()))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+
+        self::assertInstanceOf(ComponentCards::class, $php);
+        self::assertSame([[], [], []], array_map(static fn(ComponentCard $card): array => $card->query, $php->cards));
     }
 
     public function testACacheOutOfOrderIsToldAndNothingKeepsReading(): void

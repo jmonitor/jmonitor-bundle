@@ -78,7 +78,9 @@ final readonly class LocalStackReader implements StackReaderInterface
             $read = $this->registry->instance($component, $instance);
 
             if ($read === null) {
-                return $this->state($cache, [], self::notDetected([$status]));
+                return $status->instances === [] || $component->isNodeLocal()
+                    ? $this->state($cache, [], self::notDetected([$status]))
+                    : $this->state($cache, [self::componentState($status, [])], []);
             }
 
             $snapshots = $this->snapshots->read([$read], $this->budget($mode), $cache, detail: true);
@@ -158,6 +160,8 @@ final readonly class LocalStackReader implements StackReaderInterface
     }
 
     /**
+     * The first instances of each component, or the first instance of each of its first servers.
+     *
      * @param list<ComponentStatus> $statuses
      *
      * @return list<Instance>
@@ -167,10 +171,31 @@ final readonly class LocalStackReader implements StackReaderInterface
         $instances = [];
 
         foreach ($statuses as $status) {
-            array_push($instances, ...array_slice($status->instances, 0, self::OVERVIEW_INSTANCES));
+            $servers = self::servers($status->instances);
+            $firsts = $servers === null ? $status->instances : array_map(static fn(array $server): Instance => $server[0], $servers);
+            array_push($instances, ...array_slice($firsts, 0, self::OVERVIEW_INSTANCES));
         }
 
         return $instances;
+    }
+
+    /**
+     * The instances grouped by the server they reach, in the order they were detected; one that reaches
+     * no known server is alone in its group. Null when none reaches a known server.
+     *
+     * @param list<Instance> $instances
+     *
+     * @return ?list<non-empty-list<Instance>>
+     */
+    private static function servers(array $instances): ?array
+    {
+        $servers = [];
+
+        foreach ($instances as $instance) {
+            $servers[$instance->server === null ? "\0" . $instance->key() : $instance->server->key][] = $instance;
+        }
+
+        return array_filter($instances, static fn(Instance $instance): bool => $instance->server !== null) === [] ? null : array_values($servers);
     }
 
     /**
@@ -178,13 +203,26 @@ final readonly class LocalStackReader implements StackReaderInterface
      */
     private static function componentState(ComponentStatus $status, array $snapshots): ComponentState
     {
+        $servers = self::servers($status->instances);
+        $siblings = [];
+
+        foreach ($servers ?? [] as $server) {
+            foreach ($server as $instance) {
+                $siblings[$instance->key()] = count($server) - 1;
+            }
+        }
+
         $instances = array_map(static fn(Instance $instance): InstanceState => new InstanceState(
             $instance->id,
             $instance->detail,
             $instance->error === null ? null : ErrorMessage::clean($instance->error),
             $snapshots[$instance->key()] ?? null,
+            $instance->server,
+            $siblings[$instance->key()] ?? 0,
         ), $status->instances);
-        $unread = count(array_filter($instances, static fn(InstanceState $instance): bool => $instance->snapshot === null));
+        $unread = $servers === null
+            ? count(array_filter($instances, static fn(InstanceState $instance): bool => $instance->snapshot === null))
+            : count(array_filter($servers, static fn(array $server): bool => array_filter($server, static fn(Instance $instance): bool => isset($snapshots[$instance->key()])) === []));
 
         return new ComponentState($status->component, $instances, $unread);
     }

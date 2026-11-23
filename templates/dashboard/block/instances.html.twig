@@ -1,0 +1,17 @@
+{% autoescape 'html' %}
+{% set nav = block.content %}
+<div class="jm-instances" data-jm-instances>
+    {% for row in nav.rows %}
+        <nav class="jm-instances__row" aria-label="{{ row.label }}">
+            <span class="jm-instances__label" aria-hidden="true">{{ row.label }}</span>
+            {% for item in row.items %}
+                <a class="jm-instances__item" href="{{ urls.page(item.path, item.query) }}"{% if item.current %} aria-current="true"{% endif %}>
+                    <span class="jm-instances__name">{{ item.label }}</span>
+                    {%- if item.detail is not null %} <span class="jm-instances__detail">{{ item.detail }}</span>{% endif %}
+                    {%- if item.mark %} {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: item.mark}, with_context = false) }}{% endif %}
+                </a>
+            {% endfor %}
+        </nav>
+    {% endfor %}
+</div>
+{% endautoescape %}

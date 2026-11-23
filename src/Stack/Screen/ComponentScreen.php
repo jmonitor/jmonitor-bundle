@@ -9,11 +9,18 @@ use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNav;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavRow;
+use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
+use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
+use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\DetailInterface;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
@@ -79,7 +86,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
 
     public function blocks(ScreenRequest $request): array
     {
-        $state = $this->parts->reader()->component($this->component, null, $request->fragment ? ReadMode::Fragment : ReadMode::Page);
+        $state = $this->parts->reader()->component($this->component, $request->instance, $request->fragment ? ReadMode::Fragment : ReadMode::Page);
 
         if ($state->error !== null) {
             return [
@@ -88,18 +95,30 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
             ];
         }
 
-        $health = $this->parts->checks()->health($state);
+        $health = $this->parts->health($state);
         $blocks = [Block::subnav($this->subnav($health->componentVerdict($this->component), $state->node))];
+        $component = $state->component($this->component);
+        $instance = $component === null ? null : self::shown($component, $request->instance);
+
+        if ($component !== null && $instance === null) {
+            $blocks[] = Block::notice(new Notice('warn', sprintf('No connection named "%s" is read', $request->instance), 'It may have been renamed or left out of the configuration.'));
+        }
+
+        if ($component !== null && count($component->instances) > 1) {
+            $blocks[] = Block::instances($this->instances($component, $instance, $health));
+        }
 
         if ($state->cache === CacheState::OutOfOrder) {
             $blocks[] = Block::notice(StackScreenParts::cacheOutOfOrder());
         }
 
-        $instance = $state->component($this->component)?->instances[0] ?? null;
-
-        if ($instance === null) {
+        if ($component === null) {
             $blocks[] = Block::notice(new Notice('info', $this->label() . ' is not part of this stack', $state->notDetected[$this->component->value] ?? 'It is turned off, or was not found on this server.'));
 
+            return $blocks;
+        }
+
+        if ($instance === null) {
             return $blocks;
         }
 
@@ -113,6 +132,80 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
             Block::checks($this->parts->checkList($findings, false, 'Nothing to check on ' . $this->label())),
             ...$this->detail->sections($instance, $findings, $this->parts->now(), $reading),
         ];
+    }
+
+    private static function shown(ComponentState $component, ?string $id): ?InstanceState
+    {
+        if ($id === null) {
+            return $component->instances[0] ?? null;
+        }
+
+        foreach ($component->instances as $instance) {
+            if ($instance->id === $id) {
+                return $instance;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * One row of every instance; for the instances that reach servers, one row of the servers, each by its first
+     * instance, and one row of the instances of the server shown. A row of a single item is left out.
+     */
+    private function instances(ComponentState $component, ?InstanceState $shown, StackHealth $health): InstanceNav
+    {
+        $item = fn(InstanceState $instance, ?string $detail, bool $current): InstanceNavItem => new InstanceNavItem(
+            $instance->id ?? $this->component->label(),
+            StackScreenParts::path($this->component),
+            $instance->id === null ? [] : [ScreenRequest::INSTANCE => $instance->id],
+            $current,
+            $detail,
+            $this->mark($instance, $health),
+        );
+
+        if (array_filter($component->instances, static fn(InstanceState $instance): bool => $instance->server !== null) === []) {
+            return new InstanceNav([new InstanceNavRow('Connections', array_map(
+                static fn(InstanceState $instance): InstanceNavItem => $item($instance, $instance->detail, $instance === $shown),
+                $component->instances,
+            ))]);
+        }
+
+        $servers = [];
+
+        foreach ($component->instances as $instance) {
+            $servers[$instance->server === null ? "\0" . $instance->id : $instance->server->key][] = $instance;
+        }
+
+        $rows = [];
+
+        if (count($servers) > 1) {
+            $rows[] = new InstanceNavRow('Servers', array_map(
+                static fn(array $server): InstanceNavItem => $item($server[0], $server[0]->server?->address, in_array($shown, $server, true)),
+                array_values($servers),
+            ));
+        }
+
+        $around = $shown ?? $component->instances[0];
+        $databases = $servers[$around->server === null ? "\0" . $around->id : $around->server->key];
+
+        if (count($databases) > 1) {
+            $rows[] = new InstanceNavRow('Databases', array_map(
+                static fn(InstanceState $instance): InstanceNavItem => $item($instance, $instance->detail, $instance === $shown),
+                $databases,
+            ));
+        }
+
+        return new InstanceNav($rows);
+    }
+
+    private function mark(InstanceState $instance, StackHealth $health): ?Mark
+    {
+        return match (true) {
+            ($instance->error ?? $instance->snapshot?->error) !== null => new Mark('warn', 'Unavailable'),
+            $instance->snapshot !== null => Marks::verdict($health->verdict($this->component, $instance->id)),
+            default => null,
+        };
     }
 
     private function subnav(Verdict $verdict, ?string $node): SubNav
