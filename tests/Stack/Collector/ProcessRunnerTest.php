@@ -104,6 +104,35 @@ final class ProcessRunnerTest extends TestCase
         }
     }
 
+    public function testNoHeaderOfAWebRequestReachesTheCommand(): void
+    {
+        $headers = ['HTTP_AUTHORIZATION' => 'Bearer s3cret', 'HTTP_COOKIE' => 'PHPSESSID=s3cret'];
+        $code = 'echo getenv("HTTP_AUTHORIZATION"), ",", getenv("HTTP_COOKIE"), ",", getenv("JMONITOR_PROBE");';
+        $runner = new ProcessRunner();
+        $previous = [];
+        foreach ($headers as $name => $value) {
+            $previous[$name] = [getenv($name), $_SERVER[$name] ?? null];
+            putenv($name . '=' . $value);
+            $_SERVER[$name] = $value;
+        }
+
+        try {
+            self::assertSame(',,1', $runner->run([\PHP_BINARY, '-r', $code], __DIR__, 5, ['JMONITOR_PROBE' => '1'])['output']);
+            self::assertSame(',,1', $runner->runUntil([\PHP_BINARY, '-r', $code], __DIR__, 5, ['JMONITOR_PROBE' => '1'])['output']);
+            self::assertSame(',,', $runner->run([\PHP_BINARY, '-r', $code], __DIR__, 5, $headers)['output']);
+        } finally {
+            foreach ($previous as $name => [$env, $server]) {
+                putenv($env === false ? $name : $name . '=' . $env);
+
+                if ($server === null) {
+                    unset($_SERVER[$name]);
+                } else {
+                    $_SERVER[$name] = $server;
+                }
+            }
+        }
+    }
+
     public function testACommandStoppedAtItsTimeLimitGivesWhatItPrinted(): void
     {
         $marker = 'jmonitor-test-' . bin2hex(random_bytes(6));

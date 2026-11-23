@@ -479,7 +479,7 @@ What the stack reads outside the process of PHP, each with its switch under `sta
 | `frankenphp version`, when FrankenPHP serves the page | 3 s | once an hour on each web server | `frankenphp` |
 | The console of your application, `bin/console jmonitor:stack:queues`, when the Messages screen is displayed | 3 s | at most once every 30 seconds, shared by all your web servers through the cache | `symfony.messenger` |
 
-A command runs in the environment of PHP, as its user, who must be able to run it. When it cannot, the screen says so: a check on the Stack screen, or a notice in the `Queues` block or in the detail of Nginx. A command that cannot be found is tried again an hour later. Turned off, `end_of_life` shows versions without their support status and skips the end-of-life and security-fixes checks; `symfony.flex` hides the Flex recipes.
+A command runs in the environment of PHP, without the headers of the web request (the `HTTP_*` variables), as its user, who must be able to run it. When it cannot, the screen says so: a check on the Stack screen, or a notice in the `Queues` block or in the detail of Nginx. A command that cannot be found is tried again an hour later. Turned off, `end_of_life` shows versions without their support status and skips the end-of-life and security-fixes checks; `symfony.flex` hides the Flex recipes.
 
 None of these delays the first display of the screen: they run when the page reads what it still lacks or what has gone out of date.
 
