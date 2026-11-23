@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack\Check;
 
+use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Metric\SupportStatus;
@@ -16,6 +17,7 @@ use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Psr\Clock\ClockInterface;
@@ -59,6 +61,12 @@ final class StackChecks
     private static function verdict(Component $component, InstanceState $instance, array $findings): Verdict
     {
         if (($instance->error ?? $instance->snapshot?->error) !== null || $instance->snapshot?->has($component->value) !== true) {
+            foreach ($findings as $finding) {
+                if ($finding->id === $component->value . '.failed' && $finding->severity === Severity::Critical) {
+                    return Verdict::Critical;
+                }
+            }
+
             return Verdict::Unknown;
         }
 
@@ -125,17 +133,17 @@ final class StackChecks
     {
         $findings = [];
 
-        $mainSeverity = $component->isWebServer() ? Severity::Info : Severity::Warning;
-
         foreach ($snapshot->results as $name => $result) {
             if ($name === $component->value && $result->state === ResultState::Stale && $result->error !== null) {
-                $findings[] = $raise(
-                    $name . '.failed',
-                    $mainSeverity,
-                    sprintf('%s could not be read again: %s', self::subject($component), $result->error),
-                    'What is shown is the last value read, and the checks judge it until it can be read again. Fix the cause given, then refresh.',
-                    $name,
-                );
+                $findings[] = self::unreachable($component, $result)
+                    ? self::cannotBeReached($component, $result->error, $raise, $name)
+                    : $raise(
+                        $name . '.failed',
+                        $component->isWebServer() ? Severity::Info : Severity::Warning,
+                        sprintf('%s could not be read again: %s', self::subject($component), $result->error),
+                        'What is shown is the last value read, and the checks judge it until it can be read again. Fix the cause given, then refresh.',
+                        $name,
+                    );
             }
 
             if ($result->state !== ResultState::Failed || str_starts_with($name, 'eol.')) {
@@ -144,9 +152,9 @@ final class StackChecks
 
             $reason = $result->error ?? 'no reason given';
             $findings[] = match ($name) {
-                $component->value => $raise(
+                $component->value => self::unreachable($component, $result) ? self::cannotBeReached($component, $reason, $raise) : $raise(
                     $name . '.failed',
-                    $mainSeverity,
+                    $component->isWebServer() ? Severity::Info : Severity::Warning,
                     sprintf('%s could not be read: %s', self::subject($component), $reason),
                     match ($component) {
                         Component::FrankenPhp => 'FrankenPHP serves this page, so it is running: only its metrics cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.',
@@ -177,6 +185,28 @@ final class StackChecks
         }
 
         return $findings;
+    }
+
+    /**
+     * A server the application reaches over the network: when its main collector cannot reach it, neither can the application.
+     */
+    private static function unreachable(Component $component, CollectorResult $result): bool
+    {
+        return !$component->isNodeLocal() && $result->failure === FailureKind::Unreachable;
+    }
+
+    /**
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     */
+    private static function cannotBeReached(Component $component, string $reason, \Closure $raise, string ...$judged): Finding
+    {
+        return $raise(
+            $component->value . '.failed',
+            Severity::Critical,
+            sprintf('%s cannot be reached: %s', self::subject($component), $reason),
+            'The application reaches this server through the same connection: when it cannot be reached from here, the application cannot use it either. Fix the cause given, then refresh.',
+            ...$judged,
+        );
     }
 
     /**

@@ -696,6 +696,81 @@ final class StackChecksTest extends TestCase
         self::assertSame(Verdict::Healthy, $health->verdict(Component::Mysql));
     }
 
+    public function testAnUnreachableDatabaseIsCritical(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Mysql, [
+            'mysql' => new CollectorResult('mysql', [], ResultState::Failed, 'Nothing answers on 127.0.0.1:3306.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ])));
+
+        $finding = self::find($health, 'mysql.failed');
+        self::assertSame(Severity::Critical, $finding?->severity);
+        self::assertSame('MySQL cannot be reached: Nothing answers on 127.0.0.1:3306.', $finding->sentence);
+        self::assertSame('The application reaches this server through the same connection: when it cannot be reached from here, the application cannot use it either. Fix the cause given, then refresh.', $finding->explanation);
+        self::assertNull($finding->age);
+        self::assertSame(Verdict::Critical, $health->verdict(Component::Mysql));
+        self::assertSame(Verdict::Critical, $health->componentVerdict(Component::Mysql));
+    }
+
+    public function testADatabaseThatAnsweredAnErrorIsAWarning(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Mysql, [
+            'mysql' => new CollectorResult('mysql', [], ResultState::Failed, 'Unknown database "app".', expiresAt: Snapshots::NOW + 60, failure: FailureKind::Other),
+        ])));
+
+        $finding = self::find($health, 'mysql.failed');
+        self::assertSame(Severity::Warning, $finding?->severity);
+        self::assertSame('MySQL could not be read: Unknown database "app".', $finding->sentence);
+        self::assertSame(Verdict::Unknown, $health->verdict(Component::Mysql));
+    }
+
+    public function testAnOutdatedDatabaseThatCannotBeReachedAgainIsCritical(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Mysql, [
+            'mysql' => new CollectorResult('mysql', ['Threads_connected' => '85'] + DatabasePayloads::mysqlStatus(), ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 120, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            'mysql.variables' => new CollectorResult('mysql.variables', DatabasePayloads::mysqlVariables(), ResultState::Fresh, collectedAt: Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 3_000),
+        ])));
+
+        $failed = self::find($health, 'mysql.failed');
+        self::assertSame(Severity::Critical, $failed?->severity);
+        self::assertSame('MySQL cannot be reached: Nothing answers.', $failed->sentence);
+        self::assertSame(120, $failed->age);
+
+        $connections = self::find($health, 'mysql.connections');
+        self::assertSame(Severity::Warning, $connections?->severity, 'the value shown is still judged');
+        self::assertSame(120, $connections->age);
+        self::assertSame(Verdict::Critical, $health->verdict(Component::Mysql));
+    }
+
+    public function testAWebServerWhoseStatusPageIsUnreachableStaysInformative(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(
+            new ComponentSnapshot(Component::Apache, ['apache' => new CollectorResult('apache', [], ResultState::Failed, 'Nothing answers.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable)]),
+            new ComponentSnapshot(Component::Nginx, ['nginx' => new CollectorResult('nginx', WebServerPayloads::nginxStatus(), ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 90, expiresAt: Snapshots::NOW + 30, failure: FailureKind::Unreachable)]),
+        ));
+
+        self::assertSame(Severity::Info, self::find($health, 'apache.failed')?->severity);
+        self::assertStringContainsString('could not be read: Nothing answers.', self::find($health, 'apache.failed')->sentence);
+        self::assertSame(Verdict::Unknown, $health->verdict(Component::Apache));
+        self::assertSame(Severity::Info, self::find($health, 'nginx.failed')?->severity);
+        self::assertStringContainsString('could not be read again: Nothing answers.', self::find($health, 'nginx.failed')->sentence);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Nginx));
+    }
+
+    public function testAConnectionThatCannotBeReadIsAWarning(): void
+    {
+        $error = 'The connection "e" cannot be read: Environment variable not found: "LEGACY_DATABASE_URL".';
+        $health = self::checks()->health(Snapshots::state([
+            'mysql' => [new InstanceState('e', null, $error, null)],
+        ]));
+
+        $finding = self::find($health, 'mysql.failed');
+        self::assertSame(Severity::Warning, $finding?->severity);
+        self::assertSame('MySQL is not available: ' . $error, $finding->sentence);
+        self::assertSame('e', $finding->instance);
+        self::assertCount(1, $health->findings);
+        self::assertSame(Verdict::Unknown, $health->verdict(Component::Mysql, 'e'));
+    }
+
     public function testTheDeniedSlowQueriesAreOnlyInformative(): void
     {
         $denied = 'The database user of this connection may not read performance_schema.events_statements_summary_by_digest.';
@@ -760,6 +835,24 @@ final class StackChecksTest extends TestCase
         $health = self::checks(['mysql.failed'])->health($unreachable);
         self::assertSame([], $health->findings);
         self::assertSame(Verdict::Unknown, $health->verdict(Component::Mysql), 'nothing to judge without a value');
+    }
+
+    public function testTwoConnectionsHaveTheirOwnFindings(): void
+    {
+        $health = self::checks()->health(Snapshots::state(['mysql' => [
+            new InstanceState('default', '127.0.0.1:3306/app', null, Snapshots::of(Component::Mysql, self::mysqlConnections(960))),
+            new InstanceState('legacy', 'db.internal:3306/legacy', null, new ComponentSnapshot(Component::Mysql, [
+                'mysql' => new CollectorResult('mysql', [], ResultState::Failed, 'Nothing answers.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            ])),
+            new InstanceState('reports', '127.0.0.1:3306/reports', null, Snapshots::of(Component::Mysql, self::mysqlConnections(100))),
+        ]]));
+
+        self::assertSame('default', self::find($health, 'mysql.connections')?->instance);
+        self::assertSame('legacy', self::find($health, 'mysql.failed')?->instance);
+        self::assertCount(2, $health->findings);
+        self::assertSame(Verdict::Critical, $health->verdict(Component::Mysql, 'default'));
+        self::assertSame(Verdict::Critical, $health->verdict(Component::Mysql, 'legacy'));
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Mysql, 'reports'));
     }
 
     /**
