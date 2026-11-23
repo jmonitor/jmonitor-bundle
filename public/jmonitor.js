@@ -8,14 +8,14 @@
     var PAGE_PARAMETERS = ['period', 'sort', 'dir'];
     var root = document.querySelector('[data-jm-live]');
 
-    revealCurrentScreen();
+    revealCurrentScreen(document.querySelector('.jm-nav'));
+    revealCurrentScreen(document.querySelector('.jm-subnav'));
 
-    function revealCurrentScreen() {
-        var nav = document.querySelector('.jm-nav');
+    function revealCurrentScreen(nav) {
         var current = nav ? nav.querySelector('[aria-current="page"]') : null;
 
         if (current && nav.scrollWidth > nav.clientWidth) {
-            current.scrollIntoView({ inline: 'center', block: 'nearest' });
+            nav.scrollLeft += current.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - current.offsetWidth) / 2;
         }
     }
 
@@ -179,6 +179,7 @@
             wraps[w].scrollLeft = scrollLefts[w];
         }
 
+        revealCurrentScreen(content.querySelector('.jm-subnav'));
         restoreFocus(focused);
         fillSlots();
         tellNodeChange(node);
