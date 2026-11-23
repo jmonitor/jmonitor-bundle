@@ -414,7 +414,7 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(1, $collectors[0]->collects + $collectors[1]->collects);
     }
 
-    public function testAfterAForgetAnUnreachableServerIsStillAskedOnceForItsInstances(): void
+    public function testAfterAForgetAnUnreachableServerIsAskedOnceForEachOfItsInstances(): void
     {
         $server = new Server('db.internal:3306', 'db.internal:3306');
         $collectors = [];
@@ -428,18 +428,18 @@ final class SnapshotProviderTest extends TestCase
         $provider = $this->provider();
 
         $provider->forget($instances);
+        $snapshots = [];
 
         for ($i = 0; $i < 5; ++$i) {
             $snapshots = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
-
-            foreach (['symfony.main', 'symfony.replica'] as $key) {
-                self::assertSame(FailureKind::Unreachable, $snapshots[$key]->result('symfony.status')?->failure, $key);
-            }
-
             $this->clock->sleep(1);
         }
 
-        self::assertSame(1, $collectors[0]->collects + $collectors[1]->collects, 'one wait for the server, kept 150 s');
+        foreach (['symfony.main', 'symfony.replica'] as $key) {
+            self::assertSame(FailureKind::Unreachable, $snapshots[$key]->result('symfony.status')?->failure, $key);
+        }
+
+        self::assertSame([1, 1], [$collectors[0]->collects, $collectors[1]->collects], 'one wait for each instance, each kept 150 s');
     }
 
     public function testForgettingOneInstanceOfAServerKeepsTheValueShared(): void
@@ -893,33 +893,86 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame($held->result('mysql')?->expiresAt, $held->result('mysql.variables')->expiresAt);
     }
 
-    public function testAnUnreachableServerHoldsTheCollectorsOfEveryConnectionOfIt(): void
+    public function testAConnectionThatCannotBeOpenedHoldsNeitherShowsForTheOtherConnectionsOfItsServer(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $refused = new FakeCollector('mysql', collectFailure: new UnreachableServerException('SQLSTATE[HY000] [1045] Access denied'));
+        $answering = new FakeCollector('mysql', ['Uptime' => 5]);
+        $sizes = [new FakeCollector('mysql.sizes', ['tables' => 3]), new FakeCollector('mysql.sizes', ['tables' => 4])];
+        $main = self::instance([self::spec($refused, cost: CostClass::Network, perServer: true), self::spec($sizes[0], cost: CostClass::Network)], 'main', Component::Mysql, $server);
+        $reporting = self::instance([self::spec($answering, cost: CostClass::Network, perServer: true), self::spec($sizes[1], cost: CostClass::Network)], 'reporting', Component::Mysql, $server);
+        $provider = $this->provider();
+
+        $this->read($provider, $main);
+        $this->clock->sleep(1);
+        $other = $this->read($provider, $reporting);
+        $this->clock->sleep(1);
+        $again = $this->read($provider, $main);
+
+        self::assertSame([1, 1], [$refused->collects, $answering->collects]);
+        self::assertSame([0, 1], [$sizes[0]->collects, $sizes[1]->collects]);
+        self::assertSame(ResultState::Fresh, $other->result('mysql')?->state);
+        self::assertSame(ResultState::Fresh, $other->result('mysql.sizes')?->state);
+        self::assertSame([], $other->errors());
+        self::assertSame(ResultState::Fresh, $again->result('mysql')?->state, 'the fresh value of the server wins over the failure of the connection');
+        self::assertSame(['Uptime' => 5], $again->data('mysql'));
+        self::assertNull($again->result('mysql')->error);
+        self::assertSame(ResultState::Failed, $again->result('mysql.sizes')?->state, 'still held by the failure of the connection');
+        self::assertSame('SQLSTATE[HY000] [1045] Access denied', $again->result('mysql.sizes')->error);
+        self::assertSame(FailureKind::Unreachable, $again->result('mysql.sizes')->failure);
+    }
+
+    public function testWithinAReadAValueOfTheServerIsReusedAndAFailureIsNot(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $refused = [new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection refused')), new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection refused'))];
+        $answering = [new FakeCollector('mysql.variables', ['version' => '8.4']), new FakeCollector('mysql.variables', ['version' => '8.4'])];
+        $instances = [];
+
+        foreach (['main', 'reporting'] as $i => $id) {
+            $instances[] = self::instance([
+                self::spec($answering[$i], Lifetime::Static, CostClass::Network, perServer: true),
+                self::spec($refused[$i], cost: CostClass::Network, perServer: true),
+            ], $id, Component::Mysql, $server);
+        }
+
+        $snapshots = $this->provider()->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame([1, 0], [$answering[0]->collects, $answering[1]->collects]);
+        self::assertSame([1, 1], [$refused[0]->collects, $refused[1]->collects]);
+        self::assertSame(['version' => '8.4'], $snapshots['mysql.reporting']->data('mysql.variables'));
+        self::assertSame(FailureKind::Unreachable, $snapshots['mysql.reporting']->result('mysql')?->failure);
+    }
+
+    public function testADeadServerMakesEachConnectionShownWaitOnce(): void
     {
         $server = new Server('db.internal:3306', 'db.internal:3306');
         $statuses = [];
-        $sizes = [];
         $instances = [];
 
         foreach (['main', 'reporting'] as $id) {
-            $statuses[] = $status = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection refused'));
-            $sizes[] = $size = new FakeCollector('mysql.sizes', ['tables' => 3]);
-            $instances[] = self::instance([self::spec($status, cost: CostClass::Network, perServer: true), self::spec($size, cost: CostClass::Network)], $id, Component::Mysql, $server);
+            $statuses[] = $status = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Read timed out'), clock: $this->clock, duration: 10.0);
+            $instances[] = self::instance([
+                self::spec($status, cost: CostClass::Network, perServer: true),
+                self::spec(new FakeCollector('mysql.variables', ['version' => '8.4']), Lifetime::Static, CostClass::Network, perServer: true),
+            ], $id, Component::Mysql, $server);
         }
 
         $provider = $this->provider();
+        $this->read($provider, $instances[0], CollectBudget::page($this->clock));
+        $this->read($provider, $instances[1], CollectBudget::page($this->clock));
 
-        $together = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
-        $this->clock->sleep(1);
-        $alone = $this->read($provider, $instances[1]);
+        for ($i = 0; $i < 5; ++$i) {
+            $this->clock->sleep(1);
+            $snapshots = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
 
-        self::assertSame([1, 0], [$statuses[0]->collects, $statuses[1]->collects]);
-        self::assertSame([0, 0], [$sizes[0]->collects, $sizes[1]->collects]);
-
-        foreach ([$together['mysql.main'], $together['mysql.reporting'], $alone] as $snapshot) {
-            self::assertSame(ResultState::Failed, $snapshot->result('mysql.sizes')?->state);
-            self::assertSame('Connection refused', $snapshot->result('mysql.sizes')->error);
-            self::assertSame(FailureKind::Unreachable, $snapshot->result('mysql.sizes')->failure);
+            foreach (['mysql.main', 'mysql.reporting'] as $key) {
+                self::assertSame(FailureKind::Unreachable, $snapshots[$key]->result('mysql.variables')?->failure, $key);
+                self::assertFalse($snapshots[$key]->isReading(), $key);
+            }
         }
+
+        self::assertSame([1, 1], [$statuses[0]->collects, $statuses[1]->collects]);
     }
 
     public function testASharedCollectorIsNeitherHeldNorHolding(): void

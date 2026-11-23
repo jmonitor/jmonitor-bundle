@@ -95,13 +95,12 @@ final readonly class SnapshotProvider
                     } else {
                         $result = $this->collectOrLeave($read, $spec, $budget, $cache, $guard, $now);
 
-                        if ($spec->perServer && $result->state !== ResultState::Pending && $result->state !== ResultState::Busy) {
+                        if ($spec->perServer && $result->state === ResultState::Fresh) {
                             $ofServers[$key] = $result;
                         }
                     }
 
                     $read->results[$spec->name] = $result;
-                    $read->holdOn($spec, $result);
                 }
             }
         }
@@ -172,14 +171,13 @@ final readonly class SnapshotProvider
 
         /** @var array<string, CacheItemInterface> $items */
         $items = $guard->attempt(fn(): array => iterator_to_array($this->cache->getItems($keys)), []);
+        $ownMarker = self::marker($items, $this->keys->forgotten($instance));
         $markers = [];
         $values = [];
         $failures = [];
 
         foreach ($specs as $spec) {
-            $forgotten = $this->keys->forgottenFor($instance, $spec);
-            $marker = $forgotten === null ? null : ($items[$forgotten] ?? null)?->get();
-            $marker = $markers[$spec->name] = is_string($marker) ? $marker : null;
+            $marker = $markers[$spec->name] = self::marker($items, $this->keys->forgottenFor($instance, $spec));
             $value = StoredValue::fromCache(($items[$this->keys->result($instance, $spec)] ?? null)?->get());
             $failure = StoredFailure::fromCache(($items[$this->keys->failure($instance, $spec)] ?? null)?->get());
 
@@ -187,22 +185,25 @@ final readonly class SnapshotProvider
                 $values[$spec->name] = $value;
             }
 
-            if ($failure !== null && $failure->isKept($now) && !self::outdated($spec, $failure->forgotten, $marker)) {
+            if ($failure !== null && $failure->isKept($now) && !self::outdated($spec, $failure->forgotten, $ownMarker)) {
                 $failures[$spec->name] = $failure;
             }
         }
 
-        $read = new InstanceRead($instance, $specs, $items, ($items[$witness] ?? null)?->isHit() ?? false, $markers, $values, $failures);
+        $read = new InstanceRead($instance, $specs, $items, ($items[$witness] ?? null)?->isHit() ?? false, $markers, $ownMarker, $values, $failures);
 
         foreach ($specs as $spec) {
             $value = $values[$spec->name] ?? null;
             $failure = $failures[$spec->name] ?? null;
 
+            if ($failure !== null) {
+                $read->holdOn($spec, $failure);
+            }
+
             if ($value !== null && $value->isFresh($spec->lifetime, $now)) {
                 $read->results[$spec->name] = $this->shown($spec, $value, $now);
             } elseif ($failure !== null) {
                 $read->results[$spec->name] = $this->shown($spec, $value, $now, ResultState::Failed, $failure);
-                $read->holdOn($spec, $read->results[$spec->name]);
             }
         }
 
@@ -272,8 +273,9 @@ final readonly class SnapshotProvider
             $now = $this->now();
             $kind = FailureKind::of($e);
             $kept = self::keptFor($kind, $spec->cost, $this->seconds() - $startedAt);
-            $failure = new StoredFailure(self::describe($e), $now + $kept, $read->markers[$spec->name] ?? null, $kind);
+            $failure = new StoredFailure(self::describe($e), $now + $kept, $read->forgotten, $kind);
             $read->write($spec, $this->keys->failure($read->instance, $spec), $failure->toCache(), $kept, value: false);
+            $read->holdOn($spec, $failure);
 
             return $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $failure);
         }
@@ -361,7 +363,7 @@ final readonly class SnapshotProvider
 
             if ($failure !== null) {
                 $kept = self::keptAfterFailure($spec->cost);
-                $refused = new StoredFailure(self::REFUSED, $this->now() + $kept, $read->markers[$spec->name] ?? null);
+                $refused = new StoredFailure(self::REFUSED, $this->now() + $kept, $read->forgotten);
                 $guard->attempt(fn(): bool => $this->cache->save($failure->set($refused->toCache())->expiresAfter($kept)), false);
             }
         }
@@ -398,6 +400,16 @@ final readonly class SnapshotProvider
             $failure->until ?? $value->collectedAt + $spec->lifetime->seconds(),
             $failure?->kind,
         );
+    }
+
+    /**
+     * @param array<string, CacheItemInterface> $items
+     */
+    private static function marker(array $items, ?string $key): ?string
+    {
+        $marker = $key === null ? null : ($items[$key] ?? null)?->get();
+
+        return is_string($marker) ? $marker : null;
     }
 
     /**

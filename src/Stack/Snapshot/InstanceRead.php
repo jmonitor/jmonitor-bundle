@@ -33,7 +33,8 @@ final class InstanceRead
      * @param list<CollectorSpec>               $specs
      * @param array<string, CacheItemInterface> $items     keyed by cache key, none without a working cache
      * @param bool                              $busy      another request holds the witness
-     * @param array<string, ?string>            $markers   the forget marker in force for each collector, stored with what is written, keyed by collector name
+     * @param array<string, ?string>            $markers   the forget marker in force for the value of each collector, stored with it, keyed by collector name
+     * @param ?string                           $forgotten the forget marker of the instance, stored with a failure
      * @param array<string, StoredValue>        $values    the values that may show, keyed by collector name
      * @param array<string, StoredFailure>      $failures  the kept failures, keyed by collector name
      */
@@ -43,6 +44,7 @@ final class InstanceRead
         public readonly array $items,
         public readonly bool $busy,
         public readonly array $markers,
+        public readonly ?string $forgotten,
         public readonly array $values,
         public readonly array $failures,
     ) {}
@@ -60,14 +62,14 @@ final class InstanceRead
      * While a collector of a remote instance keeps the failure of a server that could not be reached, the other
      * collectors of the instance do not ask it again, until the latest of these failures expires.
      */
-    public function holdOn(CollectorSpec $spec, CollectorResult $result): void
+    public function holdOn(CollectorSpec $spec, StoredFailure $failure): void
     {
-        if ($spec->shared || $this->instance->component->isNodeLocal() || $result->failure !== FailureKind::Unreachable) {
+        if ($spec->shared || $this->instance->component->isNodeLocal() || $failure->kind !== FailureKind::Unreachable) {
             return;
         }
 
-        if ($result->error !== null && $result->expiresAt !== null && $result->expiresAt > ($this->hold->until ?? \PHP_INT_MIN)) {
-            $this->hold = new StoredFailure($result->error, $result->expiresAt, null, FailureKind::Unreachable);
+        if ($failure->until > ($this->hold->until ?? \PHP_INT_MIN)) {
+            $this->hold = $failure;
         }
     }
 

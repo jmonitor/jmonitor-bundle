@@ -22,9 +22,13 @@ final readonly class CacheKeys
         return 'jmonitor.stack.result.' . $this->suffix($instance, $spec);
     }
 
+    /**
+     * Named after the instance, even for a value of the server: a connection that cannot be opened, its password
+     * refused for instance, says nothing of the other connections of its server.
+     */
     public function failure(Instance $instance, CollectorSpec $spec): string
     {
-        return 'jmonitor.stack.failure.' . $this->suffix($instance, $spec);
+        return 'jmonitor.stack.failure.' . $this->name($instance, $spec, false);
     }
 
     /**
@@ -33,7 +37,7 @@ final readonly class CacheKeys
      */
     public function suffix(Instance $instance, CollectorSpec $spec): string
     {
-        return ($spec->shared ? '' : $this->nodePrefix($instance)) . self::owner($instance, $spec->perServer) . '.' . $spec->name;
+        return $this->name($instance, $spec, $spec->perServer);
     }
 
     /**
@@ -67,6 +71,11 @@ final readonly class CacheKeys
     public static function segment(string $name): string
     {
         return str_replace('.', '%2E', rawurlencode($name));
+    }
+
+    private function name(Instance $instance, CollectorSpec $spec, bool $ofServer): string
+    {
+        return ($spec->shared ? '' : $this->nodePrefix($instance)) . self::owner($instance, $ofServer) . '.' . $spec->name;
     }
 
     private static function owner(Instance $instance, bool $ofServer): string
