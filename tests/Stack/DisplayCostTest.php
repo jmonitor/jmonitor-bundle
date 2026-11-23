@@ -453,6 +453,47 @@ final class DisplayCostTest extends TestCase
         self::assertSame(2, $container->asked);
     }
 
+    public function testAFrozenDatabaseMakesOneDisplayWait(): void
+    {
+        $container = new class ($this->clock) extends Container {
+            public int $asked = 0;
+
+            public function __construct(
+                private readonly MockClock $clock,
+            ) {
+                parent::__construct();
+            }
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+                $this->clock->sleep(10);
+
+                throw new \RuntimeException('SQLSTATE[HY000] [2006] MySQL server has gone away');
+            }
+        };
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->mysqlReader($container, ['default' => self::MYSQL], $cache);
+        $detail = null;
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $reader()->overview(ReadMode::Page);
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+            $detail = $reader()->component(Component::Mysql, 'default', ReadMode::Fragment);
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+        }
+
+        self::assertSame(1, $container->asked);
+        self::assertEqualsWithDelta(self::START + 10 + 2 * self::DISPLAYS * self::BETWEEN_DISPLAYS, (float) $this->clock->now()->format('U.u'), 0.001, 'one wait of ten seconds');
+        self::assertFalse($detail?->isReading());
+
+        $snapshot = $detail?->component(Component::Mysql)?->instances[0]->snapshot;
+
+        foreach (['mysql', 'mysql.variables', 'mysql.sizes', 'mysql.slow_queries'] as $name) {
+            self::assertSame(ResultState::Failed, $snapshot?->result($name)?->state, $name);
+        }
+    }
+
     public function testTwoConnectionsOnOneServerReadItsStatusOnce(): void
     {
         $container = new Container();

@@ -86,12 +86,22 @@ final readonly class SnapshotProvider
                     }
 
                     $key = $this->keys->result($read->instance, $spec);
-                    $result = $ofServers[$key] ?? $this->collectOrLeave($read, $spec, $budget, $cache, $guard, $now);
-                    $read->results[$spec->name] = $result;
+                    $hold = $read->heldBy($spec);
 
-                    if ($spec->perServer && $result->state !== ResultState::Pending && $result->state !== ResultState::Busy) {
-                        $ofServers[$key] = $result;
+                    if (isset($ofServers[$key])) {
+                        $result = $ofServers[$key];
+                    } elseif ($hold !== null) {
+                        $result = $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $hold);
+                    } else {
+                        $result = $this->collectOrLeave($read, $spec, $budget, $cache, $guard, $now);
+
+                        if ($spec->perServer && $result->state !== ResultState::Pending && $result->state !== ResultState::Busy) {
+                            $ofServers[$key] = $result;
+                        }
                     }
+
+                    $read->results[$spec->name] = $result;
+                    $read->holdOn($spec, $result);
                 }
             }
         }
@@ -192,6 +202,15 @@ final readonly class SnapshotProvider
                 $read->results[$spec->name] = $this->shown($spec, $value, $now);
             } elseif ($failure !== null) {
                 $read->results[$spec->name] = $this->shown($spec, $value, $now, ResultState::Failed, $failure);
+                $read->holdOn($spec, $read->results[$spec->name]);
+            }
+        }
+
+        foreach ($specs as $spec) {
+            $hold = $read->heldBy($spec);
+
+            if ($hold !== null && !isset($read->results[$spec->name])) {
+                $read->results[$spec->name] = $this->shown($spec, $values[$spec->name] ?? null, $now, ResultState::Failed, $hold);
             }
         }
 

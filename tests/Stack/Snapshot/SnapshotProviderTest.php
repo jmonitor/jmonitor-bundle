@@ -837,6 +837,178 @@ final class SnapshotProviderTest extends TestCase
         }
     }
 
+    public function testAnUnreachableRemoteServerIsNotAskedAgainForItsOtherCollectors(): void
+    {
+        $variables = new FakeCollector('mysql.variables', ['version' => '8.4']);
+        $instance = static fn(FakeCollector $status): Instance => self::instance([
+            self::spec($status, cost: CostClass::Network),
+            self::spec($variables, Lifetime::Static, CostClass::Network),
+        ], 'default', Component::Mysql);
+        $frozen = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Read timed out'), clock: $this->clock, duration: 10.0);
+        $provider = $this->provider();
+
+        $this->read($provider, $instance($frozen), CollectBudget::page($this->clock));
+        $failedAt = $this->clock->now()->getTimestamp();
+        $this->clock->sleep(1);
+        $held = $this->read($provider, $instance($frozen), CollectBudget::page($this->clock));
+
+        self::assertSame([1, 0], [$frozen->collects, $variables->collects]);
+        self::assertSame(ResultState::Failed, $held->result('mysql.variables')?->state);
+        self::assertSame('Read timed out', $held->result('mysql.variables')->error);
+        self::assertSame(FailureKind::Unreachable, $held->result('mysql.variables')->failure);
+        self::assertSame($failedAt + 60, $held->result('mysql.variables')->expiresAt);
+        self::assertSame($held->result('mysql')?->expiresAt, $held->result('mysql.variables')->expiresAt);
+        self::assertFalse($held->isReading());
+        self::assertFalse($this->recording->hasItem('jmonitor.stack.failure.mysql.default.mysql.variables'), 'nothing is kept for it');
+
+        $this->clock->sleep($failedAt + 60 - $this->clock->now()->getTimestamp());
+        $answering = new FakeCollector('mysql', ['Uptime' => 5]);
+        $back = $this->read($provider, $instance($answering), CollectBudget::page($this->clock));
+
+        self::assertSame([1, 1], [$answering->collects, $variables->collects]);
+        self::assertSame(ResultState::Fresh, $back->result('mysql.variables')?->state);
+    }
+
+    public function testAKeptUnreachableFailureAlsoHoldsTheCollectorsThatHaveAValue(): void
+    {
+        $variables = new FakeCollector('mysql.variables', ['version' => '8.4']);
+        $instance = static fn(FakeCollector $status): Instance => self::instance([
+            self::spec($status, cost: CostClass::Network),
+            self::spec($variables, cost: CostClass::Network),
+        ], 'default', Component::Mysql);
+        $frozen = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Read timed out'), clock: $this->clock, duration: 10.0);
+        $provider = $this->provider();
+        $this->read($provider, $instance(new FakeCollector('mysql', ['Uptime' => 5])));
+        $this->clock->sleep(11);
+
+        $this->read($provider, $instance($frozen));
+        $this->clock->sleep(1);
+        $held = $this->read($provider, $instance($frozen));
+
+        self::assertSame([1, 1], [$frozen->collects, $variables->collects]);
+        self::assertSame(ResultState::Stale, $held->result('mysql.variables')?->state);
+        self::assertSame(['version' => '8.4'], $held->data('mysql.variables'));
+        self::assertSame('Read timed out', $held->result('mysql.variables')->error);
+        self::assertSame(FailureKind::Unreachable, $held->result('mysql.variables')->failure);
+        self::assertSame($held->result('mysql')?->expiresAt, $held->result('mysql.variables')->expiresAt);
+    }
+
+    public function testAnUnreachableServerHoldsTheCollectorsOfEveryConnectionOfIt(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $statuses = [];
+        $sizes = [];
+        $instances = [];
+
+        foreach (['main', 'reporting'] as $id) {
+            $statuses[] = $status = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection refused'));
+            $sizes[] = $size = new FakeCollector('mysql.sizes', ['tables' => 3]);
+            $instances[] = self::instance([self::spec($status, cost: CostClass::Network, perServer: true), self::spec($size, cost: CostClass::Network)], $id, Component::Mysql, $server);
+        }
+
+        $provider = $this->provider();
+
+        $together = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+        $this->clock->sleep(1);
+        $alone = $this->read($provider, $instances[1]);
+
+        self::assertSame([1, 0], [$statuses[0]->collects, $statuses[1]->collects]);
+        self::assertSame([0, 0], [$sizes[0]->collects, $sizes[1]->collects]);
+
+        foreach ([$together['mysql.main'], $together['mysql.reporting'], $alone] as $snapshot) {
+            self::assertSame(ResultState::Failed, $snapshot->result('mysql.sizes')?->state);
+            self::assertSame('Connection refused', $snapshot->result('mysql.sizes')->error);
+            self::assertSame(FailureKind::Unreachable, $snapshot->result('mysql.sizes')->failure);
+        }
+    }
+
+    public function testASharedCollectorIsNeitherHeldNorHolding(): void
+    {
+        $frozen = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection refused'));
+        $endOfLife = new FakeCollector('eol.mysql', ['cycles' => []]);
+        $instance = self::instance([
+            self::spec($frozen, cost: CostClass::Network),
+            self::spec($endOfLife, Lifetime::Day, CostClass::Slow, shared: true),
+        ], 'default', Component::Mysql);
+        $provider = $this->provider();
+
+        $this->read($provider, $instance, CollectBudget::page($this->clock));
+        $this->clock->sleep(1);
+        $snapshot = $this->read($provider, $instance);
+
+        self::assertSame([1, 1], [$frozen->collects, $endOfLife->collects]);
+        self::assertSame(ResultState::Fresh, $snapshot->result('eol.mysql')?->state);
+
+        $status = new FakeCollector('mysql', ['Uptime' => 5]);
+        $unreachableEndOfLife = new FakeCollector('eol.mariadb', collectFailure: new UnreachableServerException('Connection timed out'));
+        $other = self::instance([
+            self::spec($status, cost: CostClass::Network),
+            self::spec($unreachableEndOfLife, Lifetime::Day, CostClass::Slow, shared: true),
+        ], 'reporting', Component::Mysql);
+
+        $this->read($provider, $other);
+        $this->clock->sleep(11);
+        $snapshot = $this->read($provider, $other);
+
+        self::assertSame([2, 1], [$status->collects, $unreachableEndOfLife->collects]);
+        self::assertSame(ResultState::Fresh, $snapshot->result('mysql')?->state);
+    }
+
+    public function testALocalComponentIsNotHeldByAnUnreachableCollector(): void
+    {
+        $status = new FakeCollector('nginx.status', collectFailure: new UnreachableServerException('Connection timed out'), clock: $this->clock, duration: 10.0);
+        $config = new FakeCollector('nginx.config', ['workers' => 4]);
+        $instance = self::instance([self::spec($status, cost: CostClass::Network), self::spec($config, Lifetime::Static, CostClass::Network)], null, Component::Nginx);
+        $provider = $this->provider();
+
+        $this->read($provider, $instance, CollectBudget::page($this->clock));
+        $this->clock->sleep(1);
+        $snapshot = $this->read($provider, $instance, CollectBudget::page($this->clock));
+
+        self::assertSame([1, 1], [$status->collects, $config->collects]);
+        self::assertSame(ResultState::Fresh, $snapshot->result('nginx.config')?->state);
+    }
+
+    public function testAnotherKindOfFailureHoldsNothing(): void
+    {
+        $provider = $this->provider();
+
+        foreach (['prerequisite' => new MissingPrerequisiteException('performance_schema is off'), 'other' => new \RuntimeException('Access denied')] as $id => $failure) {
+            $status = new FakeCollector('mysql', collectFailure: $failure);
+            $variables = new FakeCollector('mysql.variables', ['version' => '8.4']);
+            $instance = self::instance([self::spec($status, cost: CostClass::Network), self::spec($variables, Lifetime::Static, CostClass::Network)], $id, Component::Mysql);
+
+            $snapshot = $this->read($provider, $instance);
+            $this->clock->sleep(1);
+            $this->read($provider, $instance);
+
+            self::assertSame([1, 1], [$status->collects, $variables->collects], $id);
+            self::assertSame(ResultState::Fresh, $snapshot->result('mysql.variables')?->state, $id);
+        }
+    }
+
+    public function testAForgetLiftsTheHold(): void
+    {
+        $variables = new FakeCollector('mysql.variables', ['version' => '8.4']);
+        $instance = static fn(FakeCollector $status): Instance => self::instance([
+            self::spec($status, cost: CostClass::Network),
+            self::spec($variables, Lifetime::Static, CostClass::Network),
+        ], 'default', Component::Mysql);
+        $provider = $this->provider();
+        $this->read($provider, $instance(new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection refused'))));
+        $answering = new FakeCollector('mysql', ['Uptime' => 5]);
+        $this->clock->sleep(1);
+
+        $held = $this->read($provider, $instance($answering));
+        $provider->forget([$instance($answering)]);
+        $retried = $this->read($provider, $instance($answering));
+
+        self::assertSame(ResultState::Failed, $held->result('mysql.variables')?->state);
+        self::assertSame([1, 1], [$answering->collects, $variables->collects]);
+        self::assertSame(ResultState::Fresh, $retried->result('mysql')?->state);
+        self::assertSame(ResultState::Fresh, $retried->result('mysql.variables')?->state);
+    }
+
     public function testAForgetForgetsFailuresAndKeepsDayLongValues(): void
     {
         $failing = new FakeCollector('php.opcache', collectFailure: new MissingPrerequisiteException('OPcache is not loaded'));

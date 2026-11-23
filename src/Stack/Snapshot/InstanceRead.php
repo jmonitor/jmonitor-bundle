@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Stack\Snapshot;
 
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
+use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Psr\Cache\CacheItemInterface;
 
@@ -25,6 +26,8 @@ final class InstanceRead
     public ?string $token = null;
 
     public bool $ran = false;
+
+    private ?StoredFailure $hold = null;
 
     /**
      * @param list<CollectorSpec>               $specs
@@ -51,6 +54,29 @@ final class InstanceRead
         if ($item !== null) {
             $this->writes[] = ['item' => $item->set($payload)->expiresAfter($seconds), 'spec' => $spec, 'value' => $value];
         }
+    }
+
+    /**
+     * While a collector of a remote instance keeps the failure of a server that could not be reached, the other
+     * collectors of the instance do not ask it again, until the latest of these failures expires.
+     */
+    public function holdOn(CollectorSpec $spec, CollectorResult $result): void
+    {
+        if ($spec->shared || $this->instance->component->isNodeLocal() || $result->failure !== FailureKind::Unreachable) {
+            return;
+        }
+
+        if ($result->error !== null && $result->expiresAt !== null && $result->expiresAt > ($this->hold->until ?? \PHP_INT_MIN)) {
+            $this->hold = new StoredFailure($result->error, $result->expiresAt, null, FailureKind::Unreachable);
+        }
+    }
+
+    /**
+     * A shared collector reads another server: it is never held.
+     */
+    public function heldBy(CollectorSpec $spec): ?StoredFailure
+    {
+        return $spec->shared ? null : $this->hold;
     }
 
     /**
