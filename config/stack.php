@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
@@ -111,6 +112,10 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             param('jmonitor.stack.end_of_life'),
         ])
         ->tag('jmonitor.stack.detector', ['index' => Component::Nginx->value]);
+
+    $services->set(DoctrineConnections::class)
+        ->args([service_locator([]), [], null])
+        ->tag('kernel.reset', ['method' => 'reset']);
 
     if ($builder->getParameter('jmonitor.stack.symfony.messenger') && interface_exists(MessageCountAwareInterface::class)) {
         $services->set(QueuesCommand::class)

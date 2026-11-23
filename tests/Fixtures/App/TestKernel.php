@@ -18,6 +18,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
@@ -82,6 +83,7 @@ final class TestKernel extends Kernel
      * @param array<string, mixed>  $jmonitorConfig without a `stack` key, the stack calls neither endoflife.date nor composer, nor counts the queues
      * @param array<string, string> $transports     name => DSN, added to the transports of Messenger
      * @param ?string               $queuesOutput   what the command counting the queues prints, never started but by fromEnvironment()
+     * @param array<string, array<string, mixed>> $connections name => DoctrineBundle configuration, added to the "default" connection
      */
     public function __construct(
         string $environment,
@@ -106,6 +108,7 @@ final class TestKernel extends Kernel
         private readonly ?string $fakeWebServer = null,
         private readonly array $transports = [],
         private readonly ?string $queuesOutput = null,
+        private readonly array $connections = [],
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
@@ -115,6 +118,9 @@ final class TestKernel extends Kernel
         }
         if ($transports !== [] && !$withMessenger && !$withScheduler) {
             throw new \LogicException('Transports need Messenger.');
+        }
+        if ($connections !== [] && !$withDoctrine) {
+            throw new \LogicException('Connections need Doctrine.');
         }
         if ($fakeWebServer !== null && !\in_array($fakeWebServer, ['frankenphp', 'apache', 'nginx'], true)) {
             throw new \InvalidArgumentException(\sprintf('Unknown fake web server "%s".', $fakeWebServer));
@@ -126,7 +132,7 @@ final class TestKernel extends Kernel
         $this->jmonitorConfig = ($jmonitorConfig ?: self::environmentConfig($withEasyAdmin)) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => false]]];
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer, $transports, $queuesOutput]));
+            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer, $transports, $queuesOutput, $connections]));
     }
 
     public static function fromEnvironment(): self
@@ -301,7 +307,7 @@ final class TestKernel extends Kernel
                     if ($container->hasDefinition(JmonitorController::class)) {
                         $container->getDefinition(JmonitorController::class)->setPublic(true);
                     }
-                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, ProcessRunner::class, FakeStatusPages::class, FakeProcessRunner::class, StackChecks::class, StackSummary::class] as $id) {
+                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, ProcessRunner::class, FakeStatusPages::class, FakeProcessRunner::class, StackChecks::class, StackSummary::class, DoctrineConnections::class] as $id) {
                         if ($container->hasDefinition($id)) {
                             $container->getDefinition($id)->setPublic(true);
                         }
@@ -364,8 +370,9 @@ final class TestKernel extends Kernel
         $container->extension('jmonitor', $this->jmonitorConfig);
 
         if ($this->withDoctrine) {
+            $default = ['driver' => 'pdo_sqlite', 'path' => $this->varDir . '/data.sqlite'];
             $container->extension('doctrine', [
-                'dbal' => ['driver' => 'pdo_sqlite', 'path' => $this->varDir . '/data.sqlite'],
+                'dbal' => $this->connections === [] ? $default : ['default_connection' => 'default', 'connections' => ['default' => $default] + $this->connections],
             ]);
         }
 

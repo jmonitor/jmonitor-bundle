@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\DependencyInjection\CachePoolPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\EasyAdminTemplatesPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\HttpClientPass;
+use Jmonitor\JmonitorBundle\DependencyInjection\StackConnectionsPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Jmonitor\JmonitorBundle\EasyAdmin\Requirements;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
@@ -28,6 +29,7 @@ final class JmonitorBundle extends AbstractBundle
         $container->addCompilerPass(new ComponentAvailabilityPass());
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new EasyAdminTemplatesPass());
+        $container->addCompilerPass(new StackConnectionsPass());
         // After the CacheCollectorPass of debug mode: the profiler keeps tracing the pools from inside the wrappers.
         $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
     }
