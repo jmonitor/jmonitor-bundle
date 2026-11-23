@@ -209,7 +209,8 @@ status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" "$BASE/admin/jmonit
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/stack/mysql?connection=reports answered $status instead of 200"
 
 sleep 10
-[ "$(mysql_sessions)" = 0 ] || fail "the MySQL server still holds $(mysql_sessions) sessions of the application 10 s after the last display"
+sessions="$(mysql_sessions)"
+[ "$sessions" = 0 ] || fail "the MySQL server still holds $sessions sessions of the application 10 s after the last display"
 
 $COMPOSE stop mysql >/dev/null 2>&1 || fail "the MySQL server could not be stopped"
 timed '/jmonitor/stack?rest=1'
@@ -225,7 +226,7 @@ faster_than 1 || fail "the display after a stopped MySQL server took $took s"
 echo "the next display: $took s"
 printf '%s\n' "$(card "$page" mysql.main)" | grep -q 'data-jm-verdict="bad"' || fail "the MySQL card is no longer critical on the next display"
 hit /teapot 418
-expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests screen did not list "GET app_teapot" after the stopped MySQL server'
+expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"[^>]*data-jm-requests="1"' 'the Requests screen did not list 1 "GET app_teapot" after the stopped MySQL server'
 printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the stopped MySQL server'
 if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen after the stopped MySQL server"
@@ -266,11 +267,12 @@ printf '%s\n' "$processes" | grep -q 'frankenphp' || fail "the process list of t
 if printf '%s\n' "$processes" | grep -q 'bin/console'; then
     fail "a console process still runs 10 s after the queues were counted: $(printf '%s\n' "$processes" | grep 'bin/console')"
 fi
-[ "$(mysql_sessions)" = 0 ] || fail "the MySQL server still holds $(mysql_sessions) sessions of the application once it was read again"
+sessions="$(mysql_sessions)"
+[ "$sessions" = 0 ] || fail "the MySQL server still holds $sessions sessions of the application once it was read again"
 
 sleep 2
 hit /teapot 418
-expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests screen did not list "GET app_teapot" after the Stack and Messages screens'
+expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"[^>]*data-jm-requests="2"' 'the Requests screen did not list 2 "GET app_teapot" after the Stack and Messages screens'
 printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the Stack and Messages screens'
 if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen"
