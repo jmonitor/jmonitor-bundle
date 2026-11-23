@@ -19,6 +19,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\DetailInterface;
@@ -28,6 +29,8 @@ use Psr\Container\ContainerInterface;
 
 final class StackScreen implements BlockScreenInterface, ActionScreenInterface, ParentScreenInterface, NavBadgeScreenInterface
 {
+    private const NO_WEB_SERVER = 'Web server: FrankenPHP, Apache and Nginx were not found serving this page';
+
     private readonly StackScreenParts $parts;
 
     /**
@@ -190,12 +193,23 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
      */
     private static function notDetected(StackState $state): array
     {
+        $served = array_filter($state->components, static fn(ComponentState $component): bool => $component->component->isWebServer()) !== [];
+        $turnedOff = array_filter(Component::cases(), static fn(Component $component): bool => $component->isWebServer() && !isset($state->notDetected[$component->value]));
+        $noneFound = !$served && $turnedOff === [];
         $notDetected = [];
 
         foreach ($state->notDetected as $value => $reason) {
-            $notDetected[] = (Component::tryFrom($value)?->label() ?? $value) . ': ' . $reason;
+            $component = Component::tryFrom($value);
+
+            if ($component?->isWebServer() !== true) {
+                $notDetected[] = ($component?->label() ?? $value) . ': ' . $reason;
+            } elseif ($noneFound) {
+                $notDetected[self::NO_WEB_SERVER] = self::NO_WEB_SERVER;
+            } elseif (!$served) {
+                $notDetected[] = $component->label() . ': ' . $reason;
+            }
         }
 
-        return $notDetected;
+        return array_values($notDetected);
     }
 }

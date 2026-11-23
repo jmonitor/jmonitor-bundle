@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Functional;
 
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
+use Jmonitor\JmonitorBundle\Stack\Collector\FrankenPhpBinary;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
@@ -14,7 +15,9 @@ use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\DomCrawler\Crawler;
@@ -297,6 +300,151 @@ final class StackScreenTest extends WebTestCase
         static::assertResponseIsSuccessful();
 
         static::assertSame(0, self::statusPages($client)->calls);
+    }
+
+    /**
+     * @return iterable<string, array{string, string, array<string, string>, string, array<string, string>, ?string, string}>
+     */
+    public static function webServers(): iterable
+    {
+        yield 'FrankenPHP' => ['frankenphp', 'FrankenPHP', [], 'http://localhost:2019/metrics', ['Threads' => '1 / 4', 'Queue' => '0'], 'Worker mode', 'Workers'];
+        yield 'Apache' => ['apache', 'Apache', [], 'http://localhost/server-status?auto', ['Workers' => '3 / 50', 'Requests' => '—'], null, 'Scoreboard'];
+        yield 'Nginx' => ['nginx', 'Nginx', self::NGINX, 'http://localhost/nginx_status', ['Connections' => '12 / 3072', 'Requests' => '—'], null, 'Settings'];
+    }
+
+    /**
+     * @param array<string, string> $server
+     * @param array<string, string> $vitals
+     */
+    #[DataProvider('webServers')]
+    public function testEachWebServerHasItsCardAndItsDetail(string $id, string $label, array $server, string $statusPage, array $vitals, ?string $note, string $section): void
+    {
+        $client = $this->client(['fakeWebServer' => $id]);
+        $client->disableReboot();
+        self::answerCommands($client);
+
+        $client->request('GET', '/jmonitor/stack', server: $server);
+        $crawler = $client->request('GET', '/jmonitor/stack?rest=1', server: $server);
+
+        static::assertResponseStatusCodeSame(200);
+        $card = $crawler->filter('[data-jm-component="' . $id . '"]');
+        static::assertCount(1, $card);
+        static::assertSame($vitals, self::vitals($card));
+        static::assertSame($note, $card->filter('.jm-component__note')->count() === 0 ? null : $card->filter('.jm-component__note')->text());
+        static::assertSame('/jmonitor/stack/' . $id, $card->filter('a')->attr('href'));
+        static::assertSame([$statusPage], self::statusPages($client)->urls);
+        static::assertStringNotContainsString('serving this page', self::notDetected($crawler));
+
+        $crawler = $client->request('GET', '/jmonitor/stack/' . $id, server: $server);
+
+        static::assertResponseStatusCodeSame(200);
+        static::assertSame('JMonitor — ' . $label, $crawler->filter('title')->text());
+        static::assertSame('/jmonitor/stack', $crawler->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
+        static::assertSame('/jmonitor/stack/' . $id, $crawler->filter('.jm-subnav__item[aria-current="page"]')->attr('href'));
+        static::assertCount(1, $crawler->filter('[data-jm-component="' . $id . '"]'));
+        static::assertContains($section, $crawler->filter('.jm-panel__title')->each(static fn(Crawler $title): string => $title->text()));
+    }
+
+    public function testWithoutAWebServerTheNotDetectedLineSaysSoOnce(): void
+    {
+        $crawler = $this->client()->request('GET', '/jmonitor/stack');
+
+        static::assertStringContainsString('Web server: FrankenPHP, Apache and Nginx were not found serving this page', self::notDetected($crawler));
+        static::assertStringNotContainsString('is not serving this page', self::notDetected($crawler));
+    }
+
+    public function testAWorkerScriptNameIsEscaped(): void
+    {
+        $client = $this->client(['fakeWebServer' => 'frankenphp']);
+        $client->disableReboot();
+        self::answerCommands($client);
+        self::statusPages($client)->replace('worker="/app/public/index.php"', 'worker="<b>x"');
+
+        $client->request('GET', '/jmonitor/stack/frankenphp');
+        $crawler = $client->request('GET', '/jmonitor/stack/frankenphp');
+        $html = (string) $client->getResponse()->getContent();
+
+        static::assertResponseStatusCodeSame(200);
+        static::assertCount(1, $crawler->filter('tr[data-jm-worker="<b>x"]'));
+        static::assertStringContainsString('&lt;b&gt;x', $html);
+        static::assertStringNotContainsString('<b>x', $html);
+    }
+
+    public function testAStatusPageAnsweredByTheApplicationGivesAnInformativeCard(): void
+    {
+        $client = $this->client(['fakeWebServer' => 'nginx']);
+        $client->disableReboot();
+        self::answerCommands($client);
+        self::statusPages($client)->answerAsTheApplication();
+
+        $client->request('GET', '/jmonitor/stack', server: self::NGINX);
+        $crawler = $client->request('GET', '/jmonitor/stack?rest=1', server: self::NGINX);
+
+        static::assertResponseStatusCodeSame(200);
+        $card = $crawler->filter('[data-jm-component="nginx"]');
+        static::assertCount(1, $card);
+        static::assertSame('unknown', $card->attr('data-jm-verdict'));
+        static::assertSame('Unknown', $card->filter('.jm-component__marks .jm-mark')->first()->text());
+        static::assertStringContainsString('http://localhost/nginx_status answered HTTP 404: it is not a status page.', $card->filter('.jm-component__reason')->text());
+        static::assertCount(0, $card->filter('.jm-vital'));
+        static::assertCount(1, $crawler->filter('[data-jm-check="nginx.failed"][data-jm-severity="info"]'));
+
+        for ($i = 0; $i < 5; ++$i) {
+            $client->request('GET', '/jmonitor/_fragment/stack', server: self::NGINX);
+            static::assertResponseIsSuccessful();
+        }
+
+        static::assertSame(1, self::statusPages($client)->calls);
+    }
+
+    public function testADetailOfAWebServerThatDoesNotServeThePageSaysSo(): void
+    {
+        $client = $this->client(['fakeWebServer' => 'nginx']);
+        $client->disableReboot();
+        self::answerCommands($client);
+
+        $crawler = $client->request('GET', '/jmonitor/stack/apache', server: self::NGINX);
+
+        static::assertResponseStatusCodeSame(200);
+        static::assertSame('JMonitor — Apache', $crawler->filter('title')->text());
+        static::assertSame('Apache is not part of this stack', $crawler->filter('.jm-notice__title strong')->text());
+        static::assertSame('Apache is not serving this page.', $crawler->filter('.jm-notice__text')->text());
+        static::assertSame(0, self::statusPages($client)->calls);
+    }
+
+    /**
+     * @return array<string, string> label => value, with ordinary spaces
+     */
+    private static function vitals(Crawler $card): array
+    {
+        $vitals = [];
+
+        foreach ($card->filter('.jm-vital') as $vital) {
+            $vital = new Crawler($vital);
+            $vitals[$vital->filter('.jm-vital__label')->text()] = str_replace("\u{00A0}", ' ', $vital->filter('.jm-vital__value')->text('', false));
+        }
+
+        return $vitals;
+    }
+
+    private static function notDetected(Crawler $crawler): string
+    {
+        $line = $crawler->filter('.jm-components__absent');
+
+        return $line->count() === 0 ? '' : $line->text();
+    }
+
+    private static function answerCommands(KernelBrowser $client): void
+    {
+        $runner = $client->getContainer()->get(FakeProcessRunner::class);
+        static::assertInstanceOf(FakeProcessRunner::class, $runner);
+        $fixtures = \dirname(__DIR__) . '/Stack/Fixtures/Nginx/';
+
+        $runner
+            ->answer([FrankenPhpBinary::path(), 'version'], "FrankenPHP v1.13.0 PHP 8.4.26 Caddy v2.11.7\n")
+            ->answer(['sh', '-c', 'nginx -V 2>&1'], (string) file_get_contents($fixtures . 'nginx-V.txt'))
+            ->answer(['sh', '-c', 'nginx -T'], (string) file_get_contents($fixtures . 'nginx-T.txt'))
+            ->answer(['sh', '-c', 'getconf _NPROCESSORS_ONLN'], "4\n");
     }
 
     private static function statusPages(KernelBrowser $client): FakeStatusPages

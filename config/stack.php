@@ -17,6 +17,9 @@ use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ApacheDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
@@ -146,6 +149,9 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(ServerDetail::class);
     $services->set(PhpDetail::class);
     $services->set(SymfonyDetail::class);
+    $services->set(FrankenPhpDetail::class);
+    $services->set(ApacheDetail::class);
+    $services->set(NginxDetail::class);
 
     $services->set(StackScreen::class)
         ->args([
@@ -160,6 +166,9 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                 Component::System->value => service(ServerDetail::class),
                 Component::Php->value => service(PhpDetail::class),
                 Component::Symfony->value => service(SymfonyDetail::class),
+                Component::FrankenPhp->value => service(FrankenPhpDetail::class),
+                Component::Apache->value => service(ApacheDetail::class),
+                Component::Nginx->value => service(NginxDetail::class),
             ]),
         ])
         ->tag('jmonitor.screen', ['priority' => 10]);

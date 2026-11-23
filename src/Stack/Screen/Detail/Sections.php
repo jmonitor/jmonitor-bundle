@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
+use Jmonitor\JmonitorBundle\Stack\Metric\Rate;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Screen\Marks;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
@@ -62,9 +63,19 @@ final class Sections
      */
     public static function mark(array $findings, string $check): ?Mark
     {
+        $finding = self::finding($findings, $check);
+
+        return $finding === null ? null : Marks::severity($finding->severity);
+    }
+
+    /**
+     * @param list<Finding> $findings
+     */
+    public static function finding(array $findings, string $check): ?Finding
+    {
         foreach ($findings as $finding) {
             if ($finding->id === $check) {
-                return Marks::severity($finding->severity);
+                return $finding;
             }
         }
 
@@ -84,6 +95,19 @@ final class Sections
     public static function share(?int $part, ?int $total): ?string
     {
         return $part === null || $total === null ? null : Figures::bytes($part) . ' of ' . Figures::bytes($total);
+    }
+
+    public static function rate(Rate $rate): ?string
+    {
+        return $rate->value === null ? null : Figures::rate($rate->value, $rate->unit);
+    }
+
+    /**
+     * A rate in seconds, written in milliseconds.
+     */
+    public static function milliseconds(Rate $rate): ?string
+    {
+        return $rate->value === null ? null : Figures::rate($rate->value * 1000, 'ms');
     }
 
     public static function fraction(int $part, int $total): string

@@ -28,6 +28,9 @@ final class FakeStatusPages extends UrlFetcher
     private bool $application = false;
     private bool $silent = false;
 
+    /** @var array<string, string> */
+    private array $replacements = [];
+
     public function answerAsTheApplication(): void
     {
         $this->application = true;
@@ -36,6 +39,11 @@ final class FakeStatusPages extends UrlFetcher
     public function stopAnswering(): void
     {
         $this->silent = true;
+    }
+
+    public function replace(string $search, string $replace): void
+    {
+        $this->replacements[$search] = $replace;
     }
 
     public function fetch(string $url): string
@@ -53,6 +61,6 @@ final class FakeStatusPages extends UrlFetcher
             throw new MissingPrerequisiteException(sprintf('%s answered HTTP 404: it is not a status page.', $url));
         }
 
-        return (string) file_get_contents(\dirname(__DIR__) . '/' . $page);
+        return strtr((string) file_get_contents(\dirname(__DIR__) . '/' . $page), $this->replacements);
     }
 }

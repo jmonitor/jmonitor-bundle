@@ -117,6 +117,32 @@ final class PhpDetailTest extends TestCase
         self::assertSame('OPcache hit rate is ' . self::nb('70 %') . ' since server start', array_values(array_filter($findings, static fn(Finding $finding): bool => $finding->id === 'php.opcache_hit_rate'))[0]->sentence);
     }
 
+    public function testTheMaxChildrenFactShowsWhatItsCheckJudges(): void
+    {
+        $delta = Snapshots::delta(['fpm' => ['max-children-reached' => 1]], ['fpm' => ['max-children-reached' => 3]]);
+        $recent = Snapshots::of(Component::Php, ['php' => Snapshots::php()], deltas: ['php' => $delta]);
+        $findings = self::findings($recent);
+
+        $blocks = (new PhpDetail())->sections(self::instance($recent), $findings, Snapshots::NOW);
+
+        self::assertSame(self::nb('2 times') . ' [Warning]', self::describe($blocks)[3][2]['pm.max_children reached']);
+        self::assertSame('over the last ' . self::nb('60 s'), self::hints($blocks)['PHP-FPM / pm.max_children reached']);
+        self::assertSame(
+            'PHP-FPM reached pm.max_children 2 times over the last ' . self::nb('60 s'),
+            array_values(array_filter($findings, static fn(Finding $finding): bool => $finding->id === 'php.fpm_max_children'))[0]->sentence,
+        );
+
+        $quiet = Snapshots::of(Component::Php, ['php' => Snapshots::php()], deltas: ['php' => Snapshots::delta(['fpm' => ['max-children-reached' => 3]], ['fpm' => ['max-children-reached' => 3]])]);
+        $blocks = (new PhpDetail())->sections(self::instance($quiet), self::findings($quiet), Snapshots::NOW);
+
+        self::assertSame(self::nb('3 times') . ' [Info]', self::describe($blocks)[3][2]['pm.max_children reached']);
+        self::assertSame('since PHP-FPM started', self::hints($blocks)['PHP-FPM / pm.max_children reached']);
+
+        $once = Snapshots::of(Component::Php, ['php' => Snapshots::php()], deltas: ['php' => Snapshots::delta(['fpm' => ['max-children-reached' => 2]], ['fpm' => ['max-children-reached' => 3]])]);
+
+        self::assertSame('once [Warning]', self::describe((new PhpDetail())->sections(self::instance($once), self::findings($once), Snapshots::NOW))[3][2]['pm.max_children reached']);
+    }
+
     public function testTheCheckAndTheFactShowTheSameRealpathCacheSize(): void
     {
         $snapshot = Snapshots::of(Component::Php, ['php' => ['realpath_cache_size' => '20000'] + Snapshots::php()]);
