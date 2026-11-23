@@ -310,6 +310,10 @@ final class RequestRecorderTest extends TestCase
         yield 'Forwarded' => [['HTTP_FORWARDED' => 'for=203.0.113.7']];
         yield 'X-Real-IP' => [['HTTP_X_REAL_IP' => '203.0.113.7']];
         yield 'Via' => [['HTTP_VIA' => '1.1 varnish']];
+        yield 'X-Forwarded-Proto' => [['HTTP_X_FORWARDED_PROTO' => 'https']];
+        yield 'X-Forwarded-Host' => [['HTTP_X_FORWARDED_HOST' => 'example.com']];
+        yield 'CF-Connecting-IP' => [['HTTP_CF_CONNECTING_IP' => '203.0.113.7']];
+        yield 'True-Client-IP' => [['HTTP_TRUE_CLIENT_IP' => '203.0.113.7']];
         yield 'an empty X-Forwarded-For' => [['HTTP_X_FORWARDED_FOR' => '']];
     }
 

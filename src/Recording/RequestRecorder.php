@@ -23,7 +23,7 @@ final class RequestRecorder implements EventSubscriberInterface
     private const MAX_REQUEST_AGE = 300;
     private const INTERNAL_ROUTE_PREFIXES = ['_wdt', '_profiler', 'jmonitor_'];
     private const STANDARD_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
-    private const RELAY_HEADERS = ['X-Forwarded-For', 'Forwarded', 'X-Real-IP', 'Via'];
+    private const RELAY_HEADERS = ['X-Forwarded-For', 'Forwarded', 'X-Real-IP', 'Via', 'X-Forwarded-Proto', 'X-Forwarded-Host', 'CF-Connecting-IP', 'True-Client-IP'];
     private const LOCAL_NETWORKS = ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10', '::1/128', 'fc00::/7', 'fe80::/10'];
 
     private int $handledRequests = 0;
