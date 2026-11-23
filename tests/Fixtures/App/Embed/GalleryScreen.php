@@ -117,7 +117,7 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
             Block::facts(new Facts('Queues', [
                 new Fact('async', '1,234'),
                 new Fact('failed', 'Uncountable', hint: 'An exception occurred in the driver: SQLSTATE[HY000] [2002] Connection refused while counting the messages waiting in doctrine://default?queue_name=failed'),
-            ], 'Messages waiting in each transport, counted 12 s ago')),
+            ], "Messages waiting in each transport, counted 12\u{00A0}s ago")),
         ];
     }
 

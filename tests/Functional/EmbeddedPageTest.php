@@ -286,7 +286,7 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertResponseIsSuccessful();
         $queues = $crawler->filter('.jm-facts[aria-label="Queues"]');
         static::assertCount(1, $queues);
-        static::assertSame('Messages waiting in each transport, counted 12 s ago', $queues->filter('.jm-panel__header .jm-panel__note')->text());
+        static::assertSame("Messages waiting in each transport, counted 12\u{00A0}s ago", $queues->filter('.jm-panel__header .jm-panel__note')->text());
         static::assertSame(['1,234', 'Uncountable'], $queues->filter('.jm-fact__value')->each(static fn(Crawler $value): string => $value->text()));
         static::assertCount(1, $queues->filter('.jm-fact__hint'));
         static::assertCount(1, $crawler->filter('.jm-panel__note'));
