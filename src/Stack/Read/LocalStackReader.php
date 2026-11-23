@@ -131,6 +131,10 @@ final readonly class LocalStackReader implements StackReaderInterface
 
             $instances = $component === null ? self::overviewInstances($this->statuses()) : $this->registry->instancesFor($component);
 
+            if ($this->queues !== null && ($component === null || $component === Component::Symfony)) {
+                $instances[] = $this->queues->instance();
+            }
+
             if ($instances === [] || !$this->cache->save($item->set($now)->expiresAfter(self::REFRESH_SECONDS))) {
                 return false;
             }

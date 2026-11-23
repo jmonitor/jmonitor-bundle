@@ -40,9 +40,15 @@ final readonly class CacheKeys
         return ($spec->shared ? '' : $this->nodePrefix($instance)) . $owner . '.' . $spec->name;
     }
 
+    /**
+     * Without the name of the server when every collector is shared: one web server reads for all of them.
+     */
     public function witness(Instance $instance): string
     {
-        return 'jmonitor.stack.collecting.' . $this->nodePrefix($instance) . $instance->key();
+        $shared = $instance->collectors !== null
+            && array_filter($instance->collectors->specs(), static fn(CollectorSpec $spec): bool => !$spec->shared) === [];
+
+        return 'jmonitor.stack.collecting.' . ($shared ? '' : $this->nodePrefix($instance)) . $instance->key();
     }
 
     /**

@@ -170,6 +170,38 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(300, $this->recording->ttls[$witness], 'the witness of a request that died expires on its own');
     }
 
+    public function testTheWitnessOfAnInstanceOfSharedCollectorsCarriesNoServerName(): void
+    {
+        $witness = 'jmonitor.stack.collecting.symfony.queues';
+        $queues = new FakeCollector('queues', ['count' => 4]);
+        $instance = self::instance([self::spec($queues, Lifetime::HalfMinute, CostClass::Slow, shared: true)], 'queues', Component::Symfony);
+
+        $this->read($this->provider('web-1'), $instance);
+
+        self::assertSame(300, $this->recording->ttls[$witness] ?? null);
+        self::assertArrayNotHasKey('jmonitor.stack.collecting.%node.web-1.symfony.queues', $this->recording->ttls);
+
+        $this->recording->save($this->recording->getItem($witness)->set('token of web-1'));
+        $this->recording->deleteItem('jmonitor.stack.result.symfony.queues.queues');
+        $busy = $this->read($this->provider('web-2'), $instance);
+
+        self::assertSame(1, $queues->collects, 'one count behind a load balancer');
+        self::assertSame(ResultState::Busy, $busy->result('queues')?->state);
+    }
+
+    public function testTheWitnessOfAMixedInstanceStillCarriesIt(): void
+    {
+        $instance = self::instance([
+            self::spec(new FakeCollector('eol.php', ['cycles' => []]), Lifetime::Day, CostClass::Slow, shared: true),
+            self::spec(new FakeCollector('php', ['version' => '8.4'])),
+        ]);
+
+        $this->read($this->provider('web-1'), $instance);
+
+        self::assertSame(300, $this->recording->ttls['jmonitor.stack.collecting.%node.web-1.php'] ?? null);
+        self::assertArrayNotHasKey('jmonitor.stack.collecting.php', $this->recording->ttls);
+    }
+
     public function testAWitnessTakenOverByAnotherRequestIsLeftToIt(): void
     {
         $witness = 'jmonitor.stack.collecting.%node.web-1.php';

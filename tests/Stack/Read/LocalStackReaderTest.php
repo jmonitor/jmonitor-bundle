@@ -718,21 +718,57 @@ final class LocalStackReaderTest extends TestCase
         self::assertSame([], $named->components);
     }
 
-    public function testRefreshingSymfonyDoesNotForgetTheQueues(): void
+    public function testRefreshingTheStackForgetsTheQueues(): void
     {
         $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
-        $registry = Detectors::registry(['symfony' => self::detector(Component::Symfony, self::spec(new FakeCollector('symfony.kernel')))], self::settings());
-        $reader = $this->reader($registry, queues: self::queues($runner));
-        $this->warm();
+        $reader = $this->queuesReader($runner);
+        $reader->queues(ReadMode::Fragment);
+
+        self::assertTrue($reader->refresh());
+
+        $state = $reader->queues(ReadMode::Fragment);
+
+        self::assertCount(2, $runner->calls);
+        self::assertSame(ResultState::Fresh, $state?->component(Component::Symfony)?->instances[0]->snapshot?->result('queues')?->state);
+    }
+
+    public function testRefreshingSymfonyForgetsTheQueues(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $reader = $this->queuesReader($runner);
         $reader->queues(ReadMode::Fragment);
 
         self::assertTrue($reader->refresh(Component::Symfony));
-        self::assertTrue($reader->refresh());
+
+        $reader->queues(ReadMode::Fragment);
+
+        self::assertCount(2, $runner->calls);
+    }
+
+    public function testRefreshingAnotherComponentLeavesThem(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
+        $reader = $this->queuesReader($runner);
+        $reader->queues(ReadMode::Fragment);
+
+        self::assertTrue($reader->refresh(Component::Php));
 
         $state = $reader->queues(ReadMode::Fragment);
 
         self::assertCount(1, $runner->calls);
         self::assertSame(ResultState::Fresh, $state?->component(Component::Symfony)?->instances[0]->snapshot?->result('queues')?->state);
+    }
+
+    private function queuesReader(FakeProcessRunner $runner): LocalStackReader
+    {
+        $registry = Detectors::registry([
+            'symfony' => self::detector(Component::Symfony, self::spec(new FakeCollector('symfony.kernel'))),
+            'php' => self::detector(Component::Php, self::spec(new FakeCollector('php.status'))),
+        ], self::settings());
+        $reader = $this->reader($registry, queues: self::queues($runner));
+        $this->warm();
+
+        return $reader;
     }
 
     /**
