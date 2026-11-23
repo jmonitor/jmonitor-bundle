@@ -12,9 +12,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 
 final class MysqlChecks
 {
-    /** fewer events between two samples tell nothing about their ratio */
-    private const BUFFER_POOL_REQUESTS = 1_000;
-    private const TEMPORARY_TABLES = 100;
+    /** fewer locks between two samples tell nothing about their ratio */
     private const TABLE_LOCKS = 100;
 
     /** a server that just started has not filled its buffer pool nor met its usual queries yet */
@@ -42,9 +40,9 @@ final class MysqlChecks
             );
         }
 
-        $hitRate = self::judged($mysql->bufferPoolHitRate, $mysql->bufferPoolHitRateSinceStart, $mysql->bufferPoolRequests, self::BUFFER_POOL_REQUESTS, $mysql->uptime);
+        $hitRate = $mysql->bufferPoolHitRate;
 
-        if ($hitRate?->value !== null && $hitRate->value < 95) {
+        if (self::judged($hitRate, $mysql->uptime) && $hitRate->value !== null && $hitRate->value < 95) {
             $findings[] = $raise(
                 'mysql.buffer_pool_hit_rate',
                 Severity::Warning,
@@ -54,9 +52,9 @@ final class MysqlChecks
             );
         }
 
-        $temporary = self::judged($mysql->diskTemporaryTables, $mysql->diskTemporaryTablesSinceStart, $mysql->temporaryTables, self::TEMPORARY_TABLES, $mysql->uptime);
+        $temporary = $mysql->diskTemporaryTables;
 
-        if ($temporary?->value !== null && $temporary->value >= 25) {
+        if (self::judged($temporary, $mysql->uptime) && $temporary->value !== null && $temporary->value >= 25) {
             $findings[] = $raise(
                 'mysql.disk_temporary_tables',
                 Severity::Warning,
@@ -81,15 +79,12 @@ final class MysqlChecks
         return $findings;
     }
 
-    /**
-     * The variation when it holds enough events, else the ratio since the server started once it has run long enough.
-     */
-    private static function judged(Rate $rate, Rate $sinceStart, ?int $events, int $enough, ?int $uptime): ?Rate
+    private static function judged(Rate $rate, ?int $uptime): bool
     {
-        return match (true) {
-            $rate->source === RateSource::Delta && $events !== null && $events >= $enough => $rate,
-            $uptime !== null && $uptime >= self::UPTIME => $sinceStart,
-            default => null,
+        return match ($rate->source) {
+            RateSource::Delta => true,
+            RateSource::SinceStart => $uptime !== null && $uptime >= self::UPTIME,
+            RateSource::Unavailable, RateSource::Pending => false,
         };
     }
 }

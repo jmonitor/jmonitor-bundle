@@ -636,12 +636,16 @@ final class StackChecksTest extends TestCase
         yield 'hit rate 94.9 % over 999 requests, server up for 60 min' => [...self::bufferPool(999, 51, 3_600), 'mysql.buffer_pool_hit_rate', Severity::Warning];
         yield 'hit rate 94.9 % without second sample, server up for 59 min' => [...self::bufferPool(999, 51, 3_540, false), 'mysql.buffer_pool_hit_rate', null];
         yield 'hit rate 94.9 % without second sample, server up for 60 min' => [...self::bufferPool(999, 51, 3_600, false), 'mysql.buffer_pool_hit_rate', Severity::Warning];
+        yield 'hit rate 40 % over 500 requests, 99.6 % since the server started' => [...self::mysqlWindow(['Innodb_buffer_pool_read_requests' => 100_000, 'Innodb_buffer_pool_reads' => 100], ['Innodb_buffer_pool_read_requests' => 100_500, 'Innodb_buffer_pool_reads' => 400]), 'mysql.buffer_pool_hit_rate', null];
+        yield 'hit rate 100 % over 500 requests, 80.9 % since the server started' => [...self::mysqlWindow(['Innodb_buffer_pool_read_requests' => 10_000, 'Innodb_buffer_pool_reads' => 2_000], ['Innodb_buffer_pool_read_requests' => 10_500, 'Innodb_buffer_pool_reads' => 2_000]), 'mysql.buffer_pool_hit_rate', Severity::Warning];
 
         yield 'temporary tables 24.9 % on disk' => [...self::temporaryTables(1_000, 249), 'mysql.disk_temporary_tables', null];
         yield 'temporary tables 25 % on disk of 100' => [...self::temporaryTables(100, 25), 'mysql.disk_temporary_tables', Severity::Warning];
         yield 'temporary tables 25 % on disk of 99' => [...self::temporaryTables(99, 25), 'mysql.disk_temporary_tables', null];
         yield 'temporary tables 25 % on disk without second sample, server up for 59 min' => [...self::temporaryTables(100, 25, 3_540, false), 'mysql.disk_temporary_tables', null];
         yield 'temporary tables 25 % on disk without second sample, server up for 60 min' => [...self::temporaryTables(100, 25, 3_600, false), 'mysql.disk_temporary_tables', Severity::Warning];
+        yield 'temporary tables 80 % on disk of 50, 13.3 % since the server started' => [...self::mysqlWindow(['Created_tmp_tables' => 1_000, 'Created_tmp_disk_tables' => 100], ['Created_tmp_tables' => 1_050, 'Created_tmp_disk_tables' => 140]), 'mysql.disk_temporary_tables', null];
+        yield 'temporary tables none on disk of 50, 47.6 % since the server started' => [...self::mysqlWindow(['Created_tmp_tables' => 1_000, 'Created_tmp_disk_tables' => 500], ['Created_tmp_tables' => 1_050, 'Created_tmp_disk_tables' => 500]), 'mysql.disk_temporary_tables', Severity::Warning];
 
         yield 'table locks 4.9 % waited' => [...self::tableLocks(1_000, 49), 'mysql.table_lock_waits', null];
         yield 'table locks 5 % waited of 100' => [...self::tableLocks(100, 5), 'mysql.table_lock_waits', Severity::Warning];
@@ -666,6 +670,11 @@ final class StackChecksTest extends TestCase
         $recent = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, $data, deltas: $deltas)));
         [$data] = self::bufferPool(1_000, 51, 3_600, false);
         $sinceStart = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, $data)));
+        [$data, $deltas] = self::mysqlWindow(
+            ['Innodb_buffer_pool_read_requests' => 10_000, 'Innodb_buffer_pool_reads' => 2_000, 'Created_tmp_tables' => 1_000, 'Created_tmp_disk_tables' => 500],
+            ['Innodb_buffer_pool_read_requests' => 10_500, 'Innodb_buffer_pool_reads' => 2_000, 'Created_tmp_tables' => 1_050, 'Created_tmp_disk_tables' => 500],
+        );
+        $smallWindow = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, $data, deltas: $deltas)));
         [$data, $deltas] = self::temporaryTables(200, 70);
         $temporary = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, $data, deltas: $deltas)));
         [$data, $deltas] = self::tableLocks(300, 20);
@@ -676,6 +685,8 @@ final class StackChecksTest extends TestCase
         self::assertSame("The buffer pool hit rate is 94.9\u{00A0}% over the last 60\u{00A0}s", self::find($recent, 'mysql.buffer_pool_hit_rate')?->sentence);
         self::assertSame("The buffer pool hit rate is 94.9\u{00A0}% since the server started", self::find($sinceStart, 'mysql.buffer_pool_hit_rate')?->sentence);
         self::assertStringContainsString('innodb_buffer_pool_size', self::find($recent, 'mysql.buffer_pool_hit_rate')->explanation);
+        self::assertSame("The buffer pool hit rate is 80.9\u{00A0}% since the server started", self::find($smallWindow, 'mysql.buffer_pool_hit_rate')?->sentence, 'the window holds too few requests');
+        self::assertSame("47.6\u{00A0}% of the temporary tables were written to disk since the server started", self::find($smallWindow, 'mysql.disk_temporary_tables')?->sentence, 'the window holds too few tables');
         self::assertSame("35\u{00A0}% of the temporary tables were written to disk over the last 60\u{00A0}s", self::find($temporary, 'mysql.disk_temporary_tables')?->sentence);
         self::assertStringContainsString('tmp_table_size', self::find($temporary, 'mysql.disk_temporary_tables')->explanation);
         self::assertSame("6.6\u{00A0}% of the table locks had to wait over the last 60\u{00A0}s", self::find($locks, 'mysql.table_lock_waits')?->sentence);
@@ -1030,11 +1041,26 @@ final class StackChecksTest extends TestCase
      */
     private static function mysqlCounters(array $counters, int $uptime, bool $twoSamples): array
     {
-        $current = array_map(strval(...), $counters) + ['Uptime' => (string) $uptime] + DatabasePayloads::mysqlStatus();
+        [$data, $deltas] = self::mysqlWindow(array_map(static fn(): int => 0, $counters), $counters, $uptime);
+
+        return [$data, $twoSamples ? $deltas : []];
+    }
+
+    /**
+     * A MySQL whose given counters went from $previous to $current between two samples a minute apart.
+     *
+     * @param array<string, int> $previous
+     * @param array<string, int> $current
+     *
+     * @return array{array<string, array<string, mixed>>, array<string, Delta>}
+     */
+    private static function mysqlWindow(array $previous, array $current, int $uptime = 3_600): array
+    {
+        $status = array_map(strval(...), $current) + ['Uptime' => (string) $uptime] + DatabasePayloads::mysqlStatus();
 
         return [
-            ['mysql' => $current, 'mysql.variables' => DatabasePayloads::mysqlVariables()],
-            $twoSamples ? ['mysql' => Snapshots::delta(array_map(static fn(): string => '0', $counters), $current)] : [],
+            ['mysql' => $status, 'mysql.variables' => DatabasePayloads::mysqlVariables()],
+            ['mysql' => Snapshots::delta(array_map(strval(...), $previous), $status)],
         ];
     }
 

@@ -12,20 +12,26 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 
 final readonly class MysqlReading
 {
-    public const SINCE_START = 'since the server started';
+    /** a variation with fewer events tells nothing about the ratio */
+    public const BUFFER_POOL_REQUESTS = 1_000;
+    public const TEMPORARY_TABLES = 100;
+
+    private const SINCE_START = 'since the server started';
 
     private const NOT_SETTINGS = ['version', 'version_comment', 'timestamp'];
 
     /**
      * @param ?string               $version            the number, without the suffix of the build
-     * @param ?SupportStatus        $support            null for the forks with their own release cycles, such as Percona Server or TiDB
-     * @param ?int                  $serverTime         the clock of the server now, from its offset when the settings were read
-     * @param ?int                  $bufferPoolRequests between the last two samples
-     * @param ?int                  $temporaryTables    created between the last two samples
-     * @param ?int                  $tableLocks         taken between the last two samples
-     * @param bool                  $sizesCached        MySQL 8 reads the sizes from statistics it renews once a day
-     * @param list<MysqlSlowQuery>  $slowQueries        the slowest on average first
-     * @param array<string, string> $settings           the server variables read, by name
+     * @param ?SupportStatus        $support             null for the forks with their own release cycles, such as Percona Server, TiDB or Aurora
+     * @param ?int                  $serverTime          the clock of the server now, from its offset when the settings were read
+     * @param Rate                  $bufferPoolHitRate   the variation between the two samples when it holds BUFFER_POOL_REQUESTS, else since the server started
+     * @param ?int                  $bufferPoolRequests  between the last two samples
+     * @param Rate                  $diskTemporaryTables the variation between the two samples when it holds TEMPORARY_TABLES, else since the server started
+     * @param ?int                  $temporaryTables     created between the last two samples
+     * @param ?int                  $tableLocks          taken between the last two samples
+     * @param bool                  $sizesCached         MySQL 8 reads the sizes from statistics it renews once a day
+     * @param list<MysqlSlowQuery>  $slowQueries
+     * @param array<string, string> $settings            the server variables read, by name
      */
     private function __construct(
         public ?string $product,
@@ -44,14 +50,12 @@ final readonly class MysqlReading
         public Rate $queriesPerSecond,
         public Rate $threadCacheMisses,
         public Rate $bufferPoolHitRate,
-        public Rate $bufferPoolHitRateSinceStart,
         public ?int $bufferPoolRequests,
         public ?int $bufferPoolSize,
         public ?float $bufferPoolUsedPercent,
         public Rate $innodbReadsPerSecond,
         public Rate $innodbWritesPerSecond,
         public Rate $diskTemporaryTables,
-        public Rate $diskTemporaryTablesSinceStart,
         public ?int $temporaryTables,
         public Rate $tableLockWaits,
         public ?int $tableLocks,
@@ -80,7 +84,7 @@ final readonly class MysqlReading
             str_contains(strtolower($fullVersion), 'mariadb') => 'MariaDB',
             default => 'MySQL',
         };
-        $fork = preg_match('/percona|tidb/i', $fullVersion . ' ' . $versionComment) === 1;
+        $fork = preg_match('/percona|tidb|aurora/i', $fullVersion . ' ' . $versionComment) === 1;
 
         $connections = Values::int($status['Threads_connected'] ?? null);
         $maxConnections = Values::int($variables['max_connections'] ?? null);
@@ -93,7 +97,8 @@ final readonly class MysqlReading
         $diskTemporary = Values::int($status['Created_tmp_disk_tables'] ?? null);
         $locksWaited = Values::int($status['Table_locks_waited'] ?? null);
         $locksImmediate = Values::int($status['Table_locks_immediate'] ?? null);
-        $temporaryLately = Values::int($delta?->getValue('Created_tmp_tables'));
+        $recentHitRate = Ratios::complement($delta, 'Innodb_buffer_pool_reads', 'Innodb_buffer_pool_read_requests', null, null);
+        $recentDiskTemporary = Ratios::percent($delta, 'Created_tmp_disk_tables', 'Created_tmp_tables', null, null);
         $waitedLately = $delta?->getValue('Table_locks_waited');
         $immediateLately = $delta?->getValue('Table_locks_immediate');
 
@@ -113,16 +118,18 @@ final readonly class MysqlReading
             Values::int($status['Threads_running'] ?? null),
             Ratios::perSecond($delta, 'Questions', 'q/s', Values::int($status['Questions'] ?? null)),
             Ratios::percent($delta, 'Threads_created', 'Connections', Values::int($status['Threads_created'] ?? null), Values::int($status['Connections'] ?? null), self::SINCE_START),
-            Ratios::complement($delta, 'Innodb_buffer_pool_reads', 'Innodb_buffer_pool_read_requests', $diskReads, $readRequests, self::SINCE_START),
-            Ratios::complement(null, 'Innodb_buffer_pool_reads', 'Innodb_buffer_pool_read_requests', $diskReads, $readRequests, self::SINCE_START),
+            $recentHitRate->total !== null && $recentHitRate->total >= self::BUFFER_POOL_REQUESTS
+                ? $recentHitRate
+                : Ratios::complement(null, 'Innodb_buffer_pool_reads', 'Innodb_buffer_pool_read_requests', $diskReads, $readRequests, self::SINCE_START),
             Values::int($delta?->getValue('Innodb_buffer_pool_read_requests')),
             Values::int($variables['innodb_buffer_pool_size'] ?? null),
             $pagesTotal === null || $pagesFree === null ? null : Values::percent($pagesTotal - $pagesFree, $pagesTotal),
             Ratios::perSecond($delta, 'Innodb_data_reads', 'reads/s', Values::int($status['Innodb_data_reads'] ?? null)),
             Ratios::perSecond($delta, 'Innodb_data_writes', 'writes/s', Values::int($status['Innodb_data_writes'] ?? null)),
-            Ratios::percent($delta, 'Created_tmp_disk_tables', 'Created_tmp_tables', $diskTemporary, $temporary, self::SINCE_START),
-            Ratios::percent(null, 'Created_tmp_disk_tables', 'Created_tmp_tables', $diskTemporary, $temporary, self::SINCE_START),
-            $temporaryLately,
+            $recentDiskTemporary->total !== null && $recentDiskTemporary->total >= self::TEMPORARY_TABLES
+                ? $recentDiskTemporary
+                : Ratios::percent(null, 'Created_tmp_disk_tables', 'Created_tmp_tables', $diskTemporary, $temporary, self::SINCE_START),
+            Values::int($delta?->getValue('Created_tmp_tables')),
             Ratios::share($delta, 'Table_locks_waited', 'Table_locks_immediate', $locksWaited, $locksImmediate, self::SINCE_START),
             $waitedLately === null || $immediateLately === null ? null : Values::int($waitedLately + $immediateLately),
             Values::int($sizes['data_length'] ?? null),

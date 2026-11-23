@@ -134,12 +134,14 @@ final class StackChecks
         $findings = [];
 
         foreach ($snapshot->results as $name => $result) {
+            $mainSeverity = self::mainSeverity($component, $result);
+
             if ($name === $component->value && $result->state === ResultState::Stale && $result->error !== null) {
-                $findings[] = self::unreachable($component, $result)
+                $findings[] = $mainSeverity === Severity::Critical
                     ? self::cannotBeReached($component, $result->error, $raise, $name)
                     : $raise(
                         $name . '.failed',
-                        $component->isWebServer() ? Severity::Info : Severity::Warning,
+                        $mainSeverity,
                         sprintf('%s could not be read again: %s', self::subject($component), $result->error),
                         'What is shown is the last value read, and the checks judge it until it can be read again. Fix the cause given, then refresh.',
                         $name,
@@ -152,9 +154,9 @@ final class StackChecks
 
             $reason = $result->error ?? 'no reason given';
             $findings[] = match ($name) {
-                $component->value => self::unreachable($component, $result) ? self::cannotBeReached($component, $reason, $raise) : $raise(
+                $component->value => $mainSeverity === Severity::Critical ? self::cannotBeReached($component, $reason, $raise) : $raise(
                     $name . '.failed',
-                    $component->isWebServer() ? Severity::Info : Severity::Warning,
+                    $mainSeverity,
                     sprintf('%s could not be read: %s', self::subject($component), $reason),
                     match ($component) {
                         Component::FrankenPhp => 'FrankenPHP serves this page, so it is running: only its metrics cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.',
@@ -188,11 +190,15 @@ final class StackChecks
     }
 
     /**
-     * A server the application reaches over the network: when its main collector cannot reach it, neither can the application.
+     * A server the application reaches over the network: when the main collector cannot reach it, neither can the application.
      */
-    private static function unreachable(Component $component, CollectorResult $result): bool
+    private static function mainSeverity(Component $component, CollectorResult $result): Severity
     {
-        return !$component->isNodeLocal() && $result->failure === FailureKind::Unreachable;
+        return match (true) {
+            $component->isWebServer() => Severity::Info,
+            !$component->isNodeLocal() && $result->failure === FailureKind::Unreachable => Severity::Critical,
+            default => Severity::Warning,
+        };
     }
 
     /**

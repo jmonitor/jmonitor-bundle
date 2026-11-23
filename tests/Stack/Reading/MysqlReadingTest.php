@@ -24,8 +24,8 @@ final class MysqlReadingTest extends TestCase
         'Innodb_data_writes' => '200',
         'Innodb_buffer_pool_read_requests' => '100000',
         'Innodb_buffer_pool_reads' => '1000',
-        'Created_tmp_disk_tables' => '10',
-        'Created_tmp_tables' => '100',
+        'Created_tmp_disk_tables' => '0',
+        'Created_tmp_tables' => '50',
         'Threads_created' => '5',
         'Connections' => '1000',
         'Table_locks_waited' => '2',
@@ -57,17 +57,15 @@ final class MysqlReadingTest extends TestCase
         self::assertSame(99.0, $reading->bufferPoolHitRate->value, '10 000 requests, 100 read from the disk');
         self::assertSame(RateSource::Delta, $reading->bufferPoolHitRate->source);
         self::assertSame(10_000, $reading->bufferPoolRequests);
-        self::assertSame(99.0, $reading->bufferPoolHitRateSinceStart->value, '110 000 requests, 1 100 read from the disk');
-        self::assertSame('since the server started', $reading->bufferPoolHitRateSinceStart->hint());
         self::assertSame(134_217_728, $reading->bufferPoolSize);
         self::assertSame(87.5, $reading->bufferPoolUsedPercent, '7 168 pages used out of 8 192');
         self::assertSame(5.0, $reading->innodbReadsPerSecond->value);
         self::assertSame(2.0, $reading->innodbWritesPerSecond->value);
 
-        self::assertSame(20.0, $reading->diskTemporaryTables->value, '10 on disk out of 50');
-        self::assertSame('10 / 50', $reading->diskTemporaryTables->fraction());
-        self::assertSame(50, $reading->temporaryTables);
-        self::assertSame(13.33, $reading->diskTemporaryTablesSinceStart->value, '20 on disk out of 150');
+        self::assertSame(20.0, $reading->diskTemporaryTables->value, '20 on disk out of 100');
+        self::assertSame(RateSource::Delta, $reading->diskTemporaryTables->source);
+        self::assertSame('20 / 100', $reading->diskTemporaryTables->fraction());
+        self::assertSame(100, $reading->temporaryTables);
         self::assertSame(1.0, $reading->tableLockWaits->value, '1 waited for 99 immediate');
         self::assertSame(100, $reading->tableLocks);
 
@@ -164,6 +162,14 @@ final class MysqlReadingTest extends TestCase
         self::assertNull($percona->support, 'its own release cycles');
         self::assertSame('8.0.11', $tidb->version);
         self::assertNull($tidb->support);
+
+        $aurora = MysqlReading::of(self::snapshot(['version' => '8.0.mysql_aurora.3.05.2', 'version_comment' => 'MySQL Community Server (GPL)'], $cycles), self::today());
+        $toldByItsComment = MysqlReading::of(self::snapshot(['version' => '8.0.39', 'version_comment' => 'Source distribution, Aurora MySQL'], $cycles), self::today());
+
+        self::assertSame('8.0', $aurora->version);
+        self::assertNull($aurora->support);
+        self::assertSame('8.0.39', $toldByItsComment->version);
+        self::assertNull($toldByItsComment->support);
     }
 
     public function testWithoutASecondReadingTheRatesWait(): void
@@ -181,6 +187,33 @@ final class MysqlReadingTest extends TestCase
         self::assertSame(13.33, $reading->diskTemporaryTables->value);
         self::assertSame('since the server started', $reading->diskTemporaryTables->hint());
         self::assertSame(0.27, $reading->tableLockWaits->value, '3 waited out of 1 100');
+    }
+
+    public function testASmallVariationGivesWayToTheRateSinceTheServerStarted(): void
+    {
+        $window = static fn(int $requests, int $tables): MysqlReading => MysqlReading::of(self::snapshot(delta: Snapshots::delta(
+            ['Innodb_buffer_pool_read_requests' => (string) (110_000 - $requests), 'Innodb_buffer_pool_reads' => '1100', 'Created_tmp_tables' => (string) (150 - $tables), 'Created_tmp_disk_tables' => '20'],
+            DatabasePayloads::mysqlStatus(),
+        )), self::today());
+
+        $enough = $window(MysqlReading::BUFFER_POOL_REQUESTS, MysqlReading::TEMPORARY_TABLES);
+        $tooFew = $window(MysqlReading::BUFFER_POOL_REQUESTS - 1, MysqlReading::TEMPORARY_TABLES - 1);
+
+        self::assertSame(RateSource::Delta, $enough->bufferPoolHitRate->source);
+        self::assertSame(100.0, $enough->bufferPoolHitRate->value, 'no read from the disk over the window');
+        self::assertSame(1_000, $enough->bufferPoolRequests);
+        self::assertSame(RateSource::Delta, $enough->diskTemporaryTables->source);
+        self::assertSame(0.0, $enough->diskTemporaryTables->value, 'none on disk over the window');
+        self::assertSame(100, $enough->temporaryTables);
+
+        self::assertSame(RateSource::SinceStart, $tooFew->bufferPoolHitRate->source);
+        self::assertSame(99.0, $tooFew->bufferPoolHitRate->value, '110 000 requests, 1 100 read from the disk');
+        self::assertSame('since the server started', $tooFew->bufferPoolHitRate->hint());
+        self::assertSame(999, $tooFew->bufferPoolRequests, 'the window is still counted');
+        self::assertSame(RateSource::SinceStart, $tooFew->diskTemporaryTables->source);
+        self::assertSame(13.33, $tooFew->diskTemporaryTables->value, '20 on disk out of 150');
+        self::assertSame('since the server started', $tooFew->diskTemporaryTables->hint());
+        self::assertSame(99, $tooFew->temporaryTables);
     }
 
     public function testTheSizesOfMysqlEightAreCached(): void
@@ -221,12 +254,10 @@ final class MysqlReadingTest extends TestCase
         self::assertFalse($reading->queriesPerSecond->isPending(), 'no later sample would bring it');
         self::assertTrue($reading->threadCacheMisses->isUnavailable());
         self::assertTrue($reading->bufferPoolHitRate->isUnavailable());
-        self::assertTrue($reading->bufferPoolHitRateSinceStart->isUnavailable());
         self::assertNull($reading->bufferPoolRequests);
         self::assertNull($reading->bufferPoolSize);
         self::assertNull($reading->bufferPoolUsedPercent);
         self::assertTrue($reading->diskTemporaryTables->isUnavailable());
-        self::assertTrue($reading->diskTemporaryTablesSinceStart->isUnavailable());
         self::assertNull($reading->temporaryTables);
         self::assertTrue($reading->tableLockWaits->isUnavailable());
         self::assertNull($reading->tableLocks);
