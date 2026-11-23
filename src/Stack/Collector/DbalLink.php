@@ -160,6 +160,9 @@ final class DbalLink implements DatabaseAdapterInterface
         return $this->failure = new UnreachableServerException($e->getMessage(), 0, $e);
     }
 
+    /**
+     * @phpstan-impure the queries of this link open and close the connection
+     */
     private static function isConnected(Connection $connection): bool
     {
         // DBAL 3 declares no return type on these methods

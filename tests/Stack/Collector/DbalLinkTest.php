@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Stack\Collector;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Connections\PrimaryReadReplicaConnection;
 use Doctrine\DBAL\Driver\AbstractException;
+use Doctrine\DBAL\Driver\PDO\MySQL\Driver;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception\ConnectionException;
 use Doctrine\DBAL\Exception\ConnectionLost;
@@ -60,6 +61,51 @@ final class DbalLinkTest extends TestCase
         $link->release();
 
         self::assertTrue($connection->isConnected());
+    }
+
+    public function testAConnectionItsQueryOpenedIsClosedOnReleaseWhetherTheQueryAnsweredOrNot(): void
+    {
+        $answered = new FakeDatabase(['version' => [['Value' => '8.4.0']]]);
+        $link = self::link($answered);
+        $link->fetchAllAssociative("SHOW GLOBAL VARIABLES LIKE 'version'");
+        $link->release();
+
+        $denied = new ConnectionException(new class ("SELECT command denied to user 'jmonitor'@'localhost' for table 'events_statements_summary_by_digest'", '42000', 1142) extends AbstractException {}, null);
+        $refused = new class ($denied) extends Connection {
+            public int $closes = 0;
+            private bool $connected = false;
+
+            public function __construct(
+                private readonly \Throwable $refusal,
+            ) {
+                parent::__construct([], new Driver());
+            }
+
+            public function fetchAllAssociative(string $query, array $params = [], array $types = []): array
+            {
+                $this->connected = true;
+
+                throw $this->refusal;
+            }
+
+            public function isConnected(): bool
+            {
+                return $this->connected;
+            }
+
+            public function close(): void
+            {
+                ++$this->closes;
+                $this->connected = false;
+            }
+        };
+        $link = self::link($refused);
+
+        self::assertSame($denied, Failures::thrownBy(static fn() => $link->fetchAllAssociative('SELECT DIGEST_TEXT FROM performance_schema.events_statements_summary_by_digest')));
+        $link->release();
+
+        self::assertSame(1, $answered->closes);
+        self::assertSame(1, $refused->closes);
     }
 
     public function testTheApplicationCanUseTheConnectionAgainAfterTheRelease(): void
