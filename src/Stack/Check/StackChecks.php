@@ -110,6 +110,7 @@ final class StackChecks
                 Component::FrankenPhp => WebServerChecks::frankenPhp(FrankenPhpReading::of($snapshot), $snapshot, $raise),
                 Component::Apache => self::apache(ApacheReading::of($snapshot, $now), $raise),
                 Component::Nginx => self::nginx(NginxReading::of($snapshot, $now), $snapshot, $raise),
+                Component::Mysql => [],
             },
         ];
     }
@@ -149,7 +150,7 @@ final class StackChecks
                     match ($component) {
                         Component::FrankenPhp => 'FrankenPHP serves this page, so it is running: only its metrics cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.',
                         Component::Apache, Component::Nginx => sprintf('%s serves this page, so it is running: only its status page cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.', $component->label()),
-                        Component::System, Component::Php, Component::Symfony => 'None of its checks can run without its values. Fix the cause given, then refresh.',
+                        Component::System, Component::Php, Component::Symfony, Component::Mysql => 'None of its checks can run without its values. Fix the cause given, then refresh.',
                     },
                 ),
                 'symfony.flex' => $raise(
@@ -445,7 +446,7 @@ final class StackChecks
         return match ($component) {
             Component::FrankenPhp => 'The FrankenPHP metrics',
             Component::Apache, Component::Nginx => sprintf('The %s status page', $component->label()),
-            Component::System, Component::Php, Component::Symfony => $component->label(),
+            Component::System, Component::Php, Component::Symfony, Component::Mysql => $component->label(),
         };
     }
 

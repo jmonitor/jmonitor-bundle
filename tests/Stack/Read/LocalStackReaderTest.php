@@ -802,7 +802,7 @@ final class LocalStackReaderTest extends TestCase
         $settings = [];
 
         foreach (Component::cases() as $component) {
-            $settings[$component->value] = ['enabled' => $overrides[$component->value] ?? ($component->isWebServer() ? false : 'auto')];
+            $settings[$component->value] = ['enabled' => $overrides[$component->value] ?? ($component->isWebServer() || $component === Component::Mysql ? false : 'auto')];
         }
 
         return $settings;

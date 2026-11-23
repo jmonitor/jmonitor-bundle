@@ -80,6 +80,25 @@ final class StackScreenTest extends WebTestCase
         static::assertCount(1, $crawler->filter('[data-jm-component="php"]'));
     }
 
+    public function testAnApplicationWithoutMysqlHasNoMysqlCardAndSaysWhy(): void
+    {
+        $crawler = $this->client()->request('GET', '/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(0, $crawler->filter('[data-jm-component^="mysql"]'));
+        static::assertStringContainsString('MySQL: No MySQL Doctrine connection found.', self::notDetected($crawler));
+    }
+
+    public function testAnApplicationWithoutDoctrineHasNoMysqlAndSaysWhy(): void
+    {
+        $crawler = $this->client(['doctrine' => false])->request('GET', '/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(0, $crawler->filter('[data-jm-component^="mysql"]'));
+        static::assertCount(0, $crawler->filter('[data-jm-notice="bad"]'));
+        static::assertStringContainsString('MySQL: No Doctrine DBAL connection is configured.', self::notDetected($crawler));
+    }
+
     public function testRecordingOffArrivesOnTheStack(): void
     {
         $client = $this->client(['jmonitor' => ['recording' => ['enabled' => false]]]);

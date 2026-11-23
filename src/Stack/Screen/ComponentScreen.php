@@ -56,6 +56,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
             Component::FrankenPhp => 'The FrankenPHP server answering this page, read live',
             Component::Apache => 'The Apache server answering this page, read live',
             Component::Nginx => 'The Nginx server answering this page, read live',
+            Component::Mysql => 'A MySQL or MariaDB server of the application, read live',
         };
     }
 

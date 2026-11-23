@@ -14,6 +14,7 @@ use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
 use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
@@ -113,6 +114,10 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             param('jmonitor.stack.end_of_life'),
         ])
         ->tag('jmonitor.stack.detector', ['index' => Component::Nginx->value]);
+
+    $services->set(MysqlDetector::class)
+        ->args([service(DatabaseInstances::class), param('jmonitor.stack.mysql.connections')])
+        ->tag('jmonitor.stack.detector', ['index' => Component::Mysql->value]);
 
     $services->set(DoctrineConnections::class)
         ->args([service_locator([]), [], null])
