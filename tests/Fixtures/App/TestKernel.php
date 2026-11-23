@@ -123,7 +123,7 @@ final class TestKernel extends Kernel
         parent::__construct($environment, $debug);
 
         $this->withSecurity = $withSecurity || $withEasyAdmin;
-        $this->jmonitorConfig = ($jmonitorConfig ?: $this->environmentConfig()) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => false]]];
+        $this->jmonitorConfig = ($jmonitorConfig ?: self::environmentConfig($withEasyAdmin)) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => false]]];
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
             . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer, $transports, $queuesOutput]));
@@ -135,20 +135,25 @@ final class TestKernel extends Kernel
         $debug = self::environmentValue('APP_DEBUG');
         $features = array_filter(array_map(trim(...), explode(',', self::environmentValue('JMONITOR_FIXTURE_FEATURES'))));
 
-        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'scheduler', 'security']);
+        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'queues', 'scheduler', 'security']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
         }
 
+        $withEasyAdmin = \in_array('easyadmin', $features, true);
+        $countsQueues = \in_array('queues', $features, true);
+
         $kernel = new self(
             $environment !== '' ? $environment : 'dev',
             $debug !== '' ? filter_var($debug, \FILTER_VALIDATE_BOOL) : true,
+            self::environmentConfig($withEasyAdmin) + ($countsQueues ? ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => true]]] : []),
             withSecurity: \in_array('security', $features, true),
-            withMessenger: \in_array('messenger', $features, true),
+            withMessenger: $countsQueues || \in_array('messenger', $features, true),
             withScheduler: \in_array('scheduler', $features, true),
             withEmbedHost: \in_array('embed', $features, true),
-            withEasyAdmin: \in_array('easyadmin', $features, true),
+            withEasyAdmin: $withEasyAdmin,
             withGallery: \in_array('gallery', $features, true),
+            transports: $countsQueues ? ['counted' => 'counted://3'] : [],
         );
         $kernel->countsInAProcess = true;
 
@@ -505,7 +510,7 @@ final class TestKernel extends Kernel
     /**
      * @return array<string, mixed>
      */
-    private function environmentConfig(): array
+    private static function environmentConfig(bool $withEasyAdmin): array
     {
         $interval = getenv('JMONITOR_FLUSH_INTERVAL');
         $config = [];
@@ -513,7 +518,7 @@ final class TestKernel extends Kernel
             $config['recording'] = ['flush_interval' => (int) $interval];
         }
 
-        return $this->withEasyAdmin ? $config + ['easyadmin' => true] : $config;
+        return $withEasyAdmin ? $config + ['easyadmin' => true] : $config;
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void

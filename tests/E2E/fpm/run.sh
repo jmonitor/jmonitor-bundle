@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 PORT="${JMONITOR_E2E_PORT:-8089}"
 export JMONITOR_E2E_PORT="$PORT"
-export JMONITOR_FIXTURE_FEATURES=embed,easyadmin
+export JMONITOR_FIXTURE_FEATURES=embed,easyadmin,queues
 BASE="http://127.0.0.1:$PORT"
 ADMIN=admin:test
 COMPOSE="docker compose -p jmonitor-bundle-e2e -f compose.yaml"
@@ -138,6 +138,7 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 [ "$complete" = 1 ] || fail 'the Stack screen did not show the system, php and symfony cards without data-jm-reading within 30 s'
+printf '%s\n' "$page" | grep -q 'class="jm-components__absent-item">Web server: FrankenPHP, Apache and Nginx were not found serving this page<' || fail 'the "Not detected" line of the Stack screen does not say that no web server was found'
 
 first="$(php_read_at)"
 sleep 1
@@ -187,13 +188,40 @@ status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/stack answered $status instead of 200"
 [ "$(cards_of "$admin")" = 'php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
 
+status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/jmonitor/messages")"
+[ "$status" = 200 ] || fail "GET /jmonitor/messages answered $status instead of 200"
+counted=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/messages?rest=1")" || fail "GET /jmonitor/messages?rest=1 did not return 2xx"
+    if printf '%s\n' "$page" | tr '\n' ' ' | grep -Eq 'aria-label="Queues".*<dt class="jm-fact__label">counted</dt> *<dd class="jm-fact__value"> *<span>3</span>'; then
+        counted=1
+        break
+    fi
+    sleep 1
+done
+[ "$counted" = 1 ] || fail 'the Messages screen did not count 3 messages in the "counted" transport within 30 s'
+sleep 10
+processes="$($COMPOSE exec -T php sh -c 'for f in /proc/[0-9]*/cmdline; do tr "\000" " " < "$f" 2>/dev/null; echo; done')" || fail "the processes of the php container could not be listed"
+printf '%s\n' "$processes" | grep -q 'php-fpm' || fail "the process list of the php container does not show PHP-FPM: $processes"
+if printf '%s\n' "$processes" | grep -q 'bin/console'; then
+    fail "a console process still runs 10 s after the queues were counted: $(printf '%s\n' "$processes" | grep 'bin/console')"
+fi
+
 sleep 2
 status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/teapot")"
 [ "$status" = 418 ] || fail "GET /teapot answered $status instead of 418"
-expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"[^>]*data-jm-requests="2"' 'the Requests screen did not list a second "GET app_teapot" after the Stack screens'
-printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the Stack screens'
+expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"[^>]*data-jm-requests="2"' 'the Requests screen did not list a second "GET app_teapot" after the Stack and Messages screens'
+printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the Stack and Messages screens'
 if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen"
 fi
+if printf '%s\n' "$page" | grep -q '(unmatched)'; then
+    fail "the Requests screen lists a request that matched no route"
+fi
+commands="$(curl -sf "$BASE/jmonitor/commands")" || fail "GET /jmonitor/commands did not return 2xx"
+printf '%s\n' "$commands" | grep -q 'data-jm-command="app:work"' || fail "the Commands screen no longer lists app:work"
+if printf '%s\n' "$commands" | grep -q 'jmonitor:stack:queues'; then
+    fail "the Commands screen lists jmonitor:stack:queues"
+fi
 
-echo "OK: 30 requests, an N+1, cache reads, exceptions and a console command recorded under PHP-FPM; an embedded page served, its action run, its requests not recorded; the Stack screen read live, kept 10 s, refreshed, detailed and shown inside EasyAdmin"
+echo "OK: 30 requests, an N+1, cache reads, exceptions and a console command recorded under PHP-FPM; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"

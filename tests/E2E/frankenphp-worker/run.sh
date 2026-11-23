@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 PORT="${JMONITOR_E2E_PORT:-8090}"
 export JMONITOR_E2E_PORT="$PORT"
-export JMONITOR_FIXTURE_FEATURES=embed,easyadmin
+export JMONITOR_FIXTURE_FEATURES=embed,easyadmin,queues
 BASE="http://127.0.0.1:$PORT"
 ADMIN=admin:test
 COMPOSE="docker compose -p jmonitor-bundle-e2e-worker -f compose.yaml"
@@ -117,6 +117,10 @@ cards_of() {
     printf '%s\n' "$1" | grep -o 'data-jm-component="[a-z]*"' | sed 's/.*="\(.*\)"/\1/' | sort | tr '\n' ' '
 }
 
+card() {
+    printf '%s\n' "$1" | tr '\n' ' ' | sed 's/<article /\n<article /g' | grep "data-jm-component=\"$2\"" | sed 's|</article>.*||'
+}
+
 php_read_at() {
     page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
     value="$(printf '%s\n' "$page" | sed -n 's/.*data-jm-component="php"[^>]*data-jm-read-at="\([0-9]*\)".*/\1/p' | head -n 1)"
@@ -129,13 +133,18 @@ hit /jmonitor/stack 200
 complete=0
 for _ in $(seq 1 30); do
     page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
-    if [ "$(cards_of "$page")" = 'php symfony system ' ] && ! printf '%s\n' "$page" | grep -q 'data-jm-reading'; then
+    if [ "$(cards_of "$page")" = 'frankenphp php symfony system ' ] && ! printf '%s\n' "$page" | grep -q 'data-jm-reading'; then
         complete=1
         break
     fi
     sleep 1
 done
-[ "$complete" = 1 ] || fail 'the Stack screen did not show the system, php and symfony cards without data-jm-reading within 30 s'
+[ "$complete" = 1 ] || fail "the Stack screen did not show the frankenphp, system, php and symfony cards without data-jm-reading within 30 s: $(cards_of "$page")"
+frankenphp="$(card "$page" frankenphp)"
+if printf '%s\n' "$frankenphp" | grep -q 'data-jm-verdict="unknown"'; then
+    fail "the FrankenPHP card is unknown: $frankenphp"
+fi
+printf '%s\n' "$frankenphp" | grep -Eq 'class="jm-component__version">[0-9]+\.[0-9]+\.[0-9]+<' || fail "the FrankenPHP card shows no version: $frankenphp"
 
 first="$(php_read_at)"
 sleep 1
@@ -152,18 +161,47 @@ refreshed="$(php_read_at)"
 [ "$refreshed" -gt "$renewed" ] || fail "the PHP card was still read at $renewed after a refresh"
 
 hit /jmonitor/stack/php 200
+hit /jmonitor/stack/frankenphp 200
+detail="$(curl -sf "$BASE/jmonitor/stack/frankenphp")" || fail "GET /jmonitor/stack/frankenphp did not return 2xx"
+printf '%s\n' "$detail" | grep -q 'class="jm-panel__title"[^>]*>Workers<' || fail "the FrankenPHP screen has no Workers table"
+printf '%s\n' "$detail" | grep -q '/app/tests/E2E/frankenphp-worker/worker.php' || fail "the Workers table of the FrankenPHP screen does not name the worker script"
 
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/stack")" || fail "GET /admin/jmonitor/stack failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/stack answered $status instead of 200"
-[ "$(cards_of "$admin")" = 'php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
+[ "$(cards_of "$admin")" = 'frankenphp php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
+
+hit /jmonitor/messages 200
+counted=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/messages?rest=1")" || fail "GET /jmonitor/messages?rest=1 did not return 2xx"
+    if printf '%s\n' "$page" | tr '\n' ' ' | grep -Eq 'aria-label="Queues".*<dt class="jm-fact__label">counted</dt> *<dd class="jm-fact__value"> *<span>3</span>'; then
+        counted=1
+        break
+    fi
+    sleep 1
+done
+[ "$counted" = 1 ] || fail 'the Messages screen did not count 3 messages in the "counted" transport within 30 s'
+sleep 10
+processes="$($COMPOSE exec -T app sh -c 'for f in /proc/[0-9]*/cmdline; do tr "\000" " " < "$f" 2>/dev/null; echo; done')" || fail "the processes of the container could not be listed"
+printf '%s\n' "$processes" | grep -q 'frankenphp' || fail "the process list of the container does not show FrankenPHP: $processes"
+if printf '%s\n' "$processes" | grep -q 'bin/console'; then
+    fail "a console process still runs 10 s after the queues were counted: $(printf '%s\n' "$processes" | grep 'bin/console')"
+fi
 
 sleep 2
 hit /teapot 418
-expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests screen did not list "GET app_teapot" after the Stack screens'
-printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the Stack screens'
+expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests screen did not list "GET app_teapot" after the Stack and Messages screens'
+printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the Stack and Messages screens'
 if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen"
+fi
+if printf '%s\n' "$page" | grep -q '(unmatched)'; then
+    fail "the Requests screen lists a request that matched no route"
+fi
+commands="$(curl -sf "$BASE/jmonitor/commands")" || fail "GET /jmonitor/commands did not return 2xx"
+if printf '%s\n' "$commands" | grep -q 'jmonitor:stack:queues'; then
+    fail "the Commands screen lists jmonitor:stack:queues"
 fi
 
 for _ in 1 2 3; do
@@ -205,4 +243,4 @@ if printf '%s\n' "$page" | grep -q 'back_office_'; then
     fail "the Requests screen lists a request to an embedded page"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live, keeps it 10 s, refreshes it and shows it inside EasyAdmin"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it counts the queues in a process that ends, without recording it"
