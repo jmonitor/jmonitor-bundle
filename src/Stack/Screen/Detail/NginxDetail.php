@@ -104,7 +104,7 @@ final class NginxDetail implements DetailInterface
         if ($nginx->configPath === null) {
             return [
                 Block::facts(new Facts('Settings', [$version])),
-                Block::notice(new Notice('info', self::SETTINGS_UNREAD, '"nginx -T" gave no configuration: it usually needs more rights than PHP has.')),
+                Block::notice(new Notice('info', self::SETTINGS_UNREAD, 'The "nginx" command gave no configuration: it is not installed where PHP runs, or "nginx -T" needs more rights than PHP has.')),
             ];
         }
 

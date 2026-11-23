@@ -57,15 +57,25 @@ final class NginxConfigCollectorTest extends TestCase
         self::assertSame(['version', 'cpu_count', 'config'], array_keys($payload));
     }
 
-    public function testWithoutTheNginxCommandItIsAMissingPrerequisite(): void
+    public function testWithoutTheNginxCommandTheVersionOfTheServerSoftwareIsKept(): void
     {
-        $runner = (new FakeProcessRunner())->answer(self::VERSION, 'sh: nginx: not found', 127);
+        $runner = (new FakeProcessRunner())->answer(null, 'sh: nginx: not found', 127);
 
-        $e = Failures::thrownBy(static fn() => (new NginxConfigCollector(new StackShell($runner)))->collect());
+        self::assertSame(
+            ['version' => '1.26.2', 'cpu_count' => null, 'config' => array_fill_keys(['config_path', 'worker_processes', 'worker_connections', 'keepalive_timeout', 'gzip', 'server_tokens', 'ssl_protocols'], null)],
+            (new NginxConfigCollector(new StackShell($runner), '1.26.2'))->collect(),
+        );
+        self::assertNull((new NginxConfigCollector(new StackShell($runner)))->collect()['version']);
+    }
 
-        self::assertInstanceOf(MissingPrerequisiteException::class, $e);
-        self::assertStringContainsString('nginx -V', $e->getMessage());
-        self::assertStringStartsNotWith('"sh"', $e->getMessage());
+    public function testACommandThatRunsTooLongStaysAFailure(): void
+    {
+        $runner = (new FakeProcessRunner())->answer(null, '', null, timedOut: true);
+
+        $e = Failures::thrownBy(static fn() => (new NginxConfigCollector(new StackShell($runner), '1.26.2'))->collect());
+
+        self::assertInstanceOf(\RuntimeException::class, $e);
+        self::assertNotInstanceOf(MissingPrerequisiteException::class, $e);
     }
 
     public function testACommandThatFailsLeavesTheVersionOfTheServerSoftware(): void

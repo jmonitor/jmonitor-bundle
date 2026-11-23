@@ -10,7 +10,8 @@ use Jmonitor\Utils\UrlFetcher;
 
 /**
  * The version, the CPU count and a few settings of the Nginx configuration, without its status page and
- * without the rest of what "nginx -T" prints. Without a version from "nginx -V", it takes $fallbackVersion.
+ * without the rest of what "nginx -T" prints. Without a version from "nginx -V", or without the command, it
+ * takes $fallbackVersion.
  */
 final readonly class NginxConfigCollector implements CollectorInterface
 {
@@ -23,12 +24,14 @@ final readonly class NginxConfigCollector implements CollectorInterface
 
     /**
      * @return array{version: ?string, cpu_count: ?int, config: array<string, mixed>}
-     *
-     * @throws MissingPrerequisiteException nginx cannot be found
      */
     public function collect(): array
     {
-        $payload = $this->inner()->collect();
+        try {
+            $payload = $this->inner()->collect();
+        } catch (MissingPrerequisiteException) {
+            $payload = ['version' => null, 'cpu_count' => null, 'config' => []];
+        }
         $config = [];
 
         foreach (self::SETTINGS as $setting) {

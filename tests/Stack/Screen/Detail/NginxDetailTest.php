@@ -112,7 +112,7 @@ final class NginxDetailTest extends TestCase
         self::assertNull($blocks[0]->content->gauges[0]->percent);
         self::assertSame([
             ['facts', 'Settings', ['Version' => '1.26.2 [End of life]']],
-            ['notice', 'info', 'The Nginx settings could not be read', '"nginx -T" gave no configuration: it usually needs more rights than PHP has.'],
+            ['notice', 'info', 'The Nginx settings could not be read', 'The "nginx" command gave no configuration: it is not installed where PHP runs, or "nginx -T" needs more rights than PHP has.'],
         ], array_slice(self::describe($blocks), 3));
     }
 
@@ -168,7 +168,7 @@ final class NginxDetailTest extends TestCase
             ['facts', 'Connections', ['Active' => '—', 'Reading' => '—', 'Writing' => '—', 'Waiting' => '—', 'Refused' => '—']],
             ['facts', 'Traffic', ['Requests per second' => '—', 'Requests per connection' => '—']],
             ['facts', 'Settings', ['Version' => '—']],
-            ['notice', 'info', 'The Nginx settings could not be read', '"nginx -T" gave no configuration: it usually needs more rights than PHP has.'],
+            ['notice', 'info', 'The Nginx settings could not be read', 'The "nginx" command gave no configuration: it is not installed where PHP runs, or "nginx -T" needs more rights than PHP has.'],
         ], self::describe($empty));
         self::assertSame([
             ['gauges', 'Connections', ['Active' => '—']],

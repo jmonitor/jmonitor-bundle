@@ -397,6 +397,22 @@ final class StackScreenTest extends WebTestCase
         static::assertSame(1, self::statusPages($client)->calls);
     }
 
+    public function testWithoutTheNginxCommandTheCardKeepsTheVersionOfTheServerSoftware(): void
+    {
+        $client = $this->client(['fakeWebServer' => 'nginx']);
+        $client->disableReboot();
+        $runner = $client->getContainer()->get(FakeProcessRunner::class);
+        static::assertInstanceOf(FakeProcessRunner::class, $runner);
+        $runner->answer(null, 'sh: nginx: not found', 127);
+
+        $client->request('GET', '/jmonitor/stack', server: self::NGINX);
+        $crawler = $client->request('GET', '/jmonitor/stack?rest=1', server: self::NGINX);
+
+        static::assertResponseStatusCodeSame(200);
+        static::assertSame('1.26.2', $crawler->filter('[data-jm-component="nginx"] .jm-component__version')->text());
+        static::assertCount(0, $crawler->filter('[data-jm-check="nginx.config.failed"]'));
+    }
+
     public function testADetailOfAWebServerThatDoesNotServeThePageSaysSo(): void
     {
         $client = $this->client(['fakeWebServer' => 'nginx']);

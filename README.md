@@ -424,7 +424,7 @@ location = /nginx_status {
 
 When PHP and the web server run in two containers, the request comes from the address of the PHP container, which `Require local` and `allow 127.0.0.1` refuse. Open the page to that address, or to its network, and set `endpoint` to the name of the web server, such as `http://nginx/nginx_status`.
 
-Its version and settings (`worker_processes`, `worker_connections`, `keepalive_timeout`, `gzip`…) come from `nginx -V` and `nginx -T`, and the CPU count from `getconf _NPROCESSORS_ONLN`, run on the machine or in the container of PHP. Only the version and those settings are kept, never the rest of the configuration. `nginx -T` only gives the settings when PHP is allowed to run it, as root in practice; otherwise the detail says the settings could not be read, its connections gauge says `connection limit unknown`, and the `nginx.connections` check cannot run.
+Its version and settings (`worker_processes`, `worker_connections`, `keepalive_timeout`, `gzip`…) come from `nginx -V` and `nginx -T`, and the CPU count from `getconf _NPROCESSORS_ONLN`, run on the machine or in the container of PHP. Only the version and those settings are kept, never the rest of the configuration. Without the `nginx` command there, as when Nginx and PHP-FPM run in two containers, the version comes from the `SERVER_SOFTWARE` that Nginx passes, unless `server_tokens off` hides it. `nginx -T` only gives the settings when PHP is allowed to run it, as root in practice; without them, the detail says the settings could not be read, its connections gauge says `connection limit unknown`, and the `nginx.connections` check cannot run.
 
 **FrankenPHP**: turn the Caddy metrics on with the `metrics` global option of the Caddyfile. They are read at `http://localhost:2019/metrics`, served by the Caddy admin API, which is on by default:
 
@@ -520,7 +520,7 @@ To silence a check, add its identifier to `ignore_checks`: it is no longer shown
 | `system.failed`, `php.failed`, `symfony.failed` | the component could not be read |
 | `frankenphp.failed`, `apache.failed`, `nginx.failed` | the metrics or the status page could not be read (`Info`; a `Warning` when the component itself could not be read) |
 | `symfony.flex.failed` | `composer recipes` could not run (`Info`) |
-| `nginx.config.failed` | `nginx -V` and `nginx -T` could not run (`Info`) |
+| `nginx.config.failed` | `nginx -V` or `nginx -T` ran longer than its time limit (`Info`) |
 | `frankenphp.version.failed` | `frankenphp version` could not run (`Info`) |
 
 A check is a `Warning` unless the table says otherwise. A component that was read before but cannot be read again keeps its last reading on its card, and its `.failed` check says why.
