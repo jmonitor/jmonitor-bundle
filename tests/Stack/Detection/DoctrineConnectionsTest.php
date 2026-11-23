@@ -141,13 +141,26 @@ final class DoctrineConnectionsTest extends TestCase
 
     public function testAPasswordThatSlippedIntoTheDatabaseIsRefused(): void
     {
-        $connections = self::connections(['default' => ['url' => 'mysql://jmonitor:12/s3cr3t@127.0.0.1:36999/jmonitor'] + self::DEFAULTS]);
+        $connections = self::connections([
+            'slash' => ['url' => 'mysql://jmonitor:12/s3cr3t@127.0.0.1:36999/jmonitor'] + self::DEFAULTS,
+            'question_mark' => ['url' => 'mysql://admin:12?s3cr3t@db.internal/app'] + self::DEFAULTS,
+            'hash' => ['url' => 'mysql://admin:12#s3cr3t@db.internal/app'] + self::DEFAULTS,
+        ]);
 
-        $failure = Failures::thrownBy(static fn() => $connections->target('default'));
+        foreach ($connections->names() as $name) {
+            $failure = Failures::thrownBy(static fn() => $connections->target($name));
 
-        self::assertInstanceOf(\RuntimeException::class, $failure);
-        self::assertSame('The URL of this connection cannot be read.', $failure->getMessage());
-        self::assertNull($failure->getPrevious());
+            self::assertInstanceOf(\RuntimeException::class, $failure, $name);
+            self::assertSame('The URL of this connection cannot be read.', $failure->getMessage(), $name);
+            self::assertNull($failure->getPrevious(), $name);
+        }
+    }
+
+    public function testADiscreteDatabaseIsTakenAsItIs(): void
+    {
+        $connections = self::connections(['oracle' => ['driver' => 'oci8', 'dbname' => '//ora.internal:1521/XE'] + self::DEFAULTS]);
+
+        self::assertSame('//ora.internal:1521/XE', $connections->target('oracle')->database);
     }
 
     public function testAMissingEnvironmentVariableNamesItAndNothingElse(): void

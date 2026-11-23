@@ -81,17 +81,16 @@ final class DoctrineConnections implements ResetInterface
             return new \RuntimeException(self::UNREADABLE . '.');
         }
 
+        if ($params === null) {
+            return new \RuntimeException('The URL of this connection cannot be read.');
+        }
+
         $database = $params['dbname'] ?? null;
         $database = \is_string($database) || \is_int($database) ? (string) $database : '';
         $suffix = $params['dbname_suffix'] ?? null;
 
         if ($database !== '' && (\is_string($suffix) || \is_int($suffix))) {
             $database .= $suffix;
-        }
-
-        // A password that is not URL-encoded moves the rest of the URL into the database name.
-        if (strpbrk($database, '@:/') !== false) {
-            return new \RuntimeException('The URL of this connection cannot be read.');
         }
 
         $host = \is_string($params['host'] ?? null) && $params['host'] !== '' ? $params['host'] : null;
@@ -109,9 +108,9 @@ final class DoctrineConnections implements ResetInterface
     }
 
     /**
-     * @return array<mixed>
+     * @return ?array<mixed> null when the credentials of its URL slipped into the rest of it
      */
-    private function params(string $name): array
+    private function params(string $name): ?array
     {
         $params = $this->params->get($name);
 
@@ -134,6 +133,11 @@ final class DoctrineConnections implements ResetInterface
         }
 
         $url = ($this->parser ??= new DsnParser(self::SCHEMES))->parse($params['url']);
+
+        // A password that is not URL-encoded ends the credentials early: the rest of them becomes a host, a port or a database.
+        if ((str_contains($params['url'], '@') && !isset($url['user'])) || strpbrk((string) ($url['dbname'] ?? ''), '@:/') !== false) {
+            return null;
+        }
 
         if (isset($url['driver'])) {
             unset($params['driverClass']);
