@@ -77,6 +77,11 @@ final class ErrorMessageTest extends TestCase
         yield 'a libpq password' => ['host=db password=Zqs3cr3t dbname=app', 'Zqs3cr3t', 'dbname=app'];
         yield 'an encoded slash without scheme' => ['//jmonitor:Zq%2Fsl4sh@127.0.0.1:3306/db', 'Zq%2Fsl4sh', '127.0.0.1:3306/db'];
         yield 'an option name Messenger copies' => ['Invalid option(s) "r3tTail" passed to the Redis Messenger transport.', 'r3tTail', 'passed to the Redis Messenger transport'];
+        yield 'a scheme glued to a colon' => ['DSN:mysql://u:s3cr@h/db', 's3cr', 'h/db'];
+        yield 'a scheme glued to a dot' => ['see.mysql://u:s3cr@h/db', 's3cr', 'h/db'];
+        yield 'a scheme glued to a slash' => ['a/mysql://u:s3cr@h/db', 's3cr', 'h/db'];
+        yield 'an at sign in an auth parameter' => ['Cannot reach redis://host?auth=p@ss', 'ss', 'host?auth='];
+        yield 'an at sign in a quoted auth parameter' => ['Redis connection "redis://host?auth=p@ss" failed', 'ss', 'host?auth='];
         yield 'an unknown option in a DSN' => ['Unknown option found in DSN: [Tail0fKey]. Allowed options are [buffer_size, wait_time].', 'Tail0fKey', 'buffer_size'];
     }
 
@@ -113,6 +118,39 @@ final class ErrorMessageTest extends TestCase
 
     public function testAMessageThatCannotBeCleanedIsNotShown(): void
     {
-        self::assertSame(ErrorMessage::UNREADABLE, ErrorMessage::clean("password=\xFF\xFE"));
+        $limit = ini_set('pcre.backtrack_limit', '1');
+        $jit = ini_set('pcre.jit', '0');
+
+        try {
+            $message = ErrorMessage::clean('Cannot reach mysql://app:s3cret@db:3306/x');
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $limit);
+            ini_set('pcre.jit', (string) $jit);
+        }
+
+        self::assertSame(ErrorMessage::UNREADABLE, $message);
+    }
+
+    public function testAMessageThatIsNotUtf8IsStillShown(): void
+    {
+        $message = ErrorMessage::clean("Connexion refus\xE9e vers mysql://app:s3cret@db/x");
+
+        self::assertNotSame(ErrorMessage::UNREADABLE, $message);
+        self::assertStringContainsString('Connexion refus', $message);
+        self::assertStringContainsString('db/x', $message);
+        self::assertStringNotContainsString('s3cret', $message);
+    }
+
+    public function testAVeryLongMessageIsCleanedWithinItsFirstCharacters(): void
+    {
+        $started = hrtime(true);
+        $slow = ErrorMessage::clean(str_repeat('(//x', 50_000) . ' @');
+        $leading = ErrorMessage::clean('mysql://app:s3cret@db/x ' . str_repeat('a', 200_000));
+        $elapsed = (hrtime(true) - $started) / 1e9;
+
+        self::assertLessThan(1.0, $elapsed);
+        self::assertSame(ErrorMessage::MAX_LENGTH, mb_strlen($slow));
+        self::assertStringStartsWith('mysql://db/x ', $leading);
+        self::assertStringNotContainsString('s3cret', $leading);
     }
 }

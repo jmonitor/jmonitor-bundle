@@ -11,10 +11,12 @@ final class ErrorMessage
 
     private const SECRET_PARAMETERS = 'password|passwd|pwd|pass|auth|secret|secret_key|access_key|session_token|token|key';
 
+    private const MAX_CLEANED_LENGTH = 8000;
+
     private const RULES = [
-        '~(["\'])((?:[a-z][a-z0-9+.-]*:)?//)[^"\']*@~iu' => '$1$2',
-        '~(?<![\w+.:/-])((?:[a-z][a-z0-9+.-]*:)?//)\S*@~iu' => '$1',
         '~(?<![a-z0-9])(' . self::SECRET_PARAMETERS . ')=[^&;"\'\s]*~iu' => '$1=…',
+        '~(["\'])((?:[a-z][a-z0-9+.-]*:)?//)[^"\']*@~iu' => '$1$2',
+        '~((?:[a-z][a-z0-9+.-]*:|(?<![\w+.:/-]))//)\S*@~iu' => '$1',
         '~Invalid option\(s\) ".*?" passed to~su' => 'Invalid option(s) passed to',
         '~Unknown option found( in DSN)?: \[.*?\]\.(?=\s+Allowed options are \[|\z)~su' => 'Unknown option found$1.',
     ];
@@ -40,6 +42,8 @@ final class ErrorMessage
      */
     public static function clean(string $message): string
     {
+        $message = mb_substr(mb_scrub($message), 0, self::MAX_CLEANED_LENGTH);
+
         foreach (self::RULES as $pattern => $replacement) {
             $message = preg_replace($pattern, $replacement, $message);
 
