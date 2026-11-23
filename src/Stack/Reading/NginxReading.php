@@ -12,6 +12,8 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 
 final readonly class NginxReading
 {
+    private const SINCE_START = 'since Nginx started';
+
     /**
      * @param ?int    $maxConnections  worker_processes × worker_connections, null when either is unknown
      * @param ?int    $refused         connections accepted and not handled, since Nginx started
@@ -72,7 +74,7 @@ final readonly class NginxReading
             $maxConnections,
             Values::percent($active, $maxConnections),
             Ratios::perSecond($delta, 'status.requests', 'req/s', $requests),
-            Ratios::average($delta, 'status.requests', 'status.handled', $requests, $handled, ''),
+            Ratios::average($delta, 'status.requests', 'status.handled', $requests, $handled, '', self::SINCE_START),
             $accepts === null || $handled === null ? null : Values::int(max(0, $accepts - $handled)),
             $acceptedLately === null || $handledLately === null ? null : Values::int(max(0, $acceptedLately - $handledLately)),
             $processes === 'auto' && $cpus !== null ? sprintf('auto (%d %s)', $cpus, $cpus === 1 ? 'CPU' : 'CPUs') : $processes,

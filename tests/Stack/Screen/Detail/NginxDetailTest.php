@@ -28,7 +28,7 @@ final class NginxDetailTest extends TestCase
         $blocks = (new NginxDetail())->sections(self::instance($snapshot), self::findings($snapshot), Snapshots::NOW);
 
         self::assertSame([
-            ['gauges', 'Connections', ['Active' => self::nb('0.3 %')]],
+            ['gauges', 'Usage', ['Connections' => self::nb('0.3 %')]],
             ['facts', 'Connections', ['Active' => '12', 'Reading' => '1', 'Writing' => '3', 'Waiting' => '8', 'Refused' => '0']],
             ['facts', 'Traffic', ['Requests per second' => '—', 'Requests per connection' => '2.2']],
             ['facts', 'Settings', [
@@ -46,7 +46,7 @@ final class NginxDetailTest extends TestCase
         $hints = self::hints($blocks);
         self::assertSame('since Nginx started', $hints['Connections / Refused']);
         self::assertSame('at the next refresh', $hints['Traffic / Requests per second']);
-        self::assertSame('since server start', $hints['Traffic / Requests per connection']);
+        self::assertSame('since Nginx started', $hints['Traffic / Requests per connection']);
     }
 
     public function testTheGaugeHintTellsTheShareOfTheLimit(): void
@@ -89,7 +89,7 @@ final class NginxDetailTest extends TestCase
         $snapshot = Snapshots::of(Component::Nginx, ['nginx' => WebServerPayloads::nginxStatus(active: 2_766), 'nginx.config' => WebServerPayloads::nginxConfig()]);
         $findings = self::findings($snapshot);
 
-        self::assertSame(['Active' => self::nb('90 %') . ' [Warning]'], self::describe((new NginxDetail())->sections(self::instance($snapshot), $findings, Snapshots::NOW))[0][2]);
+        self::assertSame(['Connections' => self::nb('90 %') . ' [Warning]'], self::describe((new NginxDetail())->sections(self::instance($snapshot), $findings, Snapshots::NOW))[0][2]);
         self::assertSame(
             'Nginx holds ' . self::nb('90 %') . ' of its connections (2766 of 3072)',
             array_values(array_filter($findings, static fn(Finding $finding): bool => $finding->id === 'nginx.connections'))[0]->sentence,
@@ -106,7 +106,7 @@ final class NginxDetailTest extends TestCase
 
         $blocks = (new NginxDetail())->sections(self::instance($snapshot), self::findings($snapshot), Snapshots::NOW);
 
-        self::assertSame(['gauges', 'Connections', ['Active' => '12']], self::describe($blocks)[0]);
+        self::assertSame(['gauges', 'Usage', ['Connections' => '12']], self::describe($blocks)[0]);
         self::assertInstanceOf(Gauges::class, $blocks[0]->content);
         self::assertSame('connection limit unknown', $blocks[0]->content->gauges[0]->hint);
         self::assertNull($blocks[0]->content->gauges[0]->percent);
@@ -122,8 +122,8 @@ final class NginxDetailTest extends TestCase
 
         $blocks = (new NginxDetail())->sections(self::instance($snapshot), self::findings($snapshot), Snapshots::NOW);
 
-        self::assertSame(['gauges', 'Connections', ['Active' => '12']], self::describe($blocks)[0]);
-        self::assertSame(['Connections', 'Connections', 'Traffic', 'notice: The Nginx settings could not be read'], self::titles($blocks));
+        self::assertSame(['gauges', 'Usage', ['Connections' => '12']], self::describe($blocks)[0]);
+        self::assertSame(['Usage', 'Connections', 'Traffic', 'notice: The Nginx settings could not be read'], self::titles($blocks));
         self::assertSame(['notice', 'warn', 'The Nginx settings could not be read', Snapshots::FAILURE], self::describe($blocks)[3]);
     }
 
@@ -149,7 +149,7 @@ final class NginxDetailTest extends TestCase
         $blocks = (new NginxDetail())->sections(self::instance($snapshot), [], Snapshots::NOW);
 
         self::assertSame(['notice', 'info', 'Read ' . self::nb('1 h') . ' ago', ''], self::describe($blocks)[0]);
-        self::assertSame(['Connections', 'Connections', 'Traffic', 'Settings'], array_slice(self::titles($blocks), 1));
+        self::assertSame(['Usage', 'Connections', 'Traffic', 'Settings'], array_slice(self::titles($blocks), 1));
     }
 
     public function testAnEmptySnapshotRendersWithoutWarning(): void
@@ -164,14 +164,14 @@ final class NginxDetailTest extends TestCase
         ]);
 
         self::assertSame([
-            ['gauges', 'Connections', ['Active' => '—']],
+            ['gauges', 'Usage', ['Connections' => '—']],
             ['facts', 'Connections', ['Active' => '—', 'Reading' => '—', 'Writing' => '—', 'Waiting' => '—', 'Refused' => '—']],
             ['facts', 'Traffic', ['Requests per second' => '—', 'Requests per connection' => '—']],
             ['facts', 'Settings', ['Version' => '—']],
             ['notice', 'info', 'The Nginx settings could not be read', 'The "nginx" command gave no configuration: it is not installed where PHP runs, or "nginx -T" needs more rights than PHP has.'],
         ], self::describe($empty));
         self::assertSame([
-            ['gauges', 'Connections', ['Active' => '—']],
+            ['gauges', 'Usage', ['Connections' => '—']],
             ['facts', 'Connections', ['Active' => '—', 'Reading' => '—', 'Writing' => '—', 'Waiting' => '—', 'Refused' => '—']],
             ['facts', 'Traffic', ['Requests per second' => '—', 'Requests per connection' => '—']],
             ['facts', 'Settings', [

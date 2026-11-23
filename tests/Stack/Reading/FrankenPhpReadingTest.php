@@ -51,6 +51,7 @@ final class FrankenPhpReadingTest extends TestCase
         self::assertTrue($api->requestsPerSecond->isPending());
         self::assertSame(0.02, $api->secondsPerRequest->value, '40 seconds for 2000 requests since the start');
         self::assertSame(RateSource::SinceStart, $api->secondsPerRequest->source);
+        self::assertSame('since FrankenPHP started', $api->secondsPerRequest->hint());
     }
 
     public function testInWorkerModeOnlyTheRegularThreadsAreGauged(): void

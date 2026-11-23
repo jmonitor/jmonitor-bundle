@@ -13,6 +13,8 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 
 final readonly class ApacheReading
 {
+    private const SINCE_START = 'since Apache started';
+
     /** The scoreboard states of mod_status, in the order of its legend. */
     private const STATES = [
         '_' => 'Waiting for connection',
@@ -81,7 +83,7 @@ final readonly class ApacheReading
 
         $accesses = Values::int($data['total_accesses'] ?? null);
         $bytes = Values::int($data['total_bytes'] ?? null);
-        $duration = Ratios::average($delta, 'total_duration', 'total_accesses', Values::float($data['total_duration'] ?? null), $accesses, 's');
+        $duration = Ratios::average($delta, 'total_duration', 'total_accesses', Values::float($data['total_duration'] ?? null), $accesses, 's', self::SINCE_START);
         $millisecondsPerRequest = Values::float($data['duration_per_request'] ?? null);
 
         return new self(
@@ -97,8 +99,8 @@ final readonly class ApacheReading
             $scoreboard,
             Ratios::perSecond($delta, 'total_accesses', 'req/s', $accesses),
             Ratios::perSecond($delta, 'total_bytes', 'B/s', $bytes),
-            Ratios::average($delta, 'total_bytes', 'total_accesses', $bytes, $accesses, 'B'),
-            !$duration->isUnavailable() || $millisecondsPerRequest === null ? $duration : new Rate($millisecondsPerRequest / 1000, RateSource::SinceStart, 's'),
+            Ratios::average($delta, 'total_bytes', 'total_accesses', $bytes, $accesses, 'B', self::SINCE_START),
+            !$duration->isUnavailable() || $millisecondsPerRequest === null ? $duration : new Rate($millisecondsPerRequest / 1000, RateSource::SinceStart, 's', since: self::SINCE_START),
         );
     }
 }

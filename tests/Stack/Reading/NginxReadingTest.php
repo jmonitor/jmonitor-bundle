@@ -29,6 +29,7 @@ final class NginxReadingTest extends TestCase
         self::assertTrue($reading->requestsPerSecond->isPending());
         self::assertSame(2.233062, $reading->requestsPerConnection->value, '41200 requests over 18450 connections');
         self::assertSame(RateSource::SinceStart, $reading->requestsPerConnection->source);
+        self::assertSame('since Nginx started', $reading->requestsPerConnection->hint());
         self::assertSame(0, $reading->refused);
         self::assertNull($reading->refusedRecently, 'no second sample');
         self::assertSame('auto (4 CPUs)', $reading->workerProcesses);

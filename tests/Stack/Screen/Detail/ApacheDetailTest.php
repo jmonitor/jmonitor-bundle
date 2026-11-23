@@ -45,8 +45,8 @@ final class ApacheDetailTest extends TestCase
         self::assertSame(self::nb('3 / 400'), $hints['Workers / Used slots']);
         self::assertSame('at the next refresh', $hints['Traffic / Requests per second']);
         self::assertSame('at the next refresh', $hints['Traffic / Bytes per second']);
-        self::assertSame('since server start', $hints['Traffic / Bytes per request']);
-        self::assertSame('since server start', $hints['Traffic / Time per request']);
+        self::assertSame('since Apache started', $hints['Traffic / Bytes per request']);
+        self::assertSame('since Apache started', $hints['Traffic / Time per request']);
     }
 
     public function testTheTrafficOverTheLastSamplesSaysItsSpan(): void

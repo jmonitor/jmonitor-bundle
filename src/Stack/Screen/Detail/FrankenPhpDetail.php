@@ -35,7 +35,7 @@ final class FrankenPhpDetail implements DetailInterface
                 ])),
                 Block::facts(new Facts('Server', [
                     new Fact('Version', Sections::value($frankenPhp->version)),
-                    new Fact('Mode', Sections::value($frankenPhp->mode)),
+                    new Fact('Mode', Sections::value($frankenPhp->mode === null ? null : ucfirst($frankenPhp->mode))),
                     new Fact('Threads', Sections::value(self::threads($frankenPhp))),
                     new Fact('Queue', Sections::value($frankenPhp->queue === null ? null : (string) $frankenPhp->queue), Sections::mark($findings, 'frankenphp.queue')),
                 ])),

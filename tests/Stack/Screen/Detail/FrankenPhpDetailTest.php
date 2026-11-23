@@ -26,7 +26,7 @@ final class FrankenPhpDetailTest extends TestCase
 
         self::assertSame([
             ['gauges', 'Threads', ['Busy' => self::nb('25 %')]],
-            ['facts', 'Server', ['Version' => '1.13.0', 'Mode' => 'worker', 'Threads' => self::nb('1 / 4'), 'Queue' => '0']],
+            ['facts', 'Server', ['Version' => '1.13.0', 'Mode' => 'Worker', 'Threads' => self::nb('1 / 4'), 'Queue' => '0']],
             ['table', 'Workers', [
                 '/app/public/index.php | 2 | 8 | — | ' . self::nb('12.6 ms') . ' | 0 | 1 | 3',
                 'api | 4 | 4 | — | ' . self::nb('20.0 ms') . ' | 2 | 0 | 0',
@@ -73,7 +73,7 @@ final class FrankenPhpDetailTest extends TestCase
 
         self::assertSame([
             ['gauges', 'Threads', ['Busy' => self::nb('18.7 %')]],
-            ['facts', 'Server', ['Version' => '1.13.0', 'Mode' => 'classic', 'Threads' => self::nb('3 / 16'), 'Queue' => '0']],
+            ['facts', 'Server', ['Version' => '1.13.0', 'Mode' => 'Classic', 'Threads' => self::nb('3 / 16'), 'Queue' => '0']],
         ], self::describe($blocks));
         self::assertNull(self::hints($blocks)['Threads / Busy']);
     }
@@ -132,7 +132,7 @@ final class FrankenPhpDetailTest extends TestCase
         ], self::describe($empty));
         self::assertSame([
             ['gauges', 'Threads', ['Busy' => '']],
-            ['facts', 'Server', ['Version' => '—', 'Mode' => 'worker', 'Threads' => '—', 'Queue' => '—']],
+            ['facts', 'Server', ['Version' => '—', 'Mode' => 'Worker', 'Threads' => '—', 'Queue' => '—']],
             ['table', 'Workers', [' | — | — | — | — | — | — | —']],
         ], self::describe($odd));
     }

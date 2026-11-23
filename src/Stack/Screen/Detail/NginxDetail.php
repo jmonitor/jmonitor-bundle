@@ -58,8 +58,8 @@ final class NginxDetail implements DetailInterface
         $limited = $nginx->maxConnections !== null;
 
         return [
-            Block::gauges(new Gauges('Connections', [new Gauge(
-                'Active',
+            Block::gauges(new Gauges('Usage', [new Gauge(
+                'Connections',
                 $nginx->connectionsPercent,
                 $limited ? Sections::percent($nginx->connectionsPercent) : Sections::value(self::count($nginx->active)),
                 Sections::mark($findings, 'nginx.connections'),

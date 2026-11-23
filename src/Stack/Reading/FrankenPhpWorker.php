@@ -14,6 +14,8 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\Delta;
  */
 final readonly class FrankenPhpWorker
 {
+    private const SINCE_START = 'since FrankenPHP started';
+
     /**
      * @param string $name the worker name of the Caddyfile, or the path of its script
      * @param string $file the file name of a worker named by its path, else its name
@@ -56,7 +58,7 @@ final readonly class FrankenPhpWorker
             Values::int($worker['worker_restarts'] ?? null),
             Values::int($delta?->getValue($key . 'worker_restarts')),
             Ratios::perSecond($delta, $key . 'worker_request_count', 'req/s', $requests),
-            Ratios::average($delta, $key . 'worker_request_time', $key . 'worker_request_count', Values::float($worker['worker_request_time'] ?? null), $requests, 's'),
+            Ratios::average($delta, $key . 'worker_request_time', $key . 'worker_request_count', Values::float($worker['worker_request_time'] ?? null), $requests, 's', self::SINCE_START),
         );
     }
 }

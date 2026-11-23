@@ -46,6 +46,8 @@ final class ApacheReadingTest extends TestCase
         self::assertSame(RateSource::SinceStart, $reading->bytesPerRequest->source);
         self::assertSame(0.04, $reading->secondsPerRequest->value, '2080 seconds over 52000 requests');
         self::assertSame(RateSource::SinceStart, $reading->secondsPerRequest->source);
+        self::assertSame('since Apache started', $reading->bytesPerRequest->hint());
+        self::assertSame('since Apache started', $reading->secondsPerRequest->hint());
     }
 
     public function testTheTrafficComesFromTheVariation(): void
@@ -68,6 +70,7 @@ final class ApacheReadingTest extends TestCase
 
         self::assertSame(0.000734, $reading->secondsPerRequest->value, 'the page gives it in milliseconds');
         self::assertSame(RateSource::SinceStart, $reading->secondsPerRequest->source);
+        self::assertSame('since Apache started', $reading->secondsPerRequest->hint());
     }
 
     public function testAHiddenVersionHasNoSupportStatus(): void
