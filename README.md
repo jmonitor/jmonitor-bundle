@@ -482,7 +482,7 @@ A server that cannot be reached raises a `Critical` check, `MySQL cannot be reac
 - a server that accepts the connection and then stops answering: 10 seconds;
 - a host that drops the packets: up to 30 seconds.
 
-Only the display that tries waits. The server is then not tried again for five times that wait, one minute at least and ten at most, and the displays in between do not wait. The status and the settings are read each at its own pace, so a server never read before can cost that wait twice, to two displays. `Refresh` tries again at once.
+Only one display waits: up to 10 seconds for a server that accepts the connection and then stops answering, up to 30 seconds for a host that drops the packets. The server is then not tried again for five times that wait, one minute at least and ten at most, and no display waits in between, on the card or on the detail. `Refresh` tries again at once.
 
 #### Configuration
 
