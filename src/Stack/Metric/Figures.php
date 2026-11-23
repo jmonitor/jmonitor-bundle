@@ -41,8 +41,8 @@ final class Figures
     public static function rate(float $value, string $unit): string
     {
         $shown = number_format($value, match (true) {
-            abs($value) < 1 => 2,
-            abs($value) < 100 => 1,
+            abs(round($value, 2)) < 1 => 2,
+            abs(round($value, 1)) < 100 => 1,
             default => 0,
         });
 

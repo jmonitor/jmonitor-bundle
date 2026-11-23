@@ -40,6 +40,8 @@ final class FiguresTest extends TestCase
         yield 'no decimal from 100' => [250.4, 'req/s', '250 req/s'];
         yield 'thousands' => [12_345.6, 'req/s', '12,346 req/s'];
         yield 'zero' => [0.0, 's', '0.00 s'];
+        yield 'rounded up to 1' => [0.995, 's', '1.0 s'];
+        yield 'rounded up to 100' => [99.96, 'req/s', '100 req/s'];
         yield 'without unit' => [2.233062, '', '2.2'];
     }
 

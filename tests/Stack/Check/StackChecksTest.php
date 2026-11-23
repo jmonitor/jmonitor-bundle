@@ -397,6 +397,12 @@ final class StackChecksTest extends TestCase
         yield 'Apache slots 99.9 %' => [Component::Apache, ['apache' => self::apacheSlots(999)], [], 'apache.workers', Severity::Warning];
         yield 'Apache slots 100 %' => [Component::Apache, ['apache' => self::apacheSlots(1_000)], [], 'apache.workers', Severity::Critical];
 
+        yield 'Apache with 1 idle worker' => [Component::Apache, ['apache' => self::apacheWorkers(3, 1)], [], 'apache.idle_workers', null];
+        yield 'Apache without idle worker' => [Component::Apache, ['apache' => self::apacheWorkers(3, 0)], [], 'apache.idle_workers', Severity::Info];
+        yield 'Apache without any worker' => [Component::Apache, ['apache' => self::apacheWorkers(0, 0)], [], 'apache.idle_workers', null];
+        yield 'Apache idle workers not told' => [Component::Apache, ['apache' => self::apacheWorkers(3, null)], [], 'apache.idle_workers', null];
+        yield 'Apache busy workers not told' => [Component::Apache, ['apache' => self::apacheWorkers(null, 0)], [], 'apache.idle_workers', null];
+
         yield 'Nginx connections 84.9 %' => [Component::Nginx, self::nginxConnections(849), [], 'nginx.connections', null];
         yield 'Nginx connections 85 %' => [Component::Nginx, self::nginxConnections(850), [], 'nginx.connections', Severity::Warning];
         yield 'Nginx connections 94.9 %' => [Component::Nginx, self::nginxConnections(949), [], 'nginx.connections', Severity::Warning];
@@ -443,6 +449,20 @@ final class StackChecksTest extends TestCase
         self::assertSame("Nginx holds 90.5\u{00A0}% of its connections (905 of 1000)", self::find($connections, 'nginx.connections')?->sentence);
         self::assertSame("Nginx refused 8 connections over the last 30\u{00A0}s", self::find($health, 'nginx.refused')?->sentence);
         self::assertSame('Nginx refused 1 connection since it started', self::find($refusedBefore, 'nginx.refused')?->sentence);
+        self::assertStringContainsString('MaxRequestWorkers', self::find($health, 'apache.workers')->explanation, 'the scoreboard may hold more slots');
+        self::assertStringContainsString('upstream', self::find($connections, 'nginx.connections')->explanation);
+    }
+
+    public function testNoIdleWorkerIsOnlyInformative(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Apache, ['apache' => self::apacheWorkers(150, 0)])));
+        $one = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Apache, ['apache' => self::apacheWorkers(1, 0)])));
+
+        self::assertSame(Severity::Info, self::find($health, 'apache.idle_workers')?->severity);
+        self::assertSame('Apache has no idle worker, 150 are busy', self::find($health, 'apache.idle_workers')->sentence);
+        self::assertStringContainsString('MaxRequestWorkers', self::find($health, 'apache.idle_workers')->explanation);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Apache));
+        self::assertSame('Apache has no idle worker, 1 is busy', self::find($one, 'apache.idle_workers')?->sentence);
     }
 
     public function testAWorkerCheckNamesItsScripts(): void
@@ -467,6 +487,17 @@ final class StackChecksTest extends TestCase
         self::assertSame('Workers of index.php, api crashed 3 times since FrankenPHP started', self::find($sinceStart, 'frankenphp.worker_crashes')?->sentence);
     }
 
+    public function testASingleCrashIsThatOfOneWorker(): void
+    {
+        $crashed = self::frankenphp(['worker_crashes' => 1]);
+
+        $recent = self::checks()->health(Snapshots::stack(Snapshots::of(Component::FrankenPhp, ['frankenphp' => $crashed], deltas: ['frankenphp' => Snapshots::delta(self::frankenphp(), $crashed, 20)])));
+        $sinceStart = self::checks()->health(Snapshots::stack(Snapshots::of(Component::FrankenPhp, ['frankenphp' => $crashed])));
+
+        self::assertSame("A worker of index.php crashed once over the last 20\u{00A0}s", self::find($recent, 'frankenphp.worker_crashes')?->sentence);
+        self::assertSame('A worker of index.php crashed once since FrankenPHP started', self::find($sinceStart, 'frankenphp.worker_crashes')?->sentence);
+    }
+
     public function testAStatusPageThatCannotBeReadIsOnlyInformative(): void
     {
         $health = self::checks()->health(Snapshots::stack(
@@ -481,6 +512,7 @@ final class StackChecksTest extends TestCase
             self::assertSame(Severity::Info, $finding?->severity, $component->value);
             self::assertStringContainsString(Snapshots::FAILURE, $finding->sentence, 'the reason tells how to expose it');
             self::assertStringContainsString('only', $finding->explanation);
+            self::assertStringContainsString('live figures', $finding->explanation, 'other checks may still be judged');
             self::assertSame(Verdict::Unknown, $health->verdict($component));
         }
 
@@ -680,6 +712,14 @@ final class StackChecksTest extends TestCase
             'config' => ['apc.enabled' => $enabled],
             'sma_info' => ['num_seg' => 1, 'seg_size' => 1_000, 'avail_mem' => 1_000 - $usedPerThousand],
         ]]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function apacheWorkers(?int $busy, ?int $idle): array
+    {
+        return ['workers' => array_filter(['busy' => $busy, 'idle' => $idle], static fn(?int $count): bool => $count !== null)] + WebServerPayloads::apache();
     }
 
     /**

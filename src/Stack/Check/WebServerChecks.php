@@ -20,17 +20,29 @@ final class WebServerChecks
      */
     public static function apache(ApacheReading $apache, \Closure $raise): array
     {
-        if ($apache->slotsPercent === null || $apache->slotsPercent < 90) {
-            return [];
+        $findings = [];
+
+        if ($apache->slotsPercent !== null && $apache->slotsPercent >= 90) {
+            $findings[] = $raise(
+                'apache.workers',
+                $apache->slotsPercent >= 100 ? Severity::Critical : Severity::Warning,
+                sprintf('Apache workers take %s of the slots (%d of %d)', Figures::percent($apache->slotsPercent), $apache->usedSlots, $apache->slots),
+                'The slots are those of the scoreboard of mod_status, which may hold more than MaxRequestWorkers. Once every slot is taken, new connections wait for a worker to be free. Raise MaxRequestWorkers, and ServerLimit with it, if the memory allows it, or find the slow requests that hold the workers.',
+                'apache',
+            );
         }
 
-        return [$raise(
-            'apache.workers',
-            $apache->slotsPercent >= 100 ? Severity::Critical : Severity::Warning,
-            sprintf('Apache workers take %s of the slots (%d of %d)', Figures::percent($apache->slotsPercent), $apache->usedSlots, $apache->slots),
-            'Once every slot is taken, new connections wait for a worker to be free. Raise MaxRequestWorkers, and ServerLimit with it, if the memory allows it, or find the slow requests that hold the workers.',
-            'apache',
-        )];
+        if ($apache->idleWorkers === 0 && $apache->busyWorkers !== null && $apache->busyWorkers >= 1) {
+            $findings[] = $raise(
+                'apache.idle_workers',
+                Severity::Info,
+                sprintf('Apache has no idle worker, %s', $apache->busyWorkers === 1 ? '1 is busy' : $apache->busyWorkers . ' are busy'),
+                'New requests wait for a worker to be free, or for Apache to start more, up to MaxRequestWorkers. If it lasts, raise MaxRequestWorkers as far as the memory allows it, or find the slow requests that hold the workers.',
+                'apache',
+            );
+        }
+
+        return $findings;
     }
 
     /**
@@ -47,7 +59,7 @@ final class WebServerChecks
                 'nginx.connections',
                 $nginx->connectionsPercent >= 95 ? Severity::Critical : Severity::Warning,
                 sprintf('Nginx holds %s of its connections (%d of %d)', Figures::percent($nginx->connectionsPercent), $nginx->active, $nginx->maxConnections),
-                'Past worker_processes × worker_connections, Nginx refuses new connections. Raise worker_connections, and the open files limit with it; idle keep-alive connections count too, and a shorter keepalive_timeout frees them sooner.',
+                'Past worker_processes × worker_connections, Nginx refuses new connections. The connections to the upstream servers, a proxied backend or FastCGI, count too, and so do the idle keep-alive ones, which a shorter keepalive_timeout frees sooner. Raise worker_connections, and the open files limit with it.',
                 'nginx',
                 'nginx.config',
             );
@@ -116,9 +128,8 @@ final class WebServerChecks
                 'frankenphp.worker_crashes',
                 Severity::Warning,
                 sprintf(
-                    'Workers of %s crashed %s %s',
-                    self::files($crashedRecently),
-                    Figures::times(array_sum(array_map(static fn(FrankenPhpWorker $worker): int => (int) $worker->crashesRecently, $crashedRecently))),
+                    '%s %s',
+                    self::crashes($crashedRecently, array_sum(array_map(static fn(FrankenPhpWorker $worker): int => (int) $worker->crashesRecently, $crashedRecently))),
                     Figures::lastSeconds($elapsed),
                 ),
                 'A worker that crashes is started again, and the request it was handling fails. Look in the logs for the fatal error or the exit of the script.',
@@ -129,9 +140,8 @@ final class WebServerChecks
                 'frankenphp.worker_crashes',
                 Severity::Info,
                 sprintf(
-                    'Workers of %s crashed %s since FrankenPHP started',
-                    self::files($crashed),
-                    Figures::times(array_sum(array_map(static fn(FrankenPhpWorker $worker): int => (int) $worker->crashes, $crashed))),
+                    '%s since FrankenPHP started',
+                    self::crashes($crashed, array_sum(array_map(static fn(FrankenPhpWorker $worker): int => (int) $worker->crashes, $crashed))),
                 ),
                 'At some point, a worker crashed and was started again. If it happens again, look in the logs for the fatal error or the exit of the script.',
                 'frankenphp',
@@ -149,6 +159,14 @@ final class WebServerChecks
     private static function waiting(int $count): string
     {
         return $count === 1 ? '1 request is waiting' : $count . ' requests are waiting';
+    }
+
+    /**
+     * @param array<FrankenPhpWorker> $workers
+     */
+    private static function crashes(array $workers, int $count): string
+    {
+        return sprintf('%s of %s crashed %s', $count === 1 ? 'A worker' : 'Workers', self::files($workers), Figures::times($count));
     }
 
     /**

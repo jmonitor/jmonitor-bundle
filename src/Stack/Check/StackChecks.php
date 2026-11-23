@@ -147,8 +147,8 @@ final class StackChecks
                     $mainSeverity,
                     sprintf('%s could not be read: %s', self::subject($component), $reason),
                     match ($component) {
-                        Component::FrankenPhp => 'FrankenPHP serves this page, so it is running: only its metrics cannot be read, which leaves its checks without values. Follow the reason given, then refresh.',
-                        Component::Apache, Component::Nginx => sprintf('%s serves this page, so it is running: only its status page cannot be read, which leaves its checks without values. Follow the reason given, then refresh.', $component->label()),
+                        Component::FrankenPhp => 'FrankenPHP serves this page, so it is running: only its metrics cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.',
+                        Component::Apache, Component::Nginx => sprintf('%s serves this page, so it is running: only its status page cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.', $component->label()),
                         Component::System, Component::Php, Component::Symfony => 'None of its checks can run without its values. Fix the cause given, then refresh.',
                     },
                 ),
