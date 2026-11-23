@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Stack\Check\Severity;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
+use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
@@ -17,6 +18,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\Delta;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -619,6 +621,148 @@ final class StackChecksTest extends TestCase
     }
 
     /**
+     * @return iterable<string, array{array<string, array<string, mixed>>, array<string, Delta>, string, ?Severity}>
+     */
+    public static function mysqlThresholds(): iterable
+    {
+        yield 'connections 79.9 %' => [self::mysqlConnections(799), [], 'mysql.connections', null];
+        yield 'connections 80 %' => [self::mysqlConnections(800), [], 'mysql.connections', Severity::Warning];
+        yield 'connections 94.9 %' => [self::mysqlConnections(949), [], 'mysql.connections', Severity::Warning];
+        yield 'connections 95 %' => [self::mysqlConnections(950), [], 'mysql.connections', Severity::Critical];
+
+        yield 'hit rate 95 % over 1000 requests' => [...self::bufferPool(1_000, 50), 'mysql.buffer_pool_hit_rate', null];
+        yield 'hit rate 94.9 % over 1000 requests' => [...self::bufferPool(1_000, 51), 'mysql.buffer_pool_hit_rate', Severity::Warning];
+        yield 'hit rate 94.9 % over 999 requests, server up for 59 min' => [...self::bufferPool(999, 51, 3_540), 'mysql.buffer_pool_hit_rate', null];
+        yield 'hit rate 94.9 % over 999 requests, server up for 60 min' => [...self::bufferPool(999, 51, 3_600), 'mysql.buffer_pool_hit_rate', Severity::Warning];
+        yield 'hit rate 94.9 % without second sample, server up for 59 min' => [...self::bufferPool(999, 51, 3_540, false), 'mysql.buffer_pool_hit_rate', null];
+        yield 'hit rate 94.9 % without second sample, server up for 60 min' => [...self::bufferPool(999, 51, 3_600, false), 'mysql.buffer_pool_hit_rate', Severity::Warning];
+
+        yield 'temporary tables 24.9 % on disk' => [...self::temporaryTables(1_000, 249), 'mysql.disk_temporary_tables', null];
+        yield 'temporary tables 25 % on disk of 100' => [...self::temporaryTables(100, 25), 'mysql.disk_temporary_tables', Severity::Warning];
+        yield 'temporary tables 25 % on disk of 99' => [...self::temporaryTables(99, 25), 'mysql.disk_temporary_tables', null];
+        yield 'temporary tables 25 % on disk without second sample, server up for 59 min' => [...self::temporaryTables(100, 25, 3_540, false), 'mysql.disk_temporary_tables', null];
+        yield 'temporary tables 25 % on disk without second sample, server up for 60 min' => [...self::temporaryTables(100, 25, 3_600, false), 'mysql.disk_temporary_tables', Severity::Warning];
+
+        yield 'table locks 4.9 % waited' => [...self::tableLocks(1_000, 49), 'mysql.table_lock_waits', null];
+        yield 'table locks 5 % waited of 100' => [...self::tableLocks(100, 5), 'mysql.table_lock_waits', Severity::Warning];
+        yield 'table locks 5 % waited of 99' => [...self::tableLocks(99, 5), 'mysql.table_lock_waits', null];
+        yield 'table locks 50 % waited since the server started' => [...self::tableLocks(100, 50, 86_400, false), 'mysql.table_lock_waits', null];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $data
+     * @param array<string, Delta>                $deltas
+     */
+    #[DataProvider('mysqlThresholds')]
+    public function testEachMysqlCheckRisesAtItsThresholdAndNotJustBelow(array $data, array $deltas, string $id, ?Severity $expected): void
+    {
+        $this->testEachCheckRisesAtItsThresholdAndNotJustBelow(Component::Mysql, $data, $deltas, $id, $expected);
+    }
+
+    public function testAMysqlSentenceSaysWhatItCovers(): void
+    {
+        $connections = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, self::mysqlConnections(905))));
+        [$data, $deltas] = self::bufferPool(1_000, 51);
+        $recent = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, $data, deltas: $deltas)));
+        [$data] = self::bufferPool(1_000, 51, 3_600, false);
+        $sinceStart = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, $data)));
+        [$data, $deltas] = self::temporaryTables(200, 70);
+        $temporary = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, $data, deltas: $deltas)));
+        [$data, $deltas] = self::tableLocks(300, 20);
+        $locks = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, $data, deltas: $deltas)));
+
+        self::assertSame("MySQL holds 90.5\u{00A0}% of its connections (905 of 1000)", self::find($connections, 'mysql.connections')?->sentence);
+        self::assertStringContainsString('max_connections', self::find($connections, 'mysql.connections')->explanation);
+        self::assertSame("The buffer pool hit rate is 94.9\u{00A0}% over the last 60\u{00A0}s", self::find($recent, 'mysql.buffer_pool_hit_rate')?->sentence);
+        self::assertSame("The buffer pool hit rate is 94.9\u{00A0}% since the server started", self::find($sinceStart, 'mysql.buffer_pool_hit_rate')?->sentence);
+        self::assertStringContainsString('innodb_buffer_pool_size', self::find($recent, 'mysql.buffer_pool_hit_rate')->explanation);
+        self::assertSame("35\u{00A0}% of the temporary tables were written to disk over the last 60\u{00A0}s", self::find($temporary, 'mysql.disk_temporary_tables')?->sentence);
+        self::assertStringContainsString('tmp_table_size', self::find($temporary, 'mysql.disk_temporary_tables')->explanation);
+        self::assertSame("6.6\u{00A0}% of the table locks had to wait over the last 60\u{00A0}s", self::find($locks, 'mysql.table_lock_waits')?->sentence);
+        self::assertStringContainsString('InnoDB', self::find($locks, 'mysql.table_lock_waits')->explanation);
+    }
+
+    public function testAHealthyDatabaseRaisesNothing(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, [
+            'mysql' => DatabasePayloads::mysqlStatus(),
+            'mysql.variables' => DatabasePayloads::mysqlVariables(),
+            'mysql.sizes' => DatabasePayloads::mysqlSizes(),
+            'mysql.slow_queries' => DatabasePayloads::mysqlSlowQueries(),
+            'eol.mysql' => Snapshots::cycles(),
+        ])));
+
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Mysql));
+    }
+
+    public function testTheDeniedSlowQueriesAreOnlyInformative(): void
+    {
+        $denied = 'The database user of this connection may not read performance_schema.events_statements_summary_by_digest.';
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Mysql, [
+            'mysql' => new CollectorResult('mysql', DatabasePayloads::mysqlStatus(), ResultState::Fresh, collectedAt: Snapshots::NOW, expiresAt: Snapshots::NOW + 10),
+            'mysql.variables' => new CollectorResult('mysql.variables', DatabasePayloads::mysqlVariables(), ResultState::Fresh, collectedAt: Snapshots::NOW, expiresAt: Snapshots::NOW + 3_600),
+            'mysql.slow_queries' => new CollectorResult('mysql.slow_queries', [], ResultState::Failed, $denied, expiresAt: Snapshots::NOW + 300, failure: FailureKind::MissingPrerequisite),
+        ])));
+        $otherFailures = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, ['mysql' => DatabasePayloads::mysqlStatus()], ['mysql.variables' => ResultState::Failed, 'mysql.sizes' => ResultState::Failed])));
+
+        $finding = self::find($health, 'mysql.slow_queries.failed');
+        self::assertSame(Severity::Info, $finding?->severity);
+        self::assertSame('The slowest queries could not be read: ' . $denied, $finding->sentence);
+        self::assertCount(1, $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Mysql));
+
+        self::assertSame(Severity::Info, self::find($otherFailures, 'mysql.variables.failed')?->severity);
+        self::assertStringStartsWith('The MySQL settings could not be read: ', self::find($otherFailures, 'mysql.variables.failed')->sentence);
+        self::assertSame(Severity::Info, self::find($otherFailures, 'mysql.sizes.failed')?->severity);
+        self::assertStringStartsWith('The size of the database could not be read: ', self::find($otherFailures, 'mysql.sizes.failed')->sentence);
+        self::assertSame(Verdict::Healthy, $otherFailures->verdict(Component::Mysql));
+    }
+
+    public function testTheSupportOfMysqlAndMariadbIsJudged(): void
+    {
+        $mysql = static fn(string $version, array $eol): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, [
+            'mysql' => DatabasePayloads::mysqlStatus(),
+            'mysql.variables' => ['version' => $version] + DatabasePayloads::mysqlVariables(),
+        ] + $eol)));
+        $mysqlCycles = ['cycles' => ['8.4' => ['eol' => '2032-04-30', 'support' => '2029-04-30'], '8.0' => ['eol' => '2026-04-30', 'support' => '2023-07-18']]];
+        $mariadbCycles = ['cycles' => ['11.4' => ['eol' => '2029-05-29', 'support' => '2029-05-29'], '10.11' => ['eol' => '2028-02-16', 'support' => '2026-02-16'], '10.5' => ['eol' => '2025-06-24', 'support' => '2025-06-24']]];
+
+        $ended = $mysql('8.0.40', ['eol.mysql' => $mysqlCycles]);
+        $mariadbEnded = $mysql('10.5.27-MariaDB', ['eol.mariadb' => $mariadbCycles]);
+        $securityOnly = $mysql('10.11.10-MariaDB-log', ['eol.mariadb' => $mariadbCycles]);
+        $supported = $mysql('8.4.3', ['eol.mysql' => $mysqlCycles]);
+        $mariadbSupported = $mysql('11.4.10-MariaDB-ubu2404', ['eol.mariadb' => $mariadbCycles, 'eol.mysql' => ['cycles' => ['11.4' => ['eol' => true, 'support' => false]]]]);
+
+        self::assertSame(Severity::Critical, self::find($ended, 'mysql.end_of_life')?->severity);
+        self::assertSame('MySQL 8.0.40 has reached its end of life', self::find($ended, 'mysql.end_of_life')->sentence);
+        self::assertSame(Severity::Critical, self::find($mariadbEnded, 'mysql.end_of_life')?->severity);
+        self::assertSame('MariaDB 10.5.27 has reached its end of life', self::find($mariadbEnded, 'mysql.end_of_life')->sentence);
+        self::assertSame(Severity::Warning, self::find($securityOnly, 'mysql.security_only')?->severity);
+        self::assertSame('MariaDB 10.11.10 only receives security fixes', self::find($securityOnly, 'mysql.security_only')->sentence);
+        self::assertSame([], $supported->findings);
+        self::assertSame([], $mariadbSupported->findings, 'the cycles of MySQL say nothing of MariaDB');
+    }
+
+    public function testAnIgnoredMysqlCheckIsDroppedBeforeTheVerdict(): void
+    {
+        $full = Snapshots::stack(Snapshots::of(Component::Mysql, self::mysqlConnections(960)));
+        $unreachable = Snapshots::stack(new ComponentSnapshot(Component::Mysql, [
+            'mysql' => new CollectorResult('mysql', [], ResultState::Failed, 'Nothing answers.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ]));
+
+        self::assertSame(Verdict::Critical, self::checks()->health($full)->verdict(Component::Mysql));
+
+        $health = self::checks(['mysql.connections'])->health($full);
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Mysql));
+
+        $health = self::checks(['mysql.failed'])->health($unreachable);
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Unknown, $health->verdict(Component::Mysql), 'nothing to judge without a value');
+    }
+
+    /**
      * @param list<string> $ignored
      */
     private static function checks(array $ignored = [], bool $debug = false): StackChecks
@@ -747,6 +891,58 @@ final class StackChecksTest extends TestCase
         $config['config']['worker_connections'] = 1_000;
 
         return ['nginx' => WebServerPayloads::nginxStatus(active: $active), 'nginx.config' => $config];
+    }
+
+    /**
+     * @return array<string, array<string, mixed>> the status and the settings of a MySQL that allows 1000 connections
+     */
+    private static function mysqlConnections(int $connected): array
+    {
+        return [
+            'mysql' => ['Threads_connected' => (string) $connected] + DatabasePayloads::mysqlStatus(),
+            'mysql.variables' => ['max_connections' => '1000'] + DatabasePayloads::mysqlVariables(),
+        ];
+    }
+
+    /**
+     * @return array{array<string, array<string, mixed>>, array<string, Delta>}
+     */
+    private static function bufferPool(int $requests, int $reads, int $uptime = 600, bool $twoSamples = true): array
+    {
+        return self::mysqlCounters(['Innodb_buffer_pool_read_requests' => $requests, 'Innodb_buffer_pool_reads' => $reads], $uptime, $twoSamples);
+    }
+
+    /**
+     * @return array{array<string, array<string, mixed>>, array<string, Delta>}
+     */
+    private static function temporaryTables(int $created, int $onDisk, int $uptime = 600, bool $twoSamples = true): array
+    {
+        return self::mysqlCounters(['Created_tmp_tables' => $created, 'Created_tmp_disk_tables' => $onDisk], $uptime, $twoSamples);
+    }
+
+    /**
+     * @return array{array<string, array<string, mixed>>, array<string, Delta>}
+     */
+    private static function tableLocks(int $locks, int $waited, int $uptime = 600, bool $twoSamples = true): array
+    {
+        return self::mysqlCounters(['Table_locks_waited' => $waited, 'Table_locks_immediate' => $locks - $waited], $uptime, $twoSamples);
+    }
+
+    /**
+     * A MySQL whose given counters started from zero, between two samples a minute apart or since the server started.
+     *
+     * @param array<string, int> $counters
+     *
+     * @return array{array<string, array<string, mixed>>, array<string, Delta>}
+     */
+    private static function mysqlCounters(array $counters, int $uptime, bool $twoSamples): array
+    {
+        $current = array_map(strval(...), $counters) + ['Uptime' => (string) $uptime] + DatabasePayloads::mysqlStatus();
+
+        return [
+            ['mysql' => $current, 'mysql.variables' => DatabasePayloads::mysqlVariables()],
+            $twoSamples ? ['mysql' => Snapshots::delta(array_map(static fn(): string => '0', $counters), $current)] : [],
+        ];
     }
 
     /**

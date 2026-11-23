@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Reading\ApacheReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\FrankenPhpReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\MysqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
@@ -110,7 +111,7 @@ final class StackChecks
                 Component::FrankenPhp => WebServerChecks::frankenPhp(FrankenPhpReading::of($snapshot), $snapshot, $raise),
                 Component::Apache => self::apache(ApacheReading::of($snapshot, $now), $raise),
                 Component::Nginx => self::nginx(NginxReading::of($snapshot, $now), $snapshot, $raise),
-                Component::Mysql => [],
+                Component::Mysql => self::mysql(MysqlReading::of($snapshot, $now), $snapshot, $raise),
             },
         ];
     }
@@ -165,6 +166,9 @@ final class StackChecks
                     sprintf('%s could not be read: %s', match ($name) {
                         'nginx.config' => 'The Nginx settings',
                         'frankenphp.version' => 'The FrankenPHP version',
+                        'mysql.variables' => 'The MySQL settings',
+                        'mysql.sizes' => 'The size of the database',
+                        'mysql.slow_queries' => 'The slowest queries',
                         default => $name,
                     }, $reason),
                     'What it reads is left out of the checks until it can be read.',
@@ -407,6 +411,19 @@ final class StackChecks
         return [
             ...WebServerChecks::nginx($nginx, $snapshot, $raise),
             ...self::support('nginx', 'nginx', 'Nginx', $nginx->version, $nginx->support, $raise, 'nginx.config'),
+        ];
+    }
+
+    /**
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     *
+     * @return list<Finding>
+     */
+    private static function mysql(MysqlReading $mysql, ComponentSnapshot $snapshot, \Closure $raise): array
+    {
+        return [
+            ...MysqlChecks::of($mysql, $snapshot, $raise),
+            ...self::support('mysql', $mysql->product === 'MariaDB' ? 'mariadb' : 'mysql', $mysql->product ?? 'MySQL', $mysql->version, $mysql->support, $raise, 'mysql.variables'),
         ];
     }
 
