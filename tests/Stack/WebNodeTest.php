@@ -21,6 +21,11 @@ final class WebNodeTest extends TestCase
         self::assertSame('%node.web%2F1%40dc.', (new WebNode('web/1@dc'))->keyPrefix(), 'PSR-6 reserves / and @');
     }
 
+    public function testADotInTheHostNameIsEncoded(): void
+    {
+        self::assertSame('%node.web-1%2Eexample%2Ecom.', (new WebNode('web-1.example.com'))->keyPrefix());
+    }
+
     public function testAServerWithoutNameSharesTheEntries(): void
     {
         $node = new WebNode('');

@@ -23,7 +23,6 @@ final class SystemDetectorTest extends TestCase
         $collectors = $detection->instances[0]->collectors;
         self::assertNotNull($collectors);
         self::assertSame(Component::System, $collectors->component);
-        self::assertFalse($collectors->isLazy());
         self::assertSame(['system'], $collectors->names());
 
         $spec = $collectors->get('system');

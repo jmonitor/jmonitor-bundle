@@ -40,6 +40,11 @@ final class InstanceTest extends TestCase
         self::assertSame(0, preg_match('#[{}()/\\\\@:]#', $named->key()));
     }
 
+    public function testADotInAnIdIsEncoded(): void
+    {
+        self::assertSame('symfony.a%2Eb', Instance::found(Component::Symfony, new CollectorSet(Component::Symfony, []), 'a.b')->key());
+    }
+
     public function testAnUnavailableInstanceKeepsItsIdentityAndError(): void
     {
         $instance = Instance::unavailable(Component::Symfony, 'Unknown kernel "dwh".', 'dwh');

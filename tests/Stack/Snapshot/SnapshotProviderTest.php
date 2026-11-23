@@ -307,6 +307,25 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(1, $legacy->collects);
     }
 
+    public function testTwoInstancesWhoseNamesOnlyDifferByADotNeverShareAValue(): void
+    {
+        $first = new FakeCollector('b.c', ['from' => 'a']);
+        $second = new FakeCollector('c', ['from' => 'a.b']);
+        $instances = [
+            self::instance([self::spec($first)], 'a', Component::Symfony),
+            self::instance([self::spec($second)], 'a.b', Component::Symfony),
+        ];
+        $provider = $this->provider();
+
+        $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+        $this->clock->sleep(1);
+        $snapshots = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame([1, 1], [$first->collects, $second->collects], 'both read again from the cache');
+        self::assertSame(['from' => 'a'], $snapshots['symfony.a']->data('b.c'));
+        self::assertSame(['from' => 'a.b'], $snapshots['symfony.a%2Eb']->data('c'));
+    }
+
     public function testForgettingAnInstanceLeavesTheOthers(): void
     {
         $main = new FakeCollector('symfony.status', ['messages' => 100]);
@@ -406,52 +425,6 @@ final class SnapshotProviderTest extends TestCase
         $this->read($provider, $instance);
 
         self::assertSame(1, $releases, 'nothing ran: nothing to release');
-    }
-
-    public function testASetThatCannotBeBuiltGivesItsErrorForAMinute(): void
-    {
-        $builds = 0;
-        $build = static function () use (&$builds): CollectorSet {
-            ++$builds;
-
-            throw new \RuntimeException('Cannot reach redis://app:s3cret@cache');
-        };
-        $instance = static fn(): Instance => Instance::found(Component::Symfony, CollectorSet::lazy(Component::Symfony, $build), 'main');
-        $provider = $this->provider();
-
-        $snapshot = $this->read($provider, $instance());
-        $this->clock->sleep(59);
-        $again = $this->read($provider, $instance());
-
-        self::assertSame('Cannot reach redis://cache', $snapshot->error);
-        self::assertSame([], $snapshot->results);
-        self::assertSame('Cannot reach redis://cache', $again->error);
-        self::assertSame(1, $builds, 'building may wait for a server');
-        self::assertSame(60, $this->recording->ttls['jmonitor.stack.build.%node.web-1.symfony.main']);
-
-        $this->clock->sleep(1);
-        $this->read($provider, $instance());
-
-        self::assertSame(2, $builds);
-
-        $provider->forget([$instance()]);
-        $this->read($provider, $instance());
-
-        self::assertSame(3, $builds, 'a forget forgets the failed build too');
-    }
-
-    public function testASetThatCannotBeBuiltLeavesTheOtherComponentsAlone(): void
-    {
-        $provider = $this->provider();
-        $php = Instance::found(Component::Php, CollectorSet::lazy(Component::Php, static fn(): CollectorSet => throw new \RuntimeException('Cannot build')));
-        $system = Instance::found(Component::System, CollectorSet::lazy(Component::System, static fn(): CollectorSet => new CollectorSet(Component::System, [self::spec(new FakeCollector('system', ['load' => 1]))])));
-
-        $snapshots = $provider->read([$php, $system], CollectBudget::page($this->clock), CacheState::Working);
-
-        self::assertSame(['php', 'system'], array_keys($snapshots));
-        self::assertSame('Cannot build', $snapshots['php']->error);
-        self::assertNull($snapshots['system']->error);
-        self::assertSame(['load' => 1], $snapshots['system']->data('system'));
     }
 
     public function testAnOutdatedValueStillShowsWhileAnotherRequestRenewsIt(): void
@@ -739,21 +712,6 @@ final class SnapshotProviderTest extends TestCase
         $this->read($provider, $instance);
 
         self::assertSame(['getItems' => 1], $this->cache->calls);
-    }
-
-    public function testAWarmLazyInstanceCostsTwoRoundTrips(): void
-    {
-        $instance = static fn(): Instance => Instance::found(Component::Php, CollectorSet::lazy(
-            Component::Php,
-            static fn(): CollectorSet => new CollectorSet(Component::Php, [self::spec(new FakeCollector('php', ['requests' => 1]))]),
-        ));
-        $provider = $this->provider();
-        $this->read($provider, $instance());
-        $this->cache->reset();
-
-        $this->read($provider, $instance());
-
-        self::assertSame(['getItem' => 1, 'getItems' => 1], $this->cache->calls, 'the failed build it may have left, then its values');
     }
 
     public function testACollectedInstanceWritesInOneCommit(): void

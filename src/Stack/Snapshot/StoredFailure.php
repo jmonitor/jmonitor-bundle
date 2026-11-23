@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Stack\Snapshot;
 
 /**
- * A failure kept so that the collector, or the building of its set, is not retried before $until.
+ * A failure kept so that the collector is not retried before $until.
  *
  * @internal
  */

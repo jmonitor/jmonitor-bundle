@@ -25,7 +25,6 @@ final class PhpDetectorTest extends TestCase
         self::assertTrue($detection->isFound());
         $collectors = $detection->instances[0]->collectors;
         self::assertNotNull($collectors);
-        self::assertFalse($collectors->isLazy());
         self::assertSame(['php'], $collectors->names());
 
         $spec = $collectors->get('php');

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack;
 
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheKeys;
+
 /**
  * The web server answering the request, which a load balancer may pick among several.
  */
@@ -26,6 +28,6 @@ final readonly class WebNode
      */
     public function keyPrefix(): string
     {
-        return $this->name === null ? '' : '%node.' . rawurlencode($this->name) . '.';
+        return $this->name === null ? '' : '%node.' . CacheKeys::segment($this->name) . '.';
     }
 }

@@ -23,6 +23,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
+use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
@@ -352,6 +353,55 @@ final class DisplayCostTest extends TestCase
         $this->clock->sleep(self::START + 61 - $this->clock->now()->getTimestamp());
         $reader->overview(ReadMode::Fragment);
         self::assertSame(2, $pages->calls);
+    }
+
+    public function testAnInstanceIsReadInOneRoundTrip(): void
+    {
+        $ids = ['a', 'a.b', 'é/1'];
+        $instances = array_map(static fn(string $id): Instance => Instance::found(Component::Php, new CollectorSet(Component::Php, [
+            new CollectorSpec(new FakeCollector('php.status', ['ok' => true]), Lifetime::Dynamic, CostClass::Immediate),
+            new CollectorSpec(new FakeCollector('php.remote', ['ok' => true]), Lifetime::Dynamic, CostClass::Network),
+            new CollectorSpec(new FakeCollector('php.slow', ['ok' => true]), Lifetime::Dynamic, CostClass::Slow, shared: true),
+        ]), $id), $ids);
+        $this->registry = Detectors::registry(
+            [Component::Php->value => new StaticDetector(Component::Php, Detection::instances($instances))],
+            [Component::Php->value => ['enabled' => 'auto']],
+        );
+        $cache = new CountingCachePool();
+        $reader = $this->reader($cache);
+
+        foreach ($ids as $id) {
+            $reader->component(Component::Php, $id, ReadMode::Page);
+            $reader->component(Component::Php, $id, ReadMode::Fragment);
+            $cache->reset();
+
+            $state = $reader->component(Component::Php, $id, ReadMode::Fragment);
+
+            self::assertFalse($state->isReading(), $id);
+            self::assertSame(['getItem' => 1, 'getItems' => 1], $cache->calls, 'the probe, then the instance: ' . $id);
+        }
+    }
+
+    public function testForgettingBuildsNoCollector(): void
+    {
+        $cache = new CountingCachePool();
+        $broken = new FakeCollector('php.remote', collectFailure: new \RuntimeException('Connection refused'));
+        $instance = Instance::found(Component::Php, new CollectorSet(Component::Php, [
+            new CollectorSpec($broken, Lifetime::Dynamic, CostClass::Network),
+        ]), 'main');
+        $keys = ['jmonitor.stack.result.%node.web-1.php.main.php.remote', 'jmonitor.stack.failure.%node.web-1.php.main.php.remote'];
+
+        foreach ($keys as $key) {
+            $cache->save($cache->getItem($key)->set(['kept' => true]));
+        }
+
+        (new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, new WebNode('web-1')))->forget([$instance]);
+
+        self::assertSame(0, $broken->collects);
+
+        foreach ($keys as $key) {
+            self::assertFalse($cache->hasItem($key), $key);
+        }
     }
 
     public function testAPoolThatThrowsNeverBreaksAnApplicationScreen(): void

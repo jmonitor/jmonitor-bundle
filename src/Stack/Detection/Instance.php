@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Stack\Detection;
 
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheKeys;
 
 /**
  * One monitored thing inside a component.
@@ -42,10 +43,10 @@ final readonly class Instance
     }
 
     /**
-     * "php" for the implicit instance, "symfony.main" for a named one, the id URL-encoded
+     * "php" for the implicit instance, "symfony.main" for a named one, the id encoded as one segment
      */
     public function key(): string
     {
-        return $this->id === null ? $this->component->value : $this->component->value . '.' . rawurlencode($this->id);
+        return $this->id === null ? $this->component->value : $this->component->value . '.' . CacheKeys::segment($this->id);
     }
 }

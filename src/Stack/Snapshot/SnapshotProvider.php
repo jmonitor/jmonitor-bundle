@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Stack\Snapshot;
 
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
-use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
 use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
 use Jmonitor\JmonitorBundle\Stack\Collector\ErrorMessage;
@@ -28,7 +27,6 @@ use Random\Randomizer;
 final readonly class SnapshotProvider
 {
     private const WITNESS_SECONDS = 300;
-    private const BUILD_FAILURE_SECONDS = 60;
     private const FORGOTTEN_SECONDS = 604800;
     private const REFUSED = 'The cache refused to keep this value, it may be too large.';
 
@@ -63,12 +61,10 @@ final readonly class SnapshotProvider
         $reads = [];
 
         foreach ($instances as $instance) {
-            $specs = $instance->isFound() ? $this->specs($instance->collectors, $instance, $guard, $now) : ErrorMessage::clean((string) $instance->error);
-
-            if (is_string($specs)) {
-                $errors[$instance->key()] = $specs;
+            if ($instance->isFound()) {
+                $reads[$instance->key()] = $this->lookUp($instance, $instance->collectors->specs(), $guard, $now);
             } else {
-                $reads[$instance->key()] = $this->lookUp($instance, $specs, $guard, $now);
+                $errors[$instance->key()] = ErrorMessage::clean((string) $instance->error);
             }
         }
 
@@ -116,13 +112,11 @@ final readonly class SnapshotProvider
     public function forget(array $instances): void
     {
         $guard = new CacheGuard($this->logger, true);
-        $now = $this->now();
 
         foreach ($instances as $instance) {
-            $specs = $instance->isFound() ? $this->specs($instance->collectors, $instance, $guard, $now) : [];
-            $keys = [$this->keys->witness($instance), $this->keys->build($instance)];
+            $keys = [$this->keys->witness($instance)];
 
-            foreach (is_string($specs) ? [] : $specs as $spec) {
+            foreach ($instance->collectors?->specs() ?? [] as $spec) {
                 if ($spec->lifetime !== Lifetime::Day) {
                     $keys[] = $this->keys->result($instance, $spec);
                     $keys[] = $this->keys->failure($instance, $spec);
@@ -135,35 +129,6 @@ final readonly class SnapshotProvider
             if ($forgotten !== null) {
                 $guard->attempt(fn(): bool => $this->cache->save($this->cache->getItem($forgotten)->set($this->token())->expiresAfter(self::FORGOTTEN_SECONDS)), false);
             }
-        }
-    }
-
-    /**
-     * A failed build is kept: building a lazy set again may wait on the same server.
-     *
-     * @return list<CollectorSpec>|string the specs, or why the set cannot be built
-     */
-    private function specs(CollectorSet $set, Instance $instance, CacheGuard $guard, int $now): array|string
-    {
-        $key = $this->keys->build($instance);
-        $item = null;
-
-        if ($set->isLazy()) {
-            $item = $guard->attempt(fn(): CacheItemInterface => $this->cache->getItem($key), null);
-            $kept = StoredFailure::fromCache($item?->get());
-
-            if ($kept !== null && $kept->isKept($now)) {
-                return $kept->error;
-            }
-        }
-
-        try {
-            return $set->specs();
-        } catch (\Throwable $e) {
-            $failure = new StoredFailure(self::describe($e), $now + self::BUILD_FAILURE_SECONDS, null);
-            $guard->attempt(fn(): bool => $this->cache->save(($item ?? $this->cache->getItem($key))->set($failure->toCache())->expiresAfter(self::BUILD_FAILURE_SECONDS)), false);
-
-            return $failure->error;
         }
     }
 
