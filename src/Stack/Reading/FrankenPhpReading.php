@@ -58,7 +58,11 @@ final readonly class FrankenPhpReading
             $busyRegular,
             $regular,
             Values::percent($busyRegular, $regular),
-            $workerThreads > 0 ? sprintf('%d threads run the workers', $workerThreads) : null,
+            match (true) {
+                $workerThreads === 1 => '1 thread runs the workers',
+                $workerThreads > 1 => sprintf('%d threads run the workers', $workerThreads),
+                default => null,
+            },
             Values::int($data['queue_depth'] ?? null),
             $workers,
         );

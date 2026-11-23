@@ -63,6 +63,16 @@ final class FrankenPhpReadingTest extends TestCase
         self::assertSame('12 threads run the workers', $reading->threadsNote);
     }
 
+    public function testASingleWorkerThreadIsTold(): void
+    {
+        $payload = WebServerPayloads::frankenphpWorker();
+        $payload['workers'] = [[...$payload['workers'][0], 'total_workers' => 1, 'busy_workers' => 1, 'ready_workers' => 1]];
+
+        $reading = FrankenPhpReading::of(self::snapshot($payload));
+
+        self::assertSame('1 thread runs the workers', $reading->threadsNote);
+    }
+
     public function testWorkersStillStartingLeaveNoRegularThreadBusy(): void
     {
         $payload = WebServerPayloads::frankenphpWorker();
