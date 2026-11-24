@@ -12,6 +12,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
+use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
@@ -492,6 +493,44 @@ final class DisplayCostTest extends TestCase
         foreach (['mysql', 'mysql.variables', 'mysql.sizes', 'mysql.slow_queries'] as $name) {
             self::assertSame(ResultState::Failed, $snapshot?->result($name)?->state, $name);
         }
+    }
+
+    public function testARefusedConnectionStaysCriticalWhileAnotherReadsItsServer(): void
+    {
+        $container = new class extends Container {
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                if ($id === 'doctrine.dbal.a_connection') {
+                    throw new \RuntimeException("SQLSTATE[HY000] [1045] Access denied for user 'root'@'10.0.0.1' (using password: YES)");
+                }
+
+                return parent::get($id, $invalidBehavior);
+            }
+        };
+        $container->set('doctrine.dbal.b_connection', new FakeDatabase(['@@performance_schema' => [['enabled' => '1']]]));
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->mysqlReader($container, ['a' => self::MYSQL, 'b' => ['dbname' => 'reports'] + self::MYSQL], $cache);
+        $checks = new StackChecks([], false, $this->clock);
+        $freshB = 0;
+        $reader()->overview(ReadMode::Page);
+
+        for ($i = 0; $i < 20; ++$i) {
+            $id = $i % 2 === 0 ? 'a' : 'b';
+            $state = $reader()->component(Component::Mysql, $id, ReadMode::Fragment);
+            $result = $state->component(Component::Mysql)?->instances[$id === 'a' ? 0 : 1]->snapshot?->result('mysql');
+
+            if ($id === 'a') {
+                self::assertNotSame(ResultState::Fresh, $result?->state, 'read ' . $i);
+                self::assertSame(Verdict::Critical, $checks->health($state)->verdict(Component::Mysql, 'a'), 'read ' . $i);
+            } elseif ($result?->state === ResultState::Fresh) {
+                ++$freshB;
+            }
+
+            $this->clock->sleep(3);
+        }
+
+        self::assertLessThanOrEqual(self::START + 60, $this->clock->now()->getTimestamp());
+        self::assertSame(10, $freshB, 'the other connection reads the server meanwhile');
     }
 
     public function testTwoConnectionsOnOneServerReadItsStatusOnce(): void

@@ -86,13 +86,9 @@ final readonly class SnapshotProvider
                     }
 
                     $key = $this->keys->result($read->instance, $spec);
-                    $hold = $read->heldBy($spec);
+                    $result = $this->kept($read, $spec, $now) ?? $reused[$key] ?? null;
 
-                    if (isset($reused[$key])) {
-                        $result = $reused[$key];
-                    } elseif ($hold !== null) {
-                        $result = $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $hold);
-                    } else {
+                    if ($result === null) {
                         $result = $this->collectOrLeave($read, $spec, $budget, $cache, $guard, $now);
 
                         if (self::reusable($spec, $result)) {
@@ -193,29 +189,36 @@ final readonly class SnapshotProvider
         $read = new InstanceRead($instance, $specs, $items, ($items[$witness] ?? null)?->isHit() ?? false, $markers, $ownMarker, $values, $failures);
 
         foreach ($specs as $spec) {
-            $value = $values[$spec->name] ?? null;
-            $failure = $failures[$spec->name] ?? null;
-
-            if ($failure !== null) {
-                $read->holdOn($spec, $failure);
-            }
-
-            if ($value !== null && $value->isFresh($spec->lifetime, $now)) {
-                $read->results[$spec->name] = $this->shown($spec, $value, $now);
-            } elseif ($failure !== null) {
-                $read->results[$spec->name] = $this->shown($spec, $value, $now, ResultState::Failed, $failure);
+            if (isset($failures[$spec->name])) {
+                $read->holdOn($spec, $failures[$spec->name]);
             }
         }
 
         foreach ($specs as $spec) {
-            $hold = $read->heldBy($spec);
+            $result = $this->kept($read, $spec, $now);
 
-            if ($hold !== null && !isset($read->results[$spec->name])) {
-                $read->results[$spec->name] = $this->shown($spec, $values[$spec->name] ?? null, $now, ResultState::Failed, $hold);
+            if ($result !== null) {
+                $read->results[$spec->name] = $result;
             }
         }
 
         return $read;
+    }
+
+    /**
+     * What a collector shows without being collected: its fresh value, or else the failure that keeps it from
+     * being asked again. A value of the server read through another connection does not hide the failure of this one.
+     */
+    private function kept(InstanceRead $read, CollectorSpec $spec, int $now): ?CollectorResult
+    {
+        $value = $read->values[$spec->name] ?? null;
+        $failure = $read->failures[$spec->name] ?? $read->heldBy($spec);
+
+        if ($value !== null && $value->isFresh($spec->lifetime, $now) && ($failure === null || !$spec->perServer)) {
+            return $this->shown($spec, $value, $now);
+        }
+
+        return $failure === null ? null : $this->shown($spec, $value, $now, ResultState::Failed, $failure);
     }
 
     private function collectOrLeave(InstanceRead $read, CollectorSpec $spec, CollectBudget $budget, CacheState $cache, CacheGuard $guard, int $now): CollectorResult
@@ -393,7 +396,7 @@ final readonly class SnapshotProvider
         return new CollectorResult(
             $spec->name,
             $value->data,
-            $value->isFresh($spec->lifetime, $now) ? ResultState::Fresh : ResultState::Stale,
+            $failure === null && $value->isFresh($spec->lifetime, $now) ? ResultState::Fresh : ResultState::Stale,
             $failure?->error,
             min($value->collectedAt, $now),
             $value->delta,
