@@ -1097,6 +1097,7 @@ body.jm .jm-header {
 
 .jm-instances__label {
     flex: none;
+    min-width: 7em;
     margin-right: 6px;
     color: var(--jm-faint);
     font-size: 12px;

@@ -148,7 +148,7 @@ final class StackChecks
                     );
             }
 
-            if ($result->state !== ResultState::Failed || str_starts_with($name, 'eol.')) {
+            if ($result->state !== ResultState::Failed || str_starts_with($name, 'eol.') || $snapshot->failedWithItsServer($name)) {
                 continue;
             }
 

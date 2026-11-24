@@ -39,7 +39,7 @@ final class Sections
     /**
      * @param string                  $type     the type of the first block, shown while the collector was never read
      * @param \Closure(): list<Block> $sections built only when the collector has a value
-     * @param ?string                 $failure  the title of a notice telling a failure in place of the sections; none without it
+     * @param ?string                 $failure  the title of a notice telling a failure in place of the sections; none without it, nor when the server cannot be reached
      *
      * @return list<Block>
      */
@@ -52,7 +52,7 @@ final class Sections
         }
 
         if ($result->state === ResultState::Failed) {
-            return $failure === null ? [] : [Block::notice(new Notice('warn', $failure, $result->error ?? 'no reason given'))];
+            return $failure === null || $snapshot->failedWithItsServer($collector) ? [] : [Block::notice(new Notice('warn', $failure, $result->error ?? 'no reason given'))];
         }
 
         return $result->state === ResultState::Stale ? [Block::notice(self::outdated($result, $now)), ...$sections()] : $sections();

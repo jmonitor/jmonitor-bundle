@@ -13,8 +13,8 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 final readonly class MysqlReading
 {
     /** a variation with fewer events tells nothing about the ratio */
-    public const BUFFER_POOL_REQUESTS = 1_000;
-    public const TEMPORARY_TABLES = 100;
+    private const BUFFER_POOL_REQUESTS = 1_000;
+    private const TEMPORARY_TABLES = 100;
 
     private const SINCE_START = 'since the server started';
 
@@ -23,11 +23,8 @@ final readonly class MysqlReading
     /**
      * @param ?string               $version            the number, without the suffix of the build
      * @param ?SupportStatus        $support             null for the forks with their own release cycles, such as Percona Server, TiDB or Aurora
-     * @param ?int                  $serverTime          the clock of the server now, from its offset when the settings were read
      * @param Rate                  $bufferPoolHitRate   the variation between the two samples when it holds BUFFER_POOL_REQUESTS, else since the server started
-     * @param ?int                  $bufferPoolRequests  between the last two samples
      * @param Rate                  $diskTemporaryTables the variation between the two samples when it holds TEMPORARY_TABLES, else since the server started
-     * @param ?int                  $temporaryTables     created between the last two samples
      * @param ?int                  $tableLocks          taken between the last two samples
      * @param bool                  $sizesCached         MySQL 8 reads the sizes from statistics it renews once a day
      * @param list<MysqlSlowQuery>  $slowQueries
@@ -39,7 +36,6 @@ final readonly class MysqlReading
         public ?string $versionComment,
         public ?SupportStatus $support,
         public ?int $uptime,
-        public ?int $serverTime,
         public ?string $timeZone,
         public ?string $systemTimeZone,
         public ?int $connections,
@@ -48,15 +44,12 @@ final readonly class MysqlReading
         public ?int $maxUsedConnections,
         public ?int $running,
         public Rate $queriesPerSecond,
-        public Rate $threadCacheMisses,
         public Rate $bufferPoolHitRate,
-        public ?int $bufferPoolRequests,
         public ?int $bufferPoolSize,
         public ?float $bufferPoolUsedPercent,
         public Rate $innodbReadsPerSecond,
         public Rate $innodbWritesPerSecond,
         public Rate $diskTemporaryTables,
-        public ?int $temporaryTables,
         public Rate $tableLockWaits,
         public ?int $tableLocks,
         public ?int $dataLength,
@@ -108,7 +101,6 @@ final readonly class MysqlReading
             $versionComment,
             $fork ? null : EndOfLife::status($snapshot->data($product === 'MariaDB' ? 'eol.mariadb' : 'eol.mysql'), $version, $today),
             Values::int($status['Uptime'] ?? null),
-            self::serverTime($snapshot, $today),
             Values::string($variables['time_zone'] ?? null),
             Values::string($variables['system_time_zone'] ?? null),
             $connections,
@@ -117,11 +109,9 @@ final readonly class MysqlReading
             Values::int($status['Max_used_connections'] ?? null),
             Values::int($status['Threads_running'] ?? null),
             Ratios::perSecond($delta, 'Questions', 'q/s', Values::int($status['Questions'] ?? null)),
-            Ratios::percent($delta, 'Threads_created', 'Connections', Values::int($status['Threads_created'] ?? null), Values::int($status['Connections'] ?? null), self::SINCE_START),
             $recentHitRate->total !== null && $recentHitRate->total >= self::BUFFER_POOL_REQUESTS
                 ? $recentHitRate
                 : Ratios::complement(null, 'Innodb_buffer_pool_reads', 'Innodb_buffer_pool_read_requests', $diskReads, $readRequests, self::SINCE_START),
-            Values::int($delta?->getValue('Innodb_buffer_pool_read_requests')),
             Values::int($variables['innodb_buffer_pool_size'] ?? null),
             $pagesTotal === null || $pagesFree === null ? null : Values::percent($pagesTotal - $pagesFree, $pagesTotal),
             Ratios::perSecond($delta, 'Innodb_data_reads', 'reads/s', Values::int($status['Innodb_data_reads'] ?? null)),
@@ -129,7 +119,6 @@ final readonly class MysqlReading
             $recentDiskTemporary->total !== null && $recentDiskTemporary->total >= self::TEMPORARY_TABLES
                 ? $recentDiskTemporary
                 : Ratios::percent(null, 'Created_tmp_disk_tables', 'Created_tmp_tables', $diskTemporary, $temporary, self::SINCE_START),
-            Values::int($delta?->getValue('Created_tmp_tables')),
             Ratios::share($delta, 'Table_locks_waited', 'Table_locks_immediate', $locksWaited, $locksImmediate, self::SINCE_START),
             $waitedLately === null || $immediateLately === null ? null : Values::int($waitedLately + $immediateLately),
             Values::int($sizes['data_length'] ?? null),
@@ -141,14 +130,6 @@ final readonly class MysqlReading
             Values::int($status['Slow_queries'] ?? null),
             self::settings($variables),
         );
-    }
-
-    private static function serverTime(ComponentSnapshot $snapshot, \DateTimeImmutable $today): ?int
-    {
-        $result = $snapshot->result('mysql.variables');
-        $timestamp = Values::int($result?->data['timestamp'] ?? null);
-
-        return $timestamp === null || $result?->collectedAt === null ? null : $today->getTimestamp() + $timestamp - $result->collectedAt;
     }
 
     /**

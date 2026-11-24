@@ -30,7 +30,9 @@ final readonly class MysqlSlowQueriesCollector implements CollectorInterface
     ) {}
 
     /**
-     * @return array{queries: list<array{text: string, executions: int, average_ms: int, max_ms: int, total_ms: int}>}
+     * A maximum above the total, which performance_schema gives for some digests, is unknown.
+     *
+     * @return array{queries: list<array{text: string, executions: int, average_ms: int, max_ms: ?int, total_ms: int}>}
      *
      * @throws UnreachableServerException
      * @throws MissingPrerequisiteException performance_schema is off, or the user may not read it
@@ -63,12 +65,15 @@ final readonly class MysqlSlowQueriesCollector implements CollectorInterface
                 continue;
             }
 
+            $max = self::int($row['max_time_ms'] ?? null);
+            $total = self::int($row['total_time_ms'] ?? null);
+
             $queries[] = [
                 'text' => $row['query_sample'],
                 'executions' => self::int($row['exec_count'] ?? null),
                 'average_ms' => self::int($row['avg_time_ms'] ?? null),
-                'max_ms' => self::int($row['max_time_ms'] ?? null),
-                'total_ms' => self::int($row['total_time_ms'] ?? null),
+                'max_ms' => $max > $total ? null : $max,
+                'total_ms' => $total,
             ];
 
             if (\count($queries) === self::KEPT) {

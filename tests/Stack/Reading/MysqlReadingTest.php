@@ -41,7 +41,6 @@ final class MysqlReadingTest extends TestCase
         self::assertSame('MySQL Community Server - GPL', $reading->versionComment);
         self::assertSame(SupportStatus::Active, $reading->support);
         self::assertSame(86_400, $reading->uptime);
-        self::assertSame(1_760_000_000, $reading->serverTime);
         self::assertSame('SYSTEM', $reading->timeZone);
         self::assertSame('UTC', $reading->systemTimeZone);
 
@@ -52,11 +51,9 @@ final class MysqlReadingTest extends TestCase
         self::assertSame(3, $reading->running);
         self::assertSame(15.0, $reading->queriesPerSecond->value, '150 questions in 10 seconds');
         self::assertSame('q/s', $reading->queriesPerSecond->unit);
-        self::assertSame(2.0, $reading->threadCacheMisses->value, '2 threads created for 100 connections');
 
         self::assertSame(99.0, $reading->bufferPoolHitRate->value, '10 000 requests, 100 read from the disk');
         self::assertSame(RateSource::Delta, $reading->bufferPoolHitRate->source);
-        self::assertSame(10_000, $reading->bufferPoolRequests);
         self::assertSame(134_217_728, $reading->bufferPoolSize);
         self::assertSame(87.5, $reading->bufferPoolUsedPercent, '7 168 pages used out of 8 192');
         self::assertSame(5.0, $reading->innodbReadsPerSecond->value);
@@ -65,7 +62,6 @@ final class MysqlReadingTest extends TestCase
         self::assertSame(20.0, $reading->diskTemporaryTables->value, '20 on disk out of 100');
         self::assertSame(RateSource::Delta, $reading->diskTemporaryTables->source);
         self::assertSame('20 / 100', $reading->diskTemporaryTables->fraction());
-        self::assertSame(100, $reading->temporaryTables);
         self::assertSame(1.0, $reading->tableLockWaits->value, '1 waited for 99 immediate');
         self::assertSame(100, $reading->tableLocks);
 
@@ -179,8 +175,6 @@ final class MysqlReadingTest extends TestCase
         self::assertTrue($reading->queriesPerSecond->isPending());
         self::assertTrue($reading->innodbReadsPerSecond->isPending());
         self::assertTrue($reading->innodbWritesPerSecond->isPending());
-        self::assertNull($reading->bufferPoolRequests);
-        self::assertNull($reading->temporaryTables);
         self::assertNull($reading->tableLocks);
         self::assertSame(99.0, $reading->bufferPoolHitRate->value);
         self::assertSame('since the server started', $reading->bufferPoolHitRate->hint());
@@ -196,24 +190,20 @@ final class MysqlReadingTest extends TestCase
             DatabasePayloads::mysqlStatus(),
         )), self::today());
 
-        $enough = $window(MysqlReading::BUFFER_POOL_REQUESTS, MysqlReading::TEMPORARY_TABLES);
-        $tooFew = $window(MysqlReading::BUFFER_POOL_REQUESTS - 1, MysqlReading::TEMPORARY_TABLES - 1);
+        $enough = $window(1_000, 100);
+        $tooFew = $window(999, 99);
 
         self::assertSame(RateSource::Delta, $enough->bufferPoolHitRate->source);
         self::assertSame(100.0, $enough->bufferPoolHitRate->value, 'no read from the disk over the window');
-        self::assertSame(1_000, $enough->bufferPoolRequests);
         self::assertSame(RateSource::Delta, $enough->diskTemporaryTables->source);
         self::assertSame(0.0, $enough->diskTemporaryTables->value, 'none on disk over the window');
-        self::assertSame(100, $enough->temporaryTables);
 
         self::assertSame(RateSource::SinceStart, $tooFew->bufferPoolHitRate->source);
         self::assertSame(99.0, $tooFew->bufferPoolHitRate->value, '110 000 requests, 1 100 read from the disk');
         self::assertSame('since the server started', $tooFew->bufferPoolHitRate->hint());
-        self::assertSame(999, $tooFew->bufferPoolRequests, 'the window is still counted');
         self::assertSame(RateSource::SinceStart, $tooFew->diskTemporaryTables->source);
         self::assertSame(13.33, $tooFew->diskTemporaryTables->value, '20 on disk out of 150');
         self::assertSame('since the server started', $tooFew->diskTemporaryTables->hint());
-        self::assertSame(99, $tooFew->temporaryTables);
     }
 
     public function testTheSizesOfMysqlEightAreCached(): void
@@ -243,7 +233,6 @@ final class MysqlReadingTest extends TestCase
         self::assertNull($reading->versionComment);
         self::assertNull($reading->support);
         self::assertNull($reading->uptime);
-        self::assertNull($reading->serverTime);
         self::assertNull($reading->timeZone);
         self::assertNull($reading->connections);
         self::assertNull($reading->maxConnections);
@@ -252,13 +241,10 @@ final class MysqlReadingTest extends TestCase
         self::assertNull($reading->running);
         self::assertTrue($reading->queriesPerSecond->isUnavailable());
         self::assertFalse($reading->queriesPerSecond->isPending(), 'no later sample would bring it');
-        self::assertTrue($reading->threadCacheMisses->isUnavailable());
         self::assertTrue($reading->bufferPoolHitRate->isUnavailable());
-        self::assertNull($reading->bufferPoolRequests);
         self::assertNull($reading->bufferPoolSize);
         self::assertNull($reading->bufferPoolUsedPercent);
         self::assertTrue($reading->diskTemporaryTables->isUnavailable());
-        self::assertNull($reading->temporaryTables);
         self::assertTrue($reading->tableLockWaits->isUnavailable());
         self::assertNull($reading->tableLocks);
         self::assertNull($reading->dataLength);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack\Snapshot;
 
+use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Component;
 
 final readonly class ComponentSnapshot
@@ -36,6 +37,21 @@ final readonly class ComponentSnapshot
     public function has(string $name): bool
     {
         return $this->result($name)?->ok() ?? false;
+    }
+
+    /**
+     * Whether this collector failed because the server of a remote component cannot be reached, which the main
+     * collector of the component already tells.
+     */
+    public function failedWithItsServer(string $name): bool
+    {
+        $result = $this->result($name);
+
+        return $name !== $this->component->value
+            && !$this->component->isNodeLocal()
+            && $result?->state === ResultState::Failed
+            && $result->failure === FailureKind::Unreachable
+            && $this->result($this->component->value)?->failure === FailureKind::Unreachable;
     }
 
     public function delta(string $name): ?Delta

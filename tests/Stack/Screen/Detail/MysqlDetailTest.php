@@ -77,7 +77,7 @@ final class MysqlDetailTest extends TestCase
 
         $table = $blocks[6]->content;
         self::assertInstanceOf(Table::class, $table);
-        self::assertSame('since the server started', $table->note);
+        self::assertSame('the slowest on average since the server started', $table->note);
         self::assertSame(['query', 'executions', 'average', 'max', 'total'], array_map(static fn(Column $column): string => $column->id, $table->columns));
         self::assertSame(['Query', 'Executions', 'Average', 'Max', 'Total'], array_map(static fn(Column $column): string => $column->label, $table->columns));
         self::assertEquals(new Cell('SELECT * FROM `order` WHERE `status` = ?', kind: 'sql'), $table->rows[0]->cells['query']);
@@ -194,6 +194,26 @@ final class MysqlDetailTest extends TestCase
         $unreachable = new InstanceState('main', 'shop', 'Unknown Doctrine connection "main".', null);
 
         self::assertSame([], (new MysqlDetail())->sections($unreachable, [], Snapshots::NOW));
+    }
+
+    public function testADeadServerShowsNoSectionOfItsOwnFailure(): void
+    {
+        $unreachable = static fn(string $name): CollectorResult => new CollectorResult($name, [], ResultState::Failed, 'Nothing answers.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable);
+        $dead = new ComponentSnapshot(Component::Mysql, [
+            'mysql' => $unreachable('mysql'),
+            'mysql.variables' => $unreachable('mysql.variables'),
+            'mysql.sizes' => $unreachable('mysql.sizes'),
+            'mysql.slow_queries' => $unreachable('mysql.slow_queries'),
+        ]);
+        $denied = new ComponentSnapshot(Component::Mysql, [
+            ...$dead->results,
+            'mysql.slow_queries' => new CollectorResult('mysql.slow_queries', [], ResultState::Failed, 'Access denied.', expiresAt: Snapshots::NOW + 3_600, failure: FailureKind::MissingPrerequisite),
+        ]);
+        $answering = self::snapshot(results: [$unreachable('mysql.sizes')]);
+
+        self::assertSame([], (new MysqlDetail())->sections(self::connection($dead), [], Snapshots::NOW));
+        self::assertSame([['notice', 'warn', 'The slowest queries could not be read', 'Access denied.']], self::describe((new MysqlDetail())->sections(self::connection($denied), [], Snapshots::NOW)));
+        self::assertSame(['notice', 'warn', 'The size of the database could not be read', 'Nothing answers.'], self::describe((new MysqlDetail())->sections(self::connection($answering), [], Snapshots::NOW))[5], 'the server answers: only the sizes cannot be read');
     }
 
     public function testWhatIsShownIsEscapedByTheTemplatesNotHere(): void

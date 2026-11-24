@@ -176,7 +176,7 @@ final class MysqlDetail implements DetailInterface
             ]), $mysql->slowQueries),
             noun: 'query',
             pluralNoun: 'queries',
-            note: self::SINCE_START,
+            note: 'the slowest on average ' . self::SINCE_START,
         ));
     }
 

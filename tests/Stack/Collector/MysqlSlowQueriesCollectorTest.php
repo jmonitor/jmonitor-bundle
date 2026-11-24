@@ -77,6 +77,19 @@ final class MysqlSlowQueriesCollectorTest extends TestCase
         self::assertSame(['text' => 'SELECT * FROM `t20` WHERE `id` = ?', 'executions' => 2, 'average_ms' => 20, 'max_ms' => 20, 'total_ms' => 40], $queries[0]);
     }
 
+    public function testAMaximumAboveTheTotalIsUnknown(): void
+    {
+        $database = self::database([
+            DatabasePayloads::digest('SELECT * FROM `order` WHERE `id` = ?', 800, 4, 18_446_743_000, 3_200),
+            DatabasePayloads::digest('SELECT * FROM `product`', 1, 900, 900, 900),
+        ]);
+
+        $queries = (new MysqlSlowQueriesCollector(new DbalLink(static fn() => $database), 'shop'))->collect()['queries'];
+
+        self::assertSame([null, 900], array_column($queries, 'max_ms'));
+        self::assertSame([3_200, 900], array_column($queries, 'total_ms'));
+    }
+
     public function testADeniedReadIsAMissingPrerequisiteThatNamesTheTable(): void
     {
         $denied = new ConnectionException(new class ("SELECT command denied to user 'jmonitor'@'10.0.0.7' for table 'events_statements_summary_by_digest'", '42000', 1142) extends AbstractException {}, null);

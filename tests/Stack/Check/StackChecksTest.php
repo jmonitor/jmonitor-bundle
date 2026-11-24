@@ -805,6 +805,31 @@ final class StackChecksTest extends TestCase
         self::assertSame(Verdict::Healthy, $otherFailures->verdict(Component::Mysql));
     }
 
+    public function testAnUnreachableServerSaysItOnce(): void
+    {
+        $unreachable = static fn(string $name, array $data = [], ResultState $state = ResultState::Failed): CollectorResult => new CollectorResult($name, $data, $state, 'Nothing answers.', $state === ResultState::Stale ? Snapshots::NOW - 120 : null, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable);
+        $denied = 'The database user of this connection may not read performance_schema.events_statements_summary_by_digest.';
+        $dead = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Mysql, [
+            'mysql' => $unreachable('mysql'),
+            'mysql.variables' => $unreachable('mysql.variables'),
+            'mysql.sizes' => $unreachable('mysql.sizes'),
+            'mysql.slow_queries' => $unreachable('mysql.slow_queries'),
+        ])));
+        $outdated = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Mysql, [
+            'mysql' => $unreachable('mysql', DatabasePayloads::mysqlStatus(), ResultState::Stale),
+            'mysql.sizes' => $unreachable('mysql.sizes'),
+            'mysql.slow_queries' => new CollectorResult('mysql.slow_queries', [], ResultState::Failed, $denied, expiresAt: Snapshots::NOW + 3_600, failure: FailureKind::MissingPrerequisite),
+        ])));
+
+        self::assertSame(['mysql.failed'], array_map(static fn(Finding $finding): string => $finding->id, $dead->findings));
+        self::assertSame(Severity::Critical, self::find($dead, 'mysql.failed')?->severity);
+        self::assertSame(Verdict::Critical, $dead->verdict(Component::Mysql));
+
+        self::assertSame(Severity::Critical, self::find($outdated, 'mysql.failed')?->severity);
+        self::assertNull(self::find($outdated, 'mysql.sizes.failed'));
+        self::assertSame(Severity::Info, self::find($outdated, 'mysql.slow_queries.failed')?->severity, 'a refusal is not said by the main collector');
+    }
+
     public function testASlowDetailReadDoesNotSayTheServerIsDown(): void
     {
         $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Mysql, [
