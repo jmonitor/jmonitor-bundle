@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
 use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
 use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
 use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
+use Jmonitor\JmonitorBundle\Stack\Collector\UnreachableServerException;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
@@ -480,6 +481,46 @@ final class LocalStackReaderTest extends TestCase
         $reader->component(Component::Php, 'pool-10', ReadMode::Page);
 
         self::assertSame(2, $collectors[9]->collects);
+    }
+
+    public function testRefreshingTheStackForgetsEveryConnectionNotOnlyThoseTheOverviewReads(): void
+    {
+        $servers = ['main' => 'db1:3306', 'reports' => 'db1:3306'];
+        foreach (range(2, 10) as $i) {
+            $servers['c' . $i] = 'db' . $i . ':3306';
+        }
+        $mains = [];
+        $sizes = [];
+        $instances = [];
+        foreach ($servers as $name => $server) {
+            $mains[$name] = new FakeCollector('mysql', ['connection' => $name], collectFailure: $name === 'c10' ? new UnreachableServerException('Connection refused') : null);
+            $sizes[$name] = new FakeCollector('mysql.sizes', ['database' => $name]);
+            $instances[] = Instance::found(Component::Mysql, new CollectorSet(Component::Mysql, [
+                self::spec($mains[$name]),
+                new CollectorSpec($sizes[$name], Lifetime::Static, CostClass::Slow, detailOnly: true),
+            ]), $name, $name, new Server($server, $server));
+        }
+        $registry = Detectors::registry(['mysql' => new StaticDetector(Component::Mysql, Detection::instances($instances))], self::settings(['mysql' => 'auto']));
+        $reader = $this->reader($registry);
+        $this->warm();
+        $reader->component(Component::Mysql, 'reports', ReadMode::Fragment);
+        $reader->component(Component::Mysql, 'c10', ReadMode::Fragment);
+        $reader->component(Component::Mysql, 'reports', ReadMode::Fragment);
+        $reader->component(Component::Mysql, 'c10', ReadMode::Fragment);
+
+        self::assertSame([1, 1], [$sizes['reports']->collects, $mains['c10']->collects]);
+
+        self::assertTrue($reader->refresh());
+
+        $reports = $reader->component(Component::Mysql, 'reports', ReadMode::Fragment)->component(Component::Mysql);
+        $reader->component(Component::Mysql, 'c10', ReadMode::Fragment);
+
+        self::assertSame([2, 2], [$sizes['reports']->collects, $mains['c10']->collects]);
+        self::assertSame(['database' => 'reports'], $reports?->instances[1]->snapshot?->data('mysql.sizes'));
+
+        $reader->overview(ReadMode::Fragment);
+
+        self::assertSame([1, 0, 0], [$mains['c8']->collects, $mains['c9']->collects, $sizes['c8']->collects]);
     }
 
     public function testARefreshKeepsEndOfLife(): void

@@ -131,7 +131,7 @@ final readonly class LocalStackReader implements StackReaderInterface
                 return false;
             }
 
-            $instances = $component === null ? self::overviewInstances($this->statuses()) : $this->registry->instancesFor($component);
+            $instances = array_merge(...array_map($this->registry->instancesFor(...), $component === null ? Component::cases() : [$component]));
 
             if ($this->queues !== null && ($component === null || $component === Component::Symfony)) {
                 $instances[] = $this->queues->instance();
