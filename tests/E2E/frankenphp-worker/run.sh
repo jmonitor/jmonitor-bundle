@@ -334,6 +334,47 @@ for _ in $(seq 1 30); do
 done
 [ "$readable" = 1 ] || fail "the PostgreSQL cards were not read again within 30 s of a refresh, once the server was back: $postgresql"
 
+# A paused server accepts the connection and never answers: opening it waits as long as the time limit of PHP.
+$COMPOSE pause postgres >/dev/null 2>&1 || fail "the PostgreSQL server could not be paused"
+sleep 11
+timed '/jmonitor/stack?rest=1'
+faster_than 40 || fail "the Stack screen took $took s with a frozen PostgreSQL server"
+echo "the Stack screen with a frozen PostgreSQL server: $took s"
+for connection in pg_main pg_reports; do
+    postgresql="$(card "$page" "postgresql.$connection")"
+    printf '%s\n' "$postgresql" | grep -q 'data-jm-verdict="bad"' || fail "the PostgreSQL card of $connection is not critical with a frozen server: $postgresql"
+    printf '%s\n' "$postgresql" | grep -q '>Critical<' || fail "the PostgreSQL card of $connection does not say Critical with a frozen server: $postgresql"
+done
+before="$(read_at "$(card "$page" postgresql.pg_main)")"
+timed '/jmonitor/stack?rest=1'
+faster_than 1 || fail "the display after a frozen PostgreSQL server took $took s"
+echo "the next display: $took s"
+for connection in pg_main pg_reports; do
+    printf '%s\n' "$(card "$page" "postgresql.$connection")" | grep -q 'data-jm-verdict="bad"' || fail "the PostgreSQL card of $connection is no longer critical on the next display"
+done
+if printf '%s\n' "$page" | grep -q 'data-jm-reading'; then
+    fail "the Stack screen is still reading on the display after a frozen PostgreSQL server"
+fi
+
+$COMPOSE unpause postgres >/dev/null 2>&1 || fail "the PostgreSQL server could not be unpaused"
+status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' --data 'action=refresh' "$BASE/jmonitor/_action/stack")"
+[ "$status" = 303 ] || fail "POST /jmonitor/_action/stack answered $status instead of 303"
+readable=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
+    readable=1
+    for connection in pg_main pg_reports; do
+        postgresql="$(card "$page" "postgresql.$connection")"
+        after="$(read_at "$postgresql")"
+        if [ -z "$after" ] || [ "$after" -le "$before" ] || printf '%s\n' "$postgresql" | grep -Eq 'data-jm-verdict="(bad|unknown)"'; then
+            readable=0
+        fi
+    done
+    [ "$readable" = 1 ] && break
+    sleep 1
+done
+[ "$readable" = 1 ] || fail "the PostgreSQL cards were not read again within 30 s of a refresh, once the frozen server answered again: $postgresql"
+
 hit /jmonitor/messages 200
 counted=0
 for _ in $(seq 1 30); do
@@ -460,4 +501,4 @@ if printf '%s\n' "$page" | grep -q '(unmatched)'; then
     fail "the Requests screen lists the probe of an address of the application"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
