@@ -90,6 +90,14 @@ final class ErrorMessageTest extends TestCase
         yield 'the client address of a denied user' => ["SQLSTATE[HY000] [1045] Access denied for user 'jmonitor'@'172.22.0.1' (using password: YES)", '172.22.0.1', 'Access denied for user … (using password: YES)'];
         yield 'the account denied a database' => ["SQLSTATE[HY000] [1044] Access denied for user 'jmonitor'@'%' to database 'mysql'", 'jmonitor', "Access denied for user … to database 'mysql'"];
         yield 'the account denied a table' => ["SQLSTATE[42000]: Syntax error or access violation: 1142 SELECT command denied to user 'jmonitor'@'172.22.0.1' for table 'events_statements_summary_by_digest'", 'jmonitor', "SELECT command denied to user … for table 'events_statements_summary_by_digest'"];
+        yield 'a space in an unquoted url' => ['mysql://jmonitor:Zq sp4ce@127.0.0.1/db cannot be parsed', 'sp4ce', 'mysql://127.0.0.1/db cannot be parsed'];
+        yield 'the user of an unquoted url with a space' => ['mysql://jmonitor:Zq sp4ce@127.0.0.1/db cannot be parsed', 'jmonitor', 'mysql://127.0.0.1/db cannot be parsed'];
+        yield 'a tab in an unquoted url' => ["The DSN mysql://jmonitor:Zq\tt4b@127.0.0.1/db is wrong", 't4b', 'The DSN mysql://127.0.0.1/db is wrong'];
+        yield 'a space and a slash in an unquoted url' => ['mysql://jmonitor:Zq /sl4sh@127.0.0.1/db', 'sl4sh', 'mysql://127.0.0.1/db'];
+        yield 'an escaped quote in a quoted password' => ["connection failed: host=db password='a\\'b t4il' dbname=app", 't4il', 'host=db password=… dbname=app'];
+        yield 'a doubled quote in a quoted password' => ["connection failed: host=db password='it''s s3cret' dbname=app", 's3cret', 'host=db password=… dbname=app'];
+        yield 'an escaped quote in a double-quoted password' => ['bad parameters: password="a\\"b t4il" host=db', 't4il', 'password=… host=db'];
+        yield 'a quoted password cut short' => ["connection failed: host=db password='my s3cr", 's3cr', 'host=db password=…'];
         yield 'the account of a PostgreSQL user' => ['SQLSTATE[08006] [7] connection to server at "127.0.0.1", port 5432 failed: FATAL:  password authentication failed for user "jmonitor"', 'jmonitor', 'password authentication failed for user …'];
     }
 
@@ -110,6 +118,11 @@ final class ErrorMessageTest extends TestCase
         yield 'a refused connection' => ['connection to server at "127.0.0.1", port 36999 failed: Connection refused'];
         yield 'an unknown database' => ["SQLSTATE[HY000] [1049] Unknown database 'app'"];
         yield 'a missing file' => ['SQLSTATE[HY000] [2002] No such file or directory'];
+        yield 'a port, then an e-mail address' => ['Nothing answered at http://localhost:8080 after 2 s, tell ops@example.com'];
+        yield 'a port and a path, then an e-mail address' => ['Nothing answered at http://localhost:2019/metrics after 2 s, tell ops@example.com'];
+        yield 'an IPv6 address, then an e-mail address' => ['Nothing answered at http://[::1]:8080 after 2 s, tell ops@example.com'];
+        yield 'a port and a colon, then an e-mail address' => ['Cannot reach tcp://db:3306: timeout, admin@example.com'];
+        yield 'quoted values that are no secret' => ["host=db dbname='app' sslmode='require'"];
     }
 
     #[DataProvider('ordinaryMessages')]
