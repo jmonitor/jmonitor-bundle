@@ -956,7 +956,7 @@ final class LocalStackReaderTest extends TestCase
         $settings = [];
 
         foreach (Component::cases() as $component) {
-            $settings[$component->value] = ['enabled' => $overrides[$component->value] ?? ($component->isWebServer() || $component === Component::Mysql || $component === Component::Postgresql ? false : 'auto')];
+            $settings[$component->value] = ['enabled' => $overrides[$component->value] ?? ($component->isWebServer() || $component === Component::Mysql || $component === Component::Postgresql || $component === Component::Redis ? false : 'auto')];
         }
 
         return $settings;

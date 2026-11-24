@@ -110,6 +110,15 @@ final class StackScreenTest extends WebTestCase
         static::assertStringContainsString('PostgreSQL: No PostgreSQL Doctrine connection found.', self::notDetected($crawler));
     }
 
+    public function testAnApplicationWithoutRedisSaysWhy(): void
+    {
+        $crawler = $this->client()->request('GET', '/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(0, $crawler->filter('[data-jm-component^="redis"]'));
+        static::assertStringContainsString('Redis: No Redis DSN found: set jmonitor.stack.redis.connections, use Redis for a cache pool or the sessions, or set the REDIS_URL environment variable.', self::notDetected($crawler));
+    }
+
     public function testRecordingOffArrivesOnTheStack(): void
     {
         $client = $this->client(['jmonitor' => ['recording' => ['enabled' => false]]]);

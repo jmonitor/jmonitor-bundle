@@ -15,6 +15,8 @@ use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
@@ -54,8 +56,10 @@ final class StackEngineTest extends WebTestCase
         NginxDetector::class,
         MysqlDetector::class,
         PostgresqlDetector::class,
+        RedisDetector::class,
         DoctrineConnections::class,
         DatabaseInstances::class,
+        RedisDsns::class,
     ];
 
     private string $bufferDir;
@@ -104,7 +108,7 @@ final class StackEngineTest extends WebTestCase
             self::assertFreshValues($component);
         }
         if ($linux) {
-            static::assertSame(['frankenphp', 'apache', 'nginx', 'mysql', 'postgresql'], array_keys($state->notDetected));
+            static::assertSame(['frankenphp', 'apache', 'nginx', 'mysql', 'postgresql', 'redis'], array_keys($state->notDetected));
         }
     }
 
@@ -125,6 +129,7 @@ final class StackEngineTest extends WebTestCase
                 'nginx' => 'Nginx is not serving this page.',
                 'mysql' => 'No MySQL Doctrine connection found.',
                 'postgresql' => 'No PostgreSQL Doctrine connection found.',
+                'redis' => 'No Redis DSN found: set jmonitor.stack.redis.connections, use Redis for a cache pool or the sessions, or set the REDIS_URL environment variable.',
             ],
             array_diff_key($state->notDetected, [Component::System->value => true]),
         );

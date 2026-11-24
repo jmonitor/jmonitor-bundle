@@ -67,6 +67,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
             Component::Nginx => 'The Nginx server answering this page, read live',
             Component::Mysql => 'A MySQL or MariaDB server of the application, read live',
             Component::Postgresql => 'A PostgreSQL database of the application, read live',
+            Component::Redis => 'A Redis or Valkey server of the application, read live',
         };
     }
 

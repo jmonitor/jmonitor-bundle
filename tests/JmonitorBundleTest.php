@@ -60,6 +60,8 @@ use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
@@ -1487,7 +1489,7 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->getParameter('jmonitor.stack.end_of_life'));
         static::assertTrue($container->getParameter('jmonitor.stack.symfony.flex'));
         static::assertSame(
-            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto'], 'postgresql' => ['enabled' => 'auto']],
+            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto'], 'postgresql' => ['enabled' => 'auto'], 'redis' => ['enabled' => 'auto']],
             $container->getParameter('jmonitor.stack.components'),
         );
         static::assertTrue($container->hasDefinition('jmonitor.stack.cache'));
@@ -1529,7 +1531,7 @@ class JmonitorBundleTest extends TestCase
      */
     public static function stackComponentProvider(): iterable
     {
-        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto'], 'postgresql' => ['enabled' => 'auto']];
+        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto'], 'postgresql' => ['enabled' => 'auto'], 'redis' => ['enabled' => 'auto']];
 
         yield 'system: false' => [['system' => false], array_replace($auto, ['system' => ['enabled' => false]]), true];
         yield 'php: true' => [['php' => true], array_replace($auto, ['php' => ['enabled' => true]]), true];
@@ -1679,6 +1681,71 @@ class JmonitorBundleTest extends TestCase
         $this->loadBundle(['stack' => ['exclude_connections' => ['*_backup'], 'postgresql' => ['connections' => ['default', 'legacy_backup']]]]);
     }
 
+    public function testRedisHasItsSwitchAndItsConnections(): void
+    {
+        $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+        $off = $this->loadBundle(['stack' => ['redis' => false]], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+        $set = $this->loadBundle(['stack' => ['redis' => ['enabled' => true, 'connections' => [
+            'main' => 'redis://cache.internal:6379',
+            'sessions' => ['dsn' => 'redis://sessions.internal:6379/1'],
+            'escaped' => 'redis://:p%40ss@cache.internal',
+        ]]]], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        $redis = static fn(ContainerBuilder $container): mixed => ((array) $container->getParameter('jmonitor.stack.components'))['redis'] ?? null;
+
+        static::assertSame(['enabled' => 'auto'], $redis($default));
+        static::assertSame([], $default->getDefinition(RedisDsns::class)->getArgument(1));
+        static::assertSame(['enabled' => false], $redis($off));
+        static::assertSame(['enabled' => true], $redis($set));
+        static::assertSame(
+            ['main' => 'redis://cache.internal:6379', 'sessions' => 'redis://sessions.internal:6379/1', 'escaped' => 'redis://:p%%40ss@cache.internal'],
+            $set->getDefinition(RedisDsns::class)->getArgument(1),
+        );
+        static::assertSame([['index' => 'redis']], $default->getDefinition(RedisDetector::class)->getTag('jmonitor.stack.detector'));
+        static::assertSame([RedisDsns::class], array_map(strval(...), $default->getDefinition(RedisDetector::class)->getArguments()));
+        static::assertSame([['method' => 'reset']], $default->getDefinition(RedisDsns::class)->getTag('kernel.reset'));
+    }
+
+    public function testARedisConnectionWithoutIdIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('Each Redis connection needs an id.');
+
+        $this->loadBundle(['stack' => ['redis' => ['connections' => ['redis://cache.internal']]]]);
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function invalidRedisDsns(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'empty, long form' => [['dsn' => '']];
+        yield 'null' => [null];
+        yield 'missing' => [[]];
+        yield 'not a string' => [['dsn' => 5]];
+    }
+
+    #[DataProvider('invalidRedisDsns')]
+    public function testAnEmptyRedisDsnIsRefused(mixed $connection): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.redis.connections.main');
+
+        $this->loadBundle(['stack' => ['redis' => ['connections' => ['main' => $connection]]]]);
+    }
+
+    public function testNoRedisDsnBecomesAParameter(): void
+    {
+        $container = $this->loadBundle(['stack' => ['redis' => ['connections' => ['main' => 'redis://jm-user:jm-secret@jm-host.internal:6390']]]], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+
+        $parameters = serialize($container->getParameterBag()->all());
+
+        static::assertStringNotContainsString('jm-secret', $parameters);
+        static::assertStringNotContainsString('jm-host', $parameters);
+        static::assertStringNotContainsString('jm-user', $parameters);
+    }
+
     public function testIgnoredChecksAreAListOfIdentifiers(): void
     {
         $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
@@ -1747,7 +1814,7 @@ class JmonitorBundleTest extends TestCase
         $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
 
         $detectors = $container->findTaggedServiceIds('jmonitor.stack.detector');
-        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, MysqlDetector::class, PostgresqlDetector::class], array_keys($detectors));
+        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, MysqlDetector::class, PostgresqlDetector::class, RedisDetector::class], array_keys($detectors));
         static::assertSame([['index' => 'system']], $detectors[SystemDetector::class]);
         static::assertSame([['index' => 'php']], $detectors[PhpDetector::class]);
         static::assertSame([['index' => 'symfony']], $detectors[SymfonyDetector::class]);
@@ -1756,6 +1823,7 @@ class JmonitorBundleTest extends TestCase
         static::assertSame([['index' => 'nginx']], $detectors[NginxDetector::class]);
         static::assertSame([['index' => 'mysql']], $detectors[MysqlDetector::class]);
         static::assertSame([['index' => 'postgresql']], $detectors[PostgresqlDetector::class]);
+        static::assertSame([['index' => 'redis']], $detectors[RedisDetector::class]);
 
         $registry = $container->getDefinition(ComponentRegistry::class);
         static::assertFalse($registry->isPublic());

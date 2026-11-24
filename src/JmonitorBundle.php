@@ -9,8 +9,10 @@ use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\EasyAdminTemplatesPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\HttpClientPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StackConnectionsPass;
+use Jmonitor\JmonitorBundle\DependencyInjection\StackRedisPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Jmonitor\JmonitorBundle\EasyAdmin\Requirements;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
@@ -31,6 +33,9 @@ final class JmonitorBundle extends AbstractBundle
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new EasyAdminTemplatesPass());
         $container->addCompilerPass(new StackConnectionsPass());
+        // Before the removal: a default provider of FrameworkBundle is still there, but only an alias reaches it, and a
+        // connection that one service uses is not inlined into it yet.
+        $container->addCompilerPass(new StackRedisPass(), PassConfig::TYPE_BEFORE_REMOVING);
         // After the CacheCollectorPass of debug mode: the profiler keeps tracing the pools from inside the wrappers.
         $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
     }
@@ -124,6 +129,7 @@ final class JmonitorBundle extends AbstractBundle
             'nginx' => ['enabled' => $config['stack']['nginx']['enabled']],
             'mysql' => ['enabled' => $config['stack']['mysql']['enabled']],
             'postgresql' => ['enabled' => $config['stack']['postgresql']['enabled']],
+            'redis' => ['enabled' => $config['stack']['redis']['enabled']],
         ]);
         $builder->setParameter('jmonitor.stack.frankenphp.endpoint', $config['stack']['frankenphp']['endpoint']);
         $builder->setParameter('jmonitor.stack.apache.endpoint', $config['stack']['apache']['endpoint']);
@@ -141,6 +147,11 @@ final class JmonitorBundle extends AbstractBundle
 
         if ($stackEnabled) {
             $container->import('../config/stack.php');
+
+            $builder->getDefinition(RedisDsns::class)->replaceArgument(1, array_map(
+                static fn(array $connection): mixed => $builder->getParameterBag()->escapeValue($connection['dsn']),
+                $config['stack']['redis']['connections'],
+            ));
         }
 
         if (!$config['project_api_key']) {
@@ -528,6 +539,42 @@ final class JmonitorBundle extends AbstractBundle
                                     ->validate()
                                         ->ifTrue(static fn(mixed $schema): bool => !\is_string($schema))
                                         ->thenInvalid('The "schema" option takes the name of a schema.')
+                                    ->end()
+                                ->end()
+                            ->end()
+                        ->end()
+                        ->arrayNode('redis')
+                            ->info('Read the Redis and Valkey servers of the application.')
+                            ->addDefaultsIfNotSet()
+                            ->beforeNormalization()
+                                ->ifTrue(static fn(mixed $v): bool => \is_string($v) || \is_bool($v))
+                                ->then(static fn(string|bool $v): array => ['enabled' => $v])
+                            ->end()
+                            ->children()
+                                ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
+                                ->arrayNode('connections')
+                                    ->info('DSN of the servers to read, each under an id; those of the cache, of the sessions or REDIS_URL when empty.')
+                                    ->normalizeKeys(false)
+                                    ->useAttributeAsKey('id')
+                                    ->beforeNormalization()
+                                        ->ifTrue(static fn(mixed $v): bool => \is_array($v) && $v !== [] && array_is_list($v))
+                                        ->then(static fn(): never => throw new InvalidConfigurationException('Each Redis connection needs an id.'))
+                                    ->end()
+                                    ->arrayPrototype()
+                                        ->beforeNormalization()
+                                            ->ifString()
+                                            ->then(static fn(string $dsn): array => ['dsn' => $dsn])
+                                        ->end()
+                                        ->children()
+                                            ->scalarNode('dsn')
+                                                ->isRequired()
+                                                ->cannotBeEmpty()
+                                                ->validate()
+                                                    ->ifTrue(static fn(mixed $dsn): bool => !\is_string($dsn))
+                                                    ->thenInvalid('The DSN of a Redis connection is a string.')
+                                                ->end()
+                                            ->end()
+                                        ->end()
                                     ->end()
                                 ->end()
                             ->end()

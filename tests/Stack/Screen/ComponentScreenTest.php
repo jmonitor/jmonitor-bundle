@@ -144,7 +144,7 @@ final class ComponentScreenTest extends TestCase
 
     public function testTheSecondNavigationComesFromTheLastVisit(): void
     {
-        $this->remember(['system' => 'warning', 'php' => 'healthy', 'redis' => 'critical', 'symfony' => 'flaky']);
+        $this->remember(['system' => 'warning', 'php' => 'healthy', 'memcached' => 'critical', 'symfony' => 'flaky']);
         $php = Snapshots::php();
         $php['display_errors'] = '1';
         $state = self::stack(Snapshots::of(Component::Php, ['php' => $php]));

@@ -19,6 +19,8 @@ use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
@@ -131,12 +133,20 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ])
         ->tag('jmonitor.stack.detector', ['index' => Component::Postgresql->value]);
 
+    $services->set(RedisDetector::class)
+        ->args([service(RedisDsns::class)])
+        ->tag('jmonitor.stack.detector', ['index' => Component::Redis->value]);
+
     $services->set(DoctrineConnections::class)
         ->args([service_locator([]), [], null])
         ->tag('kernel.reset', ['method' => 'reset']);
 
     $services->set(DatabaseInstances::class)
         ->args([service(DoctrineConnections::class), service('service_container'), [], param('jmonitor.stack.exclude_connections')]);
+
+    $services->set(RedisDsns::class)
+        ->args([service_locator([]), [], []])
+        ->tag('kernel.reset', ['method' => 'reset']);
 
     if ($builder->getParameter('jmonitor.stack.symfony.messenger') && interface_exists(MessageCountAwareInterface::class)) {
         $services->set(QueuesCommand::class)

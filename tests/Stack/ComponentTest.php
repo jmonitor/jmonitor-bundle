@@ -12,7 +12,7 @@ final class ComponentTest extends TestCase
     public function testTheWebServersComeAfterSymfony(): void
     {
         self::assertSame(
-            ['system', 'php', 'symfony', 'frankenphp', 'apache', 'nginx', 'mysql', 'postgresql'],
+            ['system', 'php', 'symfony', 'frankenphp', 'apache', 'nginx', 'mysql', 'postgresql', 'redis'],
             array_map(static fn(Component $component): string => $component->value, Component::cases()),
         );
     }
@@ -42,6 +42,19 @@ final class ComponentTest extends TestCase
         self::assertFalse(Component::Postgresql->isNodeLocal());
     }
 
+    public function testRedisComesLast(): void
+    {
+        $cases = Component::cases();
+
+        self::assertSame(Component::Redis, end($cases));
+        self::assertSame(Component::Redis, $cases[array_search(Component::Postgresql, $cases, true) + 1]);
+        self::assertSame('redis', Component::Redis->value);
+        self::assertSame('Redis', Component::Redis->label());
+        self::assertFalse(Component::Redis->isWebServer());
+        self::assertFalse(Component::Redis->isNodeLocal());
+        self::assertFalse(Component::Redis->groupsByServer());
+    }
+
     public function testLabels(): void
     {
         self::assertSame('Server', Component::System->label());
@@ -66,10 +79,10 @@ final class ComponentTest extends TestCase
         }
     }
 
-    public function testTheDatabasesAreTheOnlyComponentsNotReadOnTheWebServer(): void
+    public function testTheRemoteServersAreTheOnlyComponentsNotReadOnTheWebServer(): void
     {
         foreach (Component::cases() as $component) {
-            self::assertSame(!\in_array($component, [Component::Mysql, Component::Postgresql], true), $component->isNodeLocal(), $component->value);
+            self::assertSame(!\in_array($component, [Component::Mysql, Component::Postgresql, Component::Redis], true), $component->isNodeLocal(), $component->value);
         }
     }
 }

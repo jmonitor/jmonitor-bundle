@@ -117,6 +117,7 @@ final class CardBuilder
             Component::Nginx => self::nginx(NginxReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Mysql => self::mysql(MysqlReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Postgresql => self::postgresql(PostgresqlReading::of($snapshot, $this->clock->now()), $snapshot, $main),
+            Component::Redis => [null, [], null, null],
         };
     }
 
