@@ -75,8 +75,8 @@ final readonly class SnapshotProvider
             }
         }
 
-        /** @var array<string, CollectorResult> $ofServers by result key */
-        $ofServers = [];
+        /** @var array<string, CollectorResult> $reused by result key */
+        $reused = [];
 
         foreach (CostClass::cases() as $cost) {
             foreach ($reads as $read) {
@@ -88,15 +88,15 @@ final readonly class SnapshotProvider
                     $key = $this->keys->result($read->instance, $spec);
                     $hold = $read->heldBy($spec);
 
-                    if (isset($ofServers[$key])) {
-                        $result = $ofServers[$key];
+                    if (isset($reused[$key])) {
+                        $result = $reused[$key];
                     } elseif ($hold !== null) {
                         $result = $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $hold);
                     } else {
                         $result = $this->collectOrLeave($read, $spec, $budget, $cache, $guard, $now);
 
-                        if ($spec->perServer && $result->state === ResultState::Fresh) {
-                            $ofServers[$key] = $result;
+                        if (self::reusable($spec, $result)) {
+                            $reused[$key] = $result;
                         }
                     }
 
@@ -400,6 +400,19 @@ final readonly class SnapshotProvider
             $failure->until ?? $value->collectedAt + $spec->lifetime->seconds(),
             $failure?->kind,
         );
+    }
+
+    /**
+     * Within a read, what the other instances take from the first one: a value of the server, and a shared result
+     * even failed, since it is the same for all of them.
+     */
+    private static function reusable(CollectorSpec $spec, CollectorResult $result): bool
+    {
+        return match (true) {
+            $spec->shared => $result->state === ResultState::Fresh || $result->state === ResultState::Failed,
+            $spec->perServer => $result->state === ResultState::Fresh,
+            default => false,
+        };
     }
 
     /**

@@ -29,6 +29,8 @@ final class InstanceRead
 
     private ?StoredFailure $hold = null;
 
+    private ?StoredFailure $detailHold = null;
+
     /**
      * @param list<CollectorSpec>               $specs
      * @param array<string, CacheItemInterface> $items     keyed by cache key, none without a working cache
@@ -60,7 +62,8 @@ final class InstanceRead
 
     /**
      * While a collector of a remote instance keeps the failure of a server that could not be reached, the other
-     * collectors of the instance do not ask it again, until the latest of these failures expires.
+     * collectors of the instance do not ask it again, until the latest of these failures expires. A collector only
+     * read for the detail may fail on a query longer than the others: it only holds the collectors of the detail.
      */
     public function holdOn(CollectorSpec $spec, StoredFailure $failure): void
     {
@@ -68,8 +71,10 @@ final class InstanceRead
             return;
         }
 
-        if ($failure->until > ($this->hold->until ?? \PHP_INT_MIN)) {
-            $this->hold = $failure;
+        if ($spec->detailOnly) {
+            $this->detailHold = self::latest($this->detailHold, $failure);
+        } else {
+            $this->hold = self::latest($this->hold, $failure);
         }
     }
 
@@ -78,7 +83,11 @@ final class InstanceRead
      */
     public function heldBy(CollectorSpec $spec): ?StoredFailure
     {
-        return $spec->shared ? null : $this->hold;
+        return match (true) {
+            $spec->shared => null,
+            $spec->detailOnly => self::latest($this->hold, $this->detailHold),
+            default => $this->hold,
+        };
     }
 
     /**
@@ -95,5 +104,10 @@ final class InstanceRead
         }
 
         return $results;
+    }
+
+    private static function latest(?StoredFailure $held, ?StoredFailure $failure): ?StoredFailure
+    {
+        return $failure !== null && $failure->until > ($held->until ?? \PHP_INT_MIN) ? $failure : $held;
     }
 }

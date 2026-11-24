@@ -805,6 +805,19 @@ final class StackChecksTest extends TestCase
         self::assertSame(Verdict::Healthy, $otherFailures->verdict(Component::Mysql));
     }
 
+    public function testASlowDetailReadDoesNotSayTheServerIsDown(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Mysql, [
+            'mysql' => new CollectorResult('mysql', DatabasePayloads::mysqlStatus(), ResultState::Fresh, collectedAt: Snapshots::NOW, expiresAt: Snapshots::NOW + 10),
+            'mysql.variables' => new CollectorResult('mysql.variables', DatabasePayloads::mysqlVariables(), ResultState::Fresh, collectedAt: Snapshots::NOW, expiresAt: Snapshots::NOW + 3_600),
+            'mysql.sizes' => new CollectorResult('mysql.sizes', [], ResultState::Failed, 'Read timed out.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ])));
+
+        self::assertNull(self::find($health, 'mysql.failed'));
+        self::assertSame(Severity::Info, self::find($health, 'mysql.sizes.failed')?->severity);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Mysql));
+    }
+
     public function testTheSupportOfMysqlAndMariadbIsJudged(): void
     {
         $mysql = static fn(string $version, array $eol): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Mysql, [

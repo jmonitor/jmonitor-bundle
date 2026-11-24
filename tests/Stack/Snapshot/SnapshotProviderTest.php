@@ -182,7 +182,7 @@ final class SnapshotProviderTest extends TestCase
         self::assertArrayNotHasKey('jmonitor.stack.collecting.%node.web-1.symfony.queues', $this->recording->ttls);
 
         $this->recording->save($this->recording->getItem($witness)->set('token of web-1'));
-        $this->recording->deleteItem('jmonitor.stack.result.symfony.queues.queues');
+        $this->recording->deleteItem('jmonitor.stack.result.symfony.%shared.queues');
         $busy = $this->read($this->provider('web-2'), $instance);
 
         self::assertSame(1, $queues->collects, 'one count behind a load balancer');
@@ -893,6 +893,31 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame($held->result('mysql')?->expiresAt, $held->result('mysql.variables')->expiresAt);
     }
 
+    public function testAFailedDetailCollectorDoesNotHoldTheMainCollector(): void
+    {
+        $status = new FakeCollector('mysql', ['Uptime' => 5]);
+        $sizes = new FakeCollector('mysql.sizes', collectFailure: new UnreachableServerException('Read timed out'));
+        $slowQueries = new FakeCollector('mysql.slow_queries', ['queries' => []]);
+        $instance = self::instance([
+            self::spec($status, cost: CostClass::Network),
+            self::spec($sizes, cost: CostClass::Network, detailOnly: true),
+            self::spec($slowQueries, cost: CostClass::Slow, detailOnly: true),
+        ], 'default', Component::Mysql);
+        $provider = $this->provider();
+        $this->read($provider, $instance, detail: true);
+        $this->clock->sleep(11);
+
+        $detail = $this->read($provider, $instance, detail: true);
+
+        self::assertSame([2, 1, 0], [$status->collects, $sizes->collects, $slowQueries->collects]);
+        self::assertSame(ResultState::Fresh, $detail->result('mysql')?->state);
+        self::assertNull($detail->result('mysql')->failure);
+        self::assertNull($detail->result('mysql')->error);
+        self::assertSame(FailureKind::Unreachable, $detail->result('mysql.sizes')?->failure);
+        self::assertSame(ResultState::Failed, $detail->result('mysql.slow_queries')?->state, 'another collector of the detail is still held');
+        self::assertSame(FailureKind::Unreachable, $detail->result('mysql.slow_queries')->failure);
+    }
+
     public function testAConnectionThatCannotBeOpenedHoldsNeitherShowsForTheOtherConnectionsOfItsServer(): void
     {
         $server = new Server('db.internal:3306', 'db.internal:3306');
@@ -1101,7 +1126,60 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(1, $endOfLife->collects);
         self::assertSame(2, $php->collects);
         self::assertSame(ResultState::Fresh, $snapshot->result('eol.php')?->state);
-        self::assertArrayHasKey('jmonitor.stack.result.php.eol.php', $this->recording->ttls);
+        self::assertArrayHasKey('jmonitor.stack.result.php.%shared.eol.php', $this->recording->ttls);
+    }
+
+    public function testASharedValueIsReadOnceForEveryInstanceOfItsComponent(): void
+    {
+        $endOfLife = [new FakeCollector('eol.mysql', ['cycles' => []]), new FakeCollector('eol.mysql', ['cycles' => []])];
+        $instances = [
+            self::instance([self::spec(new FakeCollector('mysql', ['Uptime' => 5])), self::spec($endOfLife[0], Lifetime::Day, CostClass::Slow, shared: true)], 'main', Component::Mysql),
+            self::instance([self::spec(new FakeCollector('mysql', ['Uptime' => 5])), self::spec($endOfLife[1], Lifetime::Day, CostClass::Slow, shared: true)], 'reporting', Component::Mysql),
+        ];
+
+        $snapshots = $this->provider()->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+        $this->clock->sleep(1);
+        $later = $this->read($this->provider(), self::instance([self::spec($third = new FakeCollector('eol.mysql', ['cycles' => []]), Lifetime::Day, CostClass::Slow, shared: true)], 'legacy', Component::Mysql));
+
+        self::assertSame(1, $endOfLife[0]->collects + $endOfLife[1]->collects + $third->collects);
+        foreach ($snapshots as $key => $snapshot) {
+            self::assertSame(ResultState::Fresh, $snapshot->result('eol.mysql')?->state, $key);
+            self::assertSame(['cycles' => []], $snapshot->data('eol.mysql'), $key);
+        }
+        self::assertSame(ResultState::Fresh, $later->result('eol.mysql')?->state);
+        self::assertArrayHasKey('jmonitor.stack.result.mysql.%shared.eol.mysql', $this->recording->ttls);
+    }
+
+    public function testAConnectionNamedLikeASharedCollectorSharesNoKeyWithIt(): void
+    {
+        $instance = static fn(FakeCollector $status, FakeCollector $endOfLife): Instance => self::instance([
+            self::spec($status),
+            self::spec($endOfLife, Lifetime::Day, CostClass::Slow, shared: true),
+        ], 'eol', Component::Mysql);
+
+        $failingStatus = new FakeCollector('mysql', collectFailure: new \RuntimeException('Status failed'));
+        $answeringEndOfLife = new FakeCollector('eol.mysql', ['cycles' => []]);
+        $provider = $this->provider();
+        $this->read($provider, $instance($failingStatus, $answeringEndOfLife));
+        $this->clock->sleep(1);
+        $snapshot = $this->read($provider, $instance($failingStatus, $answeringEndOfLife));
+
+        self::assertSame(ResultState::Fresh, $snapshot->result('eol.mysql')?->state);
+        self::assertNull($snapshot->result('eol.mysql')->error);
+        self::assertSame(['cycles' => []], $snapshot->data('eol.mysql'));
+        self::assertSame('Status failed', $snapshot->result('mysql')?->error);
+
+        $answeringStatus = new FakeCollector('mysql', ['Uptime' => 5]);
+        $failingEndOfLife = new FakeCollector('eol.mysql', collectFailure: new \RuntimeException('Lookup failed'));
+        $provider = $this->provider(cache: new CountingCachePool(new RecordingCachePool()));
+        $this->read($provider, $instance($answeringStatus, $failingEndOfLife));
+        $this->clock->sleep(1);
+        $snapshot = $this->read($provider, $instance($answeringStatus, $failingEndOfLife));
+
+        self::assertSame(ResultState::Fresh, $snapshot->result('mysql')?->state);
+        self::assertNull($snapshot->result('mysql')->error);
+        self::assertSame(['Uptime' => 5], $snapshot->data('mysql'));
+        self::assertSame('Lookup failed', $snapshot->result('eol.mysql')?->error);
     }
 
     public function testImmediateCollectorsOfEveryInstanceRunBeforeAnyNetworkOne(): void

@@ -33,7 +33,8 @@ final readonly class CacheKeys
 
     /**
      * Also names the rate reference of the collector. A value of the server is named after the server, under
-     * an unencoded "%server" segment that cannot collide with an encoded id.
+     * an unencoded "%server" segment that cannot collide with an encoded id. A shared value is the same for every
+     * instance of its component and every web server, under an unencoded "%shared" segment.
      */
     public function suffix(Instance $instance, CollectorSpec $spec): string
     {
@@ -75,7 +76,11 @@ final readonly class CacheKeys
 
     private function name(Instance $instance, CollectorSpec $spec, bool $ofServer): string
     {
-        return ($spec->shared ? '' : $this->nodePrefix($instance)) . self::owner($instance, $ofServer) . '.' . $spec->name;
+        if ($spec->shared) {
+            return $instance->component->value . '.%shared.' . $spec->name;
+        }
+
+        return $this->nodePrefix($instance) . self::owner($instance, $ofServer) . '.' . $spec->name;
     }
 
     private static function owner(Instance $instance, bool $ofServer): string
