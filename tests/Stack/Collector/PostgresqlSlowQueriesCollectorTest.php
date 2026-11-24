@@ -27,7 +27,7 @@ final class PostgresqlSlowQueriesCollectorTest extends TestCase
 
         self::assertSame(['queries' => [
             ['text' => 'SELECT * FROM "order" WHERE status = $1', 'executions' => 120, 'average_ms' => 300, 'max_ms' => 1201, 'total_ms' => 36055],
-        ]], $collector->collect());
+        ], 'hidden' => 0], $collector->collect());
         self::assertSame('postgresql.slow_queries', $collector->getName());
         self::assertSame(1, $collector->getVersion());
         self::assertStringContainsString('calls >= 1', $database->queries[0]);
@@ -56,11 +56,69 @@ final class PostgresqlSlowQueriesCollectorTest extends TestCase
 
         self::assertSame([
             'select * from account where id = $1',
-            "  \n WITH recent AS (SELECT * FROM \"order\" WHERE created_at > \$1) SELECT count(*) FROM recent",
+            'WITH recent AS (SELECT * FROM "order" WHERE created_at > $1) SELECT count(*) FROM recent',
             'INSERT INTO "order" (id, status) VALUES ($1, $2)',
             'UPDATE "order" SET status = $1 WHERE id = $2',
             'DELETE FROM session WHERE expires_at < $1',
         ], array_column($queries, 'text'));
+    }
+
+    public function testAStatementKeptWithItsValuesHasThemReplaced(): void
+    {
+        $database = self::database([DatabasePayloads::statement("SELECT pg_sleep(10), 'jm-literal' AS v", 1, 10_000)]);
+
+        $queries = (new PostgresqlSlowQueriesCollector(new DbalLink(static fn() => $database)))->collect()['queries'];
+
+        self::assertSame(['SELECT pg_sleep(?), ? AS v'], array_column($queries, 'text'));
+    }
+
+    public function testACommentIsNotKept(): void
+    {
+        $database = self::database([DatabasePayloads::statement('SELECT pg_sleep($1) /* api_key=jm-secret */', 2, 20)]);
+
+        $queries = (new PostgresqlSlowQueriesCollector(new DbalLink(static fn() => $database)))->collect()['queries'];
+
+        self::assertSame(['SELECT pg_sleep($1)'], array_column($queries, 'text'));
+    }
+
+    public function testAStatementThatCannotBeReadIsLeftOut(): void
+    {
+        $database = self::database([
+            DatabasePayloads::statement("SELECT * FROM account WHERE note = 'jm-cut in the middle of a lit", 1, 900),
+            DatabasePayloads::statement('SELECT * FROM product WHERE id = $1', 40, 12),
+        ]);
+
+        $queries = (new PostgresqlSlowQueriesCollector(new DbalLink(static fn() => $database)))->collect()['queries'];
+
+        self::assertSame(['SELECT * FROM product WHERE id = $1'], array_column($queries, 'text'));
+    }
+
+    public function testThePlaceholdersOfANormalizedStatementStay(): void
+    {
+        $database = self::database([DatabasePayloads::statement('SELECT * FROM "order" WHERE customer_id = $1 AND status = $2 LIMIT $3', 3, 40)]);
+
+        $queries = (new PostgresqlSlowQueriesCollector(new DbalLink(static fn() => $database)))->collect()['queries'];
+
+        self::assertSame(['SELECT * FROM "order" WHERE customer_id = $1 AND status = $2 LIMIT $3'], array_column($queries, 'text'));
+    }
+
+    public function testTheStatementsHiddenFromTheRoleAreCounted(): void
+    {
+        $rows = [
+            DatabasePayloads::statement('<insufficient privilege>', 4, 900),
+            DatabasePayloads::statement('SELECT * FROM product WHERE id = $1', 40, 800),
+            DatabasePayloads::statement('<insufficient privilege>', 4, 700),
+        ];
+        for ($i = 20; $i > 0; --$i) {
+            $rows[] = DatabasePayloads::statement('SELECT * FROM t' . $i . ' WHERE id = $1', 2, $i);
+        }
+        $rows[] = DatabasePayloads::statement('<insufficient privilege>', 1, 0.5);
+
+        $slowQueries = (new PostgresqlSlowQueriesCollector(new DbalLink(static fn() => self::database($rows))))->collect();
+
+        self::assertSame(3, $slowQueries['hidden']);
+        self::assertCount(10, $slowQueries['queries']);
+        self::assertSame('SELECT * FROM product WHERE id = $1', $slowQueries['queries'][0]['text']);
     }
 
     public function testItsOwnQueriesAreLeftOut(): void

@@ -6,11 +6,14 @@ namespace Jmonitor\JmonitorBundle\Stack\Collector;
 
 use Jmonitor\Collector\CollectorInterface;
 use Jmonitor\Collector\Postgresql\PostgresqlSlowQueriesCollector as LibraryCollector;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlDialect;
+use Jmonitor\JmonitorBundle\Recording\Sql\SqlNormalizer;
 use Jmonitor\Utils\DatabaseAdapter\DatabaseAdapterInterface;
 
 /**
  * The statements of one database that take the longest on average, as pg_stat_statements keeps them.
- * It only replaces the values of the statements that read or write rows: any other one may carry a password.
+ * Only the statements that read or write rows are kept, and their text is normalized again: pg_stat_statements
+ * keeps the comments, and the values of a statement whose entry was evicted while it ran.
  */
 final readonly class PostgresqlSlowQueriesCollector implements CollectorInterface
 {
@@ -21,10 +24,7 @@ final readonly class PostgresqlSlowQueriesCollector implements CollectorInterfac
 
     private const HIDDEN = '<insufficient privilege>';
 
-    /**
-     * The queries of the collectors of the stack, which would otherwise rank among the slowest:
-     * the text kept is cut, so the one of the blocked sessions is told by its column names.
-     */
+    /** The queries of the collectors of the stack; a text cut short may only show the name of a column. */
     private const OWN = ['pg_stat_', 'pg_database_size', 'pg_total_relation_size', 'pg_indexes_size', 'pg_settings', 'pg_blocking_pids', 'blocked_query_sample'];
 
     public function __construct(
@@ -32,7 +32,8 @@ final readonly class PostgresqlSlowQueriesCollector implements CollectorInterfac
     ) {}
 
     /**
-     * @return array{queries: list<array{text: string, executions: int, average_ms: int, max_ms: int, total_ms: int}>}
+     * @return array{queries: list<array{text: string, executions: int, average_ms: int, max_ms: int, total_ms: int}>, hidden: int}
+     *               hidden: the statements of other roles among those read, whose text this role may not see
      *
      * @throws UnreachableServerException
      * @throws MissingPrerequisiteException pg_stat_statements is not installed, or the role may not read it
@@ -48,26 +49,31 @@ final readonly class PostgresqlSlowQueriesCollector implements CollectorInterfac
         }
 
         $queries = [];
+        $hidden = 0;
 
         foreach ($rows as $row) {
-            if (!\is_array($row) || !\is_string($row['query_sample'] ?? null) || !self::isShown($row['query_sample'])) {
+            $text = \is_array($row) && \is_string($row['query_sample'] ?? null) ? $row['query_sample'] : null;
+
+            if ($text !== null && trim($text) === self::HIDDEN) {
+                ++$hidden;
+
+                continue;
+            }
+
+            if ($text === null || \count($queries) === self::KEPT || !self::isShown($text) || ($text = SqlNormalizer::normalize($text, SqlDialect::PostgreSql)) === null) {
                 continue;
             }
 
             $queries[] = [
-                'text' => $row['query_sample'],
+                'text' => $text,
                 'executions' => self::rounded($row['exec_count'] ?? null),
                 'average_ms' => self::rounded($row['avg_time_ms'] ?? null),
                 'max_ms' => self::rounded($row['max_time_ms'] ?? null),
                 'total_ms' => self::rounded($row['total_time_ms'] ?? null),
             ];
-
-            if (\count($queries) === self::KEPT) {
-                break;
-            }
         }
 
-        return ['queries' => $queries];
+        return ['queries' => $queries, 'hidden' => $hidden];
     }
 
     public function getVersion(): int

@@ -19,7 +19,7 @@ final class PostgresqlFailure
 
     /**
      * The UnreachableServerException of the link untouched; a missing pg_stat_statements, or a refused read of $what,
-     * as a missing prerequisite whose message leaves out the server's, which names the role; anything else as it is.
+     * as a missing prerequisite that says what to do; anything else as it is.
      */
     public static function of(\Throwable $e, ?string $what = null): \Throwable
     {

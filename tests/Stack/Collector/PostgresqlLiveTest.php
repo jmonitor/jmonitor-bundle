@@ -64,10 +64,12 @@ final class PostgresqlLiveTest extends TestCase
         $literal = 'jm-literal-' . bin2hex(random_bytes(6));
         $role = 'jm_probe_' . bin2hex(random_bytes(6));
         $secret = 'jm-secret-' . bin2hex(random_bytes(6));
+        $comment = 'jm-comment-' . bin2hex(random_bytes(6));
 
         for ($i = 0; $i < 10; ++$i) {
             $this->connection->fetchAllAssociative('SELECT pg_sleep(' . self::PLAYED_SECONDS . ') AS waited, (SELECT COUNT(*) FROM ' . self::TABLE . " WHERE note = '" . $literal . "') AS notes");
         }
+        $this->connection->fetchAllAssociative('SELECT pg_sleep(' . self::PLAYED_SECONDS . ') AS waited /* api_key=' . $comment . ' */');
         $this->connection->executeStatement('CREATE ROLE ' . $role . " PASSWORD '" . $secret . "'");
         $this->connection->executeStatement('DROP ROLE ' . $role);
 
@@ -83,6 +85,7 @@ final class PostgresqlLiveTest extends TestCase
             self::assertStringNotContainsString($literal, $query['text']);
             self::assertStringNotContainsString($secret, $query['text']);
             self::assertStringNotContainsString($role, $query['text']);
+            self::assertStringNotContainsString($comment, $query['text']);
             self::assertStringNotContainsString('pg_stat_', $query['text']);
         }
     }
