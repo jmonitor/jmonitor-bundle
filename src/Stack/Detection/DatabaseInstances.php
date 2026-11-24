@@ -130,6 +130,7 @@ final readonly class DatabaseInstances
                 return $connection;
             },
             built: static fn(): bool => $id !== null && $container->initialized($id),
+            persistent: $target->persistent,
         );
 
         return Instance::found(

@@ -244,6 +244,47 @@ final class DatabaseInstancesTest extends TestCase
         self::assertTrue($application->isConnected());
     }
 
+    public function testOnlyAConnectionThatIsNotPersistentGetsTheReadTimeout(): void
+    {
+        $initial = ini_get('mysqlnd.net_read_timeout');
+        if ($initial === false) {
+            self::markTestSkipped('mysqlnd is not loaded.');
+        }
+        ini_set('mysqlnd.net_read_timeout', '31');
+
+        try {
+            $container = new Container();
+            $params = [];
+            foreach (['plain' => [], 'persistent' => ['persistent' => true]] as $name => $option) {
+                $container->set('doctrine.dbal.' . $name . '_connection', new FakeDatabase());
+                $params[$name] = static fn(): \ArrayObject => new \ArrayObject($option + self::MYSQL);
+            }
+            $links = [];
+            (new DatabaseInstances(
+                new DoctrineConnections(new ServiceLocator($params), ['plain', 'persistent']),
+                $container,
+                ['plain' => 'doctrine.dbal.plain_connection', 'persistent' => 'doctrine.dbal.persistent_connection'],
+                [],
+            ))->detect(Component::System, 'mysql', 'MySQL', [], static function (ConnectionTarget $target, DbalLink $link) use (&$links): array {
+                $links[$target->name] = $link;
+
+                return [];
+            }, false, 3306);
+
+            $timeouts = [];
+            foreach ($links as $name => $link) {
+                $link->fetchAllAssociative('SELECT 1');
+                $connection = $container->get('doctrine.dbal.' . $name . '_connection');
+                self::assertInstanceOf(FakeDatabase::class, $connection);
+                $timeouts[$name] = $connection->readTimeouts;
+            }
+
+            self::assertSame(['plain' => ['10'], 'persistent' => ['31']], $timeouts);
+        } finally {
+            ini_set('mysqlnd.net_read_timeout', $initial);
+        }
+    }
+
     private static function builder(): ContainerBuilder
     {
         $container = new ContainerBuilder();

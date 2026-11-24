@@ -27,6 +27,12 @@ final class DoctrineConnections implements ResetInterface
 
     private const UNREADABLE = 'The parameters of this connection cannot be read';
 
+    /** What a primary takes from its connection when it does not set it itself. */
+    private const INHERITED = ['driver' => true, 'driverClass' => true, 'driverOptions' => true, 'dbname_suffix' => true];
+
+    /** \PDO::ATTR_PERSISTENT, without requiring PDO */
+    private const PDO_PERSISTENT = 12;
+
     /** @var array<string, ConnectionTarget|\RuntimeException> */
     private array $targets = [];
 
@@ -96,6 +102,7 @@ final class DoctrineConnections implements ResetInterface
         $host = \is_string($params['host'] ?? null) && $params['host'] !== '' ? $params['host'] : null;
         $port = $params['port'] ?? null;
         $socket = $params['unix_socket'] ?? null;
+        $options = $params['driverOptions'] ?? null;
 
         return new ConnectionTarget(
             $name,
@@ -104,6 +111,7 @@ final class DoctrineConnections implements ResetInterface
             \is_int($port) || (\is_string($port) && ctype_digit($port)) ? (int) $port : null,
             $database !== '' ? $database : null,
             \is_string($socket) && $socket !== '' && ($host === null || strtolower($host) === 'localhost') ? $socket : null,
+            !empty($params['persistent']) || (\is_array($options) && !empty($options[self::PDO_PERSISTENT])),
         );
     }
 
@@ -121,7 +129,7 @@ final class DoctrineConnections implements ResetInterface
         $params = $params->getArrayCopy();
 
         if (\is_array($params['primary'] ?? null)) {
-            $params = $params['primary'] + array_intersect_key($params, ['driver' => true, 'driverClass' => true]);
+            $params = $params['primary'] + array_intersect_key($params, self::INHERITED);
         }
 
         if (!isset($params['url'])) {

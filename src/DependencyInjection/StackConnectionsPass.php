@@ -11,6 +11,7 @@ use Symfony\Component\DependencyInjection\Compiler\ServiceLocatorTagPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Exception\OutOfBoundsException;
 use Symfony\Component\DependencyInjection\Reference;
 
 /**
@@ -34,10 +35,20 @@ final class StackConnectionsPass implements CompilerPassInterface
                 continue;
             }
 
+            try {
+                $connectionParams = $container->getDefinition($id)->getArgument(0);
+            } catch (OutOfBoundsException) {
+                continue;
+            }
+
+            if (!\is_array($connectionParams)) {
+                continue;
+            }
+
             $ids[(string) $name] = $id;
 
             $paramsId = 'jmonitor.stack.connection_params.' . $name;
-            $container->setDefinition($paramsId, (new Definition(\ArrayObject::class, [$container->getDefinition($id)->getArgument(0)]))->setPublic(false));
+            $container->setDefinition($paramsId, (new Definition(\ArrayObject::class, [$connectionParams]))->setPublic(false));
             $params[(string) $name] = new Reference($paramsId);
         }
 

@@ -27,16 +27,24 @@ final class DbalLink implements DatabaseAdapterInterface
 
     private bool $opened = false;
 
+    private readonly bool $bounds;
+
     /**
-     * @param \Closure(): Connection $connect
-     * @param int                    $readTimeout seconds a query waits for a server that stopped answering, set while the connection opens
-     * @param ?\Closure(): bool      $built       whether the connection was built before this link asked for it; without it, it was
+     * @param \Closure(): Connection    $connect
+     * @param int                       $readTimeout    seconds a query waits for a server that stopped answering, set while the connection opens
+     * @param ?\Closure(): bool         $built          whether the connection was built before this link asked for it; without it, it was
+     * @param bool                      $persistent     closing it hands it back to the process with the timeout it was opened with: it gets none
+     * @param ?\Closure(string): bool   $functionExists function_exists() without it
      */
     public function __construct(
         private readonly \Closure $connect,
         private readonly int $readTimeout = 10,
         private readonly ?\Closure $built = null,
-    ) {}
+        bool $persistent = false,
+        ?\Closure $functionExists = null,
+    ) {
+        $this->bounds = !$persistent && ($functionExists ?? function_exists(...))('ini_set');
+    }
 
     /**
      * @param array<mixed> $params
@@ -57,13 +65,13 @@ final class DbalLink implements DatabaseAdapterInterface
             throw $this->failure = new UnreachableServerException($e->getMessage(), 0, $e);
         }
 
-        $wasConnected = self::isConnected($connection);
+        $openedByTheApplication = self::isConnected($connection) && !$this->opened;
 
         try {
             try {
                 return $this->run($connection, $query, $params);
             } catch (ConnectionLost $e) {
-                if (!$wasConnected) {
+                if (!$openedByTheApplication) {
                     throw $e;
                 }
 
@@ -132,6 +140,10 @@ final class DbalLink implements DatabaseAdapterInterface
      */
     private function bounded(\Closure $call): mixed
     {
+        if (!$this->bounds) {
+            return $call();
+        }
+
         $previous = ini_set(self::READ_TIMEOUT, (string) $this->readTimeout);
 
         try {

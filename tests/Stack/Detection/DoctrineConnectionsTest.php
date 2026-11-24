@@ -94,6 +94,39 @@ final class DoctrineConnectionsTest extends TestCase
         self::assertSame('shop_test', $connections->target('primary')->database);
     }
 
+    public function testTheSuffixOfTheConnectionIsAddedToTheDatabaseOfItsPrimary(): void
+    {
+        $connections = self::connections([
+            'inherited' => self::DEFAULTS + ['dbname_suffix' => '_test', 'primary' => ['dbname' => 'app', 'host' => 'db']],
+            'own' => self::DEFAULTS + ['dbname_suffix' => '_test', 'primary' => ['dbname' => 'app', 'dbname_suffix' => '_own', 'host' => 'db']],
+        ]);
+
+        self::assertSame('app_test', $connections->target('inherited')->database);
+        self::assertSame('app_own', $connections->target('own')->database);
+    }
+
+    public function testAPersistentConnectionIsTold(): void
+    {
+        $persistent = [\PDO::ATTR_PERSISTENT => true];
+        $connections = self::connections([
+            'option' => ['driverOptions' => $persistent] + self::DEFAULTS,
+            'parameter' => ['persistent' => true] + self::DEFAULTS,
+            'primary option' => self::DEFAULTS + ['primary' => ['host' => 'db', 'driverOptions' => $persistent]],
+            'primary parameter' => self::DEFAULTS + ['primary' => ['host' => 'db', 'persistent' => true]],
+            'option of the connection' => self::DEFAULTS + ['driverOptions' => $persistent, 'primary' => ['host' => 'db']],
+            'off' => ['driverOptions' => [\PDO::ATTR_PERSISTENT => false], 'persistent' => false] + self::DEFAULTS,
+            'other options' => ['driverOptions' => [\PDO::ATTR_TIMEOUT => 5]] + self::DEFAULTS,
+            'plain' => self::DEFAULTS,
+        ]);
+
+        foreach (['option', 'parameter', 'primary option', 'primary parameter', 'option of the connection'] as $name) {
+            self::assertTrue($connections->target($name)->persistent, $name);
+        }
+        foreach (['off', 'other options', 'plain'] as $name) {
+            self::assertFalse($connections->target($name)->persistent, $name);
+        }
+    }
+
     public function testASocketIsOnlyReadWithoutARealHost(): void
     {
         $socket = ['unix_socket' => '/run/mysqld/mysqld.sock'];

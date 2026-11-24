@@ -10,7 +10,8 @@ namespace Jmonitor\JmonitorBundle\Stack\Detection;
 final readonly class ConnectionTarget
 {
     /**
-     * @param ?string $driver "mysql", "postgresql", null for another driver
+     * @param ?string $driver     "mysql", "postgresql", null for another driver
+     * @param bool    $persistent closing it hands it back to the PHP process instead of ending it
      */
     public function __construct(
         public string $name,
@@ -19,6 +20,7 @@ final readonly class ConnectionTarget
         public ?int $port,
         public ?string $database,
         public ?string $socket,
+        public bool $persistent = false,
     ) {}
 
     public function server(int $defaultPort): Server

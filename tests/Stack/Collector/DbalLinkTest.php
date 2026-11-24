@@ -225,6 +225,96 @@ final class DbalLinkTest extends TestCase
         self::assertSame(1, $opening->calls());
     }
 
+    public function testAConnectionTheLinkOpenedIsNotAskedTwiceWhenItIsLost(): void
+    {
+        $connection = new FakeDatabase();
+        $link = self::link($connection);
+        $link->fetchAllAssociative('SELECT 1');
+        $connection->failNext($lost = self::connectionLost());
+
+        $failure = Failures::thrownBy(static fn() => $link->fetchAllAssociative('SELECT SLEEP(5)'));
+
+        self::assertInstanceOf(UnreachableServerException::class, $failure);
+        self::assertSame($lost, $failure->getPrevious());
+        self::assertSame(['SELECT 1', 'SELECT SLEEP(5)'], $connection->queries);
+    }
+
+    public function testAQueryLongerThanTheTimeoutOnAConnectionTheLinkOpenedWaitsOnce(): void
+    {
+        $connection = self::mysql();
+        $link = new DbalLink(static fn(): Connection => $connection, 2);
+        $link->fetchAllAssociative('SELECT 1');
+        $start = microtime(true);
+
+        $failure = Failures::thrownBy(static fn() => $link->fetchAllAssociative('SELECT SLEEP(5)'));
+
+        self::assertInstanceOf(UnreachableServerException::class, $failure);
+        self::assertLessThan(3.0, microtime(true) - $start);
+        $link->release();
+    }
+
+    public function testAPersistentConnectionIsNeverBounded(): void
+    {
+        $initial = ini_get(self::READ_TIMEOUT);
+        if ($initial === false) {
+            self::markTestSkipped('mysqlnd is not loaded.');
+        }
+        ini_set(self::READ_TIMEOUT, '31');
+
+        try {
+            $whileAsked = [];
+            $connection = new FakeDatabase();
+            $link = new DbalLink(static function () use (&$whileAsked, $connection): Connection {
+                $whileAsked[] = ini_get(self::READ_TIMEOUT);
+
+                return $connection;
+            }, 2, static fn(): bool => false, persistent: true);
+            $link->fetchAllAssociative('SELECT 1');
+            $link->release();
+
+            self::assertSame(['31'], $whileAsked);
+            self::assertSame(['31'], $connection->readTimeouts);
+            self::assertSame(1, $connection->closes);
+        } finally {
+            ini_set(self::READ_TIMEOUT, $initial);
+        }
+    }
+
+    public function testAPersistentConnectionTheLinkOpenedLeavesNoTimeoutToTheApplication(): void
+    {
+        $params = ['driverOptions' => [\PDO::ATTR_PERSISTENT => true]] + ConnectionProvider::parse(self::mysqlUrl());
+        $forTheStack = DriverManager::getConnection($params);
+        $link = new DbalLink(static fn(): Connection => $forTheStack, 2, static fn(): bool => false, persistent: true);
+        $link->fetchAllAssociative('SELECT 1');
+        $session = $forTheStack->fetchOne('SELECT CONNECTION_ID()');
+        $link->release();
+
+        $application = DriverManager::getConnection($params);
+
+        self::assertEquals($session, $application->fetchOne('SELECT CONNECTION_ID()'), 'the application takes the same connection back');
+        self::assertEquals(1, $application->fetchOne('SELECT SLEEP(3) + 1'));
+        $application->close();
+    }
+
+    public function testWithoutIniSetTheLinkSetsNoTimeoutAndCarriesOn(): void
+    {
+        $initial = ini_get(self::READ_TIMEOUT);
+        if ($initial === false) {
+            self::markTestSkipped('mysqlnd is not loaded.');
+        }
+        ini_set(self::READ_TIMEOUT, '31');
+
+        try {
+            $connection = new FakeDatabase(['SELECT' => [['one' => 1]]]);
+            $link = new DbalLink(static fn(): Connection => $connection, functionExists: static fn(string $function): bool => $function !== 'ini_set');
+
+            self::assertSame([['one' => 1]], $link->fetchAllAssociative('SELECT 1 AS one'));
+            self::assertSame(['31'], $connection->readTimeouts);
+        } finally {
+            ini_set(self::READ_TIMEOUT, $initial);
+        }
+    }
+
     public function testALostConnectionThatStillSaysConnectedIsClosedAndUnreachable(): void
     {
         $connection = new FakeDatabase(['SHOW' => new \RuntimeException('SQLSTATE[08006] [7] no connection to the server')], connected: true);

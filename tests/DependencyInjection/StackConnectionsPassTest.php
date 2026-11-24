@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\DependencyInjection;
 use Jmonitor\JmonitorBundle\DependencyInjection\StackConnectionsPass;
 use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
 use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\Failures;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
@@ -65,6 +66,32 @@ final class StackConnectionsPassTest extends TestCase
 
         $ids = self::locator($container, $container->getDefinition(DoctrineConnections::class)->getArgument(0));
         self::assertSame([$params], $container->getDefinition($ids['default'])->getArguments());
+    }
+
+    public function testAConnectionDefinedWithoutItsParametersIsLeftUnreadable(): void
+    {
+        $container = self::container([
+            'default' => ['driver' => 'pdo_mysql', 'host' => 'db1.internal'],
+            'bare' => [],
+            'other' => [],
+        ]);
+        $container->setDefinition('doctrine.dbal.bare_connection', (new Definition(\stdClass::class))->setPublic(true));
+        $container->setDefinition('doctrine.dbal.other_connection', (new Definition(\stdClass::class, ['%some.parameter%']))->setPublic(true));
+
+        (new StackConnectionsPass())->process($container);
+
+        $container->getDefinition(DoctrineConnections::class)->setPublic(true);
+        $container->setParameter('some.parameter', 'value');
+        $container->compile();
+        $connections = $container->get(DoctrineConnections::class);
+        self::assertInstanceOf(DoctrineConnections::class, $connections);
+        self::assertSame(['default', 'bare', 'other'], $connections->names());
+        self::assertSame('db1.internal', $connections->target('default')->host);
+        foreach (['bare', 'other'] as $name) {
+            $failure = Failures::thrownBy(static fn() => $connections->target($name));
+            self::assertInstanceOf(\RuntimeException::class, $failure, $name);
+            self::assertSame('The parameters of this connection cannot be read.', $failure->getMessage());
+        }
     }
 
     public function testWithoutDoctrineNothingIsRegistered(): void
