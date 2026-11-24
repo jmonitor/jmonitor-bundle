@@ -41,6 +41,16 @@ final class RedisInfoCollectorTest extends TestCase
         self::assertSame('8.0.1', $server['valkey_version']);
     }
 
+    public function testTheModeOfValkeyIsKeptUnderTheSameKey(): void
+    {
+        $info = RedisPayloads::valkey();
+        unset($info['redis_mode']);
+        $info['server_mode'] = 'cluster';
+
+        self::assertSame('cluster', self::collector($info)->collect()['server']['mode']);
+        self::assertSame('standalone', self::collector(RedisPayloads::info())->collect()['server']['mode']);
+    }
+
     public function testTheConfigOfTheLibraryIsNotKept(): void
     {
         $redis = new FakeRedis(RedisPayloads::info());

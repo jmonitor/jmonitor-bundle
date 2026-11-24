@@ -81,7 +81,7 @@ final class RedisDsns implements ResetInterface
      */
     public function link(string $entry): RedisLink
     {
-        return new RedisLink(fn(): object => ($this->factory)(self::withoutDropped($this->dsn($entry)), self::OPTIONS));
+        return new RedisLink(fn(): object => ($this->factory)(self::opened($this->dsn($entry)), self::OPTIONS));
     }
 
     public function reset(): void
@@ -98,8 +98,12 @@ final class RedisDsns implements ResetInterface
         }
     }
 
-    private static function withoutDropped(string $dsn): string
+    /**
+     * Symfony 6.4 does not know the schemes of Valkey, which only differ from those of Redis by their name.
+     */
+    private static function opened(string $dsn): string
     {
+        $dsn = preg_replace('/^valkey(s?):/', 'redis$1:', $dsn) ?? $dsn;
         [$address, $query] = explode('?', $dsn, 2) + [1 => null];
 
         if ($query === null) {
@@ -108,9 +112,9 @@ final class RedisDsns implements ResetInterface
 
         [$query, $fragment] = explode('#', $query, 2) + [1 => null];
         $kept = array_filter(explode('&', $query), static function (string $pair): bool {
-            $name = strtr(explode('[', urldecode(explode('=', $pair, 2)[0]), 2)[0], '. ', '__');
+            parse_str($pair, $option);
 
-            return !\in_array($name, self::DROPPED, true);
+            return array_intersect(array_map(strval(...), array_keys($option)), self::DROPPED) === [];
         });
 
         return $address . ($kept === [] ? '' : '?' . implode('&', $kept)) . ($fragment === null ? '' : '#' . $fragment);

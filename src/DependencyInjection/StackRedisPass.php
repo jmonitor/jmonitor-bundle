@@ -21,7 +21,7 @@ final class StackRedisPass implements CompilerPassInterface
 {
     private const CONNECTION = '.cache_connection.';
     private const SESSIONS = 'session.abstract_handler';
-    private const ENTRY = 'jmonitor.stack.redis_dsn.';
+    private const ENTRY = '.jmonitor.stack.redis_dsn.';
 
     public function process(ContainerBuilder $container): void
     {

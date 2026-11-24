@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\Failures;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeRedis;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RedisPayloads;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Exception\EnvNotFoundException;
 use Symfony\Component\DependencyInjection\ServiceLocator;
@@ -113,6 +114,44 @@ final class RedisDsnsTest extends TestCase
         $dsns->link('main')->info();
 
         self::assertSame([['redis://:s3cr3t@cache:6380?dbindex=2&ssl[verify_peer]=0#x', ['lazy' => true, 'timeout' => 1, 'read_timeout' => 2]]], $calls);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function optionsWrittenOtherwise(): iterable
+    {
+        yield 'plus sign' => ['redis://cache?+timeout=30&dbindex=2'];
+        yield 'spaces' => ['redis://cache?%20%20lazy=0&dbindex=2'];
+        yield 'null byte' => ['redis://cache?timeout%00=30&dbindex=2'];
+        yield 'lone bracket' => ['redis://cache?read[timeout=0&dbindex=2'];
+        yield 'dot' => ['redis://cache?read.timeout=0&dbindex=2'];
+        yield 'array' => ['redis://cache?timeout[]=30&dbindex=2'];
+        yield 'encoded' => ['redis://cache?%74imeout=30&dbindex=2'];
+        yield 'several' => ['redis://cache?+persistent=1&+read_timeout=0&dbindex=2'];
+    }
+
+    #[DataProvider('optionsWrittenOtherwise')]
+    public function testAnOptionIsDroppedHoweverItIsWritten(string $dsn): void
+    {
+        $calls = [];
+
+        self::dsns(['main' => $dsn], $calls)->link('main')->info();
+
+        self::assertSame('redis://cache?dbindex=2', $calls[0][0] ?? null);
+    }
+
+    public function testValkeyIsOpenedAsRedis(): void
+    {
+        $calls = [];
+        $dsns = self::dsns(['plain' => 'valkey://cache:6390/1', 'tls' => 'valkeys://user:secret@cache', 'redis' => 'redis://valkey:6379'], $calls);
+
+        foreach (['plain', 'tls', 'redis'] as $entry) {
+            $dsns->link($entry)->info();
+        }
+
+        self::assertSame(['redis://cache:6390/1', 'rediss://user:secret@cache', 'redis://valkey:6379'], array_column($calls, 0));
+        self::assertSame('valkey', $dsns->target('plain')->scheme);
     }
 
     public function testADsnWithoutOptionsIsGivenAsItIs(): void

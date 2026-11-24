@@ -287,6 +287,7 @@ final class StackRedisPassTest extends TestCase
         $entries = [];
         foreach ($map as $entry => $closure) {
             self::assertInstanceOf(ServiceClosureArgument::class, $closure);
+            self::assertStringStartsWith('.', (string) $closure->getValues()[0]);
             $definition = $container->getDefinition((string) $closure->getValues()[0]);
             self::assertSame(\ArrayObject::class, $definition->getClass());
             self::assertFalse($definition->isPublic());

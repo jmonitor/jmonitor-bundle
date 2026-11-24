@@ -22,7 +22,7 @@ final readonly class RedisInfoCollector implements CollectorInterface
     public function collect(): array
     {
         $info = $this->link->info();
-        // @phpstan-ignore argument.type (the library only calls info() and config() on its client)
+        // @phpstan-ignore argument.type (a client of our own, which answers INFO with what the link read)
         $kept = (new LibraryCollector(new class ($info) {
             /**
              * @param array<string, mixed> $info
@@ -49,6 +49,7 @@ final readonly class RedisInfoCollector implements CollectorInterface
         }))->collect();
 
         unset($kept['config']);
+        $kept['server']['mode'] ??= $info['server_mode'] ?? null;
         $kept['server']['name'] = $info['server_name'] ?? null;
         $kept['server']['valkey_version'] = $info['valkey_version'] ?? null;
 
