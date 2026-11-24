@@ -38,7 +38,7 @@ final readonly class MysqlDetector implements ComponentDetectorInterface
 
     public function detect(): Detection
     {
-        return $this->instances->detect(Component::Mysql, 'mysql', 'MySQL', $this->connections, $this->collectors(...), byServer: true, defaultPort: 3306);
+        return $this->instances->detect(Component::Mysql, 'mysql', 'MySQL', $this->connections, $this->collectors(...), defaultPort: 3306);
     }
 
     /**

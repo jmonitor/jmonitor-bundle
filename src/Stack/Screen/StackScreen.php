@@ -20,7 +20,6 @@ use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
-use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\DetailInterface;
@@ -172,8 +171,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
         $unread = ['connection' => 0, 'server' => 0];
 
         foreach ($state->components as $component) {
-            $byServer = array_filter($component->instances, static fn(InstanceState $instance): bool => $instance->server !== null) !== [];
-            $unread[$byServer ? 'server' : 'connection'] += $component->unread;
+            $unread[$component->component->groupsByServer() ? 'server' : 'connection'] += $component->unread;
 
             foreach ($component->instances as $instance) {
                 if ($instance->snapshot !== null) {

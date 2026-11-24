@@ -172,7 +172,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
             $this->mark($instance, $health),
         );
 
-        if (array_filter($component->instances, static fn(InstanceState $instance): bool => $instance->server !== null) === []) {
+        if (!$this->component->groupsByServer()) {
             return new InstanceNav([new InstanceNavRow('Connections', array_map(
                 static fn(InstanceState $instance): InstanceNavItem => $item($instance, $instance->detail, $instance === $shown),
                 $component->instances,

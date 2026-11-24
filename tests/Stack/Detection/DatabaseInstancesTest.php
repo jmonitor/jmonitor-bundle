@@ -41,7 +41,7 @@ final class DatabaseInstancesTest extends TestCase
             $options[$target->name] = $given;
 
             return [];
-        }, false, 3306);
+        }, 3306);
 
         self::assertSame(['reporting', 'default'], self::ids($detection));
         self::assertSame('Doctrine connection "reporting" is not a MySQL connection.', $detection->instances[0]->error);
@@ -54,9 +54,9 @@ final class DatabaseInstancesTest extends TestCase
     public function testTheErrorsOfAConfiguredConnection(): void
     {
         $none = (new DatabaseInstances(new DoctrineConnections(new ServiceLocator([]), []), new Container(), [], []))
-            ->detect(Component::System, 'mysql', 'MySQL', ['default' => []], self::noCollector(), false, 3306);
+            ->detect(Component::System, 'mysql', 'MySQL', ['default' => []], self::noCollector(), 3306);
         $instances = self::instances(['default' => self::MYSQL, 'sqlite' => self::SQLITE], ['broken' => static fn(): never => throw new EnvNotFoundException('Environment variable not found: "NOPE_URL".')]);
-        $detection = $instances->detect(Component::System, 'mysql', 'MySQL', ['missing' => [], 'broken' => [], 'sqlite' => []], self::noCollector(), false, 3306);
+        $detection = $instances->detect(Component::System, 'mysql', 'MySQL', ['missing' => [], 'broken' => [], 'sqlite' => []], self::noCollector(), 3306);
 
         self::assertSame(['default'], self::ids($none));
         self::assertSame('No Doctrine DBAL connection is configured.', $none->instances[0]->error);
@@ -75,13 +75,28 @@ final class DatabaseInstancesTest extends TestCase
             'cache' => self::SQLITE,
             'reporting' => ['dbname' => 'reports'] + self::POSTGRESQL,
             '2024' => ['dbname' => 'archive'] + self::MYSQL,
-        ])->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), false, 3306);
+        ])->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), 3306);
 
         self::assertSame(['default', '2024'], self::ids($detection));
         self::assertSame(['shop', 'archive'], array_map(static fn(Instance $instance): ?string => $instance->detail, $detection->instances));
         self::assertTrue($detection->instances[1]->isFound());
         self::assertSame(Component::System, $detection->instances[1]->component);
-        self::assertNull($detection->instances[0]->server);
+        self::assertSame('db.internal:3306', $detection->instances[0]->server?->key);
+    }
+
+    public function testEveryConnectionFoundCarriesItsServer(): void
+    {
+        $instances = self::instances([
+            'default' => ['dbname' => 'shop'] + self::POSTGRESQL,
+            'reporting' => ['dbname' => 'reports', 'port' => 5433] + self::POSTGRESQL,
+            'cache' => self::SQLITE,
+        ]);
+
+        $found = $instances->detect(Component::System, 'postgresql', 'PostgreSQL', [], self::noCollector(), 5432);
+        $configured = $instances->detect(Component::System, 'postgresql', 'PostgreSQL', ['reporting' => [], 'cache' => []], self::noCollector(), 5432);
+
+        self::assertSame(['pg.internal:5432', 'pg.internal:5433'], array_map(static fn(Instance $instance): ?string => $instance->server?->key, $found->instances));
+        self::assertSame(['pg.internal:5433', null], array_map(static fn(Instance $instance): ?string => $instance->server?->key, $configured->instances));
     }
 
     public function testExcludedConnectionsAreNeverRead(): void
@@ -94,15 +109,15 @@ final class DatabaseInstancesTest extends TestCase
         };
         $instances = self::instances(['default' => self::MYSQL, 's001' => self::MYSQL], ['s001_backup' => $excluded, 'legacy' => $excluded], ['*_backup', 'legacy']);
 
-        self::assertSame(['default', 's001'], self::ids($instances->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), false, 3306)));
+        self::assertSame(['default', 's001'], self::ids($instances->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), 3306)));
         self::assertSame(0, $reads);
-        self::assertSame(['default', 's001', 's001_backup', 'legacy'], self::ids(self::instances(['default' => self::MYSQL, 's001' => self::MYSQL], ['s001_backup' => $excluded, 'legacy' => $excluded])->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), false, 3306)));
+        self::assertSame(['default', 's001', 's001_backup', 'legacy'], self::ids(self::instances(['default' => self::MYSQL, 's001' => self::MYSQL], ['s001_backup' => $excluded, 'legacy' => $excluded])->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), 3306)));
     }
 
     public function testAnUnreadableConnectionIsLeftAside(): void
     {
         $detection = self::instances(['default' => self::MYSQL], ['broken' => self::unreadable()])
-            ->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), false, 3306);
+            ->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), 3306);
 
         self::assertSame(['default'], self::ids($detection));
     }
@@ -183,7 +198,7 @@ final class DatabaseInstancesTest extends TestCase
             $given[] = $link;
 
             return [];
-        }, true, 3306);
+        }, 3306);
 
         self::assertTrue($detection->instances[0]->isFound());
         self::assertCount(1, $given);
@@ -208,7 +223,7 @@ final class DatabaseInstancesTest extends TestCase
             $links[] = $link;
 
             return [];
-        }, false, 3306);
+        }, 3306);
 
         $failure = Failures::thrownBy(static fn() => $links[0]->fetchAllAssociative('SELECT 1'));
 
@@ -269,7 +284,7 @@ final class DatabaseInstancesTest extends TestCase
                 $links[$target->name] = $link;
 
                 return [];
-            }, false, 3306);
+            }, 3306);
 
             $timeouts = [];
             foreach ($links as $name => $link) {
@@ -311,7 +326,7 @@ final class DatabaseInstancesTest extends TestCase
             $links[] = $link;
 
             return [];
-        }, false, 3306)->instances[0]->collectors;
+        }, 3306)->instances[0]->collectors;
         self::assertNotNull($set);
 
         $links[0]->fetchAllAssociative('SELECT 1');
@@ -342,7 +357,7 @@ final class DatabaseInstancesTest extends TestCase
      */
     private static function servers(array $params, int $defaultPort = 3306): array
     {
-        $detection = self::instances($params)->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), true, $defaultPort);
+        $detection = self::instances($params)->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), $defaultPort);
 
         return array_map(static function (Instance $instance): array {
             self::assertNotNull($instance->server);
@@ -363,7 +378,7 @@ final class DatabaseInstancesTest extends TestCase
 
     private static function error(DatabaseInstances $instances): ?string
     {
-        $detection = $instances->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), false, 3306);
+        $detection = $instances->detect(Component::System, 'mysql', 'MySQL', [], self::noCollector(), 3306);
         self::assertFalse($detection->isFound());
 
         return $detection->error;

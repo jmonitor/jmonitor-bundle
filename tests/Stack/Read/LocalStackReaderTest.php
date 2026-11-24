@@ -223,6 +223,28 @@ final class LocalStackReaderTest extends TestCase
         self::assertSame(0, $mysql->unread);
     }
 
+    public function testAComponentThatIsNotGroupedShowsEachOfItsConnections(): void
+    {
+        $server = new Server('db1:5432', 'db1:5432');
+        $collectors = [];
+        $instances = [];
+
+        foreach (range(1, 8) as $i) {
+            $collectors[] = $collector = new FakeCollector('symfony', ['connection' => $i]);
+            $instances[] = Instance::found(Component::Symfony, new CollectorSet(Component::Symfony, [self::spec($collector)]), 'c' . $i, 'shop' . $i, $server);
+        }
+
+        $registry = Detectors::registry(['symfony' => new StaticDetector(Component::Symfony, Detection::instances($instances))], self::settings());
+
+        $symfony = $this->reader($registry)->overview(ReadMode::Page)->component(Component::Symfony);
+
+        self::assertNotNull($symfony);
+        self::assertSame(array_fill(0, 8, 1), array_map(static fn(FakeCollector $collector): int => $collector->collects, $collectors));
+        self::assertSame(array_fill(0, 8, 0), array_map(static fn(InstanceState $instance): int => $instance->siblings, $symfony->instances));
+        self::assertSame(array_fill(0, 8, 'db1:5432'), array_map(static fn(InstanceState $instance): ?string => $instance->server?->key, $symfony->instances));
+        self::assertSame(0, $symfony->unread);
+    }
+
     public function testTheNinthServerIsCountedNotRead(): void
     {
         $servers = ['first' => 'db1:3306', 'second' => 'db1:3306'];

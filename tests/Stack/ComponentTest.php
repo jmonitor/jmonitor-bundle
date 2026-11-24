@@ -43,6 +43,13 @@ final class ComponentTest extends TestCase
         self::assertSame([Component::FrankenPhp, Component::Apache, Component::Nginx], $webServers);
     }
 
+    public function testOnlyMysqlIsGroupedByServer(): void
+    {
+        foreach (Component::cases() as $component) {
+            self::assertSame($component === Component::Mysql, $component->groupsByServer(), $component->value);
+        }
+    }
+
     public function testMysqlIsTheOnlyComponentNotReadOnTheWebServer(): void
     {
         foreach (Component::cases() as $component) {
