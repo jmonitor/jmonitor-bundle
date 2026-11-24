@@ -230,6 +230,18 @@ final class DatabasePayloads
     }
 
     /**
+     * What PostgresqlSlowQueriesCollector keeps.
+     *
+     * @return array{queries: list<array{text: string, executions: int, average_ms: int, max_ms: int, total_ms: int}>, hidden: int}
+     */
+    public static function postgresqlSlowQueries(): array
+    {
+        return ['queries' => [
+            ['text' => 'SELECT * FROM customer WHERE email = $1', 'executions' => 120, 'average_ms' => 300, 'max_ms' => 1200, 'total_ms' => 36000],
+        ], 'hidden' => 0];
+    }
+
+    /**
      * A row of pg_stat_statements, as the library selects it.
      *
      * @return array<string, string|int>

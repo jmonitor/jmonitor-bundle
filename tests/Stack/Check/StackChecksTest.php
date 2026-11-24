@@ -905,6 +905,248 @@ final class StackChecksTest extends TestCase
     }
 
     /**
+     * @return iterable<string, array{array<string, array<string, mixed>>, array<string, Delta>, string, ?Severity}>
+     */
+    public static function postgresqlThresholds(): iterable
+    {
+        yield 'connections 79.9 %' => [self::postgresqlConnections(799), [], 'postgresql.connections', null];
+        yield 'connections 80 %' => [self::postgresqlConnections(800), [], 'postgresql.connections', Severity::Warning];
+        yield 'connections 94.9 %' => [self::postgresqlConnections(949), [], 'postgresql.connections', Severity::Warning];
+        yield 'connections 95 %' => [self::postgresqlConnections(950), [], 'postgresql.connections', Severity::Critical];
+
+        yield 'cache hit rate 95 % over 1000 blocks' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 950, 'blks_read' => 50]), 'postgresql.cache_hit_rate', null];
+        yield 'cache hit rate 94.9 % over 1000 blocks' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 949, 'blks_read' => 51]), 'postgresql.cache_hit_rate', Severity::Warning];
+        yield 'cache hit rate 94.9 % over 999 blocks, 99 999 since the reset' => [...self::postgresqlWindow(['blks_hit' => 93_951, 'blks_read' => 5_049], ['blks_hit' => 94_899, 'blks_read' => 5_100]), 'postgresql.cache_hit_rate', null];
+        yield 'cache hit rate 94.9 % over 999 blocks, 100 000 since the reset' => [...self::postgresqlWindow(['blks_hit' => 93_952, 'blks_read' => 5_049], ['blks_hit' => 94_900, 'blks_read' => 5_100]), 'postgresql.cache_hit_rate', Severity::Warning];
+        yield 'cache hit rate 94.9 % without second sample, 99 999 blocks' => [self::postgresqlActivity(['database_stats' => ['blks_hit' => 94_899, 'blks_read' => 5_100]]), [], 'postgresql.cache_hit_rate', null];
+        yield 'cache hit rate 94.9 % without second sample, 100 000 blocks' => [self::postgresqlActivity(['database_stats' => ['blks_hit' => 94_900, 'blks_read' => 5_100]]), [], 'postgresql.cache_hit_rate', Severity::Warning];
+        yield 'cache hit rate 40 % over 500 blocks, 99 % since the reset' => [...self::postgresqlWindow(['blks_hit' => 395_800, 'blks_read' => 3_700], ['blks_hit' => 396_000, 'blks_read' => 4_000]), 'postgresql.cache_hit_rate', null];
+
+        yield 'rollbacks 9.9 % of 1000' => [...self::postgresqlWindow(['xact_commit' => 0, 'xact_rollback' => 0], ['xact_commit' => 901, 'xact_rollback' => 99]), 'postgresql.rollbacks', null];
+        yield 'rollbacks 10 % of 100' => [...self::postgresqlWindow(['xact_commit' => 0, 'xact_rollback' => 0], ['xact_commit' => 90, 'xact_rollback' => 10]), 'postgresql.rollbacks', Severity::Warning];
+        yield 'rollbacks 10 of 99' => [...self::postgresqlWindow(['xact_commit' => 0, 'xact_rollback' => 0], ['xact_commit' => 89, 'xact_rollback' => 10]), 'postgresql.rollbacks', null];
+        yield 'rollbacks 50 % since the reset' => [self::postgresqlActivity(['database_stats' => ['xact_commit' => 100_000, 'xact_rollback' => 100_000]]), [], 'postgresql.rollbacks', null];
+
+        yield 'dead rows 19.9 % of the schema, 19 900 dead' => [self::postgresqlActivity(database: ['dead_tuples' => 19_900, 'live_tuples' => 80_100]), [], 'postgresql.dead_rows', null];
+        yield 'dead rows 20 % of the schema, 10 000 dead' => [self::postgresqlActivity(database: ['dead_tuples' => 10_000, 'live_tuples' => 40_000]), [], 'postgresql.dead_rows', Severity::Warning];
+        yield 'dead rows 20 % of the schema, 9 999 dead' => [self::postgresqlActivity(database: ['dead_tuples' => 9_999, 'live_tuples' => 39_996]), [], 'postgresql.dead_rows', null];
+
+        yield 'idle in a transaction for 299 s' => [self::postgresqlActivity(['sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 299]]), [], 'postgresql.idle_in_transaction', null];
+        yield 'idle in a transaction for 300 s' => [self::postgresqlActivity(['sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 300]]), [], 'postgresql.idle_in_transaction', Severity::Warning];
+
+        yield 'blocked for 29 s' => [self::postgresqlActivity(['sessions' => self::blocked(29)]), [], 'postgresql.blocked_sessions', null];
+        yield 'blocked for 30 s' => [self::postgresqlActivity(['sessions' => self::blocked(30)]), [], 'postgresql.blocked_sessions', Severity::Warning];
+
+        yield 'autovacuum on' => [self::postgresqlActivity(settings: ['autovacuum' => 'on', 'track_counts' => 'on']), [], 'postgresql.autovacuum_off', null];
+        yield 'autovacuum off' => [self::postgresqlActivity(settings: ['autovacuum' => 'off']), [], 'postgresql.autovacuum_off', Severity::Critical];
+        yield 'track_counts off' => [self::postgresqlActivity(settings: ['track_counts' => 'off']), [], 'postgresql.autovacuum_off', Severity::Critical];
+
+        yield 'every state seen' => [self::postgresqlActivity(['connections' => ['active' => 2, 'unknown' => 0]]), [], 'postgresql.limited_role', null];
+        yield 'one state hidden' => [self::postgresqlActivity(['connections' => ['active' => 2, 'unknown' => 1]]), [], 'postgresql.limited_role', Severity::Info];
+
+        yield 'PostgreSQL supported, not ended' => [self::postgresqlActivity(settings: ['server_version' => '17.2']), [], 'postgresql.end_of_life', null];
+        yield 'PostgreSQL ended' => [self::postgresqlActivity(settings: ['server_version' => '13.18']), [], 'postgresql.end_of_life', Severity::Critical];
+        yield 'PostgreSQL supported' => [self::postgresqlActivity(settings: ['server_version' => '17.2']), [], 'postgresql.security_only', null];
+        yield 'PostgreSQL security fixes only' => [self::postgresqlActivity(settings: ['server_version' => '14.15']), [], 'postgresql.security_only', Severity::Warning];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $data
+     * @param array<string, Delta>                $deltas
+     */
+    #[DataProvider('postgresqlThresholds')]
+    public function testEachPostgresqlCheckRisesAtItsThresholdAndNotJustBelow(array $data, array $deltas, string $id, ?Severity $expected): void
+    {
+        $this->testEachCheckRisesAtItsThresholdAndNotJustBelow(Component::Postgresql, $data, $deltas, $id, $expected);
+    }
+
+    public function testAPostgresqlSentenceSaysWhatItCovers(): void
+    {
+        $health = static fn(array $data, array $deltas = []): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, $data, deltas: $deltas)));
+        $connections = $health(self::postgresqlConnections(905));
+        $recent = $health(...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0, 'xact_commit' => 0, 'xact_rollback' => 0], ['blks_hit' => 1_800, 'blks_read' => 200, 'xact_commit' => 170, 'xact_rollback' => 30]));
+        $sinceReset = $health(self::postgresqlActivity(['database_stats' => ['blks_hit' => 180_000, 'blks_read' => 20_000]]));
+        $deadRows = $health(self::postgresqlActivity(database: ['dead_tuples' => 30_000, 'live_tuples' => 70_000]));
+        $idle = $health(self::postgresqlActivity(['sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 342]]));
+        $idleMany = $health(self::postgresqlActivity(['sessions' => ['idle_in_transaction_count' => 3, 'oldest_idle_in_transaction_seconds' => 342]]));
+        $blocked = $health(self::postgresqlActivity(['sessions' => self::blocked(45)]));
+        $blockedMany = $health(self::postgresqlActivity(['sessions' => ['blocked_count' => 2, 'blocked_queries' => [
+            ['blocked_pid' => 4242, 'wait_seconds' => 45, 'blocking_pid' => 4100, 'blocking_state' => 'active'],
+            ['blocked_pid' => 4243, 'wait_seconds' => 90, 'blocking_pid' => 4100, 'blocking_state' => 'active'],
+        ]]]));
+        $autovacuum = $health(self::postgresqlActivity(settings: ['autovacuum' => 'off']));
+        $trackCounts = $health(self::postgresqlActivity(settings: ['track_counts' => 'off']));
+        $both = $health(self::postgresqlActivity(settings: ['autovacuum' => 'off', 'track_counts' => 'off']));
+        $limited = $health(self::postgresqlActivity(['connections' => ['active' => 1, 'unknown' => 4]]));
+        $limitedOne = $health(self::postgresqlActivity(['connections' => ['active' => 1, 'unknown' => 1]]));
+        $ended = $health(self::postgresqlActivity(settings: ['server_version' => '13.18 (Debian 13.18-1.pgdg120+1)']));
+        $securityOnly = $health(self::postgresqlActivity(settings: ['server_version' => '14.15']));
+
+        self::assertSame("The PostgreSQL server holds 90.5\u{00A0}% of its connections (905 of 1000)", self::find($connections, 'postgresql.connections')?->sentence);
+        self::assertStringContainsString('max_connections', self::find($connections, 'postgresql.connections')->explanation);
+        self::assertSame("The cache hit rate is 90\u{00A0}% over the last 60\u{00A0}s", self::find($recent, 'postgresql.cache_hit_rate')?->sentence);
+        self::assertSame("The cache hit rate is 90\u{00A0}% since the statistics were reset", self::find($sinceReset, 'postgresql.cache_hit_rate')?->sentence);
+        self::assertStringContainsString('shared_buffers', self::find($recent, 'postgresql.cache_hit_rate')->explanation);
+        self::assertSame("15\u{00A0}% of the transactions were rolled back over the last 60\u{00A0}s", self::find($recent, 'postgresql.rollbacks')?->sentence);
+        self::assertSame("30\u{00A0}% of the rows of the schema public are dead (30000 of 100000)", self::find($deadRows, 'postgresql.dead_rows')?->sentence);
+        self::assertStringContainsString('VACUUM', self::find($deadRows, 'postgresql.dead_rows')->explanation);
+        self::assertSame("A session has been idle in a transaction for 342\u{00A0}s", self::find($idle, 'postgresql.idle_in_transaction')?->sentence);
+        self::assertSame("3 sessions are idle in a transaction, the oldest for 342\u{00A0}s", self::find($idleMany, 'postgresql.idle_in_transaction')?->sentence);
+        self::assertStringContainsString('idle_in_transaction_session_timeout', self::find($idle, 'postgresql.idle_in_transaction')->explanation);
+        self::assertSame("A session has been waiting for a lock for 45\u{00A0}s", self::find($blocked, 'postgresql.blocked_sessions')?->sentence);
+        self::assertSame("2 sessions are waiting for a lock, the longest for 90\u{00A0}s", self::find($blockedMany, 'postgresql.blocked_sessions')?->sentence);
+        self::assertStringContainsString('pg_stat_activity', self::find($blocked, 'postgresql.blocked_sessions')->explanation);
+        self::assertSame('autovacuum is off', self::find($autovacuum, 'postgresql.autovacuum_off')?->sentence);
+        self::assertSame('track_counts is off, which stops autovacuum', self::find($trackCounts, 'postgresql.autovacuum_off')?->sentence);
+        self::assertSame('autovacuum and track_counts are off', self::find($both, 'postgresql.autovacuum_off')?->sentence);
+        self::assertSame('The role of this connection cannot see the state of 4 sessions', self::find($limited, 'postgresql.limited_role')?->sentence);
+        self::assertSame('The role of this connection cannot see the state of 1 session', self::find($limitedOne, 'postgresql.limited_role')?->sentence);
+        self::assertStringContainsString('pg_monitor', self::find($limited, 'postgresql.limited_role')->explanation);
+        self::assertSame('PostgreSQL 13.18 has reached its end of life', self::find($ended, 'postgresql.end_of_life')?->sentence);
+        self::assertSame('PostgreSQL 14.15 only receives security fixes', self::find($securityOnly, 'postgresql.security_only')?->sentence);
+    }
+
+    public function testAHealthyPostgresqlRaisesNothing(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, self::postgresqlActivity())));
+
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Postgresql));
+    }
+
+    public function testAutovacuumOffIsCritical(): void
+    {
+        foreach (['autovacuum', 'track_counts'] as $setting) {
+            $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, self::postgresqlActivity(settings: [$setting => 'off']))));
+
+            self::assertSame(Severity::Critical, self::find($health, 'postgresql.autovacuum_off')?->severity, $setting);
+            self::assertStringContainsString('track_counts', self::find($health, 'postgresql.autovacuum_off')->explanation);
+            self::assertSame(Verdict::Critical, $health->verdict(Component::Postgresql));
+        }
+    }
+
+    public function testALimitedRoleIsToldAndSilencesWhatItCannotSee(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, self::postgresqlActivity([
+            'connections' => ['active' => 1, 'unknown' => 4],
+            'sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 3_600] + self::blocked(600),
+        ]))));
+
+        self::assertSame(['postgresql.limited_role'], array_map(static fn(Finding $finding): string => $finding->id, $health->findings));
+        self::assertSame(Severity::Info, self::find($health, 'postgresql.limited_role')?->severity);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Postgresql));
+    }
+
+    public function testAnUnknownValueRaisesNothing(): void
+    {
+        $data = self::postgresqlActivity(['sessions' => ['blocked_count' => 2, 'max_wait_seconds' => 0, 'blocked_queries' => [
+            ['blocked_pid' => 4242, 'wait_seconds' => null, 'blocking_pid' => 4100, 'blocking_state' => null],
+            ['blocked_pid' => 4243, 'wait_seconds' => null, 'blocking_pid' => 4100, 'blocking_state' => null],
+        ]]]);
+        $data['postgresql']['server_connections'] = null;
+        $data['postgresql']['database_stats']['numbackends'] = 99;
+        $data['postgresql.settings']['max_connections'] = '100';
+
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, $data)));
+
+        self::assertSame([], $health->findings, 'neither the connections of one database nor an unknown wait are judged');
+    }
+
+    public function testAnUnreachablePostgresqlIsCritical(): void
+    {
+        $unreachable = static fn(string $name): CollectorResult => new CollectorResult($name, [], ResultState::Failed, 'Nothing answers on 127.0.0.1:5432.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable);
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Postgresql, [
+            'postgresql' => $unreachable('postgresql'),
+            'postgresql.settings' => $unreachable('postgresql.settings'),
+            'postgresql.database' => $unreachable('postgresql.database'),
+            'postgresql.slow_queries' => $unreachable('postgresql.slow_queries'),
+        ])));
+
+        self::assertSame(['postgresql.failed'], array_map(static fn(Finding $finding): string => $finding->id, $health->findings), 'said once');
+        self::assertSame(Severity::Critical, self::find($health, 'postgresql.failed')?->severity);
+        self::assertSame('PostgreSQL cannot be reached: Nothing answers on 127.0.0.1:5432.', self::find($health, 'postgresql.failed')->sentence);
+        self::assertSame(Verdict::Critical, $health->verdict(Component::Postgresql));
+    }
+
+    public function testAPostgresqlThatAnsweredAnErrorIsAWarning(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Postgresql, [
+            'postgresql' => new CollectorResult('postgresql', [], ResultState::Failed, 'The database "app" does not exist.', expiresAt: Snapshots::NOW + 60, failure: FailureKind::Other),
+        ])));
+
+        self::assertSame(Severity::Warning, self::find($health, 'postgresql.failed')?->severity);
+        self::assertSame(Verdict::Unknown, $health->verdict(Component::Postgresql));
+    }
+
+    public function testTheMissingExtensionIsOnlyInformative(): void
+    {
+        $missing = 'pg_stat_statements is not installed in this database: run CREATE EXTENSION pg_stat_statements.';
+        $data = self::postgresqlActivity();
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Postgresql, [
+            'postgresql' => new CollectorResult('postgresql', $data['postgresql'], ResultState::Fresh, collectedAt: Snapshots::NOW, expiresAt: Snapshots::NOW + 10),
+            'postgresql.settings' => new CollectorResult('postgresql.settings', $data['postgresql.settings'], ResultState::Fresh, collectedAt: Snapshots::NOW, expiresAt: Snapshots::NOW + 3_600),
+            'postgresql.slow_queries' => new CollectorResult('postgresql.slow_queries', [], ResultState::Failed, $missing, expiresAt: Snapshots::NOW + 300, failure: FailureKind::MissingPrerequisite),
+        ])));
+        $otherFailures = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, ['postgresql' => $data['postgresql']], ['postgresql.settings' => ResultState::Failed, 'postgresql.database' => ResultState::Failed])));
+
+        $finding = self::find($health, 'postgresql.slow_queries.failed');
+        self::assertSame(Severity::Info, $finding?->severity);
+        self::assertSame('The slowest queries could not be read: ' . $missing, $finding->sentence);
+        self::assertCount(1, $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Postgresql));
+
+        self::assertSame(Severity::Info, self::find($otherFailures, 'postgresql.settings.failed')?->severity);
+        self::assertStringStartsWith('The PostgreSQL settings could not be read: ', self::find($otherFailures, 'postgresql.settings.failed')->sentence);
+        self::assertSame(Severity::Info, self::find($otherFailures, 'postgresql.database.failed')?->severity);
+        self::assertStringStartsWith('The tables of the database could not be read: ', self::find($otherFailures, 'postgresql.database.failed')->sentence);
+        self::assertSame(Verdict::Healthy, $otherFailures->verdict(Component::Postgresql));
+    }
+
+    public function testTheSupportOfPostgresqlIsJudged(): void
+    {
+        $postgresql = static fn(string $version, array $eol = []): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, array_replace(
+            self::postgresqlActivity(settings: ['server_version' => $version]),
+            $eol,
+        ))));
+
+        self::assertSame(Severity::Critical, self::find($postgresql('13.18'), 'postgresql.end_of_life')?->severity);
+        self::assertSame(Severity::Warning, self::find($postgresql('14.15'), 'postgresql.security_only')?->severity);
+        self::assertSame([], $postgresql('17.2')->findings);
+        self::assertSame([], $postgresql('13.0.0')->findings, 'CockroachDB has its own cycles');
+        self::assertSame([], $postgresql('13.18', ['eol.postgresql' => []])->findings, 'no cycle read');
+    }
+
+    public function testAnIgnoredPostgresqlCheckIsDroppedBeforeTheVerdict(): void
+    {
+        $full = Snapshots::stack(Snapshots::of(Component::Postgresql, self::postgresqlConnections(960)));
+        $unreachable = Snapshots::stack(new ComponentSnapshot(Component::Postgresql, [
+            'postgresql' => new CollectorResult('postgresql', [], ResultState::Failed, 'Nothing answers.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ]));
+
+        self::assertSame(Verdict::Critical, self::checks()->health($full)->verdict(Component::Postgresql));
+
+        $health = self::checks(['postgresql.connections'])->health($full);
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Postgresql));
+
+        $health = self::checks(['postgresql.failed'])->health($unreachable);
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Unknown, $health->verdict(Component::Postgresql), 'nothing to judge without a value');
+    }
+
+    public function testAnOutdatedPostgresqlValueCarriesItsAge(): void
+    {
+        $data = self::postgresqlConnections(900);
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Postgresql, [
+            'postgresql' => new CollectorResult('postgresql', $data['postgresql'], ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 120, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            'postgresql.settings' => new CollectorResult('postgresql.settings', $data['postgresql.settings'], ResultState::Fresh, collectedAt: Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 3_000),
+        ])));
+
+        self::assertSame(Severity::Critical, self::find($health, 'postgresql.failed')?->severity);
+        self::assertSame(120, self::find($health, 'postgresql.connections')?->age, 'the value shown is still judged');
+    }
+
+    /**
      * @param list<string> $ignored
      */
     private static function checks(array $ignored = [], bool $debug = false): StackChecks
@@ -1100,6 +1342,74 @@ final class StackChecksTest extends TestCase
             ['mysql' => $status, 'mysql.variables' => DatabasePayloads::mysqlVariables()],
             ['mysql' => Snapshots::delta(array_map(strval(...), $previous), $status)],
         ];
+    }
+
+    /**
+     * A PostgreSQL 17 database with nothing to tell, the values given replaced.
+     *
+     * @param array<string, mixed> $activity replacing those of the main collector, recursively
+     * @param array<string, mixed> $settings
+     * @param array<string, mixed> $database replacing the figures of the tables
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private static function postgresqlActivity(array $activity = [], array $settings = [], array $database = []): array
+    {
+        $healthy = DatabasePayloads::postgresqlActivity();
+        $healthy['sessions'] = [
+            'oldest_transaction_seconds' => 2,
+            'idle_in_transaction_count' => 0,
+            'oldest_idle_in_transaction_seconds' => null,
+            'blocked_count' => 0,
+            'max_wait_seconds' => null,
+            'blocked_queries' => [],
+        ];
+        $tables = DatabasePayloads::postgresqlDatabase();
+        $tables['tables'] = array_replace($tables['tables'], $database);
+
+        return [
+            'postgresql' => array_replace_recursive($healthy, $activity),
+            'postgresql.settings' => array_replace(DatabasePayloads::postgresqlSettings(), $settings),
+            'postgresql.database' => $tables,
+            'eol.postgresql' => ['cycles' => [
+                '17' => ['eol' => '2029-11-08', 'support' => '2029-11-08'],
+                '14' => ['eol' => '2026-11-12', 'support' => '2025-11-12'],
+                '13' => ['eol' => '2025-11-13', 'support' => '2025-11-13'],
+            ]],
+        ];
+    }
+
+    /**
+     * @return array<string, array<string, mixed>> a PostgreSQL server that allows 1000 connections
+     */
+    private static function postgresqlConnections(int $connected): array
+    {
+        return self::postgresqlActivity(['server_connections' => $connected], ['max_connections' => '1000']);
+    }
+
+    /**
+     * A PostgreSQL database whose given counters went from $previous to $current between two samples a minute apart.
+     *
+     * @param array<string, int> $previous
+     * @param array<string, int> $current
+     *
+     * @return array{array<string, array<string, mixed>>, array<string, Delta>}
+     */
+    private static function postgresqlWindow(array $previous, array $current): array
+    {
+        $data = self::postgresqlActivity(['database_stats' => $current]);
+
+        return [$data, ['postgresql' => Snapshots::delta(['database_stats' => $previous], $data['postgresql'])]];
+    }
+
+    /**
+     * @return array<string, mixed> the sessions of a database where one session waits for a lock
+     */
+    private static function blocked(int $seconds): array
+    {
+        return ['blocked_count' => 1, 'max_wait_seconds' => $seconds, 'blocked_queries' => [
+            ['blocked_pid' => 4242, 'wait_seconds' => $seconds, 'blocking_pid' => 4100, 'blocking_state' => 'idle in transaction'],
+        ]];
     }
 
     /**

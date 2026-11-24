@@ -15,6 +15,7 @@ use Jmonitor\JmonitorBundle\Stack\Reading\FrankenPhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\MysqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\PostgresqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
@@ -120,7 +121,7 @@ final class StackChecks
                 Component::Apache => self::apache(ApacheReading::of($snapshot, $now), $raise),
                 Component::Nginx => self::nginx(NginxReading::of($snapshot, $now), $snapshot, $raise),
                 Component::Mysql => self::mysql(MysqlReading::of($snapshot, $now), $snapshot, $raise),
-                Component::Postgresql => [],
+                Component::Postgresql => self::postgresql(PostgresqlReading::of($snapshot, $now), $snapshot, $raise),
             },
         ];
     }
@@ -179,7 +180,9 @@ final class StackChecks
                         'frankenphp.version' => 'The FrankenPHP version',
                         'mysql.variables' => 'The MySQL settings',
                         'mysql.sizes' => 'The size of the database',
-                        'mysql.slow_queries' => 'The slowest queries',
+                        'mysql.slow_queries', 'postgresql.slow_queries' => 'The slowest queries',
+                        'postgresql.settings' => 'The PostgreSQL settings',
+                        'postgresql.database' => 'The tables of the database',
                         default => $name,
                     }, $reason),
                     'What it reads is left out of the checks until it can be read.',
@@ -461,6 +464,19 @@ final class StackChecks
         return [
             ...MysqlChecks::of($mysql, $snapshot, $raise),
             ...self::support('mysql', $mysql->product === 'MariaDB' ? 'mariadb' : 'mysql', $mysql->product ?? 'MySQL', $mysql->version, $mysql->support, $raise, 'mysql.variables'),
+        ];
+    }
+
+    /**
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     *
+     * @return list<Finding>
+     */
+    private static function postgresql(PostgresqlReading $postgresql, ComponentSnapshot $snapshot, \Closure $raise): array
+    {
+        return [
+            ...PostgresqlChecks::of($postgresql, $snapshot, $raise),
+            ...self::support('postgresql', 'postgresql', 'PostgreSQL', $postgresql->version, $postgresql->support, $raise, 'postgresql.settings'),
         ];
     }
 
