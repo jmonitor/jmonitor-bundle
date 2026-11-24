@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` Stack screen: the MySQL and MariaDB servers of the Doctrine connections read live, one card per server, with what to check and a detail per connection.
 - `stack` options `mysql` and `exclude_connections`: choose the Doctrine connections the Stack screen reads.
 - Stack screen: a server of the application that cannot be reached raises a `Critical` check.
+- `/jmonitor` Stack screen: the PostgreSQL databases of the Doctrine connections read live, one card per connection, with what to check and a detail.
+- `/jmonitor` Stack screen: the Redis and Valkey servers of the application read live, found in `stack.redis.connections`, the cache, the sessions or `REDIS_URL`.
+- `stack` options `postgresql` and `redis`.
 
 ### Changed
 - Requires PHP 8.2.

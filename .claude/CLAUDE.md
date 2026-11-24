@@ -35,7 +35,7 @@ The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboar
 
 ## Live stack
 
-The engine that reads the server, PHP, Symfony, the web server and the databases on demand, behind a cache:
+The engine that reads the server, PHP, Symfony, the web server, the databases and Redis on demand, behind a cache:
 
 - Its code lives in `src/Stack/` and `config/stack.php`. It shares nothing with `src/Collector/` nor the `jmonitor.collectors` services of the worker.
 - Nothing collects outside a call to `StackReaderInterface`: no event listener or scheduled task. Its only command, `jmonitor:stack:queues`, is only started by a read of the queues.
@@ -59,9 +59,18 @@ The engine that reads the server, PHP, Symfony, the web server and the databases
 - Where a Doctrine connection leads is read by `DoctrineConnections`, from its parameters, never by building the connection.
 - A database collector queries through the `DbalLink` of its instance, which alone asks the container for the connection, and closes it at the end of the read when it opened it.
 - A collector only read on the detail is `detailOnly`; a value shared by the connections of one server is `perServer`.
-- A PHPUnit test only reaches the databases of `tests/compose.yaml`, and skips without `JMONITOR_TEST_MYSQL_URL`, or a closed port of the machine (`127.0.0.1:1`) to play a server that is down.
+- A PHPUnit test only reaches the servers of `tests/compose.yaml`, and skips without its variable (`JMONITOR_TEST_MYSQL_URL`, `JMONITOR_TEST_PGSQL_URL`, `JMONITOR_TEST_REDIS_URL`), or a closed port of the machine (`127.0.0.1:1`) to play a server that is down.
 - A failure keeps its kind (`FailureKind`): an unreachable server, a missing prerequisite or another error are kept and judged apart.
 - A failure is kept with the connection it happened on, a value with its server. While a remote connection cannot be reached, none of its collectors runs but a shared one; when the collector that cannot reach it is only read for the detail, only the collectors of the detail are held.
+- A component says itself whether it is grouped by server (`Component::groupsByServer()`); the server of an instance only says where it leads.
+- A connection that failed on a value of its server reads the server again itself, at the end of its pause and after a `Refresh`, and is healthy again only when its own read succeeds.
+- A server that does not answer makes one connection wait per display: its failure is copied to the other connections of that server read in the same display.
+- A request that PHP stops while it reads leaves a failure and lifts its witnesses.
+- The time limit of the request is only raised by `SnapshotProvider`, around a remote collector, and put back at the end of the read.
+- A Redis server is read through the `RedisLink` of its instance, which opens a connection of its own and only sends `INFO`.
+- Of a Redis DSN, only the scheme, the host, the port and the socket come out (`RedisTarget`).
+- No query text of a session is kept. A PostgreSQL slow query is only kept when it starts with a statement whose values are replaced, and its text goes through `SqlNormalizer`.
+- A PostgreSQL role without privilege is told by the sessions of other roles it cannot read (`hidden_sessions`).
 
 ## CHANGELOG
 

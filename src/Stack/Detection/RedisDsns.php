@@ -99,7 +99,7 @@ final class RedisDsns implements ResetInterface
     }
 
     /**
-     * Symfony 6.4 does not know the schemes of Valkey, which only differ from those of Redis by their name.
+     * A scheme of Valkey is opened as the one of Redis, and the options of DROPPED are left out.
      */
     private static function opened(string $dsn): string
     {

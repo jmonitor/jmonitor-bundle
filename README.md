@@ -261,7 +261,7 @@ The bundle can also record the HTTP requests your application serves, its consol
 - **Cache** (`/jmonitor/cache`): hits, misses, hit rate, writes and deletes, per cache pool.
 - **Exceptions** (`/jmonitor/exceptions`): count and last occurrence per exception class, and per class and route, command, message or task.
 - **Users** (`/jmonitor/users`): requests, total and average time, slow requests and 5xx errors, per signed-in user.
-- **Stack** (`/jmonitor/stack`): the server, PHP, Symfony, the web server (FrankenPHP, Apache or Nginx) and the MySQL or MariaDB servers of your Doctrine connections, read live rather than recorded, with what to check; see [The live stack](#the-live-stack).
+- **Stack** (`/jmonitor/stack`): the server, PHP, Symfony, the web server (FrankenPHP, Apache or Nginx), the MySQL, MariaDB and PostgreSQL databases of your Doctrine connections and your Redis or Valkey servers, read live rather than recorded, with what to check; see [The live stack](#the-live-stack).
 
 A screen only appears when its component is installed and its recording option is on: HTTP client needs the `http_client` service of the framework, Users needs the SecurityBundle, Messages needs `symfony/messenger` and Scheduler needs `symfony/scheduler`, each enabled in the framework configuration. Messages also appears when its recording is off, as long as the queues are counted.
 
@@ -336,6 +336,13 @@ jmonitor:
         mysql:
             enabled: auto
             connections: []      # names of the Doctrine connections to read; all of them when empty
+        postgresql:
+            enabled: auto
+            connections: []      # names of the Doctrine connections to read; all of them when empty
+            schema: public       # schema whose tables are counted and sized
+        redis:
+            enabled: auto
+            connections: {}      # DSN of the servers to read, each under an id; when empty, those of the cache, of the sessions or REDIS_URL
 ```
 
 `recording.enabled` can come from an environment variable, read at runtime, to switch recording off without a new deployment:
@@ -380,17 +387,17 @@ Recording is off by default in the `test` environment. Forcing it on with a test
 
 ### The live stack
 
-The **Stack** screen (`/jmonitor/stack`) tells whether the server, PHP, Symfony, the web server that answers and the MySQL or MariaDB servers of your application are fine right now, and where to look when they are not. Nothing is stored in the database: they are read when the screen is displayed.
+The **Stack** screen (`/jmonitor/stack`) tells whether the server, PHP, Symfony, the web server that answers, and the MySQL, MariaDB, PostgreSQL, Redis and Valkey servers of your application are fine right now, and where to look when they are not. Nothing is stored in the database: they are read when the screen is displayed.
 
 - **To check**: what needs attention, each line with its severity (`Critical`, `Warning` or `Info`), the component it concerns and, under `Why and what to do`, what to change.
-- **One card per component**, with its verdict (`Healthy`, `Warning`, `Critical` or `Unknown`) and its main figures: load, memory and disk for Server; version, OPcache memory and hit rate, and PHP-FPM workers for PHP; version, environment, debug mode and Flex recipes for Symfony; version, busy threads, queue and mode for FrankenPHP; version, busy workers and requests per second for Apache; version, connections and requests per second for Nginx; version, connections, queries per second and buffer pool hit rate for each MySQL or MariaDB server. A version past its end of life, or that only receives security fixes, says so.
-- **One detail per component**, reached from its card or from the second navigation: `/jmonitor/stack/system`, `/jmonitor/stack/php`, `/jmonitor/stack/symfony`, `/jmonitor/stack/frankenphp`, `/jmonitor/stack/apache`, `/jmonitor/stack/nginx` and `/jmonitor/stack/mysql`, with the gauges and settings behind the card (OPcache, APCu, PHP-FPM, bundles, outdated recipes, FrankenPHP workers, Apache scoreboard, Nginx settings, the size and slowest queries of a database…).
+- **One card per component**, with its verdict (`Healthy`, `Warning`, `Critical` or `Unknown`) and its main figures: load, memory and disk for Server; version, OPcache memory and hit rate, and PHP-FPM workers for PHP; version, environment, debug mode and Flex recipes for Symfony; version, busy threads, queue and mode for FrankenPHP; version, busy workers and requests per second for Apache; version, connections and requests per second for Nginx; version, connections, queries per second and buffer pool hit rate for each MySQL or MariaDB server; version, connections of the server, cache hit rate and transactions per second for each PostgreSQL connection; version, memory, hit rate and commands per second for each Redis or Valkey server. A version past its end of life, or that only receives security fixes, says so.
+- **One detail per component**, reached from its card or from the second navigation: `/jmonitor/stack/system`, `/jmonitor/stack/php`, `/jmonitor/stack/symfony`, `/jmonitor/stack/frankenphp`, `/jmonitor/stack/apache`, `/jmonitor/stack/nginx`, `/jmonitor/stack/mysql`, `/jmonitor/stack/postgresql` and `/jmonitor/stack/redis`, with the gauges and settings behind the card (OPcache, APCu, PHP-FPM, bundles, outdated recipes, FrankenPHP workers, Apache scoreboard, Nginx settings, the size and slowest queries of a database, the blocked sessions of PostgreSQL, the persistence and keys of Redis…).
 
 Server is read on Linux only; on another system, the screen says so in place of its card. In a container, the load is the one of the host node, so a high load is only an `Info` there.
 
 The `Stack` entry of the navigation carries the number of critical and warning checks found at the last display of the Stack screen, for 15 minutes. When the application records nothing, because `recording.enabled` is off or there is no Doctrine DBAL connection, the `/jmonitor` page opens on the Stack screen. Under EasyAdmin, the Stack screen shows too.
 
-Nothing is read while nobody looks at it: no listener or scheduled task reads the stack, and the other screens only read the count of their badge from the cache. Its only console command, `jmonitor:stack:queues`, is started by a display of the Messages screen. What is read is kept in the cache for a lifetime of its own, 10 seconds for the figures of the server, PHP, Symfony, the web server and the databases: however many people watch the screen, each web server reads them at most once every 10 seconds, and a database is read at most once every 10 seconds for all your web servers. A value that takes longer to read shows `Reading…` and fills in within a few seconds, or with the `Load the rest` link. `Refresh` forgets what the cache holds and reads it again, the status page of the web server included, apart from the end-of-life dates; on a detail screen it only reads that component. It works at most once every 10 seconds for the same screen: a click within that time changes nothing.
+Nothing is read while nobody looks at it: no listener or scheduled task reads the stack, and the other screens only read the count of their badge from the cache. Its only console command, `jmonitor:stack:queues`, is started by a display of the Messages screen. What is read is kept in the cache for a lifetime of its own, 10 seconds for the figures of the server, PHP, Symfony, the web server, the databases and Redis: however many people watch the screen, each web server reads them at most once every 10 seconds, and a database or a Redis server is read at most once every 10 seconds for all your web servers. A value that takes longer to read shows `Reading…` and fills in within a few seconds, or with the `Load the rest` link. `Refresh` forgets what the cache holds and reads it again, the status page of the web server included, apart from the end-of-life dates; on a detail screen it only reads that component. It works at most once every 10 seconds for the same screen: a click within that time changes nothing.
 
 #### The web server
 
@@ -487,7 +494,81 @@ A connection your application already holds open, as under the worker mode of Fr
 
 After such a wait, none of the readings of that connection is asked again for five times the wait, one minute at least and ten minutes at most, and its card says why. `Refresh`, on the Stack screen or on the detail of any connection, asks every connection again at once.
 
-The wait is for each connection shown. The overview reads one connection per server, so a server that does not answer makes one display wait; the detail of another connection of that server waits once too. A connection that fails for a reason of its own, such as a refused password, does not make the other connections of its server show as failed.
+The wait is for each connection shown. The overview reads one connection per server, so a server that does not answer makes one display wait; the detail of another connection of that server waits once too. A connection that fails for a reason of its own, such as a refused password, does not make the other connections of its server show as failed. It stays `Critical` until it is read again itself, at the end of its pause or after a `Refresh`, even while another connection reads its server.
+
+**The time limit of PHP.** Before it reads a database or a Redis server, the screen raises the time limit of its own request (`max_execution_time`) to 45 seconds when it is shorter, so that a server that keeps it waiting fails on the bound of its connection rather than on the limit of PHP. The former limit is put back at the end of the read. A limit of 0, or of 45 seconds or more, is left as it is, and so is any limit when `set_time_limit` is listed in `disable_functions`. If PHP stops the request anyway while it waits for a server, the next display shows that server `Critical`, with `The server did not answer before PHP stopped the request reading it.`, and does not wait for it again before the end of its pause.
+
+**PostgreSQL.** Every Doctrine DBAL connection whose driver is PostgreSQL (`pdo_pgsql`, `pgsql`, a `driverClass` that extends the PostgreSQL driver of DBAL, or a `postgres://`, `postgresql://` or `pgsql://` URL) is read, found the same way as a MySQL one, without building it. `stack.postgresql.connections` names the connections to read, and `stack.exclude_connections` applies to them too. An application without a PostgreSQL connection has no PostgreSQL card, and the `Not detected` line says `PostgreSQL: No PostgreSQL Doctrine connection found.`
+
+Under DoctrineBundle 3 and DBAL 4, a PostgreSQL connection without `server_version` nor `charset` cannot be opened, by your application or by the screen: its card shows the error of DBAL.
+
+**One card per connection**, since the figures PostgreSQL gives are those of one database: its cache hit rate and transactions per second are those of the database of the connection, while its connections are those of the whole server, every database included. The overview reads up to 8 connections, and says how many more there are. The detail, at `/jmonitor/stack/postgresql?connection=<name>`, shows the connections, traffic and cache of the database, its sessions and the sessions waiting for a lock, the rows and sizes of its tables, the settings of the server and its slowest queries.
+
+| What | How often | Where |
+|---|---|---|
+| The statistics of the database (`pg_stat_database`), its sessions (`pg_stat_activity`) and the connections of the server | at most once every 10 seconds for each connection, shared by all your web servers through the cache | cards and details |
+| The settings of the server (`pg_settings`): version, `max_connections`, `shared_buffers`, `autovacuum`… | once an hour for each connection | cards and details |
+| The rows and sizes of the tables of the schema (`pg_stat_user_tables`), and the size of the database | once a minute for each connection | checks and details |
+| The slowest statements of the database (`pg_stat_statements`) | once a minute for each connection | detail only |
+
+The tables counted are those of one schema, `public` by default, set with `stack.postgresql.schema` for every connection; the size of the database covers all its schemas.
+
+A role without privilege only sees the state of its own sessions. The screen says so, with how many sessions of other roles it cannot see, and leaves out the checks of the transactions left idle and of the sessions waiting for a lock instead of saying that they are fine. Grant the role `pg_monitor` to see everything:
+
+```sql
+GRANT pg_monitor TO app;
+```
+
+The slowest statements need the `pg_stat_statements` extension, loaded by the server and created in the database:
+
+```ini
+# postgresql.conf, then restart the server
+shared_preload_libraries = 'pg_stat_statements'
+```
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+```
+
+Without it, the detail says so and the rest is read as usual. A role sees the text of its own statements only: those of other roles are counted, not shown, unless the role has `pg_read_all_stats` or `pg_monitor`. Only the statements that start with `SELECT`, `INSERT`, `UPDATE`, `DELETE` or `WITH` are shown, the 10 slowest on average: PostgreSQL keeps the text of the others as it was written, a password among them in `CREATE ROLE … PASSWORD`. Each text is read again with the rules of the Queries screen, its comments removed and its values replaced by `?`, and left out when it cannot be read; the statements that only differ by the size of a list are merged. The statements of the screen are left out. Their counts and times add up since the statistics were reset. The text of the queries of the sessions, blocked or blocking, is never kept nor shown.
+
+A connection the screen opened is closed at the end of the read; one your application had already opened is used as it is and left open. PostgreSQL has no bound of its own on the wait for an answer:
+
+- a closed port: nothing, the refusal comes at once;
+- a server that accepts the connection and then stops answering: a display waits up to 30 seconds, once, then shows its connections `Critical`;
+- a connection your application already holds open, as under the worker mode of FrankenPHP once a request has used it: a server that stops answering keeps the display waiting as long as it does not answer, and the worker with it.
+
+A server that keeps a display waiting 2 seconds or more makes the other connections to it, read in the same display, show its failure at once rather than wait in turn. After that, the pause and `Refresh` work as for MySQL.
+
+#### Redis
+
+The Redis and Valkey servers of your application each get a card. They are found without opening a connection, from the first of these that gives one:
+
+1. `stack.redis.connections`, each DSN under an id of yours; an environment variable is accepted, such as `'%env(REDIS_URL)%'`, and a `%` written in a DSN is doubled (`%%`), as in any Symfony parameter;
+2. the DSN of the cache pools on Redis, `cache.app` among them, and of the sessions when `framework.session.handler_id` is a Redis DSN;
+3. the `REDIS_URL` environment variable.
+
+The DSN of Messenger and of the Lock component are not looked for: name such a server under `stack.redis.connections`. Without a server, the `Not detected` line says `Redis: No Redis DSN found: set jmonitor.stack.redis.connections, use Redis for a cache pool or the sessions, or set the REDIS_URL environment variable.`
+
+```yaml
+# config/packages/jmonitor.yaml
+jmonitor:
+    stack:
+        redis:
+            connections:
+                cache: '%env(REDIS_URL)%'
+                queues: 'redis://queues:6379'
+```
+
+**One card per server**, at the host and port, or the socket, of its DSN: two DSN that only differ by their database lead to one card, since `INFO` is the same for every database of a server, but `localhost` and `127.0.0.1` count as two servers. A server found in the application is named after its address; a configured one, after its id. The overview reads up to 8 servers, and says how many more there are. The detail, at `/jmonitor/stack/redis?connection=<id>`, shows the memory and its policy, the clients, the traffic, the evicted keys and refused connections, the persistence (RDB and AOF), the number of keys of each database, and the version, mode, role and uptime of the server.
+
+Only `INFO` is sent, besides the password and the choice of the database the DSN gives, at most once every 10 seconds for each server, shared by all your web servers through the cache. `CONFIG` is never sent, and no key is read. Of a DSN, only the scheme, the host, the port and the socket are kept and shown, never the user nor the password.
+
+Reading Redis needs the `redis` extension or the `predis/predis` package; without them, the card says so. The screen opens a connection of its own, never one of your application: 1 second to connect, 2 seconds for the answer, never persistent, closed at the end of the read. The options of the DSN that would keep it open or let it wait longer (`timeout`, `read_timeout`, `retry_interval`, `persistent`, `persistent_id`, `lazy`, `class`) are left out of it; the others, such as `dbindex` or `ssl`, are kept. A server that does not answer makes one display wait 2 seconds, then shows `Critical`; a host name that the DNS does not answer can make it wait longer, since PHP does not bound the resolution. A user that may not run `INFO`, or may not select the database of the DSN, raises a `Warning` with the reason, not a server that cannot be reached.
+
+Redis Cluster, Sentinel and the DSN with several hosts are not read: configured, the card says so; found in the application, the `Not detected` line says why and asks to name a server under `stack.redis.connections`. So does a found DSN whose password holds a `/`, `?` or `#` that is not encoded. Valkey is recognised, by its schemes `valkey://` and `valkeys://` and by what its server tells, and its support dates are those of Valkey.
+
+When the Redis server also holds `cache.app`, its failure takes down the cache of the stack too: the screen answers at once, says that the live stack needs a working cache, and only shows what PHP reads in its own process until the server is back. Under the worker mode of FrankenPHP, a connection of the `redis` extension that lost its server does not open again: `cache.app`, and the cache of the stack with it, stays out of order until the worker restarts.
 
 #### Configuration
 
@@ -498,7 +579,7 @@ Defaults, all optional:
 jmonitor:
     stack:
         enabled: true            # false: no Stack screen and nothing read; `stack: false` does the same
-        end_of_life: true        # look up the support dates of PHP, Symfony, Apache, Nginx, MySQL and MariaDB on endoflife.date, once a day
+        end_of_life: true        # look up the support dates of PHP, Symfony, Apache, Nginx, MySQL, MariaDB, PostgreSQL, Redis and Valkey on endoflife.date, once a day
         ignore_checks: []        # identifiers of the checks to silence, e.g. ['symfony.flex_recipes']
         exclude_connections: []  # Doctrine connections never read, as fnmatch patterns, e.g. ['*_replica']
         system: auto             # auto: read when found, otherwise the reason shows on the "Not detected" line; true: its card stays, with the reason, when it cannot be read; false: never read
@@ -519,6 +600,13 @@ jmonitor:
         mysql:
             enabled: auto        # same values; `mysql: false` does the same
             connections: []      # names of the Doctrine connections to read, e.g. ['default', 'reports']; all of them when empty
+        postgresql:
+            enabled: auto        # same values; `postgresql: false` does the same
+            connections: []      # names of the Doctrine connections to read; all of them when empty
+            schema: public       # schema whose tables are counted and sized, for every connection
+        redis:
+            enabled: auto        # same values; `redis: false` does the same
+            connections: {}      # DSN of the servers to read, each under an id, e.g. { cache: '%env(REDIS_URL)%' }; when empty, those of the cache, of the sessions or REDIS_URL
 ```
 
 What the stack reads outside the process of PHP, each with its switch under `stack`:
@@ -526,12 +614,14 @@ What the stack reads outside the process of PHP, each with its switch under `sta
 | What | Time limit | How often | Switch |
 |---|---|---|---|
 | The status page of the web server | 2 s | at most once every 10 seconds on each web server | `frankenphp`, `apache`, `nginx` |
-| An HTTPS request to `endoflife.date` for PHP, Symfony, Apache, Nginx, MySQL and MariaDB | 3 s | once a day for each, shared by all your web servers through the cache | `end_of_life` |
+| An HTTPS request to `endoflife.date` for PHP, Symfony, Apache, Nginx, MySQL, MariaDB, PostgreSQL, Redis and Valkey | 3 s | once a day for each, shared by all your web servers through the cache | `end_of_life` |
 | `composer recipes`, in the project directory, when `symfony/flex` is installed | 5 s | once an hour on each web server | `symfony.flex` |
 | `nginx -V`, `nginx -T` and `getconf _NPROCESSORS_ONLN`, when Nginx serves the page | 3 s each | once an hour on each web server | `nginx` |
 | `frankenphp version`, when FrankenPHP serves the page | 3 s | once an hour on each web server | `frankenphp` |
 | The console of your application, `bin/console jmonitor:stack:queues`, when the Messages screen is displayed | 3 s | at most once every 30 seconds, shared by all your web servers through the cache | `symfony.messenger` |
 | The MySQL or MariaDB server of each Doctrine connection, as described in [The databases](#the-databases) | 10 s without an answer; opening a connection to a host that drops the packets, up to 30 s; longer on a connection your application holds open, or a persistent one | its status at most once every 10 seconds, shared by all your web servers through the cache; the rest once a minute to once an hour | `mysql` |
+| The PostgreSQL database of each Doctrine connection, as described in [The databases](#the-databases) | opening a connection, up to 30 s; no bound once it is open | its statistics at most once every 10 seconds, shared by all your web servers through the cache; the rest once a minute to once an hour | `postgresql` |
+| `INFO` on each Redis or Valkey server, as described in [Redis](#redis) | 1 s to connect, 2 s for the answer | at most once every 10 seconds, shared by all your web servers through the cache | `redis` |
 
 A command runs in the environment of PHP, without the headers of the web request (the `HTTP_*` variables), as its user, who must be able to run it. When it cannot, the screen says so: a check on the Stack screen, or a notice in the `Queues` block or in the detail of Nginx. A command that cannot be found is tried again an hour later. Turned off, `end_of_life` shows versions without their support status and skips the end-of-life and security-fixes checks; `symfony.flex` hides the Flex recipes.
 
@@ -539,9 +629,9 @@ None of these delays the first display of the screen: they run when the page rea
 
 `stack` and `stack.enabled` cannot be read from an environment variable: the services of the stack are registered when the container is built.
 
-The values live in the `jmonitor.stack.cache` pool, built on `cache.app` with keys of their own. It shows in `cache:pool:list` and in the Cache panel of the profiler, `cache:pool:clear jmonitor.stack.cache` empties it, and its reads are not counted on the Cache screen. The stack needs a cache that keeps its values from one request to the next: with `cache.app` on the `array` or `null` adapter, or a cache that is down, the screen says so and only shows what PHP reads in its own process, without the end-of-life dates, the Flex recipes or the queues, and `Refresh` does nothing.
+The values live in the `jmonitor.stack.cache` pool, built on `cache.app` with keys of their own. It shows in `cache:pool:list` and in the Cache panel of the profiler, `cache:pool:clear jmonitor.stack.cache` empties it, and its reads are not counted on the Cache screen. The stack needs a cache that keeps its values from one request to the next: with `cache.app` on the `array` or `null` adapter, or a cache that is down, such as a Redis server that cannot be reached, the screen says so and only shows what PHP reads in its own process, without the end-of-life dates, the Flex recipes or the queues, and `Refresh` does nothing.
 
-Each web server keeps its own figures in that cache, under its host name, and the screen names the one that answered. In containers, give each web server its own host name: two containers that share one, through a fixed `hostname` in Compose for instance, mix their values. The badge of the navigation and the figures of the server, PHP, Symfony and the web server are those of the web server that answered, those of the databases are shared by all of them, while the 10-second bound of `Refresh` is shared by all the web servers that share the cache.
+Each web server keeps its own figures in that cache, under its host name, and the screen names the one that answered. In containers, give each web server its own host name: two containers that share one, through a fixed `hostname` in Compose for instance, mix their values. The badge of the navigation and the figures of the server, PHP, Symfony and the web server are those of the web server that answered, those of the databases and of Redis are shared by all of them, while the 10-second bound of `Refresh` is shared by all the web servers that share the cache.
 
 #### Checks
 
@@ -573,15 +663,30 @@ To silence a check, add its identifier to `ignore_checks`: it is no longer shown
 | `mysql.buffer_pool_hit_rate` | the buffer pool hit rate is below 95%, over at least 1,000 reads between two readings, otherwise since the server started once it has run an hour |
 | `mysql.disk_temporary_tables` | 25% or more of the temporary tables were written to disk, over at least 100 tables between two readings, otherwise since the server started once it has run an hour |
 | `mysql.table_lock_waits` | 5% or more of the table locks had to wait, over at least 100 locks between two readings |
-| `php.end_of_life`, `symfony.end_of_life`, `apache.end_of_life`, `nginx.end_of_life`, `mysql.end_of_life` | the version has reached its end of life (`Critical`) |
-| `php.security_only`, `symfony.security_only`, `apache.security_only`, `nginx.security_only`, `mysql.security_only` | the version only receives security fixes |
+| `postgresql.connections` | the server holds 80% of its `max_connections` or more, every database included (`Critical` from 95%) |
+| `postgresql.cache_hit_rate` | the cache hit rate of the database is below 95%, over at least 10,000 blocks between two readings, otherwise over at least 100,000 blocks since the statistics were reset |
+| `postgresql.rollbacks` | 10% or more of the transactions were rolled back, over at least 100 transactions between two readings |
+| `postgresql.dead_rows` | 20% or more of the rows of the schema are dead, and at least 10,000 |
+| `postgresql.idle_in_transaction` | a session has been idle in a transaction for 5 minutes or more; not judged for a role without privilege |
+| `postgresql.blocked_sessions` | a session has been waiting for a lock for 30 seconds or more; not judged for a role without privilege |
+| `postgresql.autovacuum_off` | `autovacuum` or `track_counts` is off (`Critical`) |
+| `postgresql.limited_role` | the role of the connection cannot see the state of the sessions of other roles (`Info`) |
+| `redis.memory` | under the `noeviction` policy, the server uses 90% of its `maxmemory` or more (`Critical` from 98%) |
+| `redis.evictions` | keys were evicted between two readings (`Info`) |
+| `redis.rejected_connections` | connections were refused between two readings |
+| `redis.rdb_failed` | the last RDB snapshot failed (`Critical`) |
+| `redis.aof_failed` | the last rewrite of the AOF failed (`Critical`) |
+| `redis.hit_rate` | the hit rate is below 80%, over at least 1,000 lookups between two readings (`Info`) |
+| `php.end_of_life`, `symfony.end_of_life`, `apache.end_of_life`, `nginx.end_of_life`, `mysql.end_of_life`, `postgresql.end_of_life`, `redis.end_of_life` | the version has reached its end of life (`Critical`) |
+| `php.security_only`, `symfony.security_only`, `apache.security_only`, `nginx.security_only`, `mysql.security_only`, `postgresql.security_only`, `redis.security_only` | the version only receives security fixes |
 | `system.failed`, `php.failed`, `symfony.failed` | the component could not be read |
-| `mysql.failed` | the server cannot be reached (`Critical`), or could not be read |
+| `mysql.failed`, `postgresql.failed`, `redis.failed` | the server cannot be reached (`Critical`), or could not be read |
 | `frankenphp.failed`, `apache.failed`, `nginx.failed` | the metrics or the status page could not be read (`Info`; a `Warning` when the component itself could not be read) |
 | `symfony.flex.failed` | `composer recipes` could not run (`Info`) |
 | `nginx.config.failed` | `nginx -V` or `nginx -T` ran longer than its time limit (`Info`) |
 | `frankenphp.version.failed` | `frankenphp version` could not run (`Info`) |
 | `mysql.variables.failed`, `mysql.sizes.failed`, `mysql.slow_queries.failed` | the settings of the server, the size of the database or its slowest queries could not be read (`Info`) |
+| `postgresql.settings.failed`, `postgresql.database.failed`, `postgresql.slow_queries.failed` | the settings of the server, the tables of the database or its slowest statements could not be read (`Info`) |
 
 A check is a `Warning` unless the table says otherwise. A component that was read before but cannot be read again keeps its last reading on its card, and its `.failed` check says why. A database server that cannot be reached is `Critical`: the application cannot reach it either. The support status of MySQL and MariaDB is not looked up for Percona Server, TiDB and Aurora, whose versions follow cycles of their own.
 
@@ -674,12 +779,14 @@ composer require jmonitor/jmonitor-bundle
 | `components.frankenphp`, `components.apache`, `components.nginx` (`enabled` and `endpoint`) | `jmonitor.stack.frankenphp`, `jmonitor.stack.apache`, `jmonitor.stack.nginx` (`enabled` and `endpoint`) |
 | `components.symfony.messenger` | `jmonitor.stack.symfony.messenger` |
 | `components.mysql.enabled`, `components.mysql.connections` | `jmonitor.stack.mysql.enabled`, `jmonitor.stack.mysql.connections` |
+| `components.postgresql.enabled`, `components.postgresql.connections`, `components.postgresql.schema` | `jmonitor.stack.postgresql.enabled`, `jmonitor.stack.postgresql.connections`, `jmonitor.stack.postgresql.schema` |
+| `components.redis.enabled`, `components.redis.connections` given as DSN | `jmonitor.stack.redis.enabled`, `jmonitor.stack.redis.connections` |
 | `exclude_connections` | `jmonitor.stack.exclude_connections` |
-| `cache_pool`, `polling_interval`, `static_ttl`, the other `components.*` | no equivalent |
+| `cache_pool`, `polling_interval`, `static_ttl`, the `schema` of a single PostgreSQL connection, a Redis connection given as `{ service: … }`, the other `components.*` | no equivalent |
 
-The menu link and its route name, `admin_jmonitor_index` for a dashboard whose route is `admin`, do not change. The addresses of the former tabs, such as `/admin/jmonitor/mysql`, answer 404: the detail of MySQL is now at `/admin/jmonitor/stack/mysql`.
+The menu link and its route name, `admin_jmonitor_index` for a dashboard whose route is `admin`, do not change. The addresses of the former tabs, such as `/admin/jmonitor/mysql`, answer 404: the detail of MySQL is now at `/admin/jmonitor/stack/mysql`, those of PostgreSQL and Redis at `/admin/jmonitor/stack/postgresql` and `/admin/jmonitor/stack/redis`.
 
-The pages show the screens of your application listed above: requests, queries, commands, messages, scheduler, HTTP client, cache, exceptions and users. The System, PHP, Symfony, FrankenPHP, Apache, Nginx and MySQL tabs of `jmonitor/easyadmin-bundle` 1.x have their equivalent on the Stack screen (see [The live stack](#the-live-stack) and [The databases](#the-databases)), and its Messenger transports are counted on the Messages screen (see [The queues of the Messages screen](#the-queues-of-the-messages-screen)). Its PostgreSQL and Redis tabs have no equivalent yet, nor has its Cloudflare tab.
+The pages show the screens of your application listed above: requests, queries, commands, messages, scheduler, HTTP client, cache, exceptions and users. The System, PHP, Symfony, FrankenPHP, Apache, Nginx, MySQL, PostgreSQL and Redis tabs of `jmonitor/easyadmin-bundle` 1.x have their equivalent on the Stack screen (see [The live stack](#the-live-stack), [The databases](#the-databases) and [Redis](#redis)), and its Messenger transports are counted on the Messages screen (see [The queues of the Messages screen](#the-queues-of-the-messages-screen)). Its Cloudflare tab has no equivalent yet.
 
 Recording starts by default and creates the `jmonitor_aggregates` and `jmonitor_keys` tables in the default Doctrine connection; `recording.enabled: false` prevents it.
 
