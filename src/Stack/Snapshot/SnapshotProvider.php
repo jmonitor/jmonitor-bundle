@@ -34,6 +34,9 @@ final readonly class SnapshotProvider
     private const STOPPED_WAITING = 'The server did not answer before PHP stopped the request reading it.';
     private const STOPPED = 'PHP stopped the request before this was read.';
 
+    /** Longer than a remote server can keep a collector waiting before it fails on its own bound. */
+    private const REMOTE_TIME_LIMIT = 45;
+
     private LoggerInterface $logger;
     private CacheKeys $keys;
     private Randomizer $random;
@@ -64,6 +67,20 @@ final readonly class SnapshotProvider
      * @return array<string, ComponentSnapshot> keyed by Instance::key()
      */
     public function read(array $instances, CollectBudget $budget, CacheState $cache, bool $detail = false): array
+    {
+        try {
+            return $this->readInstances($instances, $budget, $cache, $detail);
+        } finally {
+            $this->putBackTimeLimit();
+        }
+    }
+
+    /**
+     * @param list<Instance> $instances
+     *
+     * @return array<string, ComponentSnapshot> keyed by Instance::key()
+     */
+    private function readInstances(array $instances, CollectBudget $budget, CacheState $cache, bool $detail): array
     {
         $guard = new CacheGuard($this->logger, $cache !== CacheState::OutOfOrder);
         $now = $this->now();
@@ -381,7 +398,8 @@ final readonly class SnapshotProvider
     }
 
     /**
-     * Before a collector runs, PHP is given, once until it runs it, what to do if it stops the request meanwhile.
+     * Before a collector runs: PHP is given, once until it runs it, what to do if it stops the request meanwhile,
+     * and a remote server is left the time to fail on its own bound.
      *
      * @param array<string, InstanceRead> $reads every read of the display
      */
@@ -396,6 +414,10 @@ final readonly class SnapshotProvider
                 $inFlight->watched = false;
                 $provider->get()?->stopped();
             });
+        }
+
+        if (!$read->instance->component->isNodeLocal()) {
+            $inFlight->timeLimit ??= $this->request->raiseTimeLimit(self::REMOTE_TIME_LIMIT);
         }
 
         $inFlight->collecting = ['read' => $read, 'spec' => $spec, 'startedAt' => $startedAt, 'reads' => $reads, 'guard' => $guard];
@@ -431,6 +453,14 @@ final readonly class SnapshotProvider
                 ]);
             } catch (\Throwable) {
             }
+        }
+    }
+
+    private function putBackTimeLimit(): void
+    {
+        if ($this->inFlight->timeLimit !== null) {
+            $this->request->putBackTimeLimit($this->inFlight->timeLimit);
+            $this->inFlight->timeLimit = null;
         }
     }
 

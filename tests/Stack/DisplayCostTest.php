@@ -658,7 +658,7 @@ final class DisplayCostTest extends TestCase
     public function testADisplayKilledWhileItReadsCostsOneWait(): void
     {
         $stops = [];
-        $request = new PhpRequest(static function (\Closure $stop) use (&$stops): void {
+        $request = new PhpRequest(null, static fn(): int => 0, static function (\Closure $stop) use (&$stops): void {
             $stops[] = $stop;
         });
         $cache = new FreezableCachePool(new CountingCachePool());

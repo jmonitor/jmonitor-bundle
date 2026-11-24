@@ -5,24 +5,57 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Stack\Snapshot;
 
 /**
- * The PHP request a read runs in: what runs once PHP stops it.
+ * The PHP request a read runs in: its time limit, and what runs once PHP stops it.
  *
  * @internal
  */
 final readonly class PhpRequest
 {
     /**
-     * @param \Closure(\Closure): void $atShutdown register_shutdown_function()
+     * @param ?\Closure(int): bool     $setTimeLimit set_time_limit(), null when PHP forbids it
+     * @param \Closure(): int          $timeLimit    the time limit in force, in seconds, 0 for none
+     * @param \Closure(\Closure): void $atShutdown   register_shutdown_function()
      */
     public function __construct(
+        private ?\Closure $setTimeLimit,
+        private \Closure $timeLimit,
         private \Closure $atShutdown,
     ) {}
 
     public static function current(): self
     {
-        return new self(static function (\Closure $callback): void {
-            register_shutdown_function($callback);
-        });
+        return new self(
+            \function_exists('set_time_limit') ? set_time_limit(...) : null,
+            static fn(): int => (int) \ini_get('max_execution_time'),
+            static function (\Closure $callback): void {
+                register_shutdown_function($callback);
+            },
+        );
+    }
+
+    /**
+     * Setting a time limit counts it again from zero.
+     *
+     * @return ?int the time limit to put back, null when it was left as it was
+     */
+    public function raiseTimeLimit(int $seconds): ?int
+    {
+        $limit = ($this->timeLimit)();
+
+        if ($this->setTimeLimit === null || $limit <= 0 || $limit >= $seconds) {
+            return null;
+        }
+
+        ($this->setTimeLimit)($seconds);
+
+        return $limit;
+    }
+
+    public function putBackTimeLimit(int $seconds): void
+    {
+        if ($this->setTimeLimit !== null) {
+            ($this->setTimeLimit)($seconds);
+        }
     }
 
     public function atShutdown(\Closure $callback): void

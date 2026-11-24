@@ -16,6 +16,9 @@ final class ReadInFlight
     /** whether PHP was given what to run at shutdown, and has not run it yet */
     public bool $watched = false;
 
+    /** the time limit to put back once the read ends */
+    public ?int $timeLimit = null;
+
     /** @var ?array{read: InstanceRead, spec: CollectorSpec, startedAt: float, reads: array<string, InstanceRead>, guard: CacheGuard} */
     public ?array $collecting = null;
 }

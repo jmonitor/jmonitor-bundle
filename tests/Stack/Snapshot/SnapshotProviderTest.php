@@ -58,6 +58,13 @@ final class SnapshotProviderTest extends TestCase
     /** @var list<\Closure(): void> what the request was given to run once PHP stops it */
     private array $stops = [];
 
+    /** @var list<int> the time limits set, in order */
+    private array $timeLimits = [];
+
+    private int $timeLimit = 0;
+
+    private bool $timeLimitSettable = true;
+
     protected function setUp(): void
     {
         $this->recording = new RecordingCachePool();
@@ -2424,11 +2431,70 @@ final class SnapshotProviderTest extends TestCase
         self::assertCount(2, $this->stops, 'a request that ran it watches again');
     }
 
+    /**
+     * @return iterable<string, array{int, bool, list<int>}>
+     */
+    public static function timeLimits(): iterable
+    {
+        yield 'a short limit' => [30, true, [45, 30]];
+        yield 'a limit of one second' => [1, true, [45, 1]];
+        yield 'no limit' => [0, true, []];
+        yield 'a limit long enough' => [45, true, []];
+        yield 'a longer limit' => [120, true, []];
+        yield 'set_time_limit() forbidden' => [30, false, []];
+    }
+
+    /**
+     * @param list<int> $set
+     */
+    #[DataProvider('timeLimits')]
+    public function testTheTimeLimitLeavesARemoteServerTheTimeToFailOnItsOwn(int $limit, bool $settable, array $set): void
+    {
+        $this->timeLimit = $limit;
+        $this->timeLimitSettable = $settable;
+        $during = [];
+        $server = new Server('pg.internal:5432', 'pg.internal:5432');
+        $collector = function (string $name) use (&$during): CollectorInterface {
+            return self::collector($name, function () use (&$during): array {
+                $during[] = $this->timeLimit;
+
+                return ['connections' => 3];
+            });
+        };
+        $instances = [
+            self::instance([new CollectorSpec($collector('postgresql'), Lifetime::Dynamic, CostClass::Network), new CollectorSpec($collector('postgresql.settings'), Lifetime::Dynamic, CostClass::Network)], 'c1', Component::Postgresql, $server),
+            self::instance([new CollectorSpec($collector('postgresql'), Lifetime::Dynamic, CostClass::Network)], 'c2', Component::Postgresql, $server),
+        ];
+
+        $this->provider(request: $this->request())->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame($set, $this->timeLimits);
+        self::assertSame(array_fill(0, 3, $set === [] ? $limit : 45), $during);
+        self::assertSame($limit, $this->timeLimit, 'put back once the read ends');
+    }
+
+    public function testTheTimeLimitIsLeftAsItIsForALocalComponent(): void
+    {
+        $this->timeLimit = 30;
+
+        $this->read($this->provider(request: $this->request()), self::instance([self::spec(new FakeCollector('php', ['memory' => 1]), cost: CostClass::Network)]));
+
+        self::assertSame([], $this->timeLimits);
+    }
+
     private function request(): PhpRequest
     {
-        return new PhpRequest(function (\Closure $stop): void {
-            $this->stops[] = $stop;
-        });
+        return new PhpRequest(
+            $this->timeLimitSettable ? function (int $seconds): bool {
+                $this->timeLimits[] = $this->timeLimit = $seconds;
+
+                return true;
+            } : null,
+            fn(): int => $this->timeLimit,
+            function (\Closure $stop): void {
+                $this->stops[] = $stop;
+            },
+        );
     }
 
     /**
