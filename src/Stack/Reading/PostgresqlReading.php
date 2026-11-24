@@ -17,6 +17,8 @@ final readonly class PostgresqlReading
     /** a variation with fewer blocks tells nothing about the ratio, and may hold little more than the reads of the stack itself */
     public const CACHE_BLOCKS = 10_000;
 
+    public const READABLE = 'among the sessions this role can read';
+
     /** the statistics of a database survive a restart of the server */
     private const SINCE_RESET = 'since the statistics were reset';
 

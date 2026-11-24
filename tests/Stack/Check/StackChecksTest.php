@@ -938,6 +938,10 @@ final class StackChecksTest extends TestCase
 
         yield 'blocked for 29 s' => [self::postgresqlActivity(['sessions' => self::blocked(29)]), [], 'postgresql.blocked_sessions', null];
         yield 'blocked for 30 s' => [self::postgresqlActivity(['sessions' => self::blocked(30)]), [], 'postgresql.blocked_sessions', Severity::Warning];
+        yield 'idle in a transaction for 299 s, among the sessions a limited role reads' => [self::postgresqlActivity(['connections' => ['unknown' => 4], 'hidden_sessions' => 4, 'sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 299]]), [], 'postgresql.idle_in_transaction', null];
+        yield 'idle in a transaction for 300 s, among the sessions a limited role reads' => [self::postgresqlActivity(['connections' => ['unknown' => 4], 'hidden_sessions' => 4, 'sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 300]]), [], 'postgresql.idle_in_transaction', Severity::Warning];
+        yield 'blocked for 29 s, among the sessions a limited role reads' => [self::postgresqlActivity(['connections' => ['unknown' => 4], 'hidden_sessions' => 4, 'sessions' => self::blocked(29)]), [], 'postgresql.blocked_sessions', null];
+        yield 'blocked for 30 s, among the sessions a limited role reads' => [self::postgresqlActivity(['connections' => ['unknown' => 4], 'hidden_sessions' => 4, 'sessions' => self::blocked(30)]), [], 'postgresql.blocked_sessions', Severity::Warning];
 
         yield 'autovacuum on' => [self::postgresqlActivity(settings: ['autovacuum' => 'on', 'track_counts' => 'on']), [], 'postgresql.autovacuum_off', null];
         yield 'autovacuum off' => [self::postgresqlActivity(settings: ['autovacuum' => 'off']), [], 'postgresql.autovacuum_off', Severity::Critical];
@@ -1032,17 +1036,41 @@ final class StackChecksTest extends TestCase
         }
     }
 
-    public function testALimitedRoleIsToldAndSilencesWhatItCannotSee(): void
+    public function testALimitedRoleIsToldAndJudgesTheSessionsItCanRead(): void
     {
-        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, self::postgresqlActivity([
+        $limited = static fn(array $sessions): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, self::postgresqlActivity([
             'connections' => ['active' => 1, 'unknown' => 4],
             'hidden_sessions' => 4,
-            'sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 3_600] + self::blocked(600),
+            'sessions' => $sessions,
         ]))));
+        $ids = static fn(StackHealth $health): array => array_map(static fn(Finding $finding): string => $finding->id, $health->findings);
 
-        self::assertSame(['postgresql.limited_role'], array_map(static fn(Finding $finding): string => $finding->id, $health->findings));
-        self::assertSame(Severity::Info, self::find($health, 'postgresql.limited_role')?->severity);
-        self::assertSame(Verdict::Healthy, $health->verdict(Component::Postgresql));
+        $idle = $limited(['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 300]);
+        $idleMany = $limited(['idle_in_transaction_count' => 3, 'oldest_idle_in_transaction_seconds' => 342]);
+        $idleJustBelow = $limited(['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 299]);
+        $blocked = $limited(self::blocked(30));
+        $blockedMany = $limited(['blocked_count' => 2, 'blocked_queries' => [
+            ['blocked_pid' => 4242, 'wait_seconds' => 45, 'blocking_pid' => 4100, 'blocking_state' => 'active'],
+            ['blocked_pid' => 4243, 'wait_seconds' => 90, 'blocking_pid' => 4100, 'blocking_state' => 'active'],
+        ]]);
+        $waitsUnknown = $limited(['blocked_count' => 2, 'max_wait_seconds' => null, 'blocked_queries' => [
+            ['blocked_pid' => 4242, 'wait_seconds' => null, 'blocking_pid' => 4100, 'blocking_state' => null],
+            ['blocked_pid' => 4243, 'wait_seconds' => null, 'blocking_pid' => 4100, 'blocking_state' => null],
+        ]]);
+
+        self::assertSame(Severity::Warning, self::find($idle, 'postgresql.idle_in_transaction')?->severity);
+        self::assertSame("A session has been idle in a transaction for 5\u{00A0}min, among the sessions this role can read", self::find($idle, 'postgresql.idle_in_transaction')?->sentence);
+        self::assertSame("3 sessions are idle in a transaction, the oldest for 5\u{00A0}min\u{00A0}42\u{00A0}s, among the sessions this role can read", self::find($idleMany, 'postgresql.idle_in_transaction')?->sentence);
+        self::assertSame(Severity::Info, self::find($idle, 'postgresql.limited_role')?->severity);
+        self::assertSame(Severity::Warning, self::find($blocked, 'postgresql.blocked_sessions')?->severity);
+        self::assertSame("A session has been waiting for a lock for 30\u{00A0}s, among the sessions this role can read", self::find($blocked, 'postgresql.blocked_sessions')?->sentence);
+        self::assertSame("2 sessions are waiting for a lock, the longest for 1\u{00A0}min\u{00A0}30\u{00A0}s, among the sessions this role can read", self::find($blockedMany, 'postgresql.blocked_sessions')?->sentence);
+
+        self::assertSame(['postgresql.limited_role'], $ids($idleJustBelow), 'below the threshold, nothing says that the sessions are fine');
+        self::assertSame(['postgresql.limited_role'], $ids($waitsUnknown));
+        self::assertSame(Verdict::Healthy, $idleJustBelow->verdict(Component::Postgresql));
+        self::assertStringContainsString('only judged among the sessions this role can read', self::find($idle, 'postgresql.limited_role')->explanation);
+        self::assertStringNotContainsString('not judged', self::find($idle, 'postgresql.limited_role')->explanation);
     }
 
     public function testAnAutovacuumWorkerNeitherTellsNorSilences(): void

@@ -222,7 +222,7 @@ final class PostgresqlDetailTest extends TestCase
             ['notice', 'info', 'This role cannot read the sessions of other roles', 'PostgreSQL counts the 4 sessions of other roles in this database, but hides their state, their transaction and their waits from it: the oldest transaction, the sessions idle in a transaction and the waits below only cover the sessions it can read. Grant it the pg_monitor role to see them all.'],
             self::describe($blocks)[3],
         );
-        self::assertSame(['Waiting for a lock' => '1', 'Oldest transaction' => self::nb('5 min 40 s'), 'Idle in a transaction' => '1'], self::describe($blocks)[4][2], 'the checks that depend on what it cannot see keep quiet');
+        self::assertSame(['Waiting for a lock' => '1 [Warning]', 'Oldest transaction' => self::nb('5 min 40 s'), 'Idle in a transaction' => '1 [Warning]'], self::describe($blocks)[4][2], 'the checks are judged on the sessions it can read');
 
         $activity['hidden_sessions'] = 1;
         $one = self::describe((new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql' => $activity])), [], Snapshots::NOW))[3];

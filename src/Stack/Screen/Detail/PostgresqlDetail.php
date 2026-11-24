@@ -31,8 +31,6 @@ final class PostgresqlDetail implements DetailInterface
 {
     private const SINCE_RESET = 'since the statistics were reset';
 
-    private const READABLE = 'among the sessions this role can read';
-
     public function sections(InstanceState $instance, array $findings, int $now, bool $reading = true): array
     {
         $snapshot = Sections::snapshot($instance);
@@ -127,8 +125,8 @@ final class PostgresqlDetail implements DetailInterface
 
         $readable = static fn(?string $hint): ?string => match (true) {
             !$postgresql->limitedRole => $hint,
-            $hint === null => self::READABLE,
-            default => $hint . ', ' . self::READABLE,
+            $hint === null => PostgresqlReading::READABLE,
+            default => $hint . ', ' . PostgresqlReading::READABLE,
         };
 
         $blocks[] = Block::facts(new Facts('Sessions', [

@@ -89,27 +89,29 @@ final class PostgresqlChecks
             );
         }
 
-        if (!$postgresql->limitedRole && $postgresql->oldestIdleInTransaction !== null && $postgresql->oldestIdleInTransaction >= self::IDLE_IN_TRANSACTION_SECONDS) {
+        $readable = $postgresql->limitedRole ? ', ' . PostgresqlReading::READABLE : '';
+
+        if ($postgresql->oldestIdleInTransaction !== null && $postgresql->oldestIdleInTransaction >= self::IDLE_IN_TRANSACTION_SECONDS) {
             $idle = (int) $postgresql->idleInTransaction;
             $findings[] = $raise(
                 'postgresql.idle_in_transaction',
                 Severity::Warning,
-                $idle > 1
+                ($idle > 1
                     ? sprintf('%s sessions are idle in a transaction, the oldest for %s', Figures::count($idle), Figures::duration($postgresql->oldestIdleInTransaction))
-                    : sprintf('A session has been idle in a transaction for %s', Figures::duration($postgresql->oldestIdleInTransaction)),
+                    : sprintf('A session has been idle in a transaction for %s', Figures::duration($postgresql->oldestIdleInTransaction))) . $readable,
                 'A transaction left open holds its locks, which can block other sessions, and keeps VACUUM from removing the dead rows of the whole database. Find the code that opens a transaction and does not end it, or set idle_in_transaction_session_timeout.',
                 'postgresql',
             );
         }
 
-        if (!$postgresql->limitedRole && $postgresql->longestBlock !== null && $postgresql->longestBlock >= self::BLOCKED_SECONDS) {
+        if ($postgresql->longestBlock !== null && $postgresql->longestBlock >= self::BLOCKED_SECONDS) {
             $waiting = (int) $postgresql->blockedSessions;
             $findings[] = $raise(
                 'postgresql.blocked_sessions',
                 Severity::Warning,
-                $waiting > 1
+                ($waiting > 1
                     ? sprintf('%s sessions are waiting for a lock, the longest for %s', Figures::count($waiting), Figures::duration($postgresql->longestBlock))
-                    : sprintf('A session has been waiting for a lock for %s', Figures::duration($postgresql->longestBlock)),
+                    : sprintf('A session has been waiting for a lock for %s', Figures::duration($postgresql->longestBlock))) . $readable,
                 'A session that waits for a lock waits for another one to end its transaction, and the request behind it waits too, or fails on a timeout. Look up the session that blocks it in pg_stat_activity, and find the code that keeps its transaction open.',
                 'postgresql',
             );
@@ -134,7 +136,7 @@ final class PostgresqlChecks
                 'postgresql.limited_role',
                 Severity::Info,
                 sprintf('The role of this connection cannot see the state of %s %s of other roles', Figures::count($postgresql->hiddenSessions), $postgresql->hiddenSessions === 1 ? 'session' : 'sessions'),
-                'PostgreSQL only shows a role without privilege the state of its own sessions, so the transactions left idle and the sessions waiting for a lock are not judged here. Grant it the pg_monitor role to see them all.',
+                'PostgreSQL only shows a role without privilege the state of its own sessions, so the transactions left idle and the sessions waiting for a lock are only judged ' . PostgresqlReading::READABLE . '. Grant it the pg_monitor role to see them all.',
                 'postgresql',
             );
         }

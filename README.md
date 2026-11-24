@@ -513,7 +513,7 @@ Under DoctrineBundle 3 and DBAL 4, a PostgreSQL connection without `server_versi
 
 The tables counted are those of one schema, `public` by default, set with `stack.postgresql.schema` for every connection; the size of the database covers all its schemas.
 
-A role without privilege only sees the state of its own sessions. The screen says so, with how many sessions of other roles it cannot see, and leaves out the checks of the transactions left idle and of the sessions waiting for a lock instead of saying that they are fine. Grant the role `pg_monitor` to see everything:
+A role without privilege only sees the state of its own sessions. The screen says so, with how many sessions of other roles it cannot see, and judges the transactions left idle and the sessions waiting for a lock among the sessions it can read only: a check raised says so, and no check says that the others are fine. Grant the role `pg_monitor` to see everything:
 
 ```sql
 GRANT pg_monitor TO app;
@@ -667,8 +667,8 @@ To silence a check, add its identifier to `ignore_checks`: it is no longer shown
 | `postgresql.cache_hit_rate` | the cache hit rate of the database is below 95%, over at least 10,000 blocks between two readings, otherwise over at least 100,000 blocks since the statistics were reset |
 | `postgresql.rollbacks` | 10% or more of the transactions were rolled back, over at least 100 transactions between two readings |
 | `postgresql.dead_rows` | 20% or more of the rows of the schema are dead, and at least 10,000 |
-| `postgresql.idle_in_transaction` | a session has been idle in a transaction for 5 minutes or more; not judged for a role without privilege |
-| `postgresql.blocked_sessions` | a session has been waiting for a lock for 30 seconds or more; not judged for a role without privilege |
+| `postgresql.idle_in_transaction` | a session has been idle in a transaction for 5 minutes or more; for a role without privilege, among the sessions it can read |
+| `postgresql.blocked_sessions` | a session has been waiting for a lock for 30 seconds or more; for a role without privilege, among the sessions it can read |
 | `postgresql.autovacuum_off` | `autovacuum` or `track_counts` is off (`Critical`) |
 | `postgresql.limited_role` | the role of the connection cannot see the state of the sessions of other roles (`Info`) |
 | `redis.memory` | under a policy that has nothing to evict, `noeviction` or a `volatile-*` one while no key has an expiry, the server uses 90% of its `maxmemory` or more (`Critical` from 98%) |
