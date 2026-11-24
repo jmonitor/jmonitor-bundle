@@ -11,7 +11,7 @@ final readonly class CollectorSpec
     public string $name;
 
     /**
-     * @param bool $shared     the same value for every web server: its entry does not carry the name of the server
+     * @param bool $shared     the same value for every web server and every instance of its component: its entry carries neither name
      * @param bool $detailOnly only read for the detail of its instance
      * @param bool $perServer  the same value for every instance of its server
      */
