@@ -612,9 +612,13 @@ final class DisplayCostTest extends TestCase
     public function testARefusedConnectionStaysCriticalWhileAnotherReadsItsServer(): void
     {
         $container = new class extends Container {
+            public int $refused = 0;
+
             public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
             {
                 if ($id === 'doctrine.dbal.a_connection') {
+                    ++$this->refused;
+
                     throw new \RuntimeException("SQLSTATE[HY000] [1045] Access denied for user 'root'@'10.0.0.1' (using password: YES)");
                 }
 
@@ -627,8 +631,9 @@ final class DisplayCostTest extends TestCase
         $checks = new StackChecks([], false, $this->clock);
         $freshB = 0;
         $reader()->overview(ReadMode::Page);
+        $startedAt = $this->clock->now()->getTimestamp();
 
-        for ($i = 0; $i < 20; ++$i) {
+        for ($i = 0; $i < 200; ++$i) {
             $id = $i % 2 === 0 ? 'a' : 'b';
             $state = $reader()->component(Component::Mysql, $id, ReadMode::Fragment);
             $result = $state->component(Component::Mysql)?->instances[$id === 'a' ? 0 : 1]->snapshot?->result('mysql');
@@ -643,8 +648,9 @@ final class DisplayCostTest extends TestCase
             $this->clock->sleep(3);
         }
 
-        self::assertLessThanOrEqual(self::START + 60, $this->clock->now()->getTimestamp());
-        self::assertSame(10, $freshB, 'the other connection reads the server meanwhile');
+        self::assertSame($startedAt + 600, $this->clock->now()->getTimestamp());
+        self::assertSame(100, $freshB, 'the other connection reads the server meanwhile');
+        self::assertSame(10, $container->refused, 'once at the end of each sixty seconds the failure is kept');
     }
 
     public function testTwoConnectionsOnOneServerReadItsStatusOnce(): void

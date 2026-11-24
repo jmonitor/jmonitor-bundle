@@ -979,6 +979,88 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(2, $refused->collects);
     }
 
+    public function testAConnectionThatFailedReadsItselfAgainOnceItsGuardEnds(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $a = static fn(FakeCollector $status): Instance => self::instance([self::spec($status, cost: CostClass::Network, perServer: true)], 'a', Component::Mysql, $server);
+        $b = self::instance([self::spec($answering = new FakeCollector('mysql', ['Uptime' => 5]), cost: CostClass::Network, perServer: true)], 'b', Component::Mysql, $server);
+        $refused = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Access denied'));
+        $provider = $this->provider();
+        $this->read($provider, $a($refused));
+        $failedAt = $this->clock->now()->getTimestamp();
+
+        $this->clock->sleep(55);
+        $this->read($provider, $b);
+        $this->clock->sleep(5);
+        $again = $this->read($provider, $a($refused));
+
+        self::assertSame(2, $refused->collects, 'asked again although the value of the server is fresh');
+        self::assertSame(ResultState::Stale, $again->result('mysql')?->state);
+        self::assertSame('Access denied', $again->result('mysql')->error);
+        self::assertSame($failedAt + 120, $again->result('mysql')->expiresAt);
+
+        $this->clock->sleep(55);
+        $this->read($provider, $b);
+        $this->clock->sleep(5);
+        $accepted = new FakeCollector('mysql', ['Uptime' => 125]);
+        $back = $this->read($provider, $a($accepted));
+
+        self::assertSame(1, $accepted->collects);
+        self::assertSame(ResultState::Fresh, $back->result('mysql')?->state);
+        self::assertSame(['Uptime' => 125], $back->data('mysql'));
+        self::assertNull($back->result('mysql')->error);
+        self::assertFalse($this->recording->hasItem('jmonitor.stack.failure.mysql.a.mysql'), 'its failure is dropped');
+
+        $this->clock->sleep(1);
+        $notAsked = new FakeCollector('mysql', ['Uptime' => 126]);
+        $next = $this->read($provider, $a($notAsked));
+
+        self::assertSame(0, $notAsked->collects, 'the value of the server serves it again');
+        self::assertSame(ResultState::Fresh, $next->result('mysql')?->state);
+        self::assertSame(2, $answering->collects);
+    }
+
+    public function testAConnectionThatFailedShowsItsFailureWhileItCannotReadAgain(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $refused = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Access denied'));
+        $a = self::instance([self::spec($refused, cost: CostClass::Network, perServer: true)], 'a', Component::Mysql, $server);
+        $b = self::instance([self::spec(new FakeCollector('mysql', ['Uptime' => 5]), cost: CostClass::Network, perServer: true)], 'b', Component::Mysql, $server);
+        $provider = $this->provider();
+        $this->read($provider, $a);
+        $this->clock->sleep(55);
+        $this->read($provider, $b);
+        $this->clock->sleep(4);
+
+        $spent = CollectBudget::fragment($this->clock);
+        $this->clock->sleep(1);
+        $waiting = $this->read($provider, $a, $spent);
+
+        self::assertSame(1, $refused->collects);
+        self::assertSame(ResultState::Stale, $waiting->result('mysql')?->state);
+        self::assertSame(['Uptime' => 5], $waiting->data('mysql'));
+        self::assertSame('Access denied', $waiting->result('mysql')->error);
+        self::assertSame(FailureKind::Unreachable, $waiting->result('mysql')->failure);
+    }
+
+    public function testAfterARefreshAConnectionThatFailedTakesTheValueAnotherOneReadsFirst(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $refused = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Access denied'));
+        $a = self::instance([self::spec($refused, cost: CostClass::Network, perServer: true)], 'a', Component::Mysql, $server);
+        $b = self::instance([self::spec(new FakeCollector('mysql', ['Uptime' => 5]), cost: CostClass::Network, perServer: true)], 'b', Component::Mysql, $server);
+        $provider = $this->provider();
+        $this->read($provider, $a);
+        $this->clock->sleep(1);
+
+        $provider->forget([$a, $b]);
+        $this->read($provider, $b);
+        $afterRefresh = $this->read($provider, $a);
+
+        self::assertSame(1, $refused->collects);
+        self::assertSame(ResultState::Fresh, $afterRefresh->result('mysql')?->state, 'a refresh forgets the failure');
+    }
+
     public function testAHeldConnectionDoesNotTakeTheValueAnotherOneJustRead(): void
     {
         $server = new Server('db.internal:3306', 'db.internal:3306');
