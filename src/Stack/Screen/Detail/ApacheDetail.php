@@ -15,6 +15,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Reading\ApacheReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\Values;
 use Jmonitor\JmonitorBundle\Stack\Screen\Marks;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 
 final class ApacheDetail implements DetailInterface
 {
@@ -28,7 +29,6 @@ final class ApacheDetail implements DetailInterface
 
         return Sections::of($snapshot, 'apache', Block::GAUGES, $now, $reading, static function () use ($snapshot, $findings, $now): array {
             $apache = ApacheReading::of($snapshot, new \DateTimeImmutable('@' . $now));
-            $elapsed = $snapshot->delta('apache')?->elapsed;
             $busyPercent = $apache->busyWorkers === null || $apache->idleWorkers === null ? null : Values::percent($apache->busyWorkers, $apache->busyWorkers + $apache->idleWorkers);
 
             $blocks = [
@@ -43,10 +43,10 @@ final class ApacheDetail implements DetailInterface
                     ),
                 ])),
                 Block::facts(new Facts('Traffic', [
-                    self::traffic('Requests per second', Sections::rate($apache->requestsPerSecond), $apache->requestsPerSecond, $elapsed),
-                    self::traffic('Bytes per second', self::bytes($apache->bytesPerSecond, '/s'), $apache->bytesPerSecond, $elapsed),
-                    self::traffic('Bytes per request', self::bytes($apache->bytesPerRequest), $apache->bytesPerRequest, $elapsed),
-                    self::traffic('Time per request', Sections::milliseconds($apache->secondsPerRequest), $apache->secondsPerRequest, $elapsed),
+                    self::traffic('Requests per second', Sections::rate($apache->requestsPerSecond), $apache->requestsPerSecond, $snapshot),
+                    self::traffic('Bytes per second', self::bytes($apache->bytesPerSecond, '/s'), $apache->bytesPerSecond, $snapshot),
+                    self::traffic('Bytes per request', self::bytes($apache->bytesPerRequest), $apache->bytesPerRequest, $snapshot),
+                    self::traffic('Time per request', Sections::milliseconds($apache->secondsPerRequest), $apache->secondsPerRequest, $snapshot),
                 ])),
                 Block::facts(new Facts('Server', [
                     new Fact('Version', Sections::value($apache->version), $apache->support === null ? null : Marks::support($apache->support)),
@@ -72,9 +72,9 @@ final class ApacheDetail implements DetailInterface
         return $apache->busyWorkers === null || $apache->idleWorkers === null ? null : Sections::fraction($apache->busyWorkers, $apache->busyWorkers + $apache->idleWorkers);
     }
 
-    private static function traffic(string $label, ?string $value, Rate $rate, ?int $elapsed): Fact
+    private static function traffic(string $label, ?string $value, Rate $rate, ComponentSnapshot $snapshot): Fact
     {
-        return new Fact($label, Sections::value($value), hint: Figures::span($rate, $elapsed));
+        return new Fact($label, Sections::value($value), hint: Sections::span($rate, $snapshot, 'apache'));
     }
 
     private static function bytes(Rate $rate, string $suffix = ''): ?string

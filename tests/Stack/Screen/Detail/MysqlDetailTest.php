@@ -232,6 +232,18 @@ final class MysqlDetailTest extends TestCase
         self::assertSame(['notice: Could not be read again: Nothing answers.', 'Usage', 'Traffic', 'InnoDB', 'Temporary tables and locks', 'Settings'], self::titles($blocks));
     }
 
+    public function testARateWithoutSecondSampleIsOnlyPromisedWhileTheServerAnswers(): void
+    {
+        $answering = (new MysqlDetail())->sections(self::connection(self::snapshot()), [], Snapshots::NOW);
+        $dead = (new MysqlDetail())->sections(self::connection(self::snapshot(results: [
+            new CollectorResult('mysql', DatabasePayloads::mysqlStatus(), ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ])), [], Snapshots::NOW);
+
+        self::assertSame('at the next refresh', self::hints($answering)['Traffic / Queries per second']);
+        self::assertNull(self::hints($dead)['Traffic / Queries per second']);
+        self::assertSame('since the server started', self::hints($dead)['InnoDB / Buffer pool hit rate'], 'a rate since the start is still read');
+    }
+
     public function testAStaleSettingThatFailedOtherwiseKeepsItsNotice(): void
     {
         $other = new CollectorResult('mysql.variables', DatabasePayloads::mysqlVariables(), ResultState::Stale, 'Access denied.', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Other);

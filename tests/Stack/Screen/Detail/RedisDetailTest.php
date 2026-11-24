@@ -107,6 +107,37 @@ final class RedisDetailTest extends TestCase
         self::assertSame('at the next refresh', $hints['Traffic / Refused connections']);
     }
 
+    public function testARateWithoutSecondSampleIsOnlyPromisedWhileTheServerAnswers(): void
+    {
+        $dead = new ComponentSnapshot(Component::Redis, [
+            'redis' => new CollectorResult('redis', self::data(), ResultState::Stale, 'The connection is refused, cannot be opened, or gets no answer in time.', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ]);
+
+        $hints = self::hints((new RedisDetail())->sections(self::server($dead), [], Snapshots::NOW));
+
+        self::assertNull($hints['Traffic / Commands per second']);
+        self::assertNull($hints['Traffic / Evicted keys']);
+        self::assertNull($hints['Traffic / Refused connections']);
+        self::assertSame('since the server started', $hints['Traffic / Hit rate']);
+    }
+
+    public function testItsCountsAreWrittenLikeThoseOfATable(): void
+    {
+        $data = self::data([
+            'clients' => ['connected' => 12_000],
+            'persistence' => ['rdb_changes_since_last_save' => 107_530],
+            'stats' => ['evicted_keys' => 1_797, 'rejected_connections' => 2_500],
+        ]);
+        $snapshot = self::snapshot($data, Snapshots::delta(self::PREVIOUS, $data));
+
+        $blocks = (new RedisDetail())->sections(self::server($snapshot), [], Snapshots::NOW);
+
+        self::assertSame('12,000', self::describe($blocks)[0][2]['Clients']);
+        self::assertSame('1,793', self::describe($blocks)[1][2]['Evicted keys']);
+        self::assertSame('2,500', self::describe($blocks)[1][2]['Refused connections']);
+        self::assertSame('107,530', self::describe($blocks)[3][2]['Changes not saved']);
+    }
+
     public function testWithoutALimitTheMemoryIsAFact(): void
     {
         $blocks = (new RedisDetail())->sections(self::server(self::snapshot(self::data())), [], Snapshots::NOW);

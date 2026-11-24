@@ -62,13 +62,15 @@ final class PostgresqlDetail implements DetailInterface
     /**
      * Those of the whole server.
      */
-    public static function connections(PostgresqlReading $postgresql): ?string
+    private static function connections(PostgresqlReading $postgresql): ?string
     {
         if ($postgresql->serverConnections === null) {
             return null;
         }
 
-        return $postgresql->maxConnections === null ? (string) $postgresql->serverConnections : Sections::fraction($postgresql->serverConnections, $postgresql->maxConnections);
+        return $postgresql->maxConnections === null
+            ? Figures::count($postgresql->serverConnections)
+            : Figures::count($postgresql->serverConnections) . Sections::NBSP . '/' . Sections::NBSP . Figures::count($postgresql->maxConnections);
     }
 
     /**
@@ -78,7 +80,6 @@ final class PostgresqlDetail implements DetailInterface
      */
     private static function activity(PostgresqlReading $postgresql, ComponentSnapshot $snapshot, array $findings): array
     {
-        $elapsed = $snapshot->delta('postgresql')?->elapsed;
         $maxKnown = $postgresql->maxConnections !== null;
 
         return [
@@ -93,13 +94,13 @@ final class PostgresqlDetail implements DetailInterface
                 new Gauge('Database connections', null, Sections::value(self::count($postgresql->databaseConnections)), hint: self::states($postgresql)),
             ])),
             Block::facts(new Facts('Traffic', [
-                self::rate('Transactions per second', Sections::rate($postgresql->transactionsPerSecond), $postgresql->transactionsPerSecond, $elapsed),
-                self::rate('Rollbacks', self::percent($postgresql->rollbackRate), $postgresql->rollbackRate, $elapsed, Sections::mark($findings, 'postgresql.rollbacks')),
-                self::rate('Rows written per second', Sections::rate($postgresql->rowsWrittenPerSecond), $postgresql->rowsWrittenPerSecond, $elapsed),
+                self::rate('Transactions per second', Sections::rate($postgresql->transactionsPerSecond), $postgresql->transactionsPerSecond, $snapshot),
+                self::rate('Rollbacks', self::percent($postgresql->rollbackRate), $postgresql->rollbackRate, $snapshot, Sections::mark($findings, 'postgresql.rollbacks')),
+                self::rate('Rows written per second', Sections::rate($postgresql->rowsWrittenPerSecond), $postgresql->rowsWrittenPerSecond, $snapshot),
             ])),
             Block::facts(new Facts('Cache', [
-                self::rate('Cache hit rate', self::percent($postgresql->cacheHitRate), $postgresql->cacheHitRate, $elapsed, Sections::mark($findings, 'postgresql.cache_hit_rate')),
-                self::rate('Disk reads per second', Sections::rate($postgresql->diskReadsPerSecond), $postgresql->diskReadsPerSecond, $elapsed),
+                self::rate('Cache hit rate', self::percent($postgresql->cacheHitRate), $postgresql->cacheHitRate, $snapshot, Sections::mark($findings, 'postgresql.cache_hit_rate')),
+                self::rate('Disk reads per second', Sections::rate($postgresql->diskReadsPerSecond), $postgresql->diskReadsPerSecond, $snapshot),
                 new Fact('Temporary files', Sections::value(self::count($postgresql->temporaryFiles)), hint: $postgresql->temporaryBytes === null ? null : Figures::bytes($postgresql->temporaryBytes) . ' ' . self::SINCE_RESET),
             ])),
             ...self::sessions($postgresql, $findings),
@@ -119,7 +120,7 @@ final class PostgresqlDetail implements DetailInterface
             $hidden = (int) $postgresql->hiddenSessions;
             $blocks[] = Block::notice(new Notice('info', 'This role cannot read the sessions of other roles', sprintf(
                 'PostgreSQL counts the %s in this database, but hides %s from it: the oldest transaction, the sessions idle in a transaction and the waits below only cover the sessions it can read. Grant it the pg_monitor role to see them all.',
-                $hidden === 1 ? '1 session of another role' : $hidden . ' sessions of other roles',
+                $hidden === 1 ? '1 session of another role' : Figures::count($hidden) . ' sessions of other roles',
                 $hidden === 1 ? 'its state, its transaction and its waits' : 'their state, their transaction and their waits',
             )));
         }
@@ -182,7 +183,7 @@ final class PostgresqlDetail implements DetailInterface
                 'Dead rows',
                 $postgresql->deadRowsPercent === null ? Sections::MISSING : Figures::percent($postgresql->deadRowsPercent),
                 Sections::mark($findings, 'postgresql.dead_rows'),
-                $postgresql->deadRowsPercent === null || $postgresql->deadRows === null || $postgresql->liveRows === null ? null : sprintf('%d of %d rows', $postgresql->deadRows, $postgresql->deadRows + $postgresql->liveRows),
+                $postgresql->deadRowsPercent === null || $postgresql->deadRows === null || $postgresql->liveRows === null ? null : Figures::count($postgresql->deadRows) . ' of ' . Figures::count($postgresql->deadRows + $postgresql->liveRows) . ' rows',
             ),
             new Fact('Database size', $bytes($postgresql->databaseSize), hint: $database === null || $database === '' ? 'every schema included' : 'every schema of ' . $database),
             new Fact('Table size', $bytes($postgresql->tablesSize), hint: 'indexes included'),
@@ -220,8 +221,8 @@ final class PostgresqlDetail implements DetailInterface
 
         if ($postgresql->slowQueries === [] && $hidden > 0) {
             return Block::unavailable(Block::TABLE, BlockState::Empty, 'This role cannot see the statements of the other roles', sprintf(
-                '%s, and pg_stat_statements only shows a role the text of its own. Grant it pg_read_all_stats or pg_monitor to see them.',
-                $hidden === 1 ? '1 of the slowest statements belongs to another role' : $hidden . ' of the slowest statements belong to other roles',
+                '%s, as pg_stat_statements only shows a role the text of its own. Grant it pg_read_all_stats or pg_monitor to see them.',
+                $hidden === 1 ? '1 statement of another role is hidden from this role' : Figures::count($hidden) . ' statements of other roles are hidden from this role',
             ));
         }
 
@@ -253,7 +254,7 @@ final class PostgresqlDetail implements DetailInterface
             note: 'the slowest on average ' . self::SINCE_RESET . match ($hidden) {
                 0 => '',
                 1 => '; this role cannot see 1 statement of another role',
-                default => '; this role cannot see ' . $hidden . ' statements of other roles',
+                default => '; this role cannot see ' . Figures::count($hidden) . ' statements of other roles',
             },
         ));
     }
@@ -264,7 +265,7 @@ final class PostgresqlDetail implements DetailInterface
     private static function states(PostgresqlReading $postgresql): ?string
     {
         $states = array_map(
-            static fn(string $state, int $count): string => $count . ' ' . $state . ($state === 'unknown' && $postgresql->limitedRole ? ' to this role' : ''),
+            static fn(string $state, int $count): string => Figures::count($count) . ' ' . $state . ($state === 'unknown' && $postgresql->limitedRole ? ' to this role' : ''),
             array_keys($postgresql->connectionsByState),
             $postgresql->connectionsByState,
         );
@@ -279,9 +280,9 @@ final class PostgresqlDetail implements DetailInterface
         return $value === null ? null : (string) $value;
     }
 
-    private static function rate(string $label, ?string $value, Rate $rate, ?int $elapsed, ?Mark $mark = null): Fact
+    private static function rate(string $label, ?string $value, Rate $rate, ComponentSnapshot $snapshot, ?Mark $mark = null): Fact
     {
-        return new Fact($label, Sections::value($value), $mark, Figures::span($rate, $elapsed));
+        return new Fact($label, Sections::value($value), $mark, Sections::span($rate, $snapshot, 'postgresql'));
     }
 
     private static function percent(Rate $rate): ?string
@@ -291,6 +292,6 @@ final class PostgresqlDetail implements DetailInterface
 
     private static function count(?int $count): ?string
     {
-        return $count === null ? null : (string) $count;
+        return $count === null ? null : Figures::count($count);
     }
 }

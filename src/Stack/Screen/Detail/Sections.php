@@ -97,6 +97,14 @@ final class Sections
         return $part === null || $total === null ? null : Figures::bytes($part) . ' of ' . Figures::bytes($total);
     }
 
+    /**
+     * The span a rate of this collector covers, or when it comes: no second sample comes while the collector fails.
+     */
+    public static function span(Rate $rate, ComponentSnapshot $snapshot, string $collector): ?string
+    {
+        return $rate->isPending() && $snapshot->result($collector)?->error !== null ? null : Figures::span($rate, $snapshot->delta($collector)?->elapsed);
+    }
+
     public static function rate(Rate $rate): ?string
     {
         return $rate->value === null ? null : Figures::rate($rate->value, $rate->unit);

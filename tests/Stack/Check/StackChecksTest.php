@@ -988,13 +988,13 @@ final class StackChecksTest extends TestCase
         $ended = $health(self::postgresqlActivity(settings: ['server_version' => '13.18 (Debian 13.18-1.pgdg120+1)']));
         $securityOnly = $health(self::postgresqlActivity(settings: ['server_version' => '14.15']));
 
-        self::assertSame("The PostgreSQL server holds 90.5\u{00A0}% of its connections (905 of 1000)", self::find($connections, 'postgresql.connections')?->sentence);
+        self::assertSame("The PostgreSQL server holds 90.5\u{00A0}% of its connections (905 of 1,000)", self::find($connections, 'postgresql.connections')?->sentence);
         self::assertStringContainsString('max_connections', self::find($connections, 'postgresql.connections')->explanation);
         self::assertSame("The cache hit rate is 90\u{00A0}% over the last 60\u{00A0}s", self::find($recent, 'postgresql.cache_hit_rate')?->sentence);
         self::assertSame("The cache hit rate is 90\u{00A0}% since the statistics were reset", self::find($sinceReset, 'postgresql.cache_hit_rate')?->sentence);
         self::assertStringContainsString('shared_buffers', self::find($recent, 'postgresql.cache_hit_rate')->explanation);
         self::assertSame("15\u{00A0}% of the transactions were rolled back over the last 60\u{00A0}s", self::find($recent, 'postgresql.rollbacks')?->sentence);
-        self::assertSame("30\u{00A0}% of the rows of the schema public are dead (30000 of 100000)", self::find($deadRows, 'postgresql.dead_rows')?->sentence);
+        self::assertSame("30\u{00A0}% of the rows of the schema public are dead (30,000 of 100,000)", self::find($deadRows, 'postgresql.dead_rows')?->sentence);
         self::assertStringContainsString('VACUUM', self::find($deadRows, 'postgresql.dead_rows')->explanation);
         self::assertSame("A session has been idle in a transaction for 5\u{00A0}min\u{00A0}42\u{00A0}s", self::find($idle, 'postgresql.idle_in_transaction')?->sentence);
         self::assertSame("3 sessions are idle in a transaction, the oldest for 5\u{00A0}min\u{00A0}42\u{00A0}s", self::find($idleMany, 'postgresql.idle_in_transaction')?->sentence);
@@ -1225,6 +1225,7 @@ final class StackChecksTest extends TestCase
             ['keyspace_hits' => 1_400, 'keyspace_misses' => 600, 'evicted_keys' => 12, 'rejected_connections' => 3],
         ));
         $once = $health(...self::redisWindow(['evicted_keys' => 0, 'rejected_connections' => 0], ['evicted_keys' => 1, 'rejected_connections' => 1]));
+        $many = $health(...self::redisWindow(['evicted_keys' => 0, 'rejected_connections' => 0], ['evicted_keys' => 1_793, 'rejected_connections' => 2_500]));
         $snapshot = $health(self::redis(['persistence' => ['rdb_last_bgsave_status' => 'err']]));
         $rewrite = $health(self::redis(['persistence' => ['aof_enabled' => 1, 'aof_last_bgrewrite_status' => 'err']]));
         $ended = $health(self::redis(['server' => ['version' => '6.2.14']]));
@@ -1236,6 +1237,8 @@ final class StackChecksTest extends TestCase
         self::assertStringContainsString('maxmemory', self::find($full, 'redis.memory')->explanation);
         self::assertSame("The hit rate is 70\u{00A0}% over the last 60\u{00A0}s", self::find($window, 'redis.hit_rate')?->sentence);
         self::assertSame("12 keys were evicted over the last 60\u{00A0}s", self::find($window, 'redis.evictions')?->sentence);
+        self::assertSame("1,793 keys were evicted over the last 60\u{00A0}s", self::find($many, 'redis.evictions')?->sentence);
+        self::assertSame("2,500 connections were refused over the last 60\u{00A0}s", self::find($many, 'redis.rejected_connections')?->sentence);
         self::assertSame("1 key was evicted over the last 60\u{00A0}s", self::find($once, 'redis.evictions')?->sentence);
         self::assertStringContainsString('allkeys-lru', self::find($window, 'redis.evictions')->explanation, 'the policy of the server');
         self::assertSame("3 connections were refused over the last 60\u{00A0}s", self::find($window, 'redis.rejected_connections')?->sentence);

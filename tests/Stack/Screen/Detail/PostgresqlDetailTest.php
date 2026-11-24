@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Stack\Screen\Detail;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
+use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
@@ -84,7 +85,7 @@ final class PostgresqlDetailTest extends TestCase
         self::assertSame(self::nb('6 MB') . ' since the statistics were reset', $hints['Cache / Temporary files']);
         self::assertSame('the longest for ' . self::nb('45 s'), $hints['Sessions / Waiting for a lock']);
         self::assertSame('the oldest for ' . self::nb('5 min 40 s'), $hints['Sessions / Idle in a transaction']);
-        self::assertSame('4000 of 254000 rows', $hints['Tables / Dead rows']);
+        self::assertSame('4,000 of 254,000 rows', $hints['Tables / Dead rows']);
         self::assertSame('every schema of shop', $hints['Tables / Database size']);
         self::assertSame('indexes included', $hints['Tables / Table size']);
 
@@ -298,11 +299,11 @@ final class PostgresqlDetailTest extends TestCase
         self::assertStringNotContainsString('pg_stat_statements', $last->title);
         self::assertStringContainsString('pg_read_all_stats', $last->text);
         self::assertStringContainsString('pg_monitor', $last->text);
-        self::assertStringStartsWith('3 of the slowest statements belong to other roles', $last->text);
+        self::assertStringStartsWith('3 statements of other roles are hidden from this role', $last->text);
 
         $one = (new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql.slow_queries' => ['queries' => [], 'hidden' => 1]])), [], Snapshots::NOW)[7];
 
-        self::assertStringStartsWith('1 of the slowest statements belongs to another role', $one->text);
+        self::assertStringStartsWith('1 statement of another role is hidden from this role', $one->text);
 
         $some = self::snapshot(['postgresql.slow_queries' => ['hidden' => 2] + DatabasePayloads::postgresqlSlowQueries()]);
         $table = (new PostgresqlDetail())->sections(self::connection($some), [], Snapshots::NOW)[7]->content;
@@ -340,6 +341,54 @@ final class PostgresqlDetailTest extends TestCase
             'notice: The PostgreSQL settings could not be read',
             'Slowest queries',
         ], $titles);
+    }
+
+    public function testItsCountsAreWrittenLikeThoseOfATable(): void
+    {
+        $activity = DatabasePayloads::postgresqlActivity();
+        $activity['server_connections'] = 1_024;
+        $activity['connections'] = ['active' => 1_200, 'unknown' => 1_500];
+        $activity['hidden_sessions'] = 1_500;
+        $activity['database_stats']['numbackends'] = 2_700;
+        $activity['database_stats']['temp_files'] = 12_345;
+        $database = DatabasePayloads::postgresqlDatabase();
+        $database['tables']['dead_tuples'] = 1_793;
+        $database['tables']['live_tuples'] = 219_636;
+        $snapshot = self::snapshot([
+            'postgresql' => $activity,
+            'postgresql.settings' => ['max_connections' => '2000'] + DatabasePayloads::postgresqlSettings(),
+            'postgresql.database' => $database,
+            'postgresql.slow_queries' => ['hidden' => 1_200] + DatabasePayloads::postgresqlSlowQueries(),
+        ]);
+
+        $blocks = (new PostgresqlDetail())->sections(self::connection($snapshot), [], Snapshots::NOW);
+        $hints = self::hints($blocks);
+        $notice = $blocks[3]->content;
+        $slowest = $blocks[8]->content;
+
+        self::assertSame(self::nb('1,024 / 2,000') . ', every database of the server', $hints['Usage / Server connections']);
+        self::assertSame('1,200 active · 1,500 unknown to this role', $hints['Usage / Database connections']);
+        self::assertSame('2,700', self::describe($blocks)[0][2]['Database connections']);
+        self::assertSame('12,345', self::describe($blocks)[2][2]['Temporary files']);
+        self::assertSame('1,793 of 221,429 rows', $hints['Tables / Dead rows']);
+        self::assertInstanceOf(Notice::class, $notice);
+        self::assertStringStartsWith('PostgreSQL counts the 1,500 sessions of other roles in this database', $notice->text);
+        self::assertInstanceOf(Table::class, $slowest);
+        self::assertSame('the slowest on average since the statistics were reset; this role cannot see 1,200 statements of other roles', $slowest->note);
+    }
+
+    public function testARateWithoutSecondSampleIsOnlyPromisedWhileTheServerAnswers(): void
+    {
+        $dead = self::snapshot(results: [
+            new CollectorResult('postgresql', DatabasePayloads::postgresqlActivity(), ResultState::Stale, 'Nothing answers on db1:5432.', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ]);
+
+        $hints = self::hints((new PostgresqlDetail())->sections(self::connection($dead), [], Snapshots::NOW));
+
+        self::assertNull($hints['Traffic / Transactions per second']);
+        self::assertNull($hints['Traffic / Rows written per second']);
+        self::assertNull($hints['Cache / Disk reads per second']);
+        self::assertSame('since the statistics were reset', $hints['Cache / Cache hit rate']);
     }
 
     public function testAnUnreachableServerIsToldOnce(): void

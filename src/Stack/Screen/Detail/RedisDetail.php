@@ -64,6 +64,7 @@ final class RedisDetail implements DetailInterface
     private static function activity(RedisReading $redis, ComponentSnapshot $snapshot, array $findings): array
     {
         $elapsed = $snapshot->delta('redis')?->elapsed;
+        $pending = Sections::span(Rate::pending(), $snapshot, 'redis');
         $used = $redis->usedMemory === null ? Sections::MISSING : Figures::bytes($redis->usedMemory);
 
         return [
@@ -74,10 +75,10 @@ final class RedisDetail implements DetailInterface
                 new Gauge('Clients', null, Sections::value(self::count($redis->clients)), hint: $redis->clients === null ? null : 'connected'),
             ])),
             Block::facts(new Facts('Traffic', [
-                new Fact('Commands per second', Sections::value(Sections::rate($redis->commandsPerSecond)), hint: Figures::span($redis->commandsPerSecond, $elapsed)),
-                new Fact('Hit rate', Sections::value(self::percent($redis->hitRate)), Sections::mark($findings, 'redis.hit_rate'), Figures::span($redis->hitRate, $elapsed)),
-                self::lately('Evicted keys', $redis->evictedLately, $redis->evictedKeys, $elapsed, Sections::mark($findings, 'redis.evictions')),
-                self::lately('Refused connections', $redis->rejectedLately, $redis->rejectedConnections, $elapsed, Sections::mark($findings, 'redis.rejected_connections')),
+                new Fact('Commands per second', Sections::value(Sections::rate($redis->commandsPerSecond)), hint: Sections::span($redis->commandsPerSecond, $snapshot, 'redis')),
+                new Fact('Hit rate', Sections::value(self::percent($redis->hitRate)), Sections::mark($findings, 'redis.hit_rate'), Sections::span($redis->hitRate, $snapshot, 'redis')),
+                self::lately('Evicted keys', $redis->evictedLately, $redis->evictedKeys, $elapsed, $pending, Sections::mark($findings, 'redis.evictions')),
+                self::lately('Refused connections', $redis->rejectedLately, $redis->rejectedConnections, $elapsed, $pending, Sections::mark($findings, 'redis.rejected_connections')),
             ])),
         ];
     }
@@ -160,12 +161,14 @@ final class RedisDetail implements DetailInterface
 
     /**
      * A counter between the last two samples, or what it waits for.
+     *
+     * @param ?string $pending what a rate without second sample says
      */
-    private static function lately(string $label, ?int $lately, ?int $counter, ?int $elapsed, ?Mark $mark): Fact
+    private static function lately(string $label, ?int $lately, ?int $counter, ?int $elapsed, ?string $pending, ?Mark $mark): Fact
     {
         return new Fact($label, Sections::value(self::count($lately)), $mark, match (true) {
             $lately !== null && $elapsed !== null => Figures::lastSeconds($elapsed),
-            $counter !== null => Rate::AT_NEXT_REFRESH,
+            $counter !== null => $pending,
             default => null,
         });
     }
@@ -177,6 +180,6 @@ final class RedisDetail implements DetailInterface
 
     private static function count(?int $count): ?string
     {
-        return $count === null ? null : (string) $count;
+        return $count === null ? null : Figures::count($count);
     }
 }

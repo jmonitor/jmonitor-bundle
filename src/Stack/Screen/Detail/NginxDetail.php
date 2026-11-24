@@ -73,8 +73,8 @@ final class NginxDetail implements DetailInterface
                 self::refused($nginx, $findings, $elapsed),
             ])),
             Block::facts(new Facts('Traffic', [
-                new Fact('Requests per second', Sections::value(Sections::rate($nginx->requestsPerSecond)), hint: Figures::span($nginx->requestsPerSecond, $elapsed)),
-                new Fact('Requests per connection', Sections::value(Sections::rate($nginx->requestsPerConnection)), hint: Figures::span($nginx->requestsPerConnection, $elapsed)),
+                new Fact('Requests per second', Sections::value(Sections::rate($nginx->requestsPerSecond)), hint: Sections::span($nginx->requestsPerSecond, $snapshot, 'nginx')),
+                new Fact('Requests per connection', Sections::value(Sections::rate($nginx->requestsPerConnection)), hint: Sections::span($nginx->requestsPerConnection, $snapshot, 'nginx')),
             ])),
         ];
     }

@@ -36,7 +36,7 @@ final class RedisChecks
             $findings[] = $raise(
                 'redis.evictions',
                 Severity::Info,
-                sprintf('%s evicted %s', $redis->evictedLately === 1 ? '1 key was' : $redis->evictedLately . ' keys were', Figures::lastSeconds($elapsed)),
+                sprintf('%s evicted %s', $redis->evictedLately === 1 ? '1 key was' : Figures::count($redis->evictedLately) . ' keys were', Figures::lastSeconds($elapsed)),
                 sprintf('The server reached maxmemory and removed keys to make room, as its policy%s says. A cache works that way; when these keys hold what the application cannot rebuild, such as sessions or locks, raise maxmemory, or keep them on a server under the noeviction policy.', $redis->policy === null ? '' : ' (' . $redis->policy . ')'),
                 'redis',
             );
@@ -46,7 +46,7 @@ final class RedisChecks
             $findings[] = $raise(
                 'redis.rejected_connections',
                 Severity::Warning,
-                sprintf('%s refused %s', $redis->rejectedLately === 1 ? '1 connection was' : $redis->rejectedLately . ' connections were', Figures::lastSeconds($elapsed)),
+                sprintf('%s refused %s', $redis->rejectedLately === 1 ? '1 connection was' : Figures::count($redis->rejectedLately) . ' connections were', Figures::lastSeconds($elapsed)),
                 'The server refuses new connections once it holds maxclients, and the requests that needed one fail. Find what holds the connections, such as persistent connections kept by many workers, or raise maxclients.',
                 'redis',
             );

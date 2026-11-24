@@ -536,6 +536,22 @@ final class CardBuilderTest extends TestCase
         self::assertSame('at the next refresh', $alone->vitals[2]->hint);
     }
 
+    public function testARateWithoutSecondSampleIsOnlyPromisedWhileTheServerAnswers(): void
+    {
+        $stale = static fn(string $name, array $data): CollectorResult => new CollectorResult($name, $data, ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable);
+        $redis = $this->cardOf(Component::Redis, new InstanceState('main', null, null, new ComponentSnapshot(Component::Redis, ['redis' => $stale('redis', RedisPayloads::kept())]), new Server('cache:6379', 'cache:6379')));
+        $mysql = $this->cardOf(Component::Mysql, new InstanceState('main', 'shop', null, new ComponentSnapshot(Component::Mysql, [
+            'mysql' => $stale('mysql', DatabasePayloads::mysqlStatus()),
+            'mysql.variables' => $stale('mysql.variables', DatabasePayloads::mysqlVariables()),
+        ]), new Server('db1:3306', 'db1:3306')));
+
+        self::assertSame('Commands', $redis->vitals[2]->label);
+        self::assertNull($redis->vitals[2]->hint);
+        self::assertSame('since the server started', $redis->vitals[1]->hint);
+        self::assertSame('Queries', $mysql->vitals[1]->label);
+        self::assertNull($mysql->vitals[1]->hint);
+    }
+
     public function testARedisWithoutLimitShowsItsMemoryAlone(): void
     {
         $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, Snapshots::of(Component::Redis, ['redis' => RedisPayloads::kept()]), new Server('cache:6379', 'cache:6379')));

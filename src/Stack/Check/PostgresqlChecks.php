@@ -37,7 +37,7 @@ final class PostgresqlChecks
             $findings[] = $raise(
                 'postgresql.connections',
                 $postgresql->connectionsPercent >= 95 ? Severity::Critical : Severity::Warning,
-                sprintf('The PostgreSQL server holds %s of its connections (%d of %d)', Figures::percent($postgresql->connectionsPercent), $postgresql->serverConnections, $postgresql->maxConnections),
+                sprintf('The PostgreSQL server holds %s of its connections (%s of %s)', Figures::percent($postgresql->connectionsPercent), Figures::count((int) $postgresql->serverConnections), Figures::count((int) $postgresql->maxConnections)),
                 'Past max_connections, PostgreSQL refuses new connections, and the requests that need the database fail. The count is that of the whole server, every database included. Find what holds the connections, such as long transactions or processes that keep theirs open, put a connection pooler in front of the server, or raise max_connections if its memory allows it.',
                 'postgresql',
                 'postgresql.settings',
@@ -78,11 +78,11 @@ final class PostgresqlChecks
                 'postgresql.dead_rows',
                 Severity::Warning,
                 sprintf(
-                    '%s of the rows of %s are dead (%d of %d)',
+                    '%s of the rows of %s are dead (%s of %s)',
                     Figures::percent($postgresql->deadRowsPercent),
                     $postgresql->schema === null ? 'the schema' : 'the schema ' . $postgresql->schema,
-                    $postgresql->deadRows,
-                    $postgresql->deadRows + (int) $postgresql->liveRows,
+                    Figures::count($postgresql->deadRows),
+                    Figures::count($postgresql->deadRows + (int) $postgresql->liveRows),
                 ),
                 'An update or a delete leaves the former version of the row behind until VACUUM removes it. Until then, the tables and their indexes grow, and the queries read more. Check that autovacuum keeps up with the writes: lower autovacuum_vacuum_scale_factor for the busiest tables, or run VACUUM on them.',
                 'postgresql.database',
@@ -95,7 +95,7 @@ final class PostgresqlChecks
                 'postgresql.idle_in_transaction',
                 Severity::Warning,
                 $idle > 1
-                    ? sprintf('%d sessions are idle in a transaction, the oldest for %s', $idle, Figures::duration($postgresql->oldestIdleInTransaction))
+                    ? sprintf('%s sessions are idle in a transaction, the oldest for %s', Figures::count($idle), Figures::duration($postgresql->oldestIdleInTransaction))
                     : sprintf('A session has been idle in a transaction for %s', Figures::duration($postgresql->oldestIdleInTransaction)),
                 'A transaction left open holds its locks, which can block other sessions, and keeps VACUUM from removing the dead rows of the whole database. Find the code that opens a transaction and does not end it, or set idle_in_transaction_session_timeout.',
                 'postgresql',
@@ -108,7 +108,7 @@ final class PostgresqlChecks
                 'postgresql.blocked_sessions',
                 Severity::Warning,
                 $waiting > 1
-                    ? sprintf('%d sessions are waiting for a lock, the longest for %s', $waiting, Figures::duration($postgresql->longestBlock))
+                    ? sprintf('%s sessions are waiting for a lock, the longest for %s', Figures::count($waiting), Figures::duration($postgresql->longestBlock))
                     : sprintf('A session has been waiting for a lock for %s', Figures::duration($postgresql->longestBlock)),
                 'A session that waits for a lock waits for another one to end its transaction, and the request behind it waits too, or fails on a timeout. Look up the session that blocks it in pg_stat_activity, and find the code that keeps its transaction open.',
                 'postgresql',
@@ -133,7 +133,7 @@ final class PostgresqlChecks
             $findings[] = $raise(
                 'postgresql.limited_role',
                 Severity::Info,
-                sprintf('The role of this connection cannot see the state of %d %s of other roles', $postgresql->hiddenSessions, $postgresql->hiddenSessions === 1 ? 'session' : 'sessions'),
+                sprintf('The role of this connection cannot see the state of %s %s of other roles', Figures::count($postgresql->hiddenSessions), $postgresql->hiddenSessions === 1 ? 'session' : 'sessions'),
                 'PostgreSQL only shows a role without privilege the state of its own sessions, so the transactions left idle and the sessions waiting for a lock are not judged here. Grant it the pg_monitor role to see them all.',
                 'postgresql',
             );
