@@ -120,7 +120,6 @@ final class PostgresqlDetail implements DetailInterface
      */
     private static function sessions(PostgresqlReading $postgresql, array $findings): array
     {
-        $waiting = $postgresql->blockedSessions === null && $postgresql->blocked === [] ? null : max((int) $postgresql->blockedSessions, count($postgresql->blocked));
         $blocks = [];
 
         if ($postgresql->limitedRole) {
@@ -133,7 +132,7 @@ final class PostgresqlDetail implements DetailInterface
         }
 
         $blocks[] = Block::facts(new Facts('Sessions', [
-            new Fact('Waiting for a lock', Sections::value(self::count($waiting)), Sections::mark($findings, 'postgresql.blocked_sessions'), $postgresql->longestBlock === null ? null : 'the longest for ' . Figures::duration($postgresql->longestBlock)),
+            new Fact('Waiting for a lock', Sections::value(self::count($postgresql->blockedSessions)), Sections::mark($findings, 'postgresql.blocked_sessions'), $postgresql->longestBlock === null ? null : 'the longest for ' . Figures::duration($postgresql->longestBlock)),
             new Fact('Oldest transaction', $postgresql->oldestTransaction === null ? Sections::MISSING : Figures::duration($postgresql->oldestTransaction)),
             new Fact('Idle in a transaction', Sections::value(self::count($postgresql->idleInTransaction)), Sections::mark($findings, 'postgresql.idle_in_transaction'), $postgresql->oldestIdleInTransaction === null ? null : 'the oldest for ' . Figures::duration($postgresql->oldestIdleInTransaction)),
         ]));

@@ -100,7 +100,7 @@ final class PostgresqlChecks
         }
 
         if (!$postgresql->limitedRole && $postgresql->longestBlock !== null && $postgresql->longestBlock >= self::BLOCKED_SECONDS) {
-            $waiting = max((int) $postgresql->blockedSessions, count($postgresql->blocked));
+            $waiting = (int) $postgresql->blockedSessions;
             $findings[] = $raise(
                 'postgresql.blocked_sessions',
                 Severity::Warning,

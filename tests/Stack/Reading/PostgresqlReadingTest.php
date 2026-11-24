@@ -244,6 +244,24 @@ final class PostgresqlReadingTest extends TestCase
         self::assertSame(12, $oneKnown->longestBlock);
     }
 
+    public function testASessionWaitingForTwoOthersCountsOnce(): void
+    {
+        $activity = DatabasePayloads::postgresqlActivity();
+        $activity['sessions']['blocked_count'] = 2;
+        $activity['sessions']['blocked_queries'] = [
+            ['blocked_pid' => 4242, 'wait_seconds' => 45, 'blocking_pid' => 4100, 'blocking_state' => 'idle in transaction'],
+            ['blocked_pid' => 4242, 'wait_seconds' => 45, 'blocking_pid' => 4101, 'blocking_state' => 'idle in transaction'],
+            ['blocked_pid' => 4243, 'wait_seconds' => 12, 'blocking_pid' => 4100, 'blocking_state' => 'idle in transaction'],
+        ];
+        $counted = PostgresqlReading::of(self::snapshot(activity: $activity), self::today());
+        $activity['sessions']['blocked_count'] = 0;
+        $notCounted = PostgresqlReading::of(self::snapshot(activity: $activity), self::today());
+
+        self::assertSame(2, $counted->blockedSessions);
+        self::assertCount(3, $counted->blocked, 'one row per session it waits for');
+        self::assertSame(2, $notCounted->blockedSessions, 'the sessions of the rows, each once');
+    }
+
     public function testAnUnknownCountOfTheServerConnectionsGivesNoShare(): void
     {
         $reading = PostgresqlReading::of(self::snapshot(activity: ['server_connections' => null]), self::today());

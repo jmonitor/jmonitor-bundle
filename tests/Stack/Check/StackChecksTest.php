@@ -915,6 +915,7 @@ final class StackChecksTest extends TestCase
         yield 'connections 95 %' => [self::postgresqlConnections(950), [], 'postgresql.connections', Severity::Critical];
 
         yield 'cache hit rate 95 % over 1000 blocks' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 950, 'blks_read' => 50]), 'postgresql.cache_hit_rate', null];
+        yield 'cache hit rate 94.99 % over 10 000 blocks' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 9_499, 'blks_read' => 501]), 'postgresql.cache_hit_rate', Severity::Warning];
         yield 'cache hit rate 94.9 % over 1000 blocks' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 949, 'blks_read' => 51]), 'postgresql.cache_hit_rate', Severity::Warning];
         yield 'cache hit rate 94.9 % over 999 blocks, 99 999 since the reset' => [...self::postgresqlWindow(['blks_hit' => 93_951, 'blks_read' => 5_049], ['blks_hit' => 94_899, 'blks_read' => 5_100]), 'postgresql.cache_hit_rate', null];
         yield 'cache hit rate 94.9 % over 999 blocks, 100 000 since the reset' => [...self::postgresqlWindow(['blks_hit' => 93_952, 'blks_read' => 5_049], ['blks_hit' => 94_900, 'blks_read' => 5_100]), 'postgresql.cache_hit_rate', Severity::Warning];
@@ -974,6 +975,10 @@ final class StackChecksTest extends TestCase
             ['blocked_pid' => 4242, 'wait_seconds' => 45, 'blocking_pid' => 4100, 'blocking_state' => 'active'],
             ['blocked_pid' => 4243, 'wait_seconds' => 90, 'blocking_pid' => 4100, 'blocking_state' => 'active'],
         ]]]));
+        $waitingForTwo = $health(self::postgresqlActivity(['sessions' => ['blocked_count' => 1, 'blocked_queries' => [
+            ['blocked_pid' => 4242, 'wait_seconds' => 45, 'blocking_pid' => 4100, 'blocking_state' => 'active'],
+            ['blocked_pid' => 4242, 'wait_seconds' => 45, 'blocking_pid' => 4101, 'blocking_state' => 'active'],
+        ]]]));
         $autovacuum = $health(self::postgresqlActivity(settings: ['autovacuum' => 'off']));
         $trackCounts = $health(self::postgresqlActivity(settings: ['track_counts' => 'off']));
         $both = $health(self::postgresqlActivity(settings: ['autovacuum' => 'off', 'track_counts' => 'off']));
@@ -995,6 +1000,7 @@ final class StackChecksTest extends TestCase
         self::assertStringContainsString('idle_in_transaction_session_timeout', self::find($idle, 'postgresql.idle_in_transaction')->explanation);
         self::assertSame("A session has been waiting for a lock for 45\u{00A0}s", self::find($blocked, 'postgresql.blocked_sessions')?->sentence);
         self::assertSame("2 sessions are waiting for a lock, the longest for 1\u{00A0}min\u{00A0}30\u{00A0}s", self::find($blockedMany, 'postgresql.blocked_sessions')?->sentence);
+        self::assertSame(self::find($blocked, 'postgresql.blocked_sessions')?->sentence, self::find($waitingForTwo, 'postgresql.blocked_sessions')?->sentence, 'a session waiting for two others is one session');
         self::assertStringContainsString('pg_stat_activity', self::find($blocked, 'postgresql.blocked_sessions')->explanation);
         self::assertSame('autovacuum is off', self::find($autovacuum, 'postgresql.autovacuum_off')?->sentence);
         self::assertSame('track_counts is off, which stops autovacuum', self::find($trackCounts, 'postgresql.autovacuum_off')?->sentence);

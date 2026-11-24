@@ -24,7 +24,7 @@ final readonly class PostgresqlReading
 
     /**
      * @param ?string                        $version                 the numbers ahead of the build, such as "16.4" for "16.4 (Debian 16.4-1.pgdg120+1)"
-     * @param ?SupportStatus                 $support                 null for the servers that only speak its protocol, such as CockroachDB or YugabyteDB
+     * @param ?SupportStatus                 $support                 null without a cycle for this version, as for a development version or a server that only speaks its protocol, such as CockroachDB
      * @param ?int                           $serverConnections       every database of the server included
      * @param array<string, int>             $connectionsByState      the connections of this database whose state the role may see
      * @param ?int                           $hiddenSessions          the sessions of this database whose state the role may not see
@@ -33,8 +33,9 @@ final readonly class PostgresqlReading
      * @param ?int                           $transactions            committed or rolled back between the last two samples
      * @param ?int                           $oldestIdleInTransaction in seconds
      * @param ?int                           $oldestTransaction       in seconds
+     * @param ?int                           $blockedSessions         each session once, though it may wait for several
      * @param ?int                           $longestBlock            in seconds, among the waits the role may see
-     * @param list<PostgresqlBlockedSession> $blocked
+     * @param list<PostgresqlBlockedSession> $blocked                 one per session waiting and session it waits for
      * @param array<string, string|int>      $settings                the settings read, by name, sizes in bytes
      * @param list<MysqlSlowQuery>           $slowQueries             the statements that read or write rows, their values replaced
      * @param ?int                           $hiddenStatements        the statements whose text the role may not see
@@ -108,6 +109,7 @@ final readonly class PostgresqlReading
         $dead = Values::int($tables['dead_tuples'] ?? null);
         $live = Values::int($tables['live_tuples'] ?? null);
         $blocked = self::blocked($sessions['blocked_queries'] ?? null);
+        $blockedCount = Values::int($sessions['blocked_count'] ?? null);
         $waits = array_filter(array_map(static fn(PostgresqlBlockedSession $session): ?int => $session->waitSeconds, $blocked), is_int(...));
 
         return new self(
@@ -140,7 +142,7 @@ final readonly class PostgresqlReading
             Values::int($sessions['idle_in_transaction_count'] ?? null),
             Values::int($sessions['oldest_idle_in_transaction_seconds'] ?? null),
             Values::int($sessions['oldest_transaction_seconds'] ?? null),
-            Values::int($sessions['blocked_count'] ?? null),
+            $blockedCount === null && $blocked === [] ? null : max($blockedCount ?? 0, count(array_unique(array_map(static fn(PostgresqlBlockedSession $session): int => $session->pid, $blocked)))),
             $waits === [] ? null : max($waits),
             $blocked,
             Values::bool($settings['autovacuum'] ?? null),

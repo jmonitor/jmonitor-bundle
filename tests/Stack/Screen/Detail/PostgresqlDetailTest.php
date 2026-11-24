@@ -180,6 +180,18 @@ final class PostgresqlDetailTest extends TestCase
         self::assertStringNotContainsString('UPDATE', $shown);
     }
 
+    public function testASessionWaitingForTwoOthersIsCountedOnce(): void
+    {
+        $activity = DatabasePayloads::postgresqlActivity();
+        $activity['sessions']['blocked_queries'][] = ['blocked_pid' => 4242, 'wait_seconds' => 45, 'blocking_pid' => 4101, 'blocking_state' => 'active'];
+        $snapshot = self::snapshot(['postgresql' => $activity]);
+
+        $described = self::describe((new PostgresqlDetail())->sections(self::connection($snapshot), self::findings($snapshot), Snapshots::NOW));
+
+        self::assertSame('1 [Warning]', $described[3][2]['Waiting for a lock']);
+        self::assertCount(2, $described[4][2], 'a row for each session it waits for');
+    }
+
     public function testWithoutBlockedSessionTheTableSaysSo(): void
     {
         $activity = DatabasePayloads::postgresqlActivity();
