@@ -14,6 +14,7 @@ use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
@@ -52,6 +53,7 @@ final class StackEngineTest extends WebTestCase
         ApacheDetector::class,
         NginxDetector::class,
         MysqlDetector::class,
+        PostgresqlDetector::class,
         DoctrineConnections::class,
         DatabaseInstances::class,
     ];
@@ -102,7 +104,7 @@ final class StackEngineTest extends WebTestCase
             self::assertFreshValues($component);
         }
         if ($linux) {
-            static::assertSame(['frankenphp', 'apache', 'nginx', 'mysql'], array_keys($state->notDetected));
+            static::assertSame(['frankenphp', 'apache', 'nginx', 'mysql', 'postgresql'], array_keys($state->notDetected));
         }
     }
 
@@ -122,6 +124,7 @@ final class StackEngineTest extends WebTestCase
                 'apache' => 'Apache is not serving this page.',
                 'nginx' => 'Nginx is not serving this page.',
                 'mysql' => 'No MySQL Doctrine connection found.',
+                'postgresql' => 'No PostgreSQL Doctrine connection found.',
             ],
             array_diff_key($state->notDetected, [Component::System->value => true]),
         );
@@ -224,6 +227,26 @@ final class StackEngineTest extends WebTestCase
 
         static::assertSame(CacheState::Cold, $state->cache);
         static::assertSame(['e'], array_map(static fn($instance): ?string => $instance->id, $state->component(Component::Mysql)->instances ?? []));
+        static::assertFalse($container->initialized('doctrine.dbal.e_connection'));
+        static::assertFalse($container->initialized('doctrine.dbal.default_connection'));
+    }
+
+    public function testDetectingPostgresqlBuildsNoConnection(): void
+    {
+        $connections = ['e' => ['url' => 'postgresql://jmonitor:jmonitor@127.0.0.1:1/jmonitor', 'mapping_types' => ['enum' => 'string']]];
+        $warmUp = self::kernel([], connections: $connections);
+        $warmUp->boot();
+        $warmUp->shutdown();
+        $this->kernels[] = $kernel = self::kernel([], connections: $connections);
+        $kernel->boot();
+        $container = $kernel->getContainer();
+        $reader = $container->get(StackReaderInterface::class);
+        static::assertInstanceOf(StackReaderInterface::class, $reader);
+
+        $state = $reader->overview(ReadMode::Page);
+
+        static::assertSame(CacheState::Cold, $state->cache);
+        static::assertSame(['e'], array_map(static fn($instance): ?string => $instance->id, $state->component(Component::Postgresql)->instances ?? []));
         static::assertFalse($container->initialized('doctrine.dbal.e_connection'));
         static::assertFalse($container->initialized('doctrine.dbal.default_connection'));
     }

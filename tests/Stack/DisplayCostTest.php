@@ -118,7 +118,7 @@ final class DisplayCostTest extends TestCase
 
         $last = $this->display(static fn(): LocalStackReader => $reader);
 
-        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1]], $this->calls());
+        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1, 1]], $this->calls());
         self::assertSame(CacheState::Working, $last->cache);
         self::assertFalse($last->isReading());
 
@@ -152,9 +152,9 @@ final class DisplayCostTest extends TestCase
     {
         $last = $this->display(fn(): LocalStackReader => $this->reader($pool()));
 
-        self::assertSame([0, 0, 0, 0, 0, 0, 0], $this->calls()['Network']);
-        self::assertSame([0, 0, 0, 0, 0, 0, 0], $this->calls()['Slow']);
-        self::assertSame([50, 50, 50, 50, 50, 50, 50], $this->calls()['Immediate']);
+        self::assertSame([0, 0, 0, 0, 0, 0, 0, 0], $this->calls()['Network']);
+        self::assertSame([0, 0, 0, 0, 0, 0, 0, 0], $this->calls()['Slow']);
+        self::assertSame([50, 50, 50, 50, 50, 50, 50, 50], $this->calls()['Immediate']);
         self::assertSame($cache, $last->cache);
 
         foreach (Component::cases() as $component) {
@@ -169,8 +169,8 @@ final class DisplayCostTest extends TestCase
         $this->clock->sleep(self::BETWEEN_DISPLAYS);
         $reader->overview(ReadMode::Fragment);
         $this->clock->sleep(1 - self::BETWEEN_DISPLAYS);
-        $once = ['Immediate' => [1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1]];
-        $twice = ['Immediate' => [2, 2, 2, 2, 2, 2, 2], 'Network' => [2, 2, 2, 2, 2, 2, 2], 'Slow' => [2, 2, 2, 2, 2, 2, 2]];
+        $once = ['Immediate' => [1, 1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1, 1]];
+        $twice = ['Immediate' => [2, 2, 2, 2, 2, 2, 2, 2], 'Network' => [2, 2, 2, 2, 2, 2, 2, 2], 'Slow' => [2, 2, 2, 2, 2, 2, 2, 2]];
         self::assertSame($once, $this->calls());
 
         $forgotten = (int) $reader->refresh();
@@ -246,7 +246,7 @@ final class DisplayCostTest extends TestCase
             $this->clock->sleep(self::BETWEEN_DISPLAYS);
         }
 
-        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1]], $this->calls());
+        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1, 1]], $this->calls());
         self::assertStringNotContainsString('data-jm-rest', $html);
     }
 

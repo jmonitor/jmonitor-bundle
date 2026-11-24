@@ -123,11 +123,14 @@ final class JmonitorBundle extends AbstractBundle
             'apache' => ['enabled' => $config['stack']['apache']['enabled']],
             'nginx' => ['enabled' => $config['stack']['nginx']['enabled']],
             'mysql' => ['enabled' => $config['stack']['mysql']['enabled']],
+            'postgresql' => ['enabled' => $config['stack']['postgresql']['enabled']],
         ]);
         $builder->setParameter('jmonitor.stack.frankenphp.endpoint', $config['stack']['frankenphp']['endpoint']);
         $builder->setParameter('jmonitor.stack.apache.endpoint', $config['stack']['apache']['endpoint']);
         $builder->setParameter('jmonitor.stack.nginx.endpoint', $config['stack']['nginx']['endpoint']);
         $builder->setParameter('jmonitor.stack.mysql.connections', $config['stack']['mysql']['connections']);
+        $builder->setParameter('jmonitor.stack.postgresql.connections', $config['stack']['postgresql']['connections']);
+        $builder->setParameter('jmonitor.stack.postgresql.schema', $config['stack']['postgresql']['schema']);
 
         $container->import('../config/recording.php');
         $container->import('../config/dashboard.php');
@@ -442,10 +445,12 @@ final class JmonitorBundle extends AbstractBundle
                     ->end()
                     ->validate()
                         ->always(static function (array $stack): array {
-                            foreach (array_keys($stack['mysql']['connections']) as $name) {
-                                foreach ($stack['exclude_connections'] as $pattern) {
-                                    if (fnmatch($pattern, (string) $name)) {
-                                        throw new InvalidConfigurationException(\sprintf('The Doctrine connection "%s" is both listed under "jmonitor.stack.mysql.connections" and excluded by "jmonitor.stack.exclude_connections".', $name));
+                            foreach (['mysql', 'postgresql'] as $component) {
+                                foreach (array_keys($stack[$component]['connections']) as $name) {
+                                    foreach ($stack['exclude_connections'] as $pattern) {
+                                        if (fnmatch($pattern, (string) $name)) {
+                                            throw new InvalidConfigurationException(\sprintf('The Doctrine connection "%s" is both listed under "jmonitor.stack.%s.connections" and excluded by "jmonitor.stack.exclude_connections".', $name, $component));
+                                        }
                                     }
                                 }
                             }
@@ -503,15 +508,27 @@ final class JmonitorBundle extends AbstractBundle
                             ->end()
                             ->children()
                                 ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
-                                ->arrayNode('connections')
-                                    ->info('Names of the Doctrine connections to read; all of them when empty.')
-                                    ->normalizeKeys(false)
-                                    ->useAttributeAsKey('name')
-                                    ->beforeNormalization()
-                                        ->ifTrue(static fn(mixed $v): bool => \is_array($v) && array_is_list($v) && array_filter($v, static fn(mixed $name): bool => !\is_string($name)) === [])
-                                        ->then(static fn(array $names): array => array_fill_keys($names, []))
+                                ->append(self::connectionsNode())
+                            ->end()
+                        ->end()
+                        ->arrayNode('postgresql')
+                            ->info('Read the PostgreSQL servers of the Doctrine connections.')
+                            ->addDefaultsIfNotSet()
+                            ->beforeNormalization()
+                                ->ifTrue(static fn(mixed $v): bool => \is_string($v) || \is_bool($v))
+                                ->then(static fn(string|bool $v): array => ['enabled' => $v])
+                            ->end()
+                            ->children()
+                                ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
+                                ->append(self::connectionsNode())
+                                ->scalarNode('schema')
+                                    ->info('Schema whose tables are counted and sized.')
+                                    ->defaultValue('public')
+                                    ->cannotBeEmpty()
+                                    ->validate()
+                                        ->ifTrue(static fn(mixed $schema): bool => !\is_string($schema))
+                                        ->thenInvalid('The "schema" option takes the name of a schema.')
                                     ->end()
-                                    ->arrayPrototype()->end()
                                 ->end()
                             ->end()
                         ->end()
@@ -525,6 +542,19 @@ final class JmonitorBundle extends AbstractBundle
                 ->thenInvalid('You cannot set both "dsn" and "adapter" for Redis collector. Please choose one.')
             ->end()
         ;
+    }
+
+    private static function connectionsNode(): ArrayNodeDefinition
+    {
+        return (new ArrayNodeDefinition('connections'))
+            ->info('Names of the Doctrine connections to read; all of them when empty.')
+            ->normalizeKeys(false)
+            ->useAttributeAsKey('name')
+            ->beforeNormalization()
+                ->ifTrue(static fn(mixed $v): bool => \is_array($v) && array_is_list($v) && array_filter($v, static fn(mixed $name): bool => !\is_string($name)) === [])
+                ->then(static fn(array $names): array => array_fill_keys($names, []))
+            ->end()
+            ->arrayPrototype()->end();
     }
 
     private static function webServerNode(string $name, string $endpoint, string $info): ArrayNodeDefinition

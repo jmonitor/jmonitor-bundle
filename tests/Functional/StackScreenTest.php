@@ -100,6 +100,15 @@ final class StackScreenTest extends WebTestCase
         static::assertStringContainsString('MySQL: No Doctrine DBAL connection is configured.', self::notDetected($crawler));
     }
 
+    public function testAnApplicationWithoutPostgresqlSaysWhy(): void
+    {
+        $crawler = $this->client()->request('GET', '/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(0, $crawler->filter('[data-jm-component^="postgresql"]'));
+        static::assertStringContainsString('PostgreSQL: No PostgreSQL Doctrine connection found.', self::notDetected($crawler));
+    }
+
     public function testRecordingOffArrivesOnTheStack(): void
     {
         $client = $this->client(['jmonitor' => ['recording' => ['enabled' => false]]]);

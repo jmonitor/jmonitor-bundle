@@ -58,6 +58,7 @@ use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
@@ -1486,7 +1487,7 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->getParameter('jmonitor.stack.end_of_life'));
         static::assertTrue($container->getParameter('jmonitor.stack.symfony.flex'));
         static::assertSame(
-            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto']],
+            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto'], 'postgresql' => ['enabled' => 'auto']],
             $container->getParameter('jmonitor.stack.components'),
         );
         static::assertTrue($container->hasDefinition('jmonitor.stack.cache'));
@@ -1528,7 +1529,7 @@ class JmonitorBundleTest extends TestCase
      */
     public static function stackComponentProvider(): iterable
     {
-        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto']];
+        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto'], 'postgresql' => ['enabled' => 'auto']];
 
         yield 'system: false' => [['system' => false], array_replace($auto, ['system' => ['enabled' => false]]), true];
         yield 'php: true' => [['php' => true], array_replace($auto, ['php' => ['enabled' => true]]), true];
@@ -1626,6 +1627,58 @@ class JmonitorBundleTest extends TestCase
         $this->loadBundle(['stack' => ['exclude_connections' => ['*_backup'], 'mysql' => ['connections' => ['default', 'legacy_backup']]]]);
     }
 
+    public function testPostgresqlHasItsSwitchItsConnectionsAndItsSchema(): void
+    {
+        $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+        $off = $this->loadBundle(['stack' => ['postgresql' => false]]);
+        $set = $this->loadBundle(['stack' => ['postgresql' => ['connections' => ['default'], 'schema' => 'app']]]);
+        $named = $this->loadBundle(['stack' => ['postgresql' => ['enabled' => true, 'connections' => ['default' => null, 'my-legacy' => null]]]]);
+
+        $postgresql = static fn(ContainerBuilder $container): mixed => ((array) $container->getParameter('jmonitor.stack.components'))['postgresql'] ?? null;
+
+        static::assertSame(['enabled' => 'auto'], $postgresql($default));
+        static::assertSame([], $default->getParameter('jmonitor.stack.postgresql.connections'));
+        static::assertSame('public', $default->getParameter('jmonitor.stack.postgresql.schema'));
+        static::assertSame(['enabled' => false], $postgresql($off));
+        static::assertSame(['default' => []], $set->getParameter('jmonitor.stack.postgresql.connections'));
+        static::assertSame('app', $set->getParameter('jmonitor.stack.postgresql.schema'));
+        static::assertSame(['enabled' => 'auto'], $postgresql($set));
+        static::assertSame(['enabled' => true], $postgresql($named));
+        static::assertSame(['default' => [], 'my-legacy' => []], $named->getParameter('jmonitor.stack.postgresql.connections'));
+        static::assertSame([['index' => 'postgresql']], $default->getDefinition(PostgresqlDetector::class)->getTag('jmonitor.stack.detector'));
+        static::assertSame(
+            [DatabaseInstances::class, '%jmonitor.stack.postgresql.connections%'],
+            array_map(strval(...), $default->getDefinition(PostgresqlDetector::class)->getArguments()),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function invalidPostgresqlSchemas(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'null' => [null];
+        yield 'not a string' => [5];
+    }
+
+    #[DataProvider('invalidPostgresqlSchemas')]
+    public function testAnEmptyPostgresqlSchemaIsRefused(mixed $schema): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.postgresql.schema"');
+
+        $this->loadBundle(['stack' => ['postgresql' => ['schema' => $schema]]]);
+    }
+
+    public function testAPostgresqlConnectionBothListedAndExcludedIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('The Doctrine connection "legacy_backup" is both listed under "jmonitor.stack.postgresql.connections" and excluded by "jmonitor.stack.exclude_connections".');
+
+        $this->loadBundle(['stack' => ['exclude_connections' => ['*_backup'], 'postgresql' => ['connections' => ['default', 'legacy_backup']]]]);
+    }
+
     public function testIgnoredChecksAreAListOfIdentifiers(): void
     {
         $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
@@ -1694,13 +1747,15 @@ class JmonitorBundleTest extends TestCase
         $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
 
         $detectors = $container->findTaggedServiceIds('jmonitor.stack.detector');
-        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, MysqlDetector::class], array_keys($detectors));
+        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, MysqlDetector::class, PostgresqlDetector::class], array_keys($detectors));
         static::assertSame([['index' => 'system']], $detectors[SystemDetector::class]);
         static::assertSame([['index' => 'php']], $detectors[PhpDetector::class]);
         static::assertSame([['index' => 'symfony']], $detectors[SymfonyDetector::class]);
         static::assertSame([['index' => 'frankenphp']], $detectors[FrankenPhpDetector::class]);
         static::assertSame([['index' => 'apache']], $detectors[ApacheDetector::class]);
         static::assertSame([['index' => 'nginx']], $detectors[NginxDetector::class]);
+        static::assertSame([['index' => 'mysql']], $detectors[MysqlDetector::class]);
+        static::assertSame([['index' => 'postgresql']], $detectors[PostgresqlDetector::class]);
 
         $registry = $container->getDefinition(ComponentRegistry::class);
         static::assertFalse($registry->isPublic());
