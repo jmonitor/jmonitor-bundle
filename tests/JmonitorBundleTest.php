@@ -1647,7 +1647,7 @@ class JmonitorBundleTest extends TestCase
         static::assertSame(['default' => [], 'my-legacy' => []], $named->getParameter('jmonitor.stack.postgresql.connections'));
         static::assertSame([['index' => 'postgresql']], $default->getDefinition(PostgresqlDetector::class)->getTag('jmonitor.stack.detector'));
         static::assertSame(
-            [DatabaseInstances::class, '%jmonitor.stack.postgresql.connections%'],
+            [DatabaseInstances::class, '%jmonitor.stack.postgresql.connections%', '%jmonitor.stack.postgresql.schema%', '%jmonitor.stack.end_of_life%'],
             array_map(strval(...), $default->getDefinition(PostgresqlDetector::class)->getArguments()),
         );
     }

@@ -28,6 +28,7 @@ use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
 use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
@@ -81,6 +82,7 @@ final class DisplayCostTest extends TestCase
     private const BETWEEN_REFRESHES = 0.18;
     private const BETWEEN_QUEUE_DISPLAYS = 0.58;
     private const MYSQL = ['driver' => 'pdo_mysql', 'host' => 'db.internal', 'port' => null, 'user' => 'root', 'password' => 's3cr3t', 'dbname' => 'shop'];
+    private const POSTGRESQL = ['driver' => 'pdo_pgsql', 'host' => 'pg.internal', 'port' => null, 'user' => 'app', 'password' => 's3cr3t', 'dbname' => 'shop'];
     private const QUEUES = '{"transports":["async"]}' . "\n" . '{"name":"async","count":12}' . "\n";
 
     private MockClock $clock;
@@ -533,6 +535,80 @@ final class DisplayCostTest extends TestCase
         self::assertFalse($state->isReading());
     }
 
+    public function testFiftyDisplaysOfADeadPostgresqlAskItOnce(): void
+    {
+        $container = new class extends Container {
+            public int $asked = 0;
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+
+                throw new \RuntimeException('SQLSTATE[08006] [7] connection to server at "pg.internal" (10.0.0.9), port 5432 failed: Connection refused');
+            }
+        };
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->postgresqlReader($container, ['default' => self::POSTGRESQL], $cache);
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(59 / self::DISPLAYS);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertLessThan(self::START + 60, $this->clock->now()->getTimestamp());
+        self::assertSame(1, $container->asked);
+        self::assertSame(ResultState::Failed, $state->component(Component::Postgresql)?->instances[0]->snapshot?->result('postgresql')?->state);
+
+        $this->clock->sleep(self::START + 61 - $this->clock->now()->getTimestamp());
+        $reader()->overview(ReadMode::Fragment);
+
+        self::assertSame(2, $container->asked);
+    }
+
+    public function testEightPostgresqlConnectionsOfASilentServerMakeOneDisplayWait(): void
+    {
+        $container = new class ($this->clock) extends Container {
+            public int $asked = 0;
+
+            public function __construct(
+                private readonly MockClock $clock,
+            ) {
+                parent::__construct();
+            }
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+                $this->clock->sleep(30);
+
+                throw new \RuntimeException('SQLSTATE[08006] [7] connection to server at "pg.internal" (10.0.0.9), port 5432 failed: timeout expired');
+            }
+        };
+        $params = [];
+        foreach (range(1, 8) as $i) {
+            $params['c' . $i] = ['dbname' => 'shop' . $i] + self::POSTGRESQL;
+        }
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->postgresqlReader($container, $params, $cache);
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(2);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertCount(8, $state->component(Component::Postgresql)->instances ?? []);
+        self::assertSame(1, $container->asked);
+        self::assertSame(self::START + 30 + 2 * (self::DISPLAYS - 1), $this->clock->now()->getTimestamp(), 'one wait of thirty seconds');
+        self::assertLessThan(self::START + 30 + 150, $this->clock->now()->getTimestamp(), 'within the time the failure is kept');
+        self::assertFalse($state->isReading());
+
+        foreach ($state->component(Component::Postgresql)->instances ?? [] as $instance) {
+            self::assertSame(ResultState::Failed, $instance->snapshot?->result('postgresql')?->state, (string) $instance->id);
+        }
+    }
+
     public function testARefusedConnectionStaysCriticalWhileAnotherReadsItsServer(): void
     {
         $container = new class extends Container {
@@ -645,6 +721,28 @@ final class DisplayCostTest extends TestCase
         $this->registry = Detectors::registry(
             [Component::Mysql->value => new MysqlDetector($instances, [], false)],
             [Component::Mysql->value => ['enabled' => 'auto']],
+        );
+
+        return $this->reader($cache);
+    }
+
+    /**
+     * A reader of the PostgreSQL databases of these connections only, detected again as each request does.
+     *
+     * @param array<string, array<string, mixed>> $params the parameters of each connection
+     */
+    private function postgresqlReader(Container $container, array $params, CacheItemPoolInterface $cache): LocalStackReader
+    {
+        $names = array_map(strval(...), array_keys($params));
+        $instances = new DatabaseInstances(
+            new DoctrineConnections(new ServiceLocator(array_map(static fn(array $connection): \Closure => static fn(): \ArrayObject => new \ArrayObject($connection), $params)), $names),
+            $container,
+            array_combine($names, array_map(static fn(string $name): string => 'doctrine.dbal.' . $name . '_connection', $names)),
+            [],
+        );
+        $this->registry = Detectors::registry(
+            [Component::Postgresql->value => new PostgresqlDetector($instances, [], 'public', false)],
+            [Component::Postgresql->value => ['enabled' => 'auto']],
         );
 
         return $this->reader($cache);

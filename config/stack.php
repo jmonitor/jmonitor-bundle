@@ -122,7 +122,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->tag('jmonitor.stack.detector', ['index' => Component::Mysql->value]);
 
     $services->set(PostgresqlDetector::class)
-        ->args([service(DatabaseInstances::class), param('jmonitor.stack.postgresql.connections')])
+        ->args([
+            service(DatabaseInstances::class),
+            param('jmonitor.stack.postgresql.connections'),
+            param('jmonitor.stack.postgresql.schema'),
+            param('jmonitor.stack.end_of_life'),
+        ])
         ->tag('jmonitor.stack.detector', ['index' => Component::Postgresql->value]);
 
     $services->set(DoctrineConnections::class)
