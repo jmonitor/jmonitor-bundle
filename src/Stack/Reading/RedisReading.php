@@ -17,14 +17,17 @@ final readonly class RedisReading
 
     private const VALKEY = 'Valkey';
 
+    /** a variation with fewer lookups tells nothing about the ratio */
+    private const LOOKUPS = 1_000;
+
     /**
      * @param ?string                                                $version       for Valkey, its own, not the Redis version it tells for compatibility
      * @param ?int                                                   $maxMemory     null when maxmemory is 0, which sets no limit
      * @param bool                                                   $evicts        a limit is set, and its policy evicts keys to stay under it
-     * @param Rate                                                   $hitRate       between the last two samples when they hold a lookup, else since the server started
+     * @param Rate                                                   $hitRate       between the last two samples when they hold LOOKUPS, else since the server started
      * @param ?int                                                   $lookups       hits and misses between the last two samples
      * @param ?int                                                   $evictedLately between the last two samples
-     * @param ?int                                                   $lastSaveAt    Unix timestamp of the last RDB snapshot that succeeded
+     * @param ?int                                                   $lastSaveAt    Unix timestamp of the last RDB snapshot that succeeded, or of the start of a server that never saved
      * @param list<array{name: string, keys: int, expires: ?int}> $databases
      */
     private function __construct(
@@ -83,6 +86,7 @@ final readonly class RedisReading
 
         $hits = $delta?->getValue('stats.keyspace_hits');
         $misses = $delta?->getValue('stats.keyspace_misses');
+        $recentHitRate = Ratios::share($delta, 'stats.keyspace_hits', 'stats.keyspace_misses', null, null);
 
         return new self(
             $product,
@@ -99,7 +103,9 @@ final readonly class RedisReading
             $maxMemory !== null && $policy !== null && $policy !== 'noeviction',
             Values::int(self::array($data['clients'] ?? null)['connected'] ?? null),
             Ratios::perSecond($delta, 'stats.total_commands_processed', 'cmd/s', Values::int($stats['total_commands_processed'] ?? null)),
-            Ratios::share($delta, 'stats.keyspace_hits', 'stats.keyspace_misses', Values::int($stats['keyspace_hits'] ?? null), Values::int($stats['keyspace_misses'] ?? null), self::SINCE_START),
+            $recentHitRate->total !== null && $recentHitRate->total >= self::LOOKUPS
+                ? $recentHitRate
+                : Ratios::share(null, 'stats.keyspace_hits', 'stats.keyspace_misses', Values::int($stats['keyspace_hits'] ?? null), Values::int($stats['keyspace_misses'] ?? null), self::SINCE_START),
             $hits === null || $misses === null ? null : Values::int($hits + $misses),
             self::variation($delta, 'stats.evicted_keys'),
             Values::int($stats['evicted_keys'] ?? null),

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Reading;
 
+use Jmonitor\JmonitorBundle\Stack\Collector\RedisInfoCollector;
+use Jmonitor\JmonitorBundle\Stack\Collector\RedisLink;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Metric\RateSource;
 use Jmonitor\JmonitorBundle\Stack\Metric\SupportStatus;
@@ -11,6 +13,7 @@ use Jmonitor\JmonitorBundle\Stack\Reading\RedisReading;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\Delta;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeRedis;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RedisPayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use PHPUnit\Framework\TestCase;
@@ -164,6 +167,42 @@ final class RedisReadingTest extends TestCase
         self::assertSame(90.45, $reading->hitRate->value, '9 950 hits out of 11 000 lookups');
         self::assertSame(RateSource::SinceStart, $reading->hitRate->source);
         self::assertSame('since the server started', $reading->hitRate->hint());
+    }
+
+    public function testTheHitRateIsTheVariationWhenItCountsEnough(): void
+    {
+        $window = static function (int $hits, int $misses): RedisReading {
+            $data = self::data(['stats' => ['keyspace_hits' => 9_950 + $hits, 'keyspace_misses' => 1_050 + $misses]]);
+
+            return RedisReading::of(self::snapshot($data, Snapshots::delta(self::data(), $data)), self::today());
+        };
+
+        $three = $window(0, 3);
+        $tooFew = $window(500, 499);
+        $enough = $window(0, 1_000);
+
+        self::assertSame(RateSource::SinceStart, $three->hitRate->source, 'three lookups tell nothing');
+        self::assertSame(90.43, $three->hitRate->value, '9 950 hits out of 11 003 lookups');
+        self::assertSame('since the server started', $three->hitRate->hint());
+        self::assertSame(3, $three->lookups);
+
+        self::assertSame(RateSource::SinceStart, $tooFew->hitRate->source);
+        self::assertSame(999, $tooFew->lookups);
+
+        self::assertSame(RateSource::Delta, $enough->hitRate->source);
+        self::assertSame(0.0, $enough->hitRate->value);
+        self::assertSame(1_000, $enough->lookups);
+    }
+
+    public function testTheModeOfValkey8IsRead(): void
+    {
+        $kept = (new RedisInfoCollector(new RedisLink(static fn(): FakeRedis => new FakeRedis(RedisPayloads::valkey8()))))->collect();
+
+        $reading = RedisReading::of(self::snapshot($kept), self::today());
+
+        self::assertSame('Valkey', $reading->product);
+        self::assertSame('8.1.1', $reading->version);
+        self::assertSame('standalone', $reading->mode, 'Valkey 8 tells server_mode, no longer redis_mode');
     }
 
     public function testAnIdleWindowFallsBackOnTheCounters(): void

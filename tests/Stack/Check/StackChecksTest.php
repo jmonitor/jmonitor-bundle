@@ -1181,6 +1181,8 @@ final class StackChecksTest extends TestCase
 
         yield 'hit rate 79.9 % over 1000 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 799, 'keyspace_misses' => 201]), 'redis.hit_rate', Severity::Info];
         yield 'hit rate 80 % over 1000 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 800, 'keyspace_misses' => 200]), 'redis.hit_rate', null];
+        yield 'hit rate 0 % over 3 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 0, 'keyspace_misses' => 3]), 'redis.hit_rate', null];
+        yield 'hit rate 0 % over 1000 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 0, 'keyspace_misses' => 1_000]), 'redis.hit_rate', Severity::Info];
         yield 'hit rate 50 % over 999 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 500, 'keyspace_misses' => 499]), 'redis.hit_rate', null];
         yield 'hit rate 10 % since the server started' => [self::redis(['stats' => ['keyspace_hits' => 10_000, 'keyspace_misses' => 90_000]]), [], 'redis.hit_rate', null];
 
@@ -1330,6 +1332,19 @@ final class StackChecksTest extends TestCase
         self::assertSame(Severity::Critical, self::find($valkey, 'redis.end_of_life')?->severity, 'the cycles of Valkey, not those of the Redis 7.2.4 it tells');
         self::assertSame([], $redis(['name' => 'valkey', 'valkey_version' => '8.0.1'])->findings);
         self::assertSame([], $redis(['name' => 'valkey', 'valkey_version' => '7.2.5'], ['eol.valkey' => []])->findings);
+    }
+
+    public function testTheSupportOfValkeyIsJudgedOnTheCyclesOfValkey(): void
+    {
+        $judged = static fn(array $server, string $stale): ?Finding => self::find(
+            self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, self::redis(['server' => $server]), [$stale => ResultState::Stale]))),
+            'redis.end_of_life',
+        );
+
+        self::assertSame(Snapshots::STALE_AGE, $judged(['name' => 'valkey', 'valkey_version' => '7.2.5'], 'eol.valkey')?->age, 'its age is the one of the cycles of Valkey');
+        self::assertNull($judged(['name' => 'valkey', 'valkey_version' => '7.2.5'], 'eol.redis')?->age);
+        self::assertSame(Snapshots::STALE_AGE, $judged(['version' => '6.2.14'], 'eol.redis')?->age);
+        self::assertNull($judged(['version' => '6.2.14'], 'eol.valkey')?->age);
     }
 
     public function testAnIgnoredRedisCheckIsDroppedBeforeTheVerdict(): void

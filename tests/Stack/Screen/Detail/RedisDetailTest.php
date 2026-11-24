@@ -11,6 +11,8 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
+use Jmonitor\JmonitorBundle\Stack\Collector\RedisInfoCollector;
+use Jmonitor\JmonitorBundle\Stack\Collector\RedisLink;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\Server;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
@@ -19,6 +21,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\Delta;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeRedis;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RedisPayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
@@ -84,7 +87,7 @@ final class RedisDetailTest extends TestCase
         self::assertSame('over the last ' . self::nb('60 s'), $hints['Traffic / Evicted keys']);
         self::assertSame('over the last ' . self::nb('60 s'), $hints['Traffic / Refused connections']);
         self::assertSame('since the server started', $hints['Memory / Peak']);
-        self::assertSame('keys are evicted at the limit', $hints['Memory / Policy']);
+        self::assertSame('any key may be evicted at the limit', $hints['Memory / Policy']);
 
         $keyspace = $blocks[4]->content;
         self::assertInstanceOf(Table::class, $keyspace);
@@ -115,6 +118,43 @@ final class RedisDetailTest extends TestCase
         self::assertSame('no limit', $usage->gauges[0]->hint);
         self::assertSame('no limit', self::describe($blocks)[2][2]['Limit']);
         self::assertNull(self::hints($blocks)['Memory / Policy'], 'a policy only acts at a limit');
+    }
+
+    public function testThePolicySaysWhatHappensAtTheLimit(): void
+    {
+        $hint = static fn(string $policy): ?string => self::hints((new RedisDetail())->sections(
+            self::server(self::snapshot(self::data(['memory' => ['max_memory' => self::LIMIT, 'max_memory_policy' => $policy]]))),
+            [],
+            Snapshots::NOW,
+        ))['Memory / Policy'];
+
+        self::assertSame('writes are refused at the limit', $hint('noeviction'));
+        self::assertSame('any key may be evicted at the limit', $hint('allkeys-lru'));
+        self::assertSame('any key may be evicted at the limit', $hint('allkeys-random'));
+        self::assertSame('only keys with an expiry are evicted at the limit; without any, writes are refused', $hint('volatile-lru'));
+        self::assertSame('only keys with an expiry are evicted at the limit; without any, writes are refused', $hint('volatile-ttl'));
+        self::assertNull($hint('unknown-policy'));
+    }
+
+    public function testAFewLookupsShowTheRateSinceTheServerStarted(): void
+    {
+        $data = self::data(['stats' => ['keyspace_hits' => 9_950, 'keyspace_misses' => 1_053]]);
+        $snapshot = self::snapshot($data, Snapshots::delta(self::data(), $data));
+
+        $blocks = (new RedisDetail())->sections(self::server($snapshot), self::findings($snapshot), Snapshots::NOW);
+
+        self::assertSame(self::nb('90.4 %'), self::describe($blocks)[1][2]['Hit rate'], 'not the 0 % of three lookups missed');
+        self::assertSame('since the server started', self::hints($blocks)['Traffic / Hit rate']);
+    }
+
+    public function testTheModeOfValkey8IsShown(): void
+    {
+        $kept = (new RedisInfoCollector(new RedisLink(static fn(): FakeRedis => new FakeRedis(RedisPayloads::valkey8()))))->collect();
+
+        $described = self::describe((new RedisDetail())->sections(self::server(self::snapshot($kept)), [], Snapshots::NOW));
+
+        self::assertSame('standalone', $described[5][2]['Mode']);
+        self::assertSame('Valkey 8.1.1', $described[5][2]['Version']);
     }
 
     public function testAFactCarriesTheMarkOfItsCheck(): void

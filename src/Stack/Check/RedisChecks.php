@@ -11,9 +11,6 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 
 final class RedisChecks
 {
-    /** fewer lookups between two samples tell nothing about their ratio */
-    private const LOOKUPS = 1_000;
-
     /**
      * @param \Closure(string, Severity, string, string, string...): Finding $raise
      *
@@ -77,7 +74,7 @@ final class RedisChecks
 
         $hitRate = $redis->hitRate;
 
-        if ($hitRate->source === RateSource::Delta && $hitRate->value !== null && $hitRate->value < 80 && $redis->lookups !== null && $redis->lookups >= self::LOOKUPS && $elapsed !== null) {
+        if ($hitRate->source === RateSource::Delta && $hitRate->value !== null && $hitRate->value < 80 && $elapsed !== null) {
             $findings[] = $raise(
                 'redis.hit_rate',
                 Severity::Info,

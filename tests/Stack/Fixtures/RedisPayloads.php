@@ -120,6 +120,19 @@ final class RedisPayloads
     }
 
     /**
+     * INFO of a Valkey 8.1 server, which tells its mode under server_mode and no longer under redis_mode.
+     *
+     * @return array<string, int|float|string>
+     */
+    public static function valkey8(): array
+    {
+        $info = ['server_name' => 'valkey', 'valkey_version' => '8.1.1', 'server_mode' => 'standalone'] + self::info();
+        unset($info['redis_mode']);
+
+        return $info;
+    }
+
+    /**
      * Release cycles of Redis as the end of life collector keeps them; at Snapshots::NOW, 7.4 is supported,
      * 7.2 only gets security fixes, 6.2 has ended.
      *

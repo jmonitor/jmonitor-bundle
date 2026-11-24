@@ -107,7 +107,9 @@ final class RedisDetail implements DetailInterface
         $policy = match (true) {
             $redis->maxMemory === null || $redis->policy === null => null,
             $redis->policy === 'noeviction' => 'writes are refused at the limit',
-            default => 'keys are evicted at the limit',
+            str_starts_with($redis->policy, 'allkeys-') => 'any key may be evicted at the limit',
+            str_starts_with($redis->policy, 'volatile-') => 'only keys with an expiry are evicted at the limit; without any, writes are refused',
+            default => null,
         };
 
         return Block::facts(new Facts('Memory', [
