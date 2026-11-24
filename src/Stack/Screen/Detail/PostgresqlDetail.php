@@ -20,21 +20,16 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Metric\Rate;
-use Jmonitor\JmonitorBundle\Stack\Metric\RateSource;
-use Jmonitor\JmonitorBundle\Stack\Metric\Ratios;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Reading\MysqlSlowQuery;
 use Jmonitor\JmonitorBundle\Stack\Reading\PostgresqlBlockedSession;
 use Jmonitor\JmonitorBundle\Stack\Reading\PostgresqlReading;
-use Jmonitor\JmonitorBundle\Stack\Reading\Values;
 use Jmonitor\JmonitorBundle\Stack\Screen\Marks;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 
 final class PostgresqlDetail implements DetailInterface
 {
     private const SINCE_RESET = 'since the statistics were reset';
-
-    private const WRITES = ['tup_inserted', 'tup_updated', 'tup_deleted'];
 
     public function sections(InstanceState $instance, array $findings, int $now, bool $reading = true): array
     {
@@ -83,10 +78,6 @@ final class PostgresqlDetail implements DetailInterface
     {
         $elapsed = $snapshot->delta('postgresql')?->elapsed;
         $limited = $postgresql->maxConnections !== null;
-        $stats = self::stats($snapshot);
-        $temporaryBytes = Values::int($stats['temp_bytes'] ?? null);
-        $diskReads = Ratios::perSecond($snapshot->delta('postgresql'), 'database_stats.blks_read', 'blocks/s', Values::int($stats['blks_read'] ?? null));
-        $rowsWritten = self::rowsWritten($snapshot, $stats);
 
         return [
             Block::gauges(new Gauges('Usage', [
@@ -102,12 +93,12 @@ final class PostgresqlDetail implements DetailInterface
             Block::facts(new Facts('Traffic', [
                 self::rate('Transactions per second', Sections::rate($postgresql->transactionsPerSecond), $postgresql->transactionsPerSecond, $elapsed),
                 self::rate('Rollbacks', self::percent($postgresql->rollbackRate), $postgresql->rollbackRate, $elapsed, Sections::mark($findings, 'postgresql.rollbacks')),
-                self::rate('Rows written per second', Sections::rate($rowsWritten), $rowsWritten, $elapsed),
+                self::rate('Rows written per second', Sections::rate($postgresql->rowsWrittenPerSecond), $postgresql->rowsWrittenPerSecond, $elapsed),
             ])),
             Block::facts(new Facts('Cache', [
                 self::rate('Cache hit rate', self::percent($postgresql->cacheHitRate), $postgresql->cacheHitRate, $elapsed, Sections::mark($findings, 'postgresql.cache_hit_rate')),
-                self::rate('Disk reads per second', Sections::rate($diskReads), $diskReads, $elapsed),
-                new Fact('Temporary files', Sections::value(self::count(Values::int($stats['temp_files'] ?? null))), hint: $temporaryBytes === null ? null : Figures::bytes($temporaryBytes) . ' ' . self::SINCE_RESET),
+                self::rate('Disk reads per second', Sections::rate($postgresql->diskReadsPerSecond), $postgresql->diskReadsPerSecond, $elapsed),
+                new Fact('Temporary files', Sections::value(self::count($postgresql->temporaryFiles)), hint: $postgresql->temporaryBytes === null ? null : Figures::bytes($postgresql->temporaryBytes) . ' ' . self::SINCE_RESET),
             ])),
             ...self::sessions($postgresql, $findings),
         ];
@@ -267,42 +258,6 @@ final class PostgresqlDetail implements DetailInterface
         $states = array_map(static fn(string $state, int $count): string => $count . ' ' . $state, array_keys($postgresql->connectionsByState), $postgresql->connectionsByState);
 
         return $states === [] ? null : implode(' · ', $states);
-    }
-
-    /**
-     * @param array<mixed> $stats
-     */
-    private static function rowsWritten(ComponentSnapshot $snapshot, array $stats): Rate
-    {
-        $delta = $snapshot->delta('postgresql');
-
-        if ($delta === null) {
-            return Values::int($stats['tup_inserted'] ?? null) === null ? Rate::unavailable('rows/s') : Rate::pending('rows/s');
-        }
-
-        $written = 0;
-
-        foreach (self::WRITES as $key) {
-            $rows = $delta->getValue('database_stats.' . $key);
-
-            if ($rows === null) {
-                return Rate::unavailable('rows/s');
-            }
-
-            $written += $rows;
-        }
-
-        return new Rate(round($written / $delta->elapsed, 2), RateSource::Delta, 'rows/s');
-    }
-
-    /**
-     * @return array<mixed>
-     */
-    private static function stats(ComponentSnapshot $snapshot): array
-    {
-        $stats = $snapshot->data('postgresql')['database_stats'] ?? null;
-
-        return is_array($stats) ? $stats : [];
     }
 
     private static function setting(PostgresqlReading $postgresql, string $name): ?string

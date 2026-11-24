@@ -25,6 +25,9 @@ final class PostgresqlReadingTest extends TestCase
             'xact_rollback' => 110,
             'blks_read' => 3_980,
             'blks_hit' => 395_020,
+            'tup_inserted' => 4_900,
+            'tup_updated' => 2_450,
+            'tup_deleted' => 250,
         ],
     ];
 
@@ -59,6 +62,12 @@ final class PostgresqlReadingTest extends TestCase
         self::assertSame(9.09, $reading->rollbackRate->value, '10 rolled back out of 110');
         self::assertSame(RateSource::Delta, $reading->rollbackRate->source);
         self::assertSame(110, $reading->transactions);
+        self::assertSame(20.0, $reading->rowsWrittenPerSecond->value, '100 inserted, 50 updated and 50 deleted in 10 seconds');
+        self::assertSame('rows/s', $reading->rowsWrittenPerSecond->unit);
+        self::assertSame(2.0, $reading->diskReadsPerSecond->value, '20 blocks read outside the cache in 10 seconds');
+        self::assertSame('blocks/s', $reading->diskReadsPerSecond->unit);
+        self::assertSame(3, $reading->temporaryFiles);
+        self::assertSame(6_291_456, $reading->temporaryBytes);
 
         self::assertSame(4_000, $reading->deadRows);
         self::assertSame(250_000, $reading->liveRows);
@@ -170,6 +179,8 @@ final class PostgresqlReadingTest extends TestCase
         $reading = PostgresqlReading::of(self::snapshot(), self::today());
 
         self::assertTrue($reading->transactionsPerSecond->isPending());
+        self::assertTrue($reading->rowsWrittenPerSecond->isPending());
+        self::assertTrue($reading->diskReadsPerSecond->isPending());
         self::assertNull($reading->transactions);
         self::assertSame(99.0, $reading->cacheHitRate->value, '396 000 hits out of 400 000 blocks');
         self::assertSame('since the statistics were reset', $reading->cacheHitRate->hint());
@@ -301,6 +312,12 @@ final class PostgresqlReadingTest extends TestCase
         self::assertFalse($reading->transactionsPerSecond->isPending(), 'no later sample would bring it');
         self::assertTrue($reading->rollbackRate->isUnavailable());
         self::assertNull($reading->transactions);
+        self::assertTrue($reading->rowsWrittenPerSecond->isUnavailable());
+        self::assertFalse($reading->rowsWrittenPerSecond->isPending());
+        self::assertTrue($reading->diskReadsPerSecond->isUnavailable());
+        self::assertFalse($reading->diskReadsPerSecond->isPending());
+        self::assertNull($reading->temporaryFiles);
+        self::assertNull($reading->temporaryBytes);
         self::assertNull($reading->deadRows);
         self::assertNull($reading->liveRows);
         self::assertNull($reading->deadRowsPercent);

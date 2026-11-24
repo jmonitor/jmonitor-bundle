@@ -20,6 +20,9 @@ final readonly class PostgresqlReading
     /** the statistics of a database survive a restart of the server */
     private const SINCE_RESET = 'since the statistics were reset';
 
+    private const TRANSACTIONS = ['xact_commit', 'xact_rollback'];
+    private const WRITES = ['tup_inserted', 'tup_updated', 'tup_deleted'];
+
     /**
      * @param ?string                        $version                 the numbers ahead of the build, such as "16.4" for "16.4 (Debian 16.4-1.pgdg120+1)"
      * @param ?SupportStatus                 $support                 null without a cycle for this version, as for a development version or a server that only speaks its protocol, such as CockroachDB
@@ -30,6 +33,7 @@ final readonly class PostgresqlReading
      * @param Rate                           $cacheHitRate            the variation between the two samples when it holds CACHE_BLOCKS, else since the statistics were reset
      * @param ?int                           $cacheBlocks             the blocks the rate shown counts
      * @param ?int                           $transactions            committed or rolled back between the last two samples
+     * @param ?int                           $temporaryBytes          written to the temporary files, since the statistics were reset
      * @param ?int                           $oldestIdleInTransaction in seconds
      * @param ?int                           $oldestTransaction       in seconds
      * @param ?int                           $blockedSessions         each session once, though it may wait for several
@@ -54,6 +58,10 @@ final readonly class PostgresqlReading
         public Rate $transactionsPerSecond,
         public Rate $rollbackRate,
         public ?int $transactions,
+        public Rate $rowsWrittenPerSecond,
+        public Rate $diskReadsPerSecond,
+        public ?int $temporaryFiles,
+        public ?int $temporaryBytes,
         public ?int $deadRows,
         public ?int $liveRows,
         public ?float $deadRowsPercent,
@@ -103,7 +111,7 @@ final readonly class PostgresqlReading
 
         $commits = Values::int($stats['xact_commit'] ?? null);
         $rollbacks = Values::int($stats['xact_rollback'] ?? null);
-        $transactions = self::transactions($delta);
+        $transactions = self::variation($delta, self::TRANSACTIONS);
 
         $dead = Values::int($tables['dead_tuples'] ?? null);
         $live = Values::int($tables['live_tuples'] ?? null);
@@ -123,13 +131,13 @@ final readonly class PostgresqlReading
             $hiddenSessions,
             $cacheHitRate,
             Values::int($cacheHitRate->total),
-            match (true) {
-                $transactions !== null && $delta !== null => new Rate(round($transactions / $delta->elapsed, 2), RateSource::Delta, 'tx/s'),
-                $delta === null && $commits !== null && $rollbacks !== null => Rate::pending('tx/s'),
-                default => Rate::unavailable('tx/s'),
-            },
+            self::perSecond($delta, $stats, self::TRANSACTIONS, 'tx/s'),
             Ratios::share($delta, 'database_stats.xact_rollback', 'database_stats.xact_commit', $rollbacks, $commits, self::SINCE_RESET),
             $transactions,
+            self::perSecond($delta, $stats, self::WRITES, 'rows/s'),
+            Ratios::perSecond($delta, 'database_stats.blks_read', 'blocks/s', $reads),
+            Values::int($stats['temp_files'] ?? null),
+            Values::int($stats['temp_bytes'] ?? null),
             $dead,
             $live,
             $dead === null || $live === null ? null : Values::percent($dead, $dead + $live),
@@ -165,12 +173,47 @@ final readonly class PostgresqlReading
         return ((int) $matches[1] >= 10) === !isset($matches[2]);
     }
 
-    private static function transactions(?Delta $delta): ?int
+    /**
+     * @param list<string> $keys counters of the database
+     */
+    private static function variation(?Delta $delta, array $keys): ?int
     {
-        $commits = $delta?->getValue('database_stats.xact_commit');
-        $rollbacks = $delta?->getValue('database_stats.xact_rollback');
+        $sum = 0;
 
-        return $commits === null || $rollbacks === null ? null : Values::int($commits + $rollbacks);
+        foreach ($keys as $key) {
+            $value = $delta?->getValue('database_stats.' . $key);
+
+            if ($value === null) {
+                return null;
+            }
+
+            $sum += $value;
+        }
+
+        return Values::int($sum);
+    }
+
+    /**
+     * The sum of the counters, per second between the last two samples.
+     *
+     * @param array<mixed> $stats
+     * @param list<string> $keys
+     */
+    private static function perSecond(?Delta $delta, array $stats, array $keys, string $unit): Rate
+    {
+        $variation = self::variation($delta, $keys);
+
+        if ($delta !== null && $variation !== null) {
+            return new Rate(round($variation / $delta->elapsed, 2), RateSource::Delta, $unit);
+        }
+
+        foreach ($keys as $key) {
+            if (Values::int($stats[$key] ?? null) === null) {
+                return Rate::unavailable($unit);
+            }
+        }
+
+        return $delta === null ? Rate::pending($unit) : Rate::unavailable($unit);
     }
 
     /**
