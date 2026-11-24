@@ -33,8 +33,6 @@ final class JmonitorBundle extends AbstractBundle
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new EasyAdminTemplatesPass());
         $container->addCompilerPass(new StackConnectionsPass());
-        // Before the removal: a default provider of FrameworkBundle is still there, but only an alias reaches it, and a
-        // connection that one service uses is not inlined into it yet.
         $container->addCompilerPass(new StackRedisPass(), PassConfig::TYPE_BEFORE_REMOVING);
         // After the CacheCollectorPass of debug mode: the profiler keeps tracing the pools from inside the wrappers.
         $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
@@ -149,7 +147,7 @@ final class JmonitorBundle extends AbstractBundle
             $container->import('../config/stack.php');
 
             $builder->getDefinition(RedisDsns::class)->replaceArgument(1, array_map(
-                static fn(array $connection): mixed => $builder->getParameterBag()->escapeValue($connection['dsn']),
+                static fn(array $connection): mixed => $connection['dsn'],
                 $config['stack']['redis']['connections'],
             ));
         }
@@ -566,14 +564,11 @@ final class JmonitorBundle extends AbstractBundle
                                             ->then(static fn(string $dsn): array => ['dsn' => $dsn])
                                         ->end()
                                         ->children()
-                                            ->scalarNode('dsn')
-                                                ->isRequired()
-                                                ->cannotBeEmpty()
-                                                ->validate()
-                                                    ->ifTrue(static fn(mixed $dsn): bool => !\is_string($dsn))
-                                                    ->thenInvalid('The DSN of a Redis connection is a string.')
-                                                ->end()
-                                            ->end()
+                                            ->scalarNode('dsn')->isRequired()->cannotBeEmpty()->end()
+                                        ->end()
+                                        ->validate()
+                                            ->ifTrue(static fn(array $connection): bool => !\is_string($connection['dsn']))
+                                            ->thenInvalid('The DSN of a Redis connection is a string.')
                                         ->end()
                                     ->end()
                                 ->end()

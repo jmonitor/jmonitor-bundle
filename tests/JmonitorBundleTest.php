@@ -75,7 +75,9 @@ use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
+use Symfony\Component\DependencyInjection\Compiler\ValidateEnvPlaceholdersPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\HttpKernel\DependencyInjection\MergeExtensionConfigurationPass;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
@@ -1688,7 +1690,7 @@ class JmonitorBundleTest extends TestCase
         $set = $this->loadBundle(['stack' => ['redis' => ['enabled' => true, 'connections' => [
             'main' => 'redis://cache.internal:6379',
             'sessions' => ['dsn' => 'redis://sessions.internal:6379/1'],
-            'escaped' => 'redis://:p%40ss@cache.internal',
+            'escaped' => 'redis://:p%%40ss@cache.internal',
         ]]]], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
 
         $redis = static fn(ContainerBuilder $container): mixed => ((array) $container->getParameter('jmonitor.stack.components'))['redis'] ?? null;
@@ -1704,6 +1706,27 @@ class JmonitorBundleTest extends TestCase
         static::assertSame([['index' => 'redis']], $default->getDefinition(RedisDetector::class)->getTag('jmonitor.stack.detector'));
         static::assertSame([RedisDsns::class, '%jmonitor.stack.end_of_life%'], array_map(strval(...), $default->getDefinition(RedisDetector::class)->getArguments()));
         static::assertSame([['method' => 'reset']], $default->getDefinition(RedisDsns::class)->getTag('kernel.reset'));
+    }
+
+    public function testAnEnvironmentVariableNamesARedisServer(): void
+    {
+        foreach (['short' => '%env(REDIS_URL)%', 'long' => ['dsn' => '%env(REDIS_URL)%']] as $form => $connection) {
+            $container = new ContainerBuilder();
+            $container->setParameter('kernel.environment', 'test');
+            $container->setParameter('kernel.debug', false);
+            $container->setParameter('kernel.project_dir', '/srv/app');
+            $container->setParameter('kernel.bundles', ['FrameworkBundle' => FrameworkBundle::class]);
+            $container->setParameter('kernel.build_dir', sys_get_temp_dir());
+            $container->registerExtension((new JmonitorBundle())->getContainerExtension() ?? throw new \LogicException());
+            $container->loadFromExtension('jmonitor', ['stack' => ['redis' => ['connections' => ['main' => $connection]]]]);
+
+            (new MergeExtensionConfigurationPass())->process($container);
+            (new ValidateEnvPlaceholdersPass())->process($container);
+
+            $dsn = $container->getDefinition(RedisDsns::class)->getArgument(1)['main'] ?? null;
+            static::assertIsString($dsn, $form);
+            static::assertSame('%env(REDIS_URL)%', $container->resolveEnvPlaceholders($dsn, '%%env(%s)%%'), $form);
+        }
     }
 
     public function testARedisConnectionWithoutIdIsRefused(): void

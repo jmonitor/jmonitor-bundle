@@ -19,6 +19,7 @@ use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
+use Symfony\Component\Cache\Adapter\RedisAdapter;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
@@ -602,7 +603,7 @@ final class StackScreenTest extends WebTestCase
         if (!\is_string(getenv(self::REDIS_URL))) {
             static::markTestSkipped(self::REDIS_URL . ' is not set.');
         }
-        $client = $this->client(['jmonitor' => ['stack' => ['redis' => ['connections' => ['cache' => (string) getenv(self::REDIS_URL)]]]]]);
+        $client = $this->client(['jmonitor' => ['stack' => ['redis' => ['connections' => ['cache' => '%env(' . self::REDIS_URL . ')%']]]]]);
         $keyspace = '#jm-redis-keyspace-title, .jm-state__title:contains("No key in this server")';
 
         $client->request('GET', '/jmonitor/stack/redis?connection=cache');
@@ -619,6 +620,51 @@ final class StackScreenTest extends WebTestCase
         static::assertSame(['Usage', 'Traffic', 'Memory', 'Persistence', 'Server'], $crawler->filter('.jm-gauges, .jm-facts')->each(static fn(Crawler $section): string => (string) $section->attr('aria-label')));
         static::assertCount(1, $crawler->filter($keyspace));
         static::assertCount(0, $crawler->filter('[data-jm-instances]'));
+    }
+
+    public function testAMissingVariableOnlyBreaksItsRedisServer(): void
+    {
+        if (!\is_string(getenv(self::REDIS_URL))) {
+            static::markTestSkipped(self::REDIS_URL . ' is not set.');
+        }
+        $client = $this->client(['jmonitor' => ['stack' => ['redis' => ['connections' => [
+            'cache' => ['dsn' => '%env(' . self::REDIS_URL . ')%'],
+            'absent' => '%env(JMONITOR_TEST_ABSENT_REDIS_URL)%',
+        ]]]]]);
+
+        $crawler = self::requestUntil($client, '/jmonitor/stack', '[data-jm-component="redis.cache"][data-jm-read-at]');
+
+        static::assertResponseIsSuccessful();
+        static::assertMatchesRegularExpression('/^(Redis|Valkey) \d+\.\d+\.\d+$/', $crawler->filter('[data-jm-component="redis.cache"] .jm-component__version')->text());
+        static::assertSame(
+            'The DSN of this connection cannot be read: an environment variable is missing ("JMONITOR_TEST_ABSENT_REDIS_URL").',
+            $crawler->filter('[data-jm-component="redis.absent"] .jm-component__reason')->text(),
+        );
+    }
+
+    public function testAPercentSignInARedisPasswordIsRead(): void
+    {
+        $url = getenv(self::REDIS_URL);
+        if (!\is_string($url) || !\extension_loaded('redis')) {
+            static::markTestSkipped(self::REDIS_URL . ' is not set, or the redis extension is not loaded.');
+        }
+        $user = 'jm_percent_' . bin2hex(random_bytes(4));
+        $admin = RedisAdapter::createConnection($url);
+        \assert($admin instanceof \Redis);
+        $admin->rawCommand('ACL', 'SETUSER', $user, 'on', '>p@ss%40', '+@all', '~*');
+
+        try {
+            $dsn = \sprintf('redis://%s:p%%%%40ss%%%%2540@%s:%d', $user, parse_url($url, \PHP_URL_HOST), parse_url($url, \PHP_URL_PORT) ?? 6379);
+            $client = $this->client(['jmonitor' => ['stack' => ['redis' => ['connections' => ['percent' => $dsn]]]]]);
+
+            $crawler = self::requestUntil($client, '/jmonitor/stack', '[data-jm-component="redis.percent"][data-jm-read-at]');
+
+            static::assertCount(0, $crawler->filter('[data-jm-component="redis.percent"] .jm-component__reason'));
+            static::assertMatchesRegularExpression('/^(Redis|Valkey) \d+\.\d+\.\d+$/', $crawler->filter('[data-jm-component="redis.percent"] .jm-component__version')->text());
+        } finally {
+            $admin->rawCommand('ACL', 'DELUSER', $user);
+            $admin->close();
+        }
     }
 
     /**
