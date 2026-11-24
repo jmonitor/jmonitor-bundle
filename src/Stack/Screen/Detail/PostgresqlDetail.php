@@ -222,7 +222,7 @@ final class PostgresqlDetail implements DetailInterface
         if ($postgresql->slowQueries === [] && $hidden > 0) {
             return Block::unavailable(Block::TABLE, BlockState::Empty, 'This role cannot see the statements of the other roles', sprintf(
                 '%s, as pg_stat_statements only shows a role the text of its own. Grant it pg_read_all_stats or pg_monitor to see them.',
-                $hidden === 1 ? '1 statement of another role is hidden from this role' : Figures::count($hidden) . ' statements of other roles are hidden from this role',
+                $hidden === 1 ? '1 of the slowest statements read belongs to another role and is hidden from this role' : Figures::count($hidden) . ' of the slowest statements read belong to other roles and are hidden from this role',
             ));
         }
 
@@ -253,8 +253,8 @@ final class PostgresqlDetail implements DetailInterface
             pluralNoun: 'queries',
             note: 'the slowest on average ' . self::SINCE_RESET . match ($hidden) {
                 0 => '',
-                1 => '; this role cannot see 1 statement of another role',
-                default => '; this role cannot see ' . Figures::count($hidden) . ' statements of other roles',
+                1 => '; 1 of the slowest statements read is hidden from this role',
+                default => '; ' . Figures::count($hidden) . ' of the slowest statements read are hidden from this role',
             },
         ));
     }

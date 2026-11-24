@@ -299,18 +299,24 @@ final class PostgresqlDetailTest extends TestCase
         self::assertStringNotContainsString('pg_stat_statements', $last->title);
         self::assertStringContainsString('pg_read_all_stats', $last->text);
         self::assertStringContainsString('pg_monitor', $last->text);
-        self::assertStringStartsWith('3 statements of other roles are hidden from this role', $last->text);
+        self::assertStringStartsWith('3 of the slowest statements read belong to other roles and are hidden from this role, as pg_stat_statements', $last->text);
 
         $one = (new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql.slow_queries' => ['queries' => [], 'hidden' => 1]])), [], Snapshots::NOW)[7];
 
-        self::assertStringStartsWith('1 statement of another role is hidden from this role', $one->text);
+        self::assertStringStartsWith('1 of the slowest statements read belongs to another role and is hidden from this role, as pg_stat_statements', $one->text);
 
         $some = self::snapshot(['postgresql.slow_queries' => ['hidden' => 2] + DatabasePayloads::postgresqlSlowQueries()]);
         $table = (new PostgresqlDetail())->sections(self::connection($some), [], Snapshots::NOW)[7]->content;
 
         self::assertInstanceOf(Table::class, $table);
         self::assertCount(1, $table->rows);
-        self::assertSame('the slowest on average since the statistics were reset; this role cannot see 2 statements of other roles', $table->note);
+        self::assertSame('the slowest on average since the statistics were reset; 2 of the slowest statements read are hidden from this role', $table->note);
+
+        $oneOfSome = self::snapshot(['postgresql.slow_queries' => ['hidden' => 1] + DatabasePayloads::postgresqlSlowQueries()]);
+        $table = (new PostgresqlDetail())->sections(self::connection($oneOfSome), [], Snapshots::NOW)[7]->content;
+
+        self::assertInstanceOf(Table::class, $table);
+        self::assertSame('the slowest on average since the statistics were reset; 1 of the slowest statements read is hidden from this role', $table->note);
     }
 
     public function testTheSlowSectionsWaitForTheirCollectors(): void
@@ -358,7 +364,7 @@ final class PostgresqlDetailTest extends TestCase
             'postgresql' => $activity,
             'postgresql.settings' => ['max_connections' => '2000'] + DatabasePayloads::postgresqlSettings(),
             'postgresql.database' => $database,
-            'postgresql.slow_queries' => ['hidden' => 1_200] + DatabasePayloads::postgresqlSlowQueries(),
+            'postgresql.slow_queries' => ['hidden' => 24] + DatabasePayloads::postgresqlSlowQueries(),
         ]);
 
         $blocks = (new PostgresqlDetail())->sections(self::connection($snapshot), [], Snapshots::NOW);
@@ -374,7 +380,7 @@ final class PostgresqlDetailTest extends TestCase
         self::assertInstanceOf(Notice::class, $notice);
         self::assertStringStartsWith('PostgreSQL counts the 1,500 sessions of other roles in this database', $notice->text);
         self::assertInstanceOf(Table::class, $slowest);
-        self::assertSame('the slowest on average since the statistics were reset; this role cannot see 1,200 statements of other roles', $slowest->note);
+        self::assertSame('the slowest on average since the statistics were reset; 24 of the slowest statements read are hidden from this role', $slowest->note);
     }
 
     public function testARateWithoutSecondSampleIsOnlyPromisedWhileTheServerAnswers(): void
