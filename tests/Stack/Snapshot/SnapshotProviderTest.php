@@ -17,6 +17,10 @@ use Jmonitor\JmonitorBundle\Stack\Collector\UnreachableServerException;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Jmonitor\JmonitorBundle\Stack\Detection\Server;
+use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
+use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
+use Jmonitor\JmonitorBundle\Stack\Read\StackState;
+use Jmonitor\JmonitorBundle\Stack\Screen\StackScreenParts;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectBudget;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
@@ -959,6 +963,9 @@ final class SnapshotProviderTest extends TestCase
 
         $this->read($provider, $a);
         $failedAt = $this->clock->now()->getTimestamp();
+
+        self::assertSame(60 + 86400, $this->recording->ttls['jmonitor.stack.failure.mysql.a.mysql'], 'kept a day after its guard');
+
         $this->clock->sleep(1);
         $this->read($provider, $b);
         $this->clock->sleep(1);
@@ -1043,6 +1050,71 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(FailureKind::Unreachable, $waiting->result('mysql')->failure);
     }
 
+    public function testTheCopyOfASilentServerOnAValueOfTheServerOutlivesItsGuard(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $silent = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection timed out'), clock: $this->clock, duration: 30.0);
+        $instances = [
+            self::instance([self::spec($silent, cost: CostClass::Network, perServer: true)], 'c1', Component::Mysql, $server),
+            self::instance([self::spec(new FakeCollector('mysql', ['Uptime' => 5]), cost: CostClass::Network, perServer: true)], 'c2', Component::Mysql, $server),
+        ];
+
+        $this->provider()->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame(150 + 86400, $this->recording->ttls['jmonitor.stack.failure.mysql.c1.mysql']);
+        self::assertSame(150 + 86400, $this->recording->ttls['jmonitor.stack.failure.mysql.c2.mysql']);
+    }
+
+    public function testAConnectionWhoseFailureIsDueDoesNotTakeWhatAnotherOneReadInTheSameDisplay(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $refused = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Access denied'));
+        $a = self::instance([self::spec($refused, cost: CostClass::Network, perServer: true)], 'a', Component::Mysql, $server);
+        $b = self::instance([self::spec(new FakeCollector('mysql', ['Uptime' => 5]), cost: CostClass::Network, perServer: true)], 'b', Component::Mysql, $server);
+        $provider = $this->provider();
+        $this->read($provider, $a);
+        $this->clock->sleep(100);
+
+        $snapshots = $provider->read([$b, $a], CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame(ResultState::Fresh, $snapshots['mysql.b']->result('mysql')?->state);
+        self::assertSame(2, $refused->collects, 'read by itself, not taken from the other connection');
+        self::assertSame(ResultState::Failed, $snapshots['mysql.a']->result('mysql')?->state);
+        self::assertSame('Access denied', $snapshots['mysql.a']->result('mysql')->error);
+    }
+
+    public function testAConnectionWhoseFailureIsDueAndCouldNotReadAgainAsksForAnotherRead(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $refused = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Access denied'));
+        $a = self::instance([self::spec($refused, cost: CostClass::Network, perServer: true)], 'a', Component::Mysql, $server);
+        $b = self::instance([self::spec(new FakeCollector('mysql', ['Uptime' => 5]), cost: CostClass::Network, perServer: true)], 'b', Component::Mysql, $server);
+        $provider = $this->provider();
+        $state = fn(ComponentSnapshot $snapshot): StackState => new StackState(null, $this->clock->now()->getTimestamp(), CacheState::Working, [new ComponentState(Component::Mysql, [new InstanceState('a', null, null, $snapshot)], 0)], []);
+
+        $failed = $this->read($provider, $a);
+        $this->clock->sleep(1);
+        $kept = $this->read($provider, $a);
+
+        self::assertFalse(StackScreenParts::followUp($state($failed)), 'a failure just kept asks for nothing');
+        self::assertFalse(StackScreenParts::followUp($state($kept)), 'nor while it is kept');
+
+        $this->clock->sleep(5 * 3600);
+        $this->read($provider, $b);
+        $spent = CollectBudget::fragment($this->clock);
+        $this->clock->sleep(1);
+        $due = $this->read($provider, $a, $spent);
+
+        self::assertSame(1, $refused->collects);
+        self::assertSame(ResultState::Stale, $due->result('mysql')?->state);
+        self::assertFalse($due->isReading());
+        self::assertTrue(StackScreenParts::followUp($state($due)));
+
+        $this->read($provider, $a);
+
+        self::assertSame(2, $refused->collects);
+    }
+
     public function testAfterARefreshAConnectionThatFailedStillReadsItsServerItself(): void
     {
         $server = new Server('db.internal:3306', 'db.internal:3306');
@@ -1054,6 +1126,9 @@ final class SnapshotProviderTest extends TestCase
         $this->clock->sleep(1);
 
         $provider->forget([$a($refused), $b]);
+
+        self::assertSame(86400, $this->recording->ttls['jmonitor.stack.failure.mysql.a.mysql'], 'ended, not forgotten');
+
         $this->read($provider, $b);
         $stillRefused = $this->read($provider, $a($refused));
 
@@ -1113,6 +1188,7 @@ final class SnapshotProviderTest extends TestCase
         $this->read($provider, $instance);
 
         self::assertTrue($this->recording->hasItem('jmonitor.stack.failure.mysql.a.mysql.sizes'));
+        self::assertSame(10, $this->recording->ttls['jmonitor.stack.failure.mysql.a.mysql.sizes'], 'its guard alone');
 
         $provider->forget([$instance]);
 

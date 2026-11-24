@@ -60,7 +60,8 @@ final class StackScreenParts
     }
 
     /**
-     * Whether the screen asks for its rest: a value was never read, or one is outdated and nothing says its renewal failed.
+     * Whether the screen asks for its rest: a value was never read, one is outdated and nothing says its renewal failed,
+     * or a failure is due and could not be read again yet.
      */
     public static function followUp(StackState $state): bool
     {
@@ -76,6 +77,10 @@ final class StackScreenParts
             foreach ($component->instances as $instance) {
                 foreach ($instance->snapshot->results ?? [] as $result) {
                     if ($result->state === ResultState::Stale && $result->error === null) {
+                        return true;
+                    }
+
+                    if ($result->error !== null && $result->expiresAt !== null && $result->expiresAt <= $state->readAt && $state->cache === CacheState::Working) {
                         return true;
                     }
                 }
