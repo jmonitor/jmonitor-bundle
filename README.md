@@ -471,9 +471,11 @@ MariaDB turns `performance_schema` off by default: set `performance_schema = ON`
 
 The slowest queries are the digests of `performance_schema`, the 10 slowest on average: every value is replaced by `?`, so no value of your data shows. Their counts and times add up since the server started. The queries that name `performance_schema` or `information_schema` are left out, those of the screen among them, and so are the queries of your application that name them, such as the introspection of Doctrine Migrations.
 
-On MySQL 8, `information_schema` keeps the sizes in a cache of its own for a day (`information_schema_stats_expiry`): they can be up to a day old, and the detail says so. The query that renews that cache takes longer: 4 to 7 seconds for 2,000 tables, measured on MySQL 8.4 and 8.0.
+On MySQL 8, `information_schema` keeps the sizes in a cache of its own for a day (`information_schema_stats_expiry`): they can be up to a day old, and the detail says so. The query that renews that cache takes longer: 4 to 7 seconds for 2,000 tables, measured on MySQL 8.4 and 8.0. A reading of the sizes that takes more than 10 seconds shows as unreadable on the detail only: the server is not said to be down.
 
-A connection the screen opened, by building it or by trying again after it was lost, is closed at the end of the read, and its wait for an answer is bounded to 10 seconds; a connection your application had already opened is used as it is and left open. Under the worker mode of FrankenPHP, nothing the screen opened stays open from one request to the next.
+A connection the screen opened, by building it or by trying again after it was lost, is closed at the end of the read, and its wait for an answer is bounded to 10 seconds; a connection your application had already opened is used as it is and left open. Under the worker mode of FrankenPHP, nothing the screen opened stays open from one request to the next. A persistent connection (`persistent: true`, or `PDO::ATTR_PERSISTENT` in its `options`) is the exception: closing it hands it back to PHP, which keeps it for the next request of your application, so the screen does not bound its wait.
+
+A primary/replica connection is read on its primary. When the screen opened it, it is closed whole at the end of the read, its replica included.
 
 A server that cannot be reached raises a `Critical` check, `MySQL cannot be reached`, with the reason, and its card keeps its last reading, if it had one. The reason never shows the password, the database user nor the URL of the connection. What it costs depends on how the server fails:
 
@@ -481,9 +483,9 @@ A server that cannot be reached raises a `Critical` check, `MySQL cannot be reac
 - a host that does not answer at all: a display waits up to 30 seconds;
 - a server that accepts the connection and then stops answering: a display waits 10 seconds, when the screen opens the connection itself.
 
-A connection your application already holds open, as under the worker mode of FrankenPHP once a request has used it, is used as it is, with the timeouts of your application: a server that stops answering can then keep a display waiting much longer.
+A connection your application already holds open, as under the worker mode of FrankenPHP once a request has used it, or a persistent one, is used with the timeouts of your application: a server that stops answering can then keep a display waiting much longer.
 
-After such a wait, none of the readings of that connection is asked again for five times the wait, one minute at least and ten at most, and its card says why. `Refresh` asks again at once.
+After such a wait, none of the readings of that connection is asked again for five times the wait, one minute at least and ten minutes at most, and its card says why. `Refresh` asks again at once.
 
 The wait is for each connection shown. The overview reads one connection per server, so a server that does not answer makes one display wait; the detail of another connection of that server waits once too. A connection that fails for a reason of its own, such as a refused password, does not make the other connections of its server show as failed.
 
@@ -529,7 +531,7 @@ What the stack reads outside the process of PHP, each with its switch under `sta
 | `nginx -V`, `nginx -T` and `getconf _NPROCESSORS_ONLN`, when Nginx serves the page | 3 s each | once an hour on each web server | `nginx` |
 | `frankenphp version`, when FrankenPHP serves the page | 3 s | once an hour on each web server | `frankenphp` |
 | The console of your application, `bin/console jmonitor:stack:queues`, when the Messages screen is displayed | 3 s | at most once every 30 seconds, shared by all your web servers through the cache | `symfony.messenger` |
-| The MySQL or MariaDB server of each Doctrine connection, as described in [The databases](#the-databases) | 10 s without an answer; opening a connection to a host that drops the packets, up to 30 s | its status at most once every 10 seconds, shared by all your web servers through the cache; the rest once a minute to once an hour | `mysql` |
+| The MySQL or MariaDB server of each Doctrine connection, as described in [The databases](#the-databases) | 10 s without an answer; opening a connection to a host that drops the packets, up to 30 s; longer on a connection your application holds open, or a persistent one | its status at most once every 10 seconds, shared by all your web servers through the cache; the rest once a minute to once an hour | `mysql` |
 
 A command runs in the environment of PHP, without the headers of the web request (the `HTTP_*` variables), as its user, who must be able to run it. When it cannot, the screen says so: a check on the Stack screen, or a notice in the `Queues` block or in the detail of Nginx. A command that cannot be found is tried again an hour later. Turned off, `end_of_life` shows versions without their support status and skips the end-of-life and security-fixes checks; `symfony.flex` hides the Flex recipes.
 
@@ -697,7 +699,7 @@ An unknown path answers 404. Without the TwigBundle, `page()` and `fragment()` a
 Your application provides:
 
 - three routes with a free path parameter: one for the page, one for the fragment and one for the actions, which accepts `POST`;
-- an implementation of `Jmonitor\JmonitorBundle\Embed\HostUrlsInterface` that generates their URLs, with the entries of `$query` (`period`, `sort`, `dir`) as query-string parameters of the same names, since the screens read them from the query string of your request;
+- an implementation of `Jmonitor\JmonitorBundle\Embed\HostUrlsInterface` that generates their URLs, with the entries of `$query` (`period`, `sort`, `dir`, `connection`) as query-string parameters of the same names, since the screens read them from the query string of your request;
 - its own layout, with the `html` inside an element of class `jm`, the stylesheets and scripts of the `PageContent` loaded in its `<head>`, the scripts with `defer` since they read the page as soon as they run, and the headers of the `PageContent` on its response.
 
 Access control is entirely yours: `dashboard.enabled` and `dashboard.permission` only apply to the `/jmonitor` page. Call `doNotRecord()` before your own access check, so that a refused request is not recorded, and give your routes the default `_jmonitor: true` (the constant `JmonitorPage::NOT_RECORDED`), so that a request your firewall refuses before it reaches the controller is not recorded either.
