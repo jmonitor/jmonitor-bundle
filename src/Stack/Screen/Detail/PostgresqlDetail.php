@@ -31,6 +31,8 @@ final class PostgresqlDetail implements DetailInterface
 {
     private const SINCE_RESET = 'since the statistics were reset';
 
+    private const READABLE = 'among the sessions this role can read';
+
     public function sections(InstanceState $instance, array $findings, int $now, bool $reading = true): array
     {
         $snapshot = Sections::snapshot($instance);
@@ -77,16 +79,16 @@ final class PostgresqlDetail implements DetailInterface
     private static function activity(PostgresqlReading $postgresql, ComponentSnapshot $snapshot, array $findings): array
     {
         $elapsed = $snapshot->delta('postgresql')?->elapsed;
-        $limited = $postgresql->maxConnections !== null;
+        $maxKnown = $postgresql->maxConnections !== null;
 
         return [
             Block::gauges(new Gauges('Usage', [
                 new Gauge(
                     'Server connections',
                     $postgresql->connectionsPercent,
-                    $limited ? Sections::percent($postgresql->connectionsPercent) : Sections::value(self::count($postgresql->serverConnections)),
+                    $maxKnown ? Sections::percent($postgresql->connectionsPercent) : Sections::value(self::count($postgresql->serverConnections)),
                     Sections::mark($findings, 'postgresql.connections'),
-                    $limited ? self::connections($postgresql) . ', every database of the server' : 'connection limit unknown',
+                    $maxKnown ? self::connections($postgresql) . ', every database of the server' : 'connection limit unknown',
                 ),
                 new Gauge('Database connections', null, Sections::value(self::count($postgresql->databaseConnections)), hint: self::states($postgresql)),
             ])),
@@ -115,17 +117,23 @@ final class PostgresqlDetail implements DetailInterface
 
         if ($postgresql->limitedRole) {
             $hidden = (int) $postgresql->hiddenSessions;
-            $blocks[] = Block::notice(new Notice('info', 'This role only sees its own sessions', sprintf(
-                'PostgreSQL does not show it the state of %d %s of other roles in this database, so the counts below leave them out. Grant it the pg_monitor role to see them all.',
-                $hidden,
-                $hidden === 1 ? 'session' : 'sessions',
+            $blocks[] = Block::notice(new Notice('info', 'This role cannot read the sessions of other roles', sprintf(
+                'PostgreSQL counts the %s in this database, but hides %s from it: the oldest transaction, the sessions idle in a transaction and the waits below only cover the sessions it can read. Grant it the pg_monitor role to see them all.',
+                $hidden === 1 ? '1 session of another role' : $hidden . ' sessions of other roles',
+                $hidden === 1 ? 'its state, its transaction and its waits' : 'their state, their transaction and their waits',
             )));
         }
 
+        $readable = static fn(?string $hint): ?string => match (true) {
+            !$postgresql->limitedRole => $hint,
+            $hint === null => self::READABLE,
+            default => $hint . ', ' . self::READABLE,
+        };
+
         $blocks[] = Block::facts(new Facts('Sessions', [
-            new Fact('Waiting for a lock', Sections::value(self::count($postgresql->blockedSessions)), Sections::mark($findings, 'postgresql.blocked_sessions'), $postgresql->longestBlock === null ? null : 'the longest for ' . Figures::duration($postgresql->longestBlock)),
-            new Fact('Oldest transaction', $postgresql->oldestTransaction === null ? Sections::MISSING : Figures::duration($postgresql->oldestTransaction)),
-            new Fact('Idle in a transaction', Sections::value(self::count($postgresql->idleInTransaction)), Sections::mark($findings, 'postgresql.idle_in_transaction'), $postgresql->oldestIdleInTransaction === null ? null : 'the oldest for ' . Figures::duration($postgresql->oldestIdleInTransaction)),
+            new Fact('Waiting for a lock', Sections::value(self::count($postgresql->blockedSessions)), Sections::mark($findings, 'postgresql.blocked_sessions'), $readable($postgresql->longestBlock === null ? null : 'the longest for ' . Figures::duration($postgresql->longestBlock))),
+            new Fact('Oldest transaction', $postgresql->oldestTransaction === null ? Sections::MISSING : Figures::duration($postgresql->oldestTransaction), hint: $readable(null)),
+            new Fact('Idle in a transaction', Sections::value(self::count($postgresql->idleInTransaction)), Sections::mark($findings, 'postgresql.idle_in_transaction'), $readable($postgresql->oldestIdleInTransaction === null ? null : 'the oldest for ' . Figures::duration($postgresql->oldestIdleInTransaction))),
         ]));
 
         if ($postgresql->blocked === []) {
@@ -174,7 +182,7 @@ final class PostgresqlDetail implements DetailInterface
                 'Dead rows',
                 $postgresql->deadRowsPercent === null ? Sections::MISSING : Figures::percent($postgresql->deadRowsPercent),
                 Sections::mark($findings, 'postgresql.dead_rows'),
-                $postgresql->deadRows === null || $postgresql->liveRows === null ? null : sprintf('%d of %d rows', $postgresql->deadRows, $postgresql->deadRows + $postgresql->liveRows),
+                $postgresql->deadRowsPercent === null || $postgresql->deadRows === null || $postgresql->liveRows === null ? null : sprintf('%d of %d rows', $postgresql->deadRows, $postgresql->deadRows + $postgresql->liveRows),
             ),
             new Fact('Database size', $bytes($postgresql->databaseSize), hint: $database === null || $database === '' ? 'every schema included' : 'every schema of ' . $database),
             new Fact('Table size', $bytes($postgresql->tablesSize), hint: 'indexes included'),
@@ -251,11 +259,15 @@ final class PostgresqlDetail implements DetailInterface
     }
 
     /**
-     * "2 active · 4 idle".
+     * "2 active · 4 idle"; a limited role cannot read the state it calls unknown.
      */
     private static function states(PostgresqlReading $postgresql): ?string
     {
-        $states = array_map(static fn(string $state, int $count): string => $count . ' ' . $state, array_keys($postgresql->connectionsByState), $postgresql->connectionsByState);
+        $states = array_map(
+            static fn(string $state, int $count): string => $count . ' ' . $state . ($state === 'unknown' && $postgresql->limitedRole ? ' to this role' : ''),
+            array_keys($postgresql->connectionsByState),
+            $postgresql->connectionsByState,
+        );
 
         return $states === [] ? null : implode(' · ', $states);
     }

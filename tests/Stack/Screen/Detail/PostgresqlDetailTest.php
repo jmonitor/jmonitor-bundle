@@ -216,19 +216,56 @@ final class PostgresqlDetailTest extends TestCase
         $blocks = (new PostgresqlDetail())->sections(self::connection($snapshot), self::findings($snapshot), Snapshots::NOW);
         $titles = self::titles($blocks);
 
-        self::assertSame(['Usage', 'Traffic', 'Cache', 'notice: This role only sees its own sessions', 'Sessions', 'Blocked sessions'], array_slice($titles, 0, 6));
+        self::assertSame(['Usage', 'Traffic', 'Cache', 'notice: This role cannot read the sessions of other roles', 'Sessions', 'Blocked sessions'], array_slice($titles, 0, 6));
         self::assertSame(
-            ['notice', 'info', 'This role only sees its own sessions', 'PostgreSQL does not show it the state of 4 sessions of other roles in this database, so the counts below leave them out. Grant it the pg_monitor role to see them all.'],
+            ['notice', 'info', 'This role cannot read the sessions of other roles', 'PostgreSQL counts the 4 sessions of other roles in this database, but hides their state, their transaction and their waits from it: the oldest transaction, the sessions idle in a transaction and the waits below only cover the sessions it can read. Grant it the pg_monitor role to see them all.'],
             self::describe($blocks)[3],
         );
-        self::assertSame('2 active · 4 idle · 1 idle in transaction · 4 unknown', self::hints($blocks)['Usage / Database connections']);
         self::assertSame(['Waiting for a lock' => '1', 'Oldest transaction' => self::nb('5 min 40 s'), 'Idle in a transaction' => '1'], self::describe($blocks)[4][2], 'the checks that depend on what it cannot see keep quiet');
 
         $activity['hidden_sessions'] = 1;
         $one = self::describe((new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql' => $activity])), [], Snapshots::NOW))[3];
 
-        self::assertStringStartsWith('PostgreSQL does not show it the state of 1 session of other roles in this database', $one[3]);
-        self::assertNotContains('notice: This role only sees its own sessions', self::titles((new PostgresqlDetail())->sections(self::connection(self::snapshot()), [], Snapshots::NOW)));
+        self::assertStringStartsWith('PostgreSQL counts the 1 session of another role in this database, but hides its state, its transaction and its waits from it:', $one[3]);
+        self::assertNotContains('notice: This role cannot read the sessions of other roles', self::titles((new PostgresqlDetail())->sections(self::connection(self::snapshot()), [], Snapshots::NOW)));
+    }
+
+    public function testWhatALimitedRoleReadsOnlyCoversTheSessionsItCanRead(): void
+    {
+        $activity = DatabasePayloads::postgresqlActivity();
+        $activity['connections']['unknown'] = 4;
+        $activity['hidden_sessions'] = 4;
+        $activity['sessions']['oldest_transaction_seconds'] = 0;
+
+        $limited = self::hints((new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql' => $activity])), [], Snapshots::NOW));
+        $full = self::hints((new PostgresqlDetail())->sections(self::connection(self::snapshot()), [], Snapshots::NOW));
+
+        self::assertSame('among the sessions this role can read', $limited['Sessions / Oldest transaction']);
+        self::assertSame('the oldest for ' . self::nb('5 min 40 s') . ', among the sessions this role can read', $limited['Sessions / Idle in a transaction']);
+        self::assertSame('the longest for ' . self::nb('45 s') . ', among the sessions this role can read', $limited['Sessions / Waiting for a lock']);
+        self::assertSame('2 active · 4 idle · 1 idle in transaction · 4 unknown to this role', $limited['Usage / Database connections']);
+
+        self::assertNull($full['Sessions / Oldest transaction']);
+        self::assertSame('the oldest for ' . self::nb('5 min 40 s'), $full['Sessions / Idle in a transaction']);
+        self::assertSame('the longest for ' . self::nb('45 s'), $full['Sessions / Waiting for a lock']);
+        self::assertSame('2 active · 4 idle · 1 idle in transaction', $full['Usage / Database connections']);
+
+        $activity['sessions']['oldest_idle_in_transaction_seconds'] = null;
+        $activity['sessions']['idle_in_transaction_count'] = 0;
+        $none = self::hints((new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql' => $activity])), [], Snapshots::NOW));
+
+        self::assertSame('among the sessions this role can read', $none['Sessions / Idle in a transaction']);
+    }
+
+    public function testDeadRowsOfAnEmptySchemaHaveNoCount(): void
+    {
+        $database = DatabasePayloads::postgresqlDatabase();
+        $database['tables'] = ['dead_tuples' => 0, 'live_tuples' => 0] + $database['tables'];
+
+        $blocks = (new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql.database' => $database])), [], Snapshots::NOW);
+
+        self::assertSame('—', self::describe($blocks)[5][2]['Dead rows']);
+        self::assertNull(self::hints($blocks)['Tables / Dead rows']);
     }
 
     public function testWithoutTheExtensionTheSlowestQueriesSayWhy(): void
