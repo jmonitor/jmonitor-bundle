@@ -1178,6 +1178,14 @@ final class StackChecksTest extends TestCase
         yield 'memory 98 % under noeviction' => [self::redisMemory(980, 'noeviction'), [], 'redis.memory', Severity::Critical];
         yield 'memory 99 % under allkeys-lru' => [self::redisMemory(990, 'allkeys-lru'), [], 'redis.memory', null];
         yield 'memory 99 % under volatile-ttl' => [self::redisMemory(990, 'volatile-ttl'), [], 'redis.memory', null];
+        yield 'memory 89.9 % under volatile-lru, no key expires' => [self::redisMemory(899, 'volatile-lru', self::redisKeys(0)), [], 'redis.memory', null];
+        yield 'memory 90 % under volatile-lru, no key expires' => [self::redisMemory(900, 'volatile-lru', self::redisKeys(0)), [], 'redis.memory', Severity::Warning];
+        yield 'memory 97.9 % under volatile-lru, no key expires' => [self::redisMemory(979, 'volatile-lru', self::redisKeys(0)), [], 'redis.memory', Severity::Warning];
+        yield 'memory 98 % under volatile-lru, no key expires' => [self::redisMemory(980, 'volatile-lru', self::redisKeys(0)), [], 'redis.memory', Severity::Critical];
+        yield 'memory 99 % under volatile-ttl, one key expires' => [self::redisMemory(990, 'volatile-ttl', self::redisKeys(1)), [], 'redis.memory', null];
+        yield 'memory 99 % under volatile-lru, keys that expire unknown' => [self::redisMemory(990, 'volatile-lru', self::redisKeys(null)), [], 'redis.memory', null];
+        yield 'memory 99 % under volatile-lru, no key' => [self::redisMemory(990, 'volatile-lru', []), [], 'redis.memory', null];
+        yield 'memory 99 % under allkeys-lru, no key expires' => [self::redisMemory(990, 'allkeys-lru', self::redisKeys(0)), [], 'redis.memory', null];
 
         yield 'hit rate 79.9 % over 1000 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 799, 'keyspace_misses' => 201]), 'redis.hit_rate', Severity::Info];
         yield 'hit rate 80 % over 1000 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 800, 'keyspace_misses' => 200]), 'redis.hit_rate', null];
@@ -1220,6 +1228,7 @@ final class StackChecksTest extends TestCase
     {
         $health = static fn(array $data, array $deltas = []): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, $data, deltas: $deltas)));
         $full = $health(self::redis(['memory' => ['used' => 1_932_735_284, 'max_memory' => 2_147_483_648, 'max_memory_policy' => 'noeviction']]));
+        $volatile = $health(self::redis(['memory' => ['used' => 1_932_735_284, 'max_memory' => 2_147_483_648, 'max_memory_policy' => 'volatile-lru'], 'databases' => ['db0' => ['expires' => '0']]]));
         $window = $health(...self::redisWindow(
             ['keyspace_hits' => 0, 'keyspace_misses' => 0, 'evicted_keys' => 0, 'rejected_connections' => 0],
             ['keyspace_hits' => 1_400, 'keyspace_misses' => 600, 'evicted_keys' => 12, 'rejected_connections' => 3],
@@ -1235,6 +1244,10 @@ final class StackChecksTest extends TestCase
         self::assertSame("Redis uses 90\u{00A0}% of its memory limit (1.8\u{00A0}GB of 2\u{00A0}GB)", self::find($full, 'redis.memory')?->sentence);
         self::assertStringContainsString('noeviction', self::find($full, 'redis.memory')->explanation);
         self::assertStringContainsString('maxmemory', self::find($full, 'redis.memory')->explanation);
+        self::assertSame("Redis uses 90\u{00A0}% of its memory limit (1.8\u{00A0}GB of 2\u{00A0}GB)", self::find($volatile, 'redis.memory')?->sentence);
+        self::assertStringContainsString('volatile-lru', self::find($volatile, 'redis.memory')->explanation);
+        self::assertStringContainsString('no key has one', self::find($volatile, 'redis.memory')->explanation, 'why nothing can be evicted');
+        self::assertStringNotContainsString('noeviction', self::find($volatile, 'redis.memory')->explanation);
         self::assertSame("The hit rate is 70\u{00A0}% over the last 60\u{00A0}s", self::find($window, 'redis.hit_rate')?->sentence);
         self::assertSame("12 keys were evicted over the last 60\u{00A0}s", self::find($window, 'redis.evictions')?->sentence);
         self::assertSame("1,793 keys were evicted over the last 60\u{00A0}s", self::find($many, 'redis.evictions')?->sentence);
@@ -1666,11 +1679,27 @@ final class StackChecksTest extends TestCase
     }
 
     /**
+     * @param ?array<string, array<string, ?string>> $databases replacing those of the server
+     *
      * @return array<string, array<string, mixed>> a Redis whose memory limit is 1 000 000 000 bytes
      */
-    private static function redisMemory(int $usedPerThousand, string $policy): array
+    private static function redisMemory(int $usedPerThousand, string $policy, ?array $databases = null): array
     {
-        return self::redis(['memory' => ['used' => $usedPerThousand * 1_000_000, 'max_memory' => 1_000_000_000, 'max_memory_policy' => $policy]]);
+        $data = self::redis(['memory' => ['used' => $usedPerThousand * 1_000_000, 'max_memory' => 1_000_000_000, 'max_memory_policy' => $policy]]);
+
+        if ($databases !== null) {
+            $data['redis']['databases'] = $databases;
+        }
+
+        return $data;
+    }
+
+    /**
+     * @return array<string, array<string, ?string>> one database of 1 500 keys, $expires of them with an expiry
+     */
+    private static function redisKeys(?int $expires): array
+    {
+        return ['db0' => ['keys' => '1500', 'expires' => $expires === null ? null : (string) $expires, 'avg_ttl' => '0']];
     }
 
     /**

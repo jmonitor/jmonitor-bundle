@@ -155,6 +155,36 @@ final class RedisReadingTest extends TestCase
         self::assertFalse($noeviction->evicts);
     }
 
+    public function testAServerRefusesWritesWhenItsPolicyHasNothingToEvict(): void
+    {
+        $noExpiry = ['db0' => ['keys' => '1500', 'expires' => '0', 'avg_ttl' => '0'], 'db1' => ['keys' => '10', 'expires' => '0', 'avg_ttl' => '0']];
+        $oneExpiry = ['db0' => ['keys' => '1500', 'expires' => '0', 'avg_ttl' => '0'], 'db1' => ['keys' => '10', 'expires' => '1', 'avg_ttl' => '0']];
+        $expiryUnknown = ['db0' => ['keys' => '1500', 'expires' => '0', 'avg_ttl' => '0'], 'db1' => ['keys' => '10', 'expires' => null, 'avg_ttl' => '0']];
+        /** @param ?array<string, array<string, ?string>> $databases */
+        $server = static function (?string $policy, ?array $databases = null, int $limit = self::LIMIT): RedisReading {
+            $data = self::data(['memory' => ['max_memory' => $limit, 'max_memory_policy' => $policy]]);
+
+            if ($databases !== null) {
+                $data['databases'] = $databases;
+            }
+
+            return RedisReading::of(self::snapshot($data), self::today());
+        };
+
+        self::assertTrue($server('noeviction')->refusesWrites);
+        self::assertTrue($server('noeviction', [])->refusesWrites, 'whatever its keys');
+        self::assertFalse($server('noeviction', limit: 0)->refusesWrites, 'nothing is refused without a limit');
+        self::assertTrue($server('volatile-lru', $noExpiry)->refusesWrites, 'no key can be evicted');
+        self::assertTrue($server('volatile-ttl', $noExpiry)->refusesWrites);
+        self::assertFalse($server('volatile-lru', $noExpiry, 0)->refusesWrites);
+        self::assertFalse($server('volatile-ttl', $oneExpiry)->refusesWrites, 'that key can be evicted');
+        self::assertFalse($server('volatile-lru')->refusesWrites);
+        self::assertFalse($server('volatile-lru', $expiryUnknown)->refusesWrites, 'not judged');
+        self::assertFalse($server('volatile-lru', [])->refusesWrites, 'a server without any key has nothing to say');
+        self::assertFalse($server('allkeys-lru', $noExpiry)->refusesWrites);
+        self::assertFalse($server(null, $noExpiry)->refusesWrites);
+    }
+
     public function testWithoutASecondReadingTheRatesWait(): void
     {
         $reading = RedisReading::of(self::snapshot(self::data()), self::today());
@@ -246,6 +276,7 @@ final class RedisReadingTest extends TestCase
         self::assertNull($reading->peakMemory);
         self::assertNull($reading->policy);
         self::assertFalse($reading->evicts);
+        self::assertFalse($reading->refusesWrites);
         self::assertNull($reading->clients);
         self::assertTrue($reading->commandsPerSecond->isUnavailable());
         self::assertFalse($reading->commandsPerSecond->isPending(), 'no later sample would bring it');

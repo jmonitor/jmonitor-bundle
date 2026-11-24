@@ -671,7 +671,7 @@ To silence a check, add its identifier to `ignore_checks`: it is no longer shown
 | `postgresql.blocked_sessions` | a session has been waiting for a lock for 30 seconds or more; not judged for a role without privilege |
 | `postgresql.autovacuum_off` | `autovacuum` or `track_counts` is off (`Critical`) |
 | `postgresql.limited_role` | the role of the connection cannot see the state of the sessions of other roles (`Info`) |
-| `redis.memory` | under the `noeviction` policy, the server uses 90% of its `maxmemory` or more (`Critical` from 98%) |
+| `redis.memory` | under a policy that has nothing to evict, `noeviction` or a `volatile-*` one while no key has an expiry, the server uses 90% of its `maxmemory` or more (`Critical` from 98%) |
 | `redis.evictions` | keys were evicted between two readings (`Info`) |
 | `redis.rejected_connections` | connections were refused between two readings |
 | `redis.rdb_failed` | the last RDB snapshot failed (`Critical`) |

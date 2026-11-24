@@ -24,6 +24,7 @@ final readonly class RedisReading
      * @param ?string                                                $version       for Valkey, its own, not the Redis version it tells for compatibility
      * @param ?int                                                   $maxMemory     null when maxmemory is 0, which sets no limit
      * @param bool                                                   $evicts        a limit is set, and its policy evicts keys to stay under it
+     * @param bool                                                   $refusesWrites a limit is set, and its policy has nothing to evict: noeviction, or volatile-* while no key has an expiry
      * @param Rate                                                   $hitRate       between the last two samples when they hold LOOKUPS, else since the server started
      * @param ?int                                                   $lookups       hits and misses between the last two samples
      * @param ?int                                                   $evictedLately between the last two samples
@@ -43,6 +44,7 @@ final readonly class RedisReading
         public ?int $peakMemory,
         public ?string $policy,
         public bool $evicts,
+        public bool $refusesWrites,
         public ?int $clients,
         public Rate $commandsPerSecond,
         public Rate $hitRate,
@@ -84,6 +86,8 @@ final readonly class RedisReading
         $maxMemory = $limit !== null && $limit > 0 ? $limit : null;
         $policy = is_string($memory['max_memory_policy'] ?? null) ? Values::string($memory['max_memory_policy']) : null;
 
+        $databases = self::databases($data['databases'] ?? null);
+
         $hits = $delta?->getValue('stats.keyspace_hits');
         $misses = $delta?->getValue('stats.keyspace_misses');
         $recentHitRate = Ratios::share($delta, 'stats.keyspace_hits', 'stats.keyspace_misses', null, null);
@@ -101,6 +105,11 @@ final readonly class RedisReading
             Values::int($memory['used_peak'] ?? null),
             $policy,
             $maxMemory !== null && $policy !== null && $policy !== 'noeviction',
+            $maxMemory !== null && match (true) {
+                $policy === 'noeviction' => true,
+                $policy !== null && str_starts_with($policy, 'volatile-') => self::noKeyExpires($databases),
+                default => false,
+            },
             Values::int(self::array($data['clients'] ?? null)['connected'] ?? null),
             Ratios::perSecond($delta, 'stats.total_commands_processed', 'cmd/s', Values::int($stats['total_commands_processed'] ?? null)),
             $recentHitRate->total !== null && $recentHitRate->total >= self::LOOKUPS
@@ -118,8 +127,26 @@ final readonly class RedisReading
             Values::bool($persistence['aof_enabled'] ?? null) === true,
             self::text($persistence['aof_last_bgrewrite_status'] ?? null),
             Values::bool($persistence['aof_rewrite_in_progress'] ?? null) === true,
-            self::databases($data['databases'] ?? null),
+            $databases,
         );
+    }
+
+    /**
+     * @param list<array{name: string, keys: int, expires: ?int}> $databases
+     */
+    private static function noKeyExpires(array $databases): bool
+    {
+        $keys = 0;
+
+        foreach ($databases as $database) {
+            if ($database['keys'] > 0 && $database['expires'] !== 0) {
+                return false;
+            }
+
+            $keys += $database['keys'];
+        }
+
+        return $keys > 0;
     }
 
     private static function variation(?Delta $delta, string $key): ?int

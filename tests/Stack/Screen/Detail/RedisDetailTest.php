@@ -217,6 +217,18 @@ final class RedisDetailTest extends TestCase
         self::assertSame(self::nb('99 %'), self::describe($blocks)[0][2]['Memory'], 'a full cache that evicts is in its usual state');
     }
 
+    public function testUnderAVolatilePolicyAFullMemoryIsMarkedWhenNoKeyCanExpire(): void
+    {
+        $memory = ['used' => 2_126_008_812, 'max_memory' => self::LIMIT, 'max_memory_policy' => 'volatile-lru'];
+        $expiring = self::snapshot(self::data(['memory' => $memory]));
+        $noExpiry = self::snapshot(self::data(['memory' => $memory, 'databases' => ['db0' => ['expires' => '0']]]));
+
+        $memoryOf = static fn(ComponentSnapshot $snapshot): string => self::describe((new RedisDetail())->sections(self::server($snapshot), self::findings($snapshot), Snapshots::NOW))[0][2]['Memory'];
+
+        self::assertSame(self::nb('99 %') . ' [Critical]', $memoryOf($noExpiry));
+        self::assertSame(self::nb('99 %'), $memoryOf($expiring), 'the keys with an expiry are evicted');
+    }
+
     public function testTheFigureOfAFactIsTheOneOfItsSentence(): void
     {
         $data = self::data(['memory' => ['used' => 2_000_000_000, 'max_memory' => self::LIMIT, 'max_memory_policy' => 'noeviction']]);

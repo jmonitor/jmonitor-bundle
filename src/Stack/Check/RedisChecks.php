@@ -22,12 +22,14 @@ final class RedisChecks
         $product = $redis->product ?? 'Redis';
         $elapsed = $snapshot->delta('redis')?->elapsed;
 
-        if ($redis->policy === 'noeviction' && $redis->memoryPercent !== null && $redis->memoryPercent >= 90) {
+        if ($redis->refusesWrites && $redis->memoryPercent !== null && $redis->memoryPercent >= 90) {
             $findings[] = $raise(
                 'redis.memory',
                 $redis->memoryPercent >= 98 ? Severity::Critical : Severity::Warning,
                 sprintf('%s uses %s of its memory limit (%s of %s)', $product, Figures::percent($redis->memoryPercent), Figures::bytes((int) $redis->usedMemory), Figures::bytes((int) $redis->maxMemory)),
-                'Under the noeviction policy, a server that reaches maxmemory refuses every write that needs more memory, and the application gets errors. Find the keys that grow without expiring, raise maxmemory if the memory of the server allows it, or choose a policy that evicts keys if the data can be rebuilt.',
+                $redis->policy === 'noeviction'
+                    ? 'Under the noeviction policy, a server that reaches maxmemory refuses every write that needs more memory, and the application gets errors. Find the keys that grow without expiring, raise maxmemory if the memory of the server allows it, or choose a policy that evicts keys if the data can be rebuilt.'
+                    : sprintf('Under the %s policy, only the keys with an expiry can be evicted, and no key has one: a server that reaches maxmemory refuses every write that needs more memory, and the application gets errors. Give an expiry to the keys that can be rebuilt, raise maxmemory if the memory of the server allows it, or choose an allkeys policy if all the data can be rebuilt.', $redis->policy),
                 'redis',
             );
         }
