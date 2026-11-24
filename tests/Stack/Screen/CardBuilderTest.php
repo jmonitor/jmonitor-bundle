@@ -17,6 +17,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RedisPayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -503,6 +504,90 @@ final class CardBuilderTest extends TestCase
 
         self::assertTrue($card->reading);
         self::assertSame(['Connections' => 'Reading…', 'Cache hit rate' => 'Reading…', 'Transactions' => 'Reading…'], self::vitals($card));
+    }
+
+    public function testTheRedisCardShowsItsVersionItsThreeFiguresAndItsAddress(): void
+    {
+        $kept = RedisPayloads::kept();
+        $kept['memory']['max_memory'] = 2_147_483_648;
+        $previous = ['stats' => ['total_commands_processed' => 840_000, 'keyspace_hits' => 8_950, 'keyspace_misses' => 1_000]];
+        $snapshot = Snapshots::of(Component::Redis, ['redis' => $kept, 'eol.redis' => RedisPayloads::redisCycles()], deltas: ['redis' => Snapshots::delta($previous, $kept)]);
+
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $snapshot, new Server('cache:6379', 'cache:6379')), 'stack/redis');
+
+        self::assertSame('redis.main', $card->id);
+        self::assertSame('Redis · main', $card->name);
+        self::assertSame('Redis 7.2.4', $card->version);
+        self::assertEquals([new Mark('warn', 'Security fixes only')], $card->badges);
+        self::assertEquals([
+            new Vital('Memory', '1.4 GB / 2 GB'),
+            new Vital('Hit rate', '95.2 %', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Commands', '1,000 cmd/s', 'over the last 60' . self::NBSP . 's'),
+        ], array_map(self::readable(...), $card->vitals));
+        self::assertSame('cache:6379', $card->note);
+        self::assertSame(['connection' => 'main'], $card->query);
+
+        $alone = $this->cardOf(Component::Redis, new InstanceState('main', null, null, Snapshots::of(Component::Redis, ['redis' => $kept]), new Server('cache:6379', 'cache:6379')));
+
+        self::assertSame(['Memory' => '1.4 GB / 2 GB', 'Hit rate' => '90.4 %', 'Commands' => '—'], self::vitals($alone));
+        self::assertSame([], $alone->badges);
+        self::assertSame('since the server started', $alone->vitals[1]->hint);
+        self::assertSame('at the next refresh', $alone->vitals[2]->hint);
+    }
+
+    public function testARedisWithoutLimitShowsItsMemoryAlone(): void
+    {
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, Snapshots::of(Component::Redis, ['redis' => RedisPayloads::kept()]), new Server('cache:6379', 'cache:6379')));
+
+        self::assertSame('1.4 GB', self::vitals($card)['Memory']);
+    }
+
+    public function testAFoundRedisDoesNotRepeatItsAddress(): void
+    {
+        $card = $this->cardOf(Component::Redis, new InstanceState('cache:6379', null, null, Snapshots::of(Component::Redis, ['redis' => RedisPayloads::kept()]), new Server('cache:6379', 'cache:6379')), 'stack/redis');
+
+        self::assertSame('Redis · cache:6379', $card->name, 'a server found takes its address as its id');
+        self::assertNull($card->note);
+        self::assertSame(['connection' => 'cache:6379'], $card->query);
+    }
+
+    public function testAValkeyCardTellsItsOwnVersion(): void
+    {
+        $kept = RedisPayloads::kept();
+        $kept['server']['name'] = 'valkey';
+        $kept['server']['valkey_version'] = '7.2.5';
+        $snapshot = Snapshots::of(Component::Redis, ['redis' => $kept, 'eol.redis' => RedisPayloads::redisCycles(), 'eol.valkey' => RedisPayloads::valkeyCycles()]);
+
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $snapshot, new Server('cache:6379', 'cache:6379')));
+
+        self::assertSame('Valkey 7.2.5', $card->version);
+        self::assertEquals([new Mark('bad', 'End of life')], $card->badges);
+    }
+
+    public function testAnUnreachableRedisSaysWhy(): void
+    {
+        $reason = 'The Redis server cannot be reached: the connection is refused, cannot be opened or gets no answer in time.';
+        $snapshot = new ComponentSnapshot(Component::Redis, [
+            'redis' => new CollectorResult('redis', [], ResultState::Failed, $reason, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ]);
+
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $snapshot, new Server('cache:6379', 'cache:6379')), 'stack/redis');
+
+        self::assertSame($reason, $card->reason);
+        self::assertEquals(new Mark('bad', 'Critical'), $card->mark);
+        self::assertNull($card->version);
+        self::assertSame([], $card->vitals);
+        self::assertSame('cache:6379', $card->note);
+    }
+
+    public function testARedisCardWaitsForItsFirstReading(): void
+    {
+        $snapshot = Snapshots::of(Component::Redis, [], ['redis' => ResultState::Pending]);
+
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $snapshot, new Server('cache:6379', 'cache:6379')), 'stack/redis');
+
+        self::assertTrue($card->reading);
+        self::assertSame(['Memory' => 'Reading…', 'Hit rate' => 'Reading…', 'Commands' => 'Reading…'], self::vitals($card));
     }
 
     private function card(ComponentSnapshot $snapshot, ?string $path = null): ComponentCard

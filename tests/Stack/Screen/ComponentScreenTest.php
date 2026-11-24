@@ -39,6 +39,7 @@ use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FakeStackReader;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RedisPayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
@@ -442,6 +443,29 @@ final class ComponentScreenTest extends TestCase
         self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
         self::assertSame('postgresql.reports', $blocks[2]->content->cards[0]->id);
         self::assertSame('db1:5432', $blocks[2]->content->cards[0]->note);
+    }
+
+    public function testTheRedisDetailHasItsSelectorOfServers(): void
+    {
+        $snapshot = Snapshots::of(Component::Redis, ['redis' => RedisPayloads::kept()]);
+        $server = static fn(string $address): InstanceState => new InstanceState($address, null, null, $snapshot, new Server($address, $address));
+        $state = Snapshots::state(['redis' => [$server('cache:6379'), $server('sessions:6379')]]);
+
+        $blocks = $this->screen(new FakeStackReader($state), Component::Redis)->blocks(new ScreenRequest(Snapshots::NOW, instance: 'sessions:6379'));
+
+        self::assertSame([Block::SUBNAV, Block::INSTANCES, Block::COMPONENTS, Block::CHECKS], array_map(static fn(Block $block): string => $block->type, $blocks));
+        $nav = $blocks[1]->content;
+        self::assertInstanceOf(InstanceNav::class, $nav);
+        self::assertSame(['Connections'], array_map(static fn(InstanceNavRow $row): string => $row->label, $nav->rows), 'one row, under the word every component not grouped by server uses');
+        self::assertSame(
+            [['cache:6379', null, false], ['sessions:6379', null, true]],
+            array_map(static fn(InstanceNavItem $item): array => [$item->label, $item->detail, $item->current], $nav->rows[0]->items),
+        );
+        self::assertSame(['connection' => 'cache:6379'], $nav->rows[0]->items[0]->query);
+        self::assertSame('stack/redis', $nav->rows[0]->items[0]->path);
+        self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
+        self::assertSame('redis.sessions:6379', $blocks[2]->content->cards[0]->id);
+        self::assertNull($blocks[2]->content->cards[0]->note, 'its id is its address');
     }
 
     /**

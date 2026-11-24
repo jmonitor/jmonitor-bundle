@@ -21,6 +21,7 @@ use Jmonitor\JmonitorBundle\Stack\Reading\MysqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PostgresqlReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\RedisReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ApacheDetail;
@@ -28,6 +29,7 @@ use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\MysqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PostgresqlDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\RedisDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\Sections;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
@@ -78,7 +80,7 @@ final class CardBuilder
 
         $note = implode(' · ', array_filter([
             $note,
-            $instance->server?->address,
+            $instance->server?->address === $instance->id ? null : $instance->server?->address,
             $instance->siblings > 0 ? ($instance->siblings + 1) . ' connections' : null,
             $reason === null && $main?->state === ResultState::Stale ? $this->age($main) : null,
         ])) ?: null;
@@ -117,7 +119,7 @@ final class CardBuilder
             Component::Nginx => self::nginx(NginxReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Mysql => self::mysql(MysqlReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Postgresql => self::postgresql(PostgresqlReading::of($snapshot, $this->clock->now()), $snapshot, $main),
-            Component::Redis => [null, [], null, null],
+            Component::Redis => self::redis(RedisReading::of($snapshot, $this->clock->now()), $snapshot, $main),
         };
     }
 
@@ -285,6 +287,29 @@ final class CardBuilder
                 new Vital('Transactions', $main(Sections::rate($transactions)), Figures::span($transactions, $elapsed)),
             ],
             $postgresql->support,
+            null,
+        ];
+    }
+
+    /**
+     * @param \Closure(?string): string $main
+     *
+     * @return array{?string, list<Vital>, ?SupportStatus, ?string}
+     */
+    private static function redis(RedisReading $redis, ComponentSnapshot $snapshot, \Closure $main): array
+    {
+        $elapsed = $snapshot->delta('redis')?->elapsed;
+        $hitRate = $redis->hitRate;
+        $commands = $redis->commandsPerSecond;
+
+        return [
+            RedisDetail::version($redis),
+            [
+                new Vital('Memory', $main(RedisDetail::usedMemory($redis))),
+                new Vital('Hit rate', $main(self::percent($hitRate->value)), Figures::span($hitRate, $elapsed)),
+                new Vital('Commands', $main(Sections::rate($commands)), Figures::span($commands, $elapsed)),
+            ],
+            $redis->support,
             null,
         ];
     }

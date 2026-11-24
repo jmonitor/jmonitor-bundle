@@ -33,6 +33,7 @@ final class StackScreenTest extends WebTestCase
     private const NGINX = ['SERVER_SOFTWARE' => 'nginx/1.26.2'];
     private const MYSQL_URL = 'JMONITOR_TEST_MYSQL_URL';
     private const PGSQL_URL = 'JMONITOR_TEST_PGSQL_URL';
+    private const REDIS_URL = 'JMONITOR_TEST_REDIS_URL';
 
     private string $bufferDir;
 
@@ -252,12 +253,12 @@ final class StackScreenTest extends WebTestCase
     {
         $client = $this->client();
 
-        foreach (['/jmonitor/stack/redis', '/jmonitor/stack/php/x', '/jmonitor/_fragment/stack/redis'] as $url) {
+        foreach (['/jmonitor/stack/memcached', '/jmonitor/stack/php/x', '/jmonitor/_fragment/stack/memcached'] as $url) {
             $client->request('GET', $url);
             static::assertResponseStatusCodeSame(404, $url);
         }
 
-        $client->request('POST', '/jmonitor/_action/stack/redis', ['action' => 'refresh'], server: self::SAME_ORIGIN);
+        $client->request('POST', '/jmonitor/_action/stack/memcached', ['action' => 'refresh'], server: self::SAME_ORIGIN);
         static::assertResponseStatusCodeSame(404);
 
         $client->request('POST', '/jmonitor/_action/stack/php', ['action' => 'forget'], server: self::SAME_ORIGIN);
@@ -593,6 +594,30 @@ final class StackScreenTest extends WebTestCase
         static::assertSame(parse_url($url, \PHP_URL_HOST) . ':' . (parse_url($url, \PHP_URL_PORT) ?? 5432), $card->filter('.jm-component__note')->text());
         static::assertSame(['Usage', 'Traffic', 'Cache', 'Sessions', 'Tables', 'Settings'], $crawler->filter('.jm-gauges, .jm-facts')->each(static fn(Crawler $section): string => (string) $section->attr('aria-label')));
         static::assertCount(1, $crawler->filter($slowest));
+        static::assertCount(0, $crawler->filter('[data-jm-instances]'));
+    }
+
+    public function testTheRedisDetailIsServed(): void
+    {
+        if (!\is_string(getenv(self::REDIS_URL))) {
+            static::markTestSkipped(self::REDIS_URL . ' is not set.');
+        }
+        $client = $this->client(['jmonitor' => ['stack' => ['redis' => ['connections' => ['cache' => (string) getenv(self::REDIS_URL)]]]]]);
+        $keyspace = '#jm-redis-keyspace-title, .jm-state__title:contains("No key in this server")';
+
+        $client->request('GET', '/jmonitor/stack/redis?connection=cache');
+        $crawler = self::requestUntil($client, '/jmonitor/stack/redis?connection=cache&rest=1', '.jm-facts[aria-label="Server"]');
+
+        static::assertResponseStatusCodeSame(200);
+        static::assertSame('JMonitor — Redis', $crawler->filter('title')->text());
+        $card = $crawler->filter('[data-jm-component="redis.cache"]');
+        static::assertCount(1, $card);
+        static::assertMatchesRegularExpression('/^(Redis|Valkey) \d+\.\d+\.\d+$/', $card->filter('.jm-component__version')->text());
+        static::assertSame(['Memory', 'Hit rate', 'Commands'], array_keys(self::vitals($card)));
+        $url = (string) getenv(self::REDIS_URL);
+        static::assertSame(parse_url($url, \PHP_URL_HOST) . ':' . (parse_url($url, \PHP_URL_PORT) ?? 6379), $card->filter('.jm-component__note')->text());
+        static::assertSame(['Usage', 'Traffic', 'Memory', 'Persistence', 'Server'], $crawler->filter('.jm-gauges, .jm-facts')->each(static fn(Crawler $section): string => (string) $section->attr('aria-label')));
+        static::assertCount(1, $crawler->filter($keyspace));
         static::assertCount(0, $crawler->filter('[data-jm-instances]'));
     }
 
