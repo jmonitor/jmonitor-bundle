@@ -92,8 +92,8 @@ final class PostgresqlChecks
                 'postgresql.idle_in_transaction',
                 Severity::Warning,
                 $idle > 1
-                    ? sprintf('%d sessions are idle in a transaction, the oldest for %s', $idle, self::seconds($postgresql->oldestIdleInTransaction))
-                    : sprintf('A session has been idle in a transaction for %s', self::seconds($postgresql->oldestIdleInTransaction)),
+                    ? sprintf('%d sessions are idle in a transaction, the oldest for %s', $idle, Figures::duration($postgresql->oldestIdleInTransaction))
+                    : sprintf('A session has been idle in a transaction for %s', Figures::duration($postgresql->oldestIdleInTransaction)),
                 'A transaction left open holds its locks, which can block other sessions, and keeps VACUUM from removing the dead rows of the whole database. Find the code that opens a transaction and does not end it, or set idle_in_transaction_session_timeout.',
                 'postgresql',
             );
@@ -105,8 +105,8 @@ final class PostgresqlChecks
                 'postgresql.blocked_sessions',
                 Severity::Warning,
                 $waiting > 1
-                    ? sprintf('%d sessions are waiting for a lock, the longest for %s', $waiting, self::seconds($postgresql->longestBlock))
-                    : sprintf('A session has been waiting for a lock for %s', self::seconds($postgresql->longestBlock)),
+                    ? sprintf('%d sessions are waiting for a lock, the longest for %s', $waiting, Figures::duration($postgresql->longestBlock))
+                    : sprintf('A session has been waiting for a lock for %s', Figures::duration($postgresql->longestBlock)),
                 'A session that waits for a lock waits for another one to end its transaction, and the request behind it waits too, or fails on a timeout. Look up the session that blocks it in pg_stat_activity, and find the code that keeps its transaction open.',
                 'postgresql',
             );
@@ -137,10 +137,5 @@ final class PostgresqlChecks
         }
 
         return $findings;
-    }
-
-    private static function seconds(int $seconds): string
-    {
-        return $seconds . Figures::NBSP . 's';
     }
 }

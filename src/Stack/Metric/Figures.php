@@ -67,6 +67,29 @@ final class Figures
         };
     }
 
+    /**
+     * Its two largest units, such as "5 min 42 s" or "3 d 4 h".
+     */
+    public static function duration(int $seconds): string
+    {
+        $units = [
+            [intdiv($seconds, 86_400), 'd'],
+            [intdiv($seconds % 86_400, 3_600), 'h'],
+            [intdiv($seconds % 3_600, 60), 'min'],
+            [$seconds % 60, 's'],
+        ];
+
+        foreach (array_slice($units, 0, 3) as $i => [$count, $unit]) {
+            if ($count > 0) {
+                [$nextCount, $nextUnit] = $units[$i + 1];
+
+                return $count . self::NBSP . $unit . ($nextCount > 0 ? self::NBSP . $nextCount . self::NBSP . $nextUnit : '');
+            }
+        }
+
+        return $seconds . self::NBSP . 's';
+    }
+
     public static function lastSeconds(int $seconds): string
     {
         return 'over the last ' . $seconds . self::NBSP . 's';

@@ -436,6 +436,75 @@ final class CardBuilderTest extends TestCase
         self::assertEquals(new Mark('unknown', 'Unknown'), $card->mark);
     }
 
+    public function testThePostgresqlCardShowsItsVersionItsThreeFiguresAndItsAddress(): void
+    {
+        $previous = ['database_stats' => ['xact_commit' => 124_400, 'xact_rollback' => 0, 'blks_hit' => 336_000, 'blks_read' => 3_880]];
+        $snapshot = Snapshots::of(Component::Postgresql, [
+            'postgresql' => DatabasePayloads::postgresqlActivity(),
+            'postgresql.settings' => ['server_version' => '14.15 (Debian 14.15-1.pgdg120+1)'] + DatabasePayloads::postgresqlSettings(),
+            'eol.postgresql' => ['cycles' => ['14' => ['eol' => '2026-11-12', 'support' => '2025-11-12']]],
+        ], deltas: ['postgresql' => Snapshots::delta($previous, DatabasePayloads::postgresqlActivity())]);
+
+        $card = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $snapshot, new Server('db1:5432', 'db1:5432')), 'stack/postgresql');
+
+        self::assertSame('postgresql.main', $card->id);
+        self::assertSame('PostgreSQL · main', $card->name);
+        self::assertSame('PostgreSQL 14.15', $card->version);
+        self::assertEquals([new Mark('warn', 'Security fixes only')], $card->badges);
+        self::assertEquals([
+            new Vital('Connections', '37 / 100'),
+            new Vital('Cache hit rate', '99.8 %', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Transactions', '12.0 tx/s', 'over the last 60' . self::NBSP . 's'),
+        ], array_map(self::readable(...), $card->vitals));
+        self::assertSame('db1:5432', $card->note);
+        self::assertSame(['connection' => 'main'], $card->query);
+
+        $alone = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, Snapshots::of(Component::Postgresql, ['postgresql' => DatabasePayloads::postgresqlActivity()]), new Server('db1:5432', 'db1:5432')));
+
+        self::assertNull($alone->version);
+        self::assertSame([], $alone->badges);
+        self::assertSame(['Connections' => '37', 'Cache hit rate' => '99 %', 'Transactions' => '—'], self::vitals($alone));
+        self::assertSame('since the statistics were reset', $alone->vitals[1]->hint);
+        self::assertSame('at the next refresh', $alone->vitals[2]->hint);
+    }
+
+    public function testAnUnreachablePostgresqlKeepsItsVersionAndSaysWhy(): void
+    {
+        $reason = 'Nothing answers on db1:5432.';
+        $snapshot = new ComponentSnapshot(Component::Postgresql, [
+            'postgresql' => new CollectorResult('postgresql', [], ResultState::Failed, $reason, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            'postgresql.settings' => new CollectorResult('postgresql.settings', ['server_version' => '13.18'] + DatabasePayloads::postgresqlSettings(), ResultState::Stale, $reason, Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            'eol.postgresql' => new CollectorResult('eol.postgresql', ['cycles' => ['13' => ['eol' => '2025-11-13', 'support' => '2025-11-13']]], ResultState::Fresh, collectedAt: Snapshots::NOW, expiresAt: Snapshots::NOW + 86_400),
+        ]);
+
+        $card = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $snapshot, new Server('db1:5432', 'db1:5432')), 'stack/postgresql');
+
+        self::assertSame($reason, $card->reason);
+        self::assertEquals(new Mark('bad', 'Critical'), $card->mark);
+        self::assertFalse($card->reading);
+        self::assertSame('PostgreSQL 13.18', $card->version);
+        self::assertEquals([new Mark('bad', 'End of life')], $card->badges);
+        self::assertSame([], $card->vitals);
+        self::assertSame('db1:5432', $card->note);
+        self::assertNull($card->readAt);
+
+        $never = new ComponentSnapshot(Component::Postgresql, ['postgresql' => $snapshot->results['postgresql']]);
+        $card = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $never, new Server('db1:5432', 'db1:5432')));
+
+        self::assertSame($reason, $card->reason);
+        self::assertNull($card->version);
+    }
+
+    public function testAPostgresqlCardWaitsForItsFirstReading(): void
+    {
+        $snapshot = Snapshots::of(Component::Postgresql, [], ['postgresql' => ResultState::Pending, 'postgresql.settings' => ResultState::Pending]);
+
+        $card = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $snapshot, new Server('db1:5432', 'db1:5432')), 'stack/postgresql');
+
+        self::assertTrue($card->reading);
+        self::assertSame(['Connections' => 'Reading…', 'Cache hit rate' => 'Reading…', 'Transactions' => 'Reading…'], self::vitals($card));
+    }
+
     private function card(ComponentSnapshot $snapshot, ?string $path = null): ComponentCard
     {
         return $this->cardOf($snapshot->component, new InstanceState(null, null, null, $snapshot), $path);

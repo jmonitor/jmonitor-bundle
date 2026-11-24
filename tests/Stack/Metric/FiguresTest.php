@@ -50,4 +50,24 @@ final class FiguresTest extends TestCase
     {
         self::assertSame(str_replace(' ', Figures::NBSP, $expected), Figures::rate($value, $unit));
     }
+
+    /**
+     * @return iterable<string, array{int, string}>
+     */
+    public static function durations(): iterable
+    {
+        yield 'seconds' => [45, '45 s'];
+        yield 'zero' => [0, '0 s'];
+        yield 'minutes and seconds' => [342, '5 min 42 s'];
+        yield 'whole minutes' => [300, '5 min'];
+        yield 'hours and minutes, seconds left out' => [3_725, '1 h 2 min'];
+        yield 'days and hours' => [273_600, '3 d 4 h'];
+        yield 'whole days' => [86_400, '1 d'];
+    }
+
+    #[DataProvider('durations')]
+    public function testADurationKeepsItsTwoLargestUnits(int $seconds, string $expected): void
+    {
+        self::assertSame(str_replace(' ', Figures::NBSP, $expected), Figures::duration($seconds));
+    }
 }

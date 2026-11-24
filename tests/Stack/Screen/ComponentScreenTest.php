@@ -417,6 +417,33 @@ final class ComponentScreenTest extends TestCase
         self::assertSame(['mysql.connections MySQL · reports'], $checks('reports'));
     }
 
+    public function testThePostgresqlDetailHasItsSelectorOfConnections(): void
+    {
+        $snapshot = Snapshots::of(Component::Postgresql, ['postgresql' => DatabasePayloads::postgresqlActivity(), 'postgresql.settings' => DatabasePayloads::postgresqlSettings()]);
+        $connection = static fn(string $name, string $server, bool $read): InstanceState => new InstanceState($name, $name . '_db', null, $read ? $snapshot : null, new Server($server, $server));
+        $state = Snapshots::state(['postgresql' => [
+            $connection('main', 'db1:5432', false),
+            $connection('reports', 'db1:5432', true),
+            $connection('archive', 'db2:5432', false),
+        ]]);
+
+        $blocks = $this->screen(new FakeStackReader($state), Component::Postgresql)->blocks(new ScreenRequest(Snapshots::NOW, instance: 'reports'));
+
+        self::assertSame([Block::SUBNAV, Block::INSTANCES, Block::COMPONENTS, Block::CHECKS], array_map(static fn(Block $block): string => $block->type, $blocks));
+        $nav = $blocks[1]->content;
+        self::assertInstanceOf(InstanceNav::class, $nav);
+        self::assertSame(['Connections'], array_map(static fn(InstanceNavRow $row): string => $row->label, $nav->rows));
+        self::assertSame(
+            [['main', 'main_db', false], ['reports', 'reports_db', true], ['archive', 'archive_db', false]],
+            array_map(static fn(InstanceNavItem $item): array => [$item->label, $item->detail, $item->current], $nav->rows[0]->items),
+        );
+        self::assertSame(['connection' => 'archive'], $nav->rows[0]->items[2]->query);
+        self::assertSame('stack/postgresql', $nav->rows[0]->items[2]->path);
+        self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
+        self::assertSame('postgresql.reports', $blocks[2]->content->cards[0]->id);
+        self::assertSame('db1:5432', $blocks[2]->content->cards[0]->note);
+    }
+
     /**
      * @param array<string, string> $servers the server key of each connection, whose database is named after it
      */

@@ -990,11 +990,11 @@ final class StackChecksTest extends TestCase
         self::assertSame("15\u{00A0}% of the transactions were rolled back over the last 60\u{00A0}s", self::find($recent, 'postgresql.rollbacks')?->sentence);
         self::assertSame("30\u{00A0}% of the rows of the schema public are dead (30000 of 100000)", self::find($deadRows, 'postgresql.dead_rows')?->sentence);
         self::assertStringContainsString('VACUUM', self::find($deadRows, 'postgresql.dead_rows')->explanation);
-        self::assertSame("A session has been idle in a transaction for 342\u{00A0}s", self::find($idle, 'postgresql.idle_in_transaction')?->sentence);
-        self::assertSame("3 sessions are idle in a transaction, the oldest for 342\u{00A0}s", self::find($idleMany, 'postgresql.idle_in_transaction')?->sentence);
+        self::assertSame("A session has been idle in a transaction for 5\u{00A0}min\u{00A0}42\u{00A0}s", self::find($idle, 'postgresql.idle_in_transaction')?->sentence);
+        self::assertSame("3 sessions are idle in a transaction, the oldest for 5\u{00A0}min\u{00A0}42\u{00A0}s", self::find($idleMany, 'postgresql.idle_in_transaction')?->sentence);
         self::assertStringContainsString('idle_in_transaction_session_timeout', self::find($idle, 'postgresql.idle_in_transaction')->explanation);
         self::assertSame("A session has been waiting for a lock for 45\u{00A0}s", self::find($blocked, 'postgresql.blocked_sessions')?->sentence);
-        self::assertSame("2 sessions are waiting for a lock, the longest for 90\u{00A0}s", self::find($blockedMany, 'postgresql.blocked_sessions')?->sentence);
+        self::assertSame("2 sessions are waiting for a lock, the longest for 1\u{00A0}min\u{00A0}30\u{00A0}s", self::find($blockedMany, 'postgresql.blocked_sessions')?->sentence);
         self::assertStringContainsString('pg_stat_activity', self::find($blocked, 'postgresql.blocked_sessions')->explanation);
         self::assertSame('autovacuum is off', self::find($autovacuum, 'postgresql.autovacuum_off')?->sentence);
         self::assertSame('track_counts is off, which stops autovacuum', self::find($trackCounts, 'postgresql.autovacuum_off')?->sentence);

@@ -32,6 +32,7 @@ final class StackScreenTest extends WebTestCase
     private const SAME_ORIGIN = ['HTTP_SEC_FETCH_SITE' => 'same-origin'];
     private const NGINX = ['SERVER_SOFTWARE' => 'nginx/1.26.2'];
     private const MYSQL_URL = 'JMONITOR_TEST_MYSQL_URL';
+    private const PGSQL_URL = 'JMONITOR_TEST_PGSQL_URL';
 
     private string $bufferDir;
 
@@ -559,6 +560,31 @@ final class StackScreenTest extends WebTestCase
         foreach (['GLOBAL STATUS', 'GLOBAL VARIABLES', 'performance_schema', 'information_schema'] as $sql) {
             static::assertStringNotContainsStringIgnoringCase($sql, $queries);
         }
+    }
+
+    public function testThePostgresqlDetailIsServed(): void
+    {
+        if (!\is_string(getenv(self::PGSQL_URL))) {
+            static::markTestSkipped(self::PGSQL_URL . ' is not set.');
+        }
+        $client = $this->client(['connections' => ['shop' => ['url' => '%env(' . self::PGSQL_URL . ')%', 'server_version' => '17']]]);
+        $slowest = '#jm-postgresql-slow-queries-title, .jm-state__title:contains("No statement of this database"), .jm-state__title:contains("This role cannot see the statements"), .jm-notice__title:contains("The slowest queries could not be read")';
+
+        $client->request('GET', '/jmonitor/stack/postgresql?connection=shop');
+        self::requestUntil($client, '/jmonitor/stack/postgresql?connection=shop&rest=1', '.jm-facts[aria-label="Tables"]');
+        $crawler = self::requestUntil($client, '/jmonitor/stack/postgresql?connection=shop&rest=1', $slowest);
+
+        static::assertResponseStatusCodeSame(200);
+        static::assertSame('JMonitor — PostgreSQL', $crawler->filter('title')->text());
+        $card = $crawler->filter('[data-jm-component="postgresql.shop"]');
+        static::assertCount(1, $card);
+        static::assertMatchesRegularExpression('/^PostgreSQL \d+\.\d+$/', $card->filter('.jm-component__version')->text());
+        static::assertSame(['Connections', 'Cache hit rate', 'Transactions'], array_keys(self::vitals($card)));
+        $url = (string) getenv(self::PGSQL_URL);
+        static::assertSame(parse_url($url, \PHP_URL_HOST) . ':' . (parse_url($url, \PHP_URL_PORT) ?? 5432), $card->filter('.jm-component__note')->text());
+        static::assertSame(['Usage', 'Traffic', 'Cache', 'Sessions', 'Tables', 'Settings'], $crawler->filter('.jm-gauges, .jm-facts')->each(static fn(Crawler $section): string => (string) $section->attr('aria-label')));
+        static::assertCount(1, $crawler->filter($slowest));
+        static::assertCount(0, $crawler->filter('[data-jm-instances]'));
     }
 
     /**

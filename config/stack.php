@@ -30,6 +30,7 @@ use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\MysqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PostgresqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
@@ -211,6 +212,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(ApacheDetail::class);
     $services->set(NginxDetail::class);
     $services->set(MysqlDetail::class);
+    $services->set(PostgresqlDetail::class);
 
     $services->set(StackScreen::class)
         ->args([
@@ -229,6 +231,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                 Component::Apache->value => service(ApacheDetail::class),
                 Component::Nginx->value => service(NginxDetail::class),
                 Component::Mysql->value => service(MysqlDetail::class),
+                Component::Postgresql->value => service(PostgresqlDetail::class),
             ]),
         ])
         ->tag('jmonitor.screen', ['priority' => 10]);

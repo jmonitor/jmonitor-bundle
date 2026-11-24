@@ -20,12 +20,14 @@ use Jmonitor\JmonitorBundle\Stack\Reading\FrankenPhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\MysqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\PostgresqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ApacheDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\MysqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PostgresqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\Sections;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
@@ -69,6 +71,11 @@ final class CardBuilder
             [$version, $support] = [MysqlDetail::version($mysql), $mysql->support];
         }
 
+        if ($reason !== null && $snapshot !== null && $component === Component::Postgresql) {
+            $postgresql = PostgresqlReading::of($snapshot, $this->clock->now());
+            [$version, $support] = [PostgresqlDetail::version($postgresql), $postgresql->support];
+        }
+
         $note = implode(' · ', array_filter([
             $note,
             $instance->server?->address,
@@ -109,7 +116,7 @@ final class CardBuilder
             Component::Apache => self::apache(ApacheReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Nginx => self::nginx(NginxReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Mysql => self::mysql(MysqlReading::of($snapshot, $this->clock->now()), $snapshot, $main),
-            Component::Postgresql => [null, [], null, null],
+            Component::Postgresql => self::postgresql(PostgresqlReading::of($snapshot, $this->clock->now()), $snapshot, $main),
         };
     }
 
@@ -254,6 +261,29 @@ final class CardBuilder
                 new Vital('Buffer pool hit rate', $main(self::percent($hitRate->value)), Figures::span($hitRate, $elapsed)),
             ],
             $mysql->support,
+            null,
+        ];
+    }
+
+    /**
+     * @param \Closure(?string): string $main
+     *
+     * @return array{?string, list<Vital>, ?SupportStatus, ?string}
+     */
+    private static function postgresql(PostgresqlReading $postgresql, ComponentSnapshot $snapshot, \Closure $main): array
+    {
+        $elapsed = $snapshot->delta('postgresql')?->elapsed;
+        $hitRate = $postgresql->cacheHitRate;
+        $transactions = $postgresql->transactionsPerSecond;
+
+        return [
+            PostgresqlDetail::version($postgresql),
+            [
+                new Vital('Connections', $main(PostgresqlDetail::connections($postgresql))),
+                new Vital('Cache hit rate', $main(self::percent($hitRate->value)), Figures::span($hitRate, $elapsed)),
+                new Vital('Transactions', $main(Sections::rate($transactions)), Figures::span($transactions, $elapsed)),
+            ],
+            $postgresql->support,
             null,
         ];
     }
