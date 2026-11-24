@@ -93,7 +93,7 @@ final class RedisLink
     }
 
     /**
-     * The client is dropped, not closed: a lazy client that could not connect would connect again to be closed.
+     * The client is dropped, not closed.
      */
     private function failed(\Throwable $e): \RuntimeException
     {
@@ -118,7 +118,7 @@ final class RedisLink
     }
 
     /**
-     * Predis gives the error replies instead of throwing them.
+     * The failure told by an answer to INFO that is not its sections.
      */
     private static function refusal(mixed $answer): \RuntimeException
     {

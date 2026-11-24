@@ -98,7 +98,7 @@ final class StackRedisPass implements CompilerPassInterface
     }
 
     /**
-     * A DSN of the sessions alone: one they share with the cache is a reference to its connection.
+     * The DSN the sessions are given as a string; none when they are given a connection.
      *
      * @return array<string, string>
      */
