@@ -534,6 +534,76 @@ final class PageRendererTest extends TestCase
         static::assertStringNotContainsString('rest=', $html);
     }
 
+    public function testTheConnectionAskedForReachesTheScreen(): void
+    {
+        $screen = new StubBlockScreen('probe');
+        $renderer = $this->renderer([$screen]);
+
+        $renderer->page(Request::create('/', parameters: ['connection' => 'reports']), 'probe', new FakeHostUrls());
+        $renderer->fragment(Request::create('/', parameters: ['connection' => 'a.b/é']), 'probe', new FakeHostUrls());
+        $renderer->page(Request::create('/'), 'probe', new FakeHostUrls());
+        $renderer->page(Request::create('/', parameters: ['connection' => '']), 'probe', new FakeHostUrls());
+
+        static::assertSame(['reports', 'a.b/é', null, null], array_map(static fn(ScreenRequest $request): ?string => $request->instance, $screen->requests));
+    }
+
+    public function testAFragmentAndTheRestKeepTheConnection(): void
+    {
+        $renderer = $this->renderer([new StubBlockScreen('probe', blocks: [Block::unavailable(Block::TABLE, BlockState::Reading)])]);
+        $request = Request::create('/', parameters: ['connection' => 'reports']);
+
+        $crawler = new Crawler($renderer->page($request, 'probe', new FakeHostUrls())->html);
+
+        static::assertSame('/host/fragment/probe?menu=3&connection=reports', $crawler->filter('[data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+        static::assertSame('/host/page/probe?menu=3&connection=reports&rest=1', $crawler->filter('a[data-jm-rest]')->attr('href'));
+
+        $fragment = new Crawler((string) $renderer->fragment($request, 'probe', new FakeHostUrls())->getContent());
+
+        static::assertSame('/host/page/probe?menu=3&connection=reports&rest=1', $fragment->filter('a[data-jm-rest]')->attr('href'));
+
+        $without = new Crawler($renderer->page(Request::create('/'), 'probe', new FakeHostUrls())->html);
+
+        static::assertSame('/host/fragment/probe?menu=3', $without->filter('[data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+        static::assertSame('/host/page/probe?menu=3&rest=1', $without->filter('a[data-jm-rest]')->attr('href'));
+    }
+
+    public function testAnActionComesBackToTheSameConnection(): void
+    {
+        $screen = new StubActionScreen();
+        $renderer = $this->renderer([$screen]);
+
+        $form = (new Crawler($renderer->page(Request::create('/', parameters: ['connection' => 'reports']), 'stub', new FakeHostUrls())->html))->filter('.jm-toolbar form');
+
+        static::assertSame('reports', $form->filter('input[type="hidden"][name="connection"]')->attr('value'));
+        static::assertCount(0, (new Crawler($renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html))->filter('input[name="connection"]'));
+
+        foreach ([
+            ['reports', '/host/page/stub?menu=3&connection=reports'],
+            ['a/b é', '/host/page/stub?menu=3&connection=a%2Fb%20%C3%A9'],
+            ['', '/host/page/stub?menu=3'],
+            [['x'], '/host/page/stub?menu=3'],
+        ] as [$connection, $location]) {
+            $response = $renderer->action($this->post(['action' => 'ping', 'connection' => $connection]), 'stub', new FakeHostUrls());
+
+            static::assertSame($location, $response->headers->get('Location'));
+        }
+
+        static::assertSame(['ping', 'ping', 'ping', 'ping'], $screen->ran);
+    }
+
+    public function testAnArrayInPlaceOfTheConnectionIsIgnored(): void
+    {
+        $screen = new StubBlockScreen('probe', blocks: [Block::unavailable(Block::TABLE, BlockState::Reading)]);
+        $renderer = $this->renderer([$screen]);
+        $request = Request::create('/', parameters: ['connection' => ['x']]);
+
+        $html = $renderer->page($request, 'probe', new FakeHostUrls())->html;
+        $renderer->fragment($request, 'probe', new FakeHostUrls());
+
+        static::assertSame([null, null], array_map(static fn(ScreenRequest $request): ?string => $request->instance, $screen->requests));
+        static::assertStringNotContainsString('connection', $html);
+    }
+
     public function testAScreenWhoseActionsThrowStillRenders(): void
     {
         $logger = $this->logger();

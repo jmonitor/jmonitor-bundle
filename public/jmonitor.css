@@ -1033,6 +1033,7 @@ body.jm .jm-header {
 }
 
 .jm-subbar,
+.jm-instances,
 .jm-notice,
 .jm-checks,
 .jm-components,
@@ -1078,6 +1079,60 @@ body.jm .jm-header {
 .jm-subnav__item[aria-current="page"] {
     background: var(--jm-surface-strong);
     color: var(--jm-text-strong);
+}
+
+.jm-instances {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.jm-instances__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.jm-instances__label {
+    flex: none;
+    min-width: 7em;
+    margin-right: 6px;
+    color: var(--jm-faint);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.jm-instances__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border: 1px solid var(--jm-border-subtle);
+    border-radius: var(--jm-radius-sm);
+    color: var(--jm-muted);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.jm-instances__item:hover {
+    color: var(--jm-text-strong);
+}
+
+.jm-instances__item[aria-current="true"] {
+    border-color: var(--jm-border);
+    background: var(--jm-surface-strong);
+    color: var(--jm-text-strong);
+}
+
+.jm-instances__detail {
+    color: var(--jm-faint);
+    font-weight: 400;
 }
 
 .jm-node {
@@ -1611,6 +1666,20 @@ body.jm .jm-header {
         display: none;
     }
 
+    .jm-instances__row {
+        flex-wrap: nowrap;
+        width: calc(100% + 2 * var(--jm-gutter));
+        margin: -4px calc(-1 * var(--jm-gutter));
+        padding: 4px var(--jm-gutter);
+        overflow-x: auto;
+        scroll-padding-inline: var(--jm-gutter);
+        scrollbar-width: none;
+    }
+
+    .jm-instances__row::-webkit-scrollbar {
+        display: none;
+    }
+
     .jm-components__grid {
         grid-template-columns: minmax(0, 1fr);
         gap: 12px;
@@ -1698,7 +1767,8 @@ body.jm .jm-header {
         border-style: dashed;
     }
 
-    .jm-subnav__item[aria-current="page"] {
+    .jm-subnav__item[aria-current="page"],
+    .jm-instances__item[aria-current="true"] {
         outline: 1px solid CanvasText;
     }
 

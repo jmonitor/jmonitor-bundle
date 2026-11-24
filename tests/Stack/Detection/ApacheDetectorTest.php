@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Detection;
 
+use Jmonitor\JmonitorBundle\Stack\Collector\ApacheSoftwareCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\ApacheStatusCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
 use Jmonitor\JmonitorBundle\Stack\Collector\EndOfLifeCollector;
@@ -34,7 +35,7 @@ final class ApacheDetectorTest extends TestCase
         self::assertNull($detection->instances[0]->id);
         $collectors = $detection->instances[0]->collectors;
         self::assertNotNull($collectors);
-        self::assertSame(['apache', 'eol.apache-http-server'], $collectors->names());
+        self::assertSame(['apache', 'apache.software', 'eol.apache-http-server'], $collectors->names());
 
         $status = $collectors->get('apache');
         self::assertNotNull($status);
@@ -43,6 +44,14 @@ final class ApacheDetectorTest extends TestCase
         self::assertSame(CostClass::Network, $status->cost);
         self::assertTrue($status->trackDelta);
         self::assertFalse($status->shared);
+
+        $software = $collectors->get('apache.software');
+        self::assertNotNull($software);
+        self::assertInstanceOf(ApacheSoftwareCollector::class, $software->collector);
+        self::assertSame(Lifetime::Dynamic, $software->lifetime);
+        self::assertSame(CostClass::Immediate, $software->cost);
+        self::assertFalse($software->trackDelta);
+        self::assertFalse($software->shared);
 
         $support = $collectors->get('eol.apache-http-server');
         self::assertNotNull($support);
@@ -84,7 +93,7 @@ final class ApacheDetectorTest extends TestCase
         $collectors = (new ApacheDetector(self::ENDPOINT, new RequestStack(), false, 'apache2handler', new FakeStatusPages()))->detect()->instances[0]->collectors;
 
         self::assertNotNull($collectors);
-        self::assertSame(['apache'], $collectors->names());
+        self::assertSame(['apache', 'apache.software'], $collectors->names());
     }
 
     public function testTheCollectorsReadTheConfiguredEndpointAndTheSupportOfApache(): void
@@ -99,6 +108,14 @@ final class ApacheDetectorTest extends TestCase
 
         self::assertSame(['http://127.0.0.1:8080/server-status?auto'], $pages->urls);
         self::assertSame('https://endoflife.date/api/apache-http-server.json', $endOfLife->url);
+    }
+
+    public function testTheSoftwareCollectorGivesTheVersionOfTheMainRequest(): void
+    {
+        $collectors = (new ApacheDetector(self::ENDPOINT, self::requests('Apache/2.4.71 (Debian)'), false, 'fpm-fcgi', new FakeStatusPages()))->detect()->instances[0]->collectors;
+        self::assertNotNull($collectors);
+
+        self::assertSame(['version' => '2.4.71'], $collectors->get('apache.software')?->collector->collect());
     }
 
     private static function requests(string $software): RequestStack

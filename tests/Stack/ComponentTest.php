@@ -12,9 +12,18 @@ final class ComponentTest extends TestCase
     public function testTheWebServersComeAfterSymfony(): void
     {
         self::assertSame(
-            ['system', 'php', 'symfony', 'frankenphp', 'apache', 'nginx'],
+            ['system', 'php', 'symfony', 'frankenphp', 'apache', 'nginx', 'mysql'],
             array_map(static fn(Component $component): string => $component->value, Component::cases()),
         );
+    }
+
+    public function testMysqlComesAfterTheWebServers(): void
+    {
+        $cases = Component::cases();
+
+        self::assertSame(Component::Mysql, end($cases));
+        self::assertSame('MySQL', Component::Mysql->label());
+        self::assertFalse(Component::Mysql->isWebServer());
     }
 
     public function testLabels(): void
@@ -34,10 +43,10 @@ final class ComponentTest extends TestCase
         self::assertSame([Component::FrankenPhp, Component::Apache, Component::Nginx], $webServers);
     }
 
-    public function testEveryComponentIsReadOnTheWebServerAnsweringTheRequest(): void
+    public function testMysqlIsTheOnlyComponentNotReadOnTheWebServer(): void
     {
         foreach (Component::cases() as $component) {
-            self::assertTrue($component->isNodeLocal(), $component->value);
+            self::assertSame($component !== Component::Mysql, $component->isNodeLocal(), $component->value);
         }
     }
 }

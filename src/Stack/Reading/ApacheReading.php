@@ -59,6 +59,7 @@ final readonly class ApacheReading
 
         $serverVersion = Values::string($data['server_version'] ?? null);
         $number = $serverVersion !== null && preg_match('~\bApache/(\d+(?:\.\d+){1,3})\b~i', $serverVersion, $matches) === 1 ? $matches[1] : null;
+        $number ??= Values::string($snapshot->data('apache.software')['version'] ?? null);
 
         $slots = [];
 

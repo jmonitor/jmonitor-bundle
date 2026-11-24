@@ -35,7 +35,7 @@ The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboar
 
 ## Live stack
 
-The engine that reads the server, PHP, Symfony and the web server on demand, behind a cache:
+The engine that reads the server, PHP, Symfony, the web server and the databases on demand, behind a cache:
 
 - Its code lives in `src/Stack/` and `config/stack.php`. It shares nothing with `src/Collector/` nor the `jmonitor.collectors` services of the worker.
 - Nothing collects outside a call to `StackReaderInterface`: no event listener or scheduled task. Its only command, `jmonitor:stack:queues`, is only started by a read of the queues.
@@ -45,6 +45,7 @@ The engine that reads the server, PHP, Symfony and the web server on demand, beh
 - What a collector of the library returns is filtered before it is kept.
 - Every collector declares a lifetime (`Lifetime`) and a cost class (`CostClass`). A collector that starts a process or calls a service outside the stack over the network is `CostClass::Slow`.
 - Detection touches no server: it only says which components exist and builds their collectors.
+- A shared value is the same for every instance of its component: its cache keys name the component, never the instance.
 - `jmonitor.stack.cache` is not declared under `framework.cache.pools`, or its reads would be counted on the Cache screen.
 - No test calls the network or `composer`: fake fetchers and process runners stand in for them, and the test kernel turns `stack.end_of_life`, `stack.symfony.flex` and `stack.symfony.messenger` off unless a test sets `stack` itself.
 - No PHPUnit test starts the console in a process: the test kernel plays the command counting the queues (`queuesOutput`) and the web servers with their status pages (`fakeWebServer`). Only the kernel of `TestKernel::fromEnvironment()`, used by the end-to-end runs, starts the real command.
@@ -55,6 +56,12 @@ The engine that reads the server, PHP, Symfony and the web server on demand, beh
 - The percentages and byte sizes a check judges and a screen shows are formatted by `Figures`, so that both show the same value.
 - A block of `src/Dashboard/View/` names no type of `src/Stack/`.
 - A `Mark` always carries a word: a verdict or a severity is never told by colour alone.
+- Where a Doctrine connection leads is read by `DoctrineConnections`, from its parameters, never by building the connection.
+- A database collector queries through the `DbalLink` of its instance, which alone asks the container for the connection, and closes it at the end of the read when it opened it.
+- A collector only read on the detail is `detailOnly`; a value shared by the connections of one server is `perServer`.
+- A PHPUnit test only reaches the databases of `tests/compose.yaml`, and skips without `JMONITOR_TEST_MYSQL_URL`, or a closed port of the machine (`127.0.0.1:1`) to play a server that is down.
+- A failure keeps its kind (`FailureKind`): an unreachable server, a missing prerequisite or another error are kept and judged apart.
+- A failure is kept with the connection it happened on, a value with its server. While a remote connection cannot be reached, none of its collectors runs but a shared one; when the collector that cannot reach it is only read for the detail, only the collectors of the detail are held.
 
 ## CHANGELOG
 

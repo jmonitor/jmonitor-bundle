@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Stack\Detection;
 
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheKeys;
 
 /**
  * One monitored thing inside a component.
@@ -21,16 +22,17 @@ final readonly class Instance
         public ?string $detail,
         public ?CollectorSet $collectors,
         public ?string $error,
+        public ?Server $server,
     ) {}
 
-    public static function found(Component $component, CollectorSet $collectors, ?string $id = null, ?string $detail = null): self
+    public static function found(Component $component, CollectorSet $collectors, ?string $id = null, ?string $detail = null, ?Server $server = null): self
     {
-        return new self($component, $id, $detail, $collectors, null);
+        return new self($component, $id, $detail, $collectors, null, $server);
     }
 
-    public static function unavailable(Component $component, string $error, ?string $id = null, ?string $detail = null): self
+    public static function unavailable(Component $component, string $error, ?string $id = null, ?string $detail = null, ?Server $server = null): self
     {
-        return new self($component, $id, $detail, null, $error);
+        return new self($component, $id, $detail, null, $error, $server);
     }
 
     /**
@@ -42,10 +44,10 @@ final readonly class Instance
     }
 
     /**
-     * "php" for the implicit instance, "symfony.main" for a named one, the id URL-encoded
+     * "php" for the implicit instance, "symfony.main" for a named one, the id encoded as one segment
      */
     public function key(): string
     {
-        return $this->id === null ? $this->component->value : $this->component->value . '.' . rawurlencode($this->id);
+        return $this->id === null ? $this->component->value : $this->component->value . '.' . CacheKeys::segment($this->id);
     }
 }

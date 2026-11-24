@@ -191,6 +191,25 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertCount(1, $crawler->filter('tr[data-jm-probe-runs="1"]'));
     }
 
+    public function testAHostKeepsTheConnectionInItsOwnUrls(): void
+    {
+        $client = static::createClient();
+
+        $crawler = $client->request('GET', '/back-office/monitoring/probe?connection=a%2Fb%20%C3%A9');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('/back-office/monitoring-fragment/probe?menu=3&connection=a/b%20%C3%A9', $crawler->filter('.jm [data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+        static::assertSame('a/b é', $crawler->filter('.jm form input[type="hidden"][name="connection"]')->attr('value'));
+
+        $client->request('GET', '/back-office/monitoring-fragment/probe?connection=a%2Fb%20%C3%A9');
+        static::assertResponseIsSuccessful();
+
+        $client->request('POST', '/back-office/monitoring-action/probe', ['action' => 'ping', 'connection' => 'a/b é'], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
+
+        static::assertResponseStatusCodeSame(303);
+        static::assertResponseRedirects('/back-office/monitoring/probe?menu=3&connection=a/b%20%C3%A9');
+    }
+
     public function testTheActionIsRefusedFromAnotherSite(): void
     {
         $client = static::createClient();
@@ -275,6 +294,21 @@ final class EmbeddedPageTest extends WebTestCase
         }
         static::assertStringStartsWith('/back-office/monitoring/gallery?', (string) $crawler->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
         static::assertCount(1, $crawler->filter('.jm-nav__item[aria-current="page"] [data-jm-slot="nav-gallery"] .jm-nav__badge'));
+    }
+
+    public function testTheGalleryShowsTheSelectorOfAConnection(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+
+        static::assertResponseIsSuccessful();
+        $selector = $crawler->filter('.jm-screen > .jm-subbar + [data-jm-instances]');
+        static::assertCount(1, $selector);
+        static::assertSame(['Servers', 'Databases'], $selector->filter('nav')->each(static fn(Crawler $row): string => (string) $row->attr('aria-label')));
+        static::assertCount(2, $selector->filter('a[aria-current="true"]'));
+        static::assertSame('Unavailable', $selector->filter('a .jm-mark--warn')->text());
+        static::assertSame('/back-office/monitoring/gallery?menu=3&connection=analytics', $selector->filter('a')->eq(1)->attr('href'));
     }
 
     public function testTheGalleryShowsANotedFactList(): void

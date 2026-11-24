@@ -17,6 +17,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\Server;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
@@ -35,6 +36,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FakeStackReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
@@ -322,6 +324,71 @@ final class StackScreenTest extends TestCase
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame('1 more connection', $cards->more);
+    }
+
+    public function testTheCardAndItsChecksLinkToTheirConnection(): void
+    {
+        $status = DatabasePayloads::mysqlStatus();
+        $status['Threads_connected'] = '99';
+        $snapshot = Snapshots::of(Component::Mysql, ['mysql' => $status, 'mysql.variables' => DatabasePayloads::mysqlVariables()]);
+        $state = self::withNode(Snapshots::state(['mysql' => [new InstanceState('a/b é', 'app', null, $snapshot, new Server('db1:3306', 'db1:3306'))]]));
+
+        $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertInstanceOf(CheckList::class, $blocks[1]->content);
+        self::assertSame(
+            [['mysql.connections', 'stack/mysql', ['connection' => 'a/b é']]],
+            array_map(static fn(CheckLine $line): array => [$line->id, $line->path, $line->query], $blocks[1]->content->lines),
+        );
+        self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
+        self::assertSame('stack/mysql', $blocks[2]->content->cards[0]->path);
+        self::assertSame(['connection' => 'a/b é'], $blocks[2]->content->cards[0]->query);
+
+        $php = $this->screen(new FakeStackReader(self::healthy()))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+
+        self::assertInstanceOf(ComponentCards::class, $php);
+        self::assertSame([[], [], []], array_map(static fn(ComponentCard $card): array => $card->query, $php->cards));
+    }
+
+    public function testAServerWithTwoConnectionsHasOneCardThatSaysSo(): void
+    {
+        $snapshot = Snapshots::of(Component::Mysql, ['mysql' => DatabasePayloads::mysqlStatus(), 'mysql.variables' => DatabasePayloads::mysqlVariables()]);
+        $server = new Server('db1:3306', 'db1:3306');
+        $state = self::withNode(Snapshots::state(['mysql' => [
+            new InstanceState('main', 'shop', null, $snapshot, $server, 1),
+            new InstanceState('reports', 'reports', null, null, $server, 1),
+        ]]));
+        $state = new StackState($state->node, $state->readAt, $state->cache, [new ComponentState(Component::Mysql, $state->components[0]->instances, 0)], []);
+
+        $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertEquals(new SubNav([
+            new SubNavItem('Overview', 'stack', true),
+            new SubNavItem('MySQL', 'stack/mysql', false, new Mark('ok', 'Healthy')),
+        ], 'web-1'), $blocks[0]->content);
+        $cards = $blocks[2]->content;
+        self::assertInstanceOf(ComponentCards::class, $cards);
+        self::assertSame(['mysql.main'], array_map(static fn(ComponentCard $card): string => $card->id, $cards->cards));
+        self::assertSame('MySQL · main', $cards->cards[0]->name);
+        self::assertSame('db1:3306 · 2 connections', $cards->cards[0]->note);
+        self::assertNull($cards->more);
+        self::assertSame(['mysql' => 'healthy'], $this->summary()->last()['components'] ?? null);
+    }
+
+    public function testMoreThanEightServersAreCounted(): void
+    {
+        $read = static fn(int $i): InstanceState => new InstanceState('c' . $i, 'shop', null, Snapshots::of(Component::Mysql, ['mysql' => DatabasePayloads::mysqlStatus()]), new Server('db' . $i . ':3306', 'db' . $i . ':3306'));
+        $unread = static fn(int $i): InstanceState => new InstanceState('c' . $i, 'shop', null, null, new Server('db' . $i . ':3306', 'db' . $i . ':3306'));
+
+        foreach ([9 => '1 more server', 10 => '2 more servers'] as $servers => $more) {
+            $state = self::withNode(Snapshots::state(['mysql' => [...array_map($read, range(1, 8)), ...array_map($unread, range(9, $servers))]]));
+
+            $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+
+            self::assertInstanceOf(ComponentCards::class, $cards);
+            self::assertCount(8, $cards->cards);
+            self::assertSame($more, $cards->more);
+        }
     }
 
     public function testACacheOutOfOrderIsToldAndNothingKeepsReading(): void

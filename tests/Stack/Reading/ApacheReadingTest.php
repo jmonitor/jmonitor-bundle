@@ -84,6 +84,40 @@ final class ApacheReadingTest extends TestCase
         self::assertNull($reading->support);
     }
 
+    public function testWithoutAStatusPageTheVersionComesFromTheServerSoftware(): void
+    {
+        $reading = ApacheReading::of(Snapshots::of(Component::Apache, [
+            'apache.software' => ['version' => '2.4.62'],
+            'eol.apache-http-server' => WebServerPayloads::cycles(),
+        ], ['apache' => ResultState::Failed]), self::today());
+
+        self::assertSame('2.4.62', $reading->version);
+        self::assertSame(SupportStatus::Active, $reading->support);
+        self::assertNull($reading->mpm);
+    }
+
+    public function testTheStatusPageWinsOverTheServerSoftware(): void
+    {
+        $reading = ApacheReading::of(Snapshots::of(Component::Apache, [
+            'apache' => ['server_version' => 'Apache/2.4.71 (Debian)'] + WebServerPayloads::apache(),
+            'apache.software' => ['version' => '2.4.62'],
+        ]), self::today());
+
+        self::assertSame('2.4.71', $reading->version);
+    }
+
+    public function testAHiddenVersionOnTheStatusPageIsCompletedByTheServerSoftware(): void
+    {
+        $reading = ApacheReading::of(Snapshots::of(Component::Apache, [
+            'apache' => ['server_version' => 'Apache'] + WebServerPayloads::apache(),
+            'apache.software' => ['version' => '2.4.62'],
+            'eol.apache-http-server' => WebServerPayloads::cycles(),
+        ]), self::today());
+
+        self::assertSame('2.4.62', $reading->version);
+        self::assertSame(SupportStatus::Active, $reading->support);
+    }
+
     public function testTheVersionIsReadAmongTheModules(): void
     {
         $reading = ApacheReading::of(Snapshots::of(Component::Apache, ['apache' => ['server_version' => 'Apache/2.4.71 (Debian) PHP/8.4.28'] + WebServerPayloads::apache()]), self::today());

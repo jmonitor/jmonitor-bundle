@@ -26,6 +26,9 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Fact;
 use Jmonitor\JmonitorBundle\Dashboard\View\Facts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauge;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNav;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavRow;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
@@ -540,6 +543,48 @@ final class TemplatesTest extends TestCase
         );
         static::assertSame('page', $crawler->filter('.jm-subnav a')->eq(0)->attr('aria-current'));
         static::assertNull($crawler->filter('.jm-subnav a')->eq(1)->attr('aria-current'));
+    }
+
+    public function testTheInstancesBlockEscapesItsLabels(): void
+    {
+        $html = $this->screen(Block::instances(new InstanceNav([
+            new InstanceNavRow('Servers', [new InstanceNavItem('<b>x</b>', 'stack/mysql', ['connection' => '<b>x</b>'], true, '"><script>', new Mark('warn', '<b>x</b>'))]),
+            new InstanceNavRow('Databases', [new InstanceNavItem('main', 'stack/mysql', ['connection' => 'main'], false, '"><script>')]),
+        ])));
+
+        static::assertStringContainsString('&lt;b&gt;x&lt;/b&gt;', $html);
+        static::assertStringContainsString('&quot;&gt;&lt;script&gt;', $html);
+        static::assertStringNotContainsString('<b>', $html);
+        static::assertStringNotContainsString('<script>', $html);
+        static::assertStringNotContainsString('"><script', $html);
+
+        $crawler = new Crawler($html);
+        static::assertSame(['Servers', 'Databases'], $crawler->filter('[data-jm-instances] nav')->each(static fn(Crawler $row): string => (string) $row->attr('aria-label')));
+        static::assertSame('/host/page/stack/mysql?menu=3&connection=%3Cb%3Ex%3C%2Fb%3E', $crawler->filter('[data-jm-instances] a')->eq(0)->attr('href'));
+        static::assertSame('true', $crawler->filter('[data-jm-instances] a')->eq(0)->attr('aria-current'));
+        static::assertNull($crawler->filter('[data-jm-instances] a')->eq(1)->attr('aria-current'));
+        static::assertSame('<b>x</b>', $crawler->filter('[data-jm-instances] a .jm-mark')->text());
+    }
+
+    public function testAConnectionNameWithADotASlashOrASpaceMakesAUsableLink(): void
+    {
+        $names = ['a.b', 'a/b', 'é è'];
+        $item = static fn(string $name): InstanceNavItem => new InstanceNavItem($name, 'stack/mysql', ['connection' => $name]);
+        $crawler = new Crawler($this->screen(
+            Block::instances(new InstanceNav([new InstanceNavRow('Databases', array_map($item, $names))])),
+            Block::components(new ComponentCards(array_map(static fn(string $name): ComponentCard => new ComponentCard('mysql.' . $name, 'MySQL · ' . $name, new Mark('ok', 'Healthy'), path: 'stack/mysql', query: ['connection' => $name]), $names))),
+            Block::checks(new CheckList(array_map(static fn(string $name): CheckLine => new CheckLine('mysql.connections', new Mark('warn', 'Warning'), 'Sentence', '', 'MySQL · ' . $name, 'stack/mysql', query: ['connection' => $name]), $names))),
+        ));
+
+        $links = $crawler->filter('a[href]')->each(static fn(Crawler $a): string => (string) $a->attr('href'));
+
+        static::assertCount(9, $links);
+        foreach ($links as $i => $link) {
+            $url = parse_url($link);
+            static::assertSame('/host/page/stack/mysql', $url['path'] ?? null);
+            parse_str($url['query'] ?? '', $query);
+            static::assertSame($names[$i % 3], $query['connection'] ?? null, $link);
+        }
     }
 
     private function screen(Block ...$blocks): string

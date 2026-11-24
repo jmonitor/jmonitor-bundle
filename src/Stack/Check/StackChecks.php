@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack\Check;
 
+use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Metric\SupportStatus;
@@ -11,10 +12,12 @@ use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Reading\ApacheReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\FrankenPhpReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\MysqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Psr\Clock\ClockInterface;
@@ -58,6 +61,12 @@ final class StackChecks
     private static function verdict(Component $component, InstanceState $instance, array $findings): Verdict
     {
         if (($instance->error ?? $instance->snapshot?->error) !== null || $instance->snapshot?->has($component->value) !== true) {
+            foreach ($findings as $finding) {
+                if ($finding->id === $component->value . '.failed' && $finding->severity === Severity::Critical) {
+                    return Verdict::Critical;
+                }
+            }
+
             return Verdict::Unknown;
         }
 
@@ -110,6 +119,7 @@ final class StackChecks
                 Component::FrankenPhp => WebServerChecks::frankenPhp(FrankenPhpReading::of($snapshot), $snapshot, $raise),
                 Component::Apache => self::apache(ApacheReading::of($snapshot, $now), $raise),
                 Component::Nginx => self::nginx(NginxReading::of($snapshot, $now), $snapshot, $raise),
+                Component::Mysql => self::mysql(MysqlReading::of($snapshot, $now), $snapshot, $raise),
             },
         ];
     }
@@ -123,33 +133,35 @@ final class StackChecks
     {
         $findings = [];
 
-        $mainSeverity = $component->isWebServer() ? Severity::Info : Severity::Warning;
-
         foreach ($snapshot->results as $name => $result) {
+            $mainSeverity = self::mainSeverity($component, $result);
+
             if ($name === $component->value && $result->state === ResultState::Stale && $result->error !== null) {
-                $findings[] = $raise(
-                    $name . '.failed',
-                    $mainSeverity,
-                    sprintf('%s could not be read again: %s', self::subject($component), $result->error),
-                    'What is shown is the last value read, and the checks judge it until it can be read again. Fix the cause given, then refresh.',
-                    $name,
-                );
+                $findings[] = $mainSeverity === Severity::Critical
+                    ? self::cannotBeReached($component, $result->error, $raise, $name)
+                    : $raise(
+                        $name . '.failed',
+                        $mainSeverity,
+                        sprintf('%s could not be read again: %s', self::subject($component), $result->error),
+                        'What is shown is the last value read, and the checks judge it until it can be read again. Fix the cause given, then refresh.',
+                        $name,
+                    );
             }
 
-            if ($result->state !== ResultState::Failed || str_starts_with($name, 'eol.')) {
+            if ($result->state !== ResultState::Failed || str_starts_with($name, 'eol.') || $snapshot->failedWithItsServer($name)) {
                 continue;
             }
 
             $reason = $result->error ?? 'no reason given';
             $findings[] = match ($name) {
-                $component->value => $raise(
+                $component->value => $mainSeverity === Severity::Critical ? self::cannotBeReached($component, $reason, $raise) : $raise(
                     $name . '.failed',
                     $mainSeverity,
                     sprintf('%s could not be read: %s', self::subject($component), $reason),
                     match ($component) {
                         Component::FrankenPhp => 'FrankenPHP serves this page, so it is running: only its metrics cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.',
                         Component::Apache, Component::Nginx => sprintf('%s serves this page, so it is running: only its status page cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.', $component->label()),
-                        Component::System, Component::Php, Component::Symfony => 'None of its checks can run without its values. Fix the cause given, then refresh.',
+                        Component::System, Component::Php, Component::Symfony, Component::Mysql => 'None of its checks can run without its values. Fix the cause given, then refresh.',
                     },
                 ),
                 'symfony.flex' => $raise(
@@ -164,6 +176,9 @@ final class StackChecks
                     sprintf('%s could not be read: %s', match ($name) {
                         'nginx.config' => 'The Nginx settings',
                         'frankenphp.version' => 'The FrankenPHP version',
+                        'mysql.variables' => 'The MySQL settings',
+                        'mysql.sizes' => 'The size of the database',
+                        'mysql.slow_queries' => 'The slowest queries',
                         default => $name,
                     }, $reason),
                     'What it reads is left out of the checks until it can be read.',
@@ -172,6 +187,32 @@ final class StackChecks
         }
 
         return $findings;
+    }
+
+    /**
+     * A server the application reaches over the network: when the main collector cannot reach it, neither can the application.
+     */
+    private static function mainSeverity(Component $component, CollectorResult $result): Severity
+    {
+        return match (true) {
+            $component->isWebServer() => Severity::Info,
+            !$component->isNodeLocal() && $result->failure === FailureKind::Unreachable => Severity::Critical,
+            default => Severity::Warning,
+        };
+    }
+
+    /**
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     */
+    private static function cannotBeReached(Component $component, string $reason, \Closure $raise, string ...$judged): Finding
+    {
+        return $raise(
+            $component->value . '.failed',
+            Severity::Critical,
+            sprintf('%s cannot be reached: %s', self::subject($component), $reason),
+            'The application reaches this server through the same connection: when it cannot be reached from here, the application cannot use it either. Fix the cause given, then refresh.',
+            ...$judged,
+        );
     }
 
     /**
@@ -410,6 +451,19 @@ final class StackChecks
     }
 
     /**
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     *
+     * @return list<Finding>
+     */
+    private static function mysql(MysqlReading $mysql, ComponentSnapshot $snapshot, \Closure $raise): array
+    {
+        return [
+            ...MysqlChecks::of($mysql, $snapshot, $raise),
+            ...self::support('mysql', $mysql->product === 'MariaDB' ? 'mariadb' : 'mysql', $mysql->product ?? 'MySQL', $mysql->version, $mysql->support, $raise, 'mysql.variables'),
+        ];
+    }
+
+    /**
      * @param string                                                         $id      the component the findings are named after
      * @param string                                                         $product its name on endoflife.date
      * @param \Closure(string, Severity, string, string, string...): Finding $raise
@@ -445,7 +499,7 @@ final class StackChecks
         return match ($component) {
             Component::FrankenPhp => 'The FrankenPHP metrics',
             Component::Apache, Component::Nginx => sprintf('The %s status page', $component->label()),
-            Component::System, Component::Php, Component::Symfony => $component->label(),
+            Component::System, Component::Php, Component::Symfony, Component::Mysql => $component->label(),
         };
     }
 

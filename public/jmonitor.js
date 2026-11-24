@@ -10,10 +10,20 @@
 
     revealCurrentScreen(document.querySelector('.jm-nav'));
     revealCurrentScreen(document.querySelector('.jm-subnav'));
+    revealCurrentInstances(document);
 
     function revealCurrentScreen(nav) {
-        var current = nav ? nav.querySelector('[aria-current="page"]') : null;
+        reveal(nav, nav ? nav.querySelector('[aria-current="page"]') : null);
+    }
 
+    function revealCurrentInstances(scope) {
+        var rows = scope.querySelectorAll('.jm-instances__row');
+        for (var r = 0; r < rows.length; r++) {
+            reveal(rows[r], rows[r].querySelector('[aria-current="true"]'));
+        }
+    }
+
+    function reveal(nav, current) {
         if (current && nav.scrollWidth > nav.clientWidth) {
             nav.scrollLeft += current.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - current.offsetWidth) / 2;
         }
@@ -180,6 +190,7 @@
         }
 
         revealCurrentScreen(content.querySelector('.jm-subnav'));
+        revealCurrentInstances(content);
         restoreFocus(focused);
         fillSlots();
         tellNodeChange(node);

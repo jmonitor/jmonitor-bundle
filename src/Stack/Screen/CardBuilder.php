@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Stack\Screen;
 
 use Jmonitor\JmonitorBundle\Dashboard\Format;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
@@ -16,12 +17,14 @@ use Jmonitor\JmonitorBundle\Stack\Metric\SupportStatus;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Reading\ApacheReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\FrankenPhpReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\MysqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ApacheDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\MysqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\Sections;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
@@ -56,9 +59,22 @@ final class CardBuilder
         $waiting = $reading && $reason === null && ($main === null || $main->state === ResultState::Pending || $main->state === ResultState::Busy);
         [$version, $vitals, $support, $note] = $snapshot === null || $reason !== null ? [null, [], null, null] : $this->figures($component, $snapshot, $reading);
 
-        if ($reason === null && $main?->state === ResultState::Stale) {
-            $note = implode(' · ', array_filter([$note, $this->age($main)]));
+        if ($reason !== null && $snapshot !== null && $component === Component::Apache) {
+            $apache = ApacheReading::of($snapshot, $this->clock->now());
+            [$version, $support] = [$apache->version, $apache->support];
         }
+
+        if ($reason !== null && $snapshot !== null && $component === Component::Mysql) {
+            $mysql = MysqlReading::of($snapshot, $this->clock->now());
+            [$version, $support] = [MysqlDetail::version($mysql), $mysql->support];
+        }
+
+        $note = implode(' · ', array_filter([
+            $note,
+            $instance->server?->address,
+            $instance->siblings > 0 ? ($instance->siblings + 1) . ' connections' : null,
+            $reason === null && $main?->state === ResultState::Stale ? $this->age($main) : null,
+        ])) ?: null;
 
         $badge = $support === null ? null : Marks::support($support);
 
@@ -74,6 +90,7 @@ final class CardBuilder
             $badge === null ? [] : [$badge],
             $note,
             $main?->ok() === true ? $main->collectedAt : null,
+            $path === null || $instance->id === null ? [] : [ScreenRequest::INSTANCE => $instance->id],
         );
     }
 
@@ -91,6 +108,7 @@ final class CardBuilder
             Component::FrankenPhp => self::frankenPhp(FrankenPhpReading::of($snapshot), $main),
             Component::Apache => self::apache(ApacheReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Nginx => self::nginx(NginxReading::of($snapshot, $this->clock->now()), $snapshot, $main),
+            Component::Mysql => self::mysql(MysqlReading::of($snapshot, $this->clock->now()), $snapshot, $main),
         };
     }
 
@@ -213,6 +231,28 @@ final class CardBuilder
                 self::requests($nginx->requestsPerSecond, $snapshot->delta('nginx')?->elapsed, $main),
             ],
             $nginx->support,
+            null,
+        ];
+    }
+
+    /**
+     * @param \Closure(?string): string $main
+     *
+     * @return array{?string, list<Vital>, ?SupportStatus, ?string}
+     */
+    private static function mysql(MysqlReading $mysql, ComponentSnapshot $snapshot, \Closure $main): array
+    {
+        $elapsed = $snapshot->delta('mysql')?->elapsed;
+        $hitRate = $mysql->bufferPoolHitRate;
+
+        return [
+            MysqlDetail::version($mysql),
+            [
+                new Vital('Connections', $main(MysqlDetail::connections($mysql))),
+                new Vital('Queries', $main(Sections::rate($mysql->queriesPerSecond)), Figures::span($mysql->queriesPerSecond, $elapsed)),
+                new Vital('Buffer pool hit rate', $main(self::percent($hitRate->value)), Figures::span($hitRate, $elapsed)),
+            ],
+            $mysql->support,
             null,
         ];
     }

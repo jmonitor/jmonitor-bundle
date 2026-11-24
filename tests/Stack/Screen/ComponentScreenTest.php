@@ -11,17 +11,23 @@ use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
 use Jmonitor\JmonitorBundle\Dashboard\View\Facts;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNav;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavRow;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\Server;
+use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
 use Jmonitor\JmonitorBundle\Stack\Screen\ComponentScreen;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\DetailInterface;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
@@ -31,6 +37,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FakeStackReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use PHPUnit\Framework\TestCase;
@@ -137,7 +144,7 @@ final class ComponentScreenTest extends TestCase
 
     public function testTheSecondNavigationComesFromTheLastVisit(): void
     {
-        $this->remember(['system' => 'warning', 'php' => 'healthy', 'mysql' => 'critical', 'symfony' => 'flaky']);
+        $this->remember(['system' => 'warning', 'php' => 'healthy', 'redis' => 'critical', 'symfony' => 'flaky']);
         $php = Snapshots::php();
         $php['display_errors'] = '1';
         $state = self::stack(Snapshots::of(Component::Php, ['php' => $php]));
@@ -269,6 +276,182 @@ final class ComponentScreenTest extends TestCase
         self::assertSame(['refresh symfony'], $reader->calls);
     }
 
+    public function testTheConnectionAskedForIsShown(): void
+    {
+        $reader = new FakeStackReader(self::databases(['main' => 'db1:3306', 'reports' => 'db1:3306'], 'reports'));
+
+        $blocks = $this->screen($reader, Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW, instance: 'reports'));
+
+        self::assertSame(['reports'], $reader->instances);
+        self::assertSame([Block::SUBNAV, Block::INSTANCES, Block::COMPONENTS, Block::CHECKS], array_map(static fn(Block $block): string => $block->type, $blocks));
+        self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
+        self::assertSame('mysql.reports', $blocks[2]->content->cards[0]->id);
+    }
+
+    public function testWithoutOneTheFirstIsShown(): void
+    {
+        $reader = new FakeStackReader(self::databases(['main' => 'db1:3306', 'reports' => 'db1:3306'], 'main'));
+
+        $blocks = $this->screen($reader, Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame([null], $reader->instances);
+        self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
+        self::assertSame('mysql.main', $blocks[2]->content->cards[0]->id);
+    }
+
+    public function testAnUnknownConnectionSaysSoAndOffersTheOthers(): void
+    {
+        $reader = new FakeStackReader(self::databases(['main' => 'db1:3306', 'reports' => 'db1:3306']));
+
+        $blocks = $this->screen($reader, Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW, instance: '<b>nope</b>'));
+
+        self::assertSame([Block::SUBNAV, Block::NOTICE, Block::INSTANCES], array_map(static fn(Block $block): string => $block->type, $blocks));
+        self::assertInstanceOf(Notice::class, $blocks[1]->content);
+        self::assertSame('No connection named "<b>nope</b>" is read', $blocks[1]->content->title);
+        self::assertEquals(new InstanceNav([new InstanceNavRow('Databases', [
+            new InstanceNavItem('main', 'stack/mysql', ['connection' => 'main'], false, 'main'),
+            new InstanceNavItem('reports', 'stack/mysql', ['connection' => 'reports'], false, 'reports'),
+        ])]), $blocks[2]->content);
+    }
+
+    public function testALocalComponentIgnoresTheConnectionAskedFor(): void
+    {
+        $reader = new FakeStackReader(self::stack(Snapshots::of(Component::Php, ['php' => Snapshots::php()])));
+
+        $blocks = $this->screen($reader, Component::Php)->blocks(new ScreenRequest(Snapshots::NOW, instance: 'reports'));
+
+        self::assertSame([null], $reader->instances);
+        self::assertSame([Block::SUBNAV, Block::COMPONENTS, Block::CHECKS], array_slice(array_map(static fn(Block $block): string => $block->type, $blocks), 0, 3));
+    }
+
+    public function testALongUnknownConnectionNameIsCut(): void
+    {
+        $reader = new FakeStackReader(self::databases(['main' => 'db1:3306', 'reports' => 'db1:3306']));
+
+        $blocks = $this->screen($reader, Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW, instance: str_repeat('é', 64) . str_repeat('x', 1000)));
+
+        self::assertInstanceOf(Notice::class, $blocks[1]->content);
+        self::assertSame('No connection named "' . str_repeat('é', 64) . '…" is read', $blocks[1]->content->title);
+
+        $blocks = $this->screen($reader, Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW, instance: str_repeat('x', 64)));
+
+        self::assertInstanceOf(Notice::class, $blocks[1]->content);
+        self::assertSame('No connection named "' . str_repeat('x', 64) . '" is read', $blocks[1]->content->title);
+    }
+
+    public function testASingleConnectionHasNoSelector(): void
+    {
+        $blocks = $this->screen(new FakeStackReader(self::databases(['main' => 'db1:3306'], 'main')), Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame([Block::SUBNAV, Block::COMPONENTS, Block::CHECKS], array_map(static fn(Block $block): string => $block->type, $blocks));
+    }
+
+    public function testTwoDatabasesOfOneServerHaveOnlyADatabasesRow(): void
+    {
+        $blocks = $this->screen(new FakeStackReader(self::databases(['main' => 'db1:3306', 'reports' => 'db1:3306'], 'reports')), Component::Mysql)
+            ->blocks(new ScreenRequest(Snapshots::NOW, instance: 'reports'));
+
+        self::assertEquals(new InstanceNav([new InstanceNavRow('Databases', [
+            new InstanceNavItem('main', 'stack/mysql', ['connection' => 'main'], false, 'main'),
+            new InstanceNavItem('reports', 'stack/mysql', ['connection' => 'reports'], true, 'reports', new Mark('ok', 'Healthy')),
+        ])]), $blocks[1]->content);
+    }
+
+    public function testTwoServersHaveAServersRow(): void
+    {
+        $servers = ['main' => 'db1:3306', 'reports' => 'db1:3306', 'archive' => 'db2:3306'];
+
+        $archive = $this->screen(new FakeStackReader(self::databases($servers, 'archive')), Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW, instance: 'archive'));
+
+        self::assertEquals(new InstanceNav([new InstanceNavRow('Servers', [
+            new InstanceNavItem('main', 'stack/mysql', ['connection' => 'main'], false, 'db1:3306'),
+            new InstanceNavItem('archive', 'stack/mysql', ['connection' => 'archive'], true, 'db2:3306', new Mark('ok', 'Healthy')),
+        ])]), $archive[1]->content);
+
+        $reports = $this->screen(new FakeStackReader(self::databases($servers, 'reports')), Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW, instance: 'reports'));
+
+        self::assertEquals(new InstanceNav([
+            new InstanceNavRow('Servers', [
+                new InstanceNavItem('main', 'stack/mysql', ['connection' => 'main'], true, 'db1:3306'),
+                new InstanceNavItem('archive', 'stack/mysql', ['connection' => 'archive'], false, 'db2:3306'),
+            ]),
+            new InstanceNavRow('Databases', [
+                new InstanceNavItem('main', 'stack/mysql', ['connection' => 'main'], false, 'main'),
+                new InstanceNavItem('reports', 'stack/mysql', ['connection' => 'reports'], true, 'reports', new Mark('ok', 'Healthy')),
+            ]),
+        ]), $reports[1]->content);
+    }
+
+    public function testAConnectionInErrorCarriesAMarkWithAWord(): void
+    {
+        $state = Snapshots::state(['mysql' => [
+            self::database('main', 'db1:3306', true),
+            new InstanceState('broken', null, 'Unknown Doctrine connection "broken".', null),
+        ]]);
+
+        $blocks = $this->screen(new FakeStackReader($state), Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertInstanceOf(InstanceNav::class, $blocks[1]->content);
+        $broken = $blocks[1]->content->rows[0]->items[1];
+        self::assertSame('broken', $broken->label);
+        self::assertNull($broken->detail);
+        self::assertNotNull($broken->mark);
+        self::assertSame('warn', $broken->mark->tone);
+        self::assertNotSame('', $broken->mark->label);
+    }
+
+    public function testTheChecksShownAreThoseOfTheConnection(): void
+    {
+        $full = DatabasePayloads::mysqlStatus();
+        $full['Threads_connected'] = '99';
+        $state = Snapshots::state(['mysql' => [
+            self::database('main', 'db1:3306', true),
+            new InstanceState('reports', 'reports', null, Snapshots::of(Component::Mysql, ['mysql' => $full, 'mysql.variables' => DatabasePayloads::mysqlVariables()]), new Server('db1:3306', 'db1:3306'), 1),
+        ]]);
+        $checks = fn(?string $instance): array => array_map(
+            static fn(CheckLine $line): string => $line->id . ' ' . $line->where,
+            $this->checkList($this->screen(new FakeStackReader($state), Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW, instance: $instance)))->lines,
+        );
+
+        self::assertSame([], $checks('main'));
+        self::assertSame(['mysql.connections MySQL · reports'], $checks('reports'));
+    }
+
+    /**
+     * @param array<string, string> $servers the server key of each connection, whose database is named after it
+     */
+    private static function databases(array $servers, ?string $read = null): StackState
+    {
+        $siblings = array_count_values($servers);
+
+        return Snapshots::state(['mysql' => array_map(
+            static fn(string $name, string $server): InstanceState => self::database($name, $server, $name === $read, $siblings[$server] - 1),
+            array_keys($servers),
+            array_values($servers),
+        )]);
+    }
+
+    private static function database(string $name, string $server, bool $read, int $siblings = 0): InstanceState
+    {
+        $snapshot = $read ? Snapshots::of(Component::Mysql, ['mysql' => DatabasePayloads::mysqlStatus(), 'mysql.variables' => DatabasePayloads::mysqlVariables()]) : null;
+
+        return new InstanceState($name, $name, null, $snapshot, new Server($server, $server), $siblings);
+    }
+
+    /**
+     * @param list<Block> $blocks
+     */
+    private function checkList(array $blocks): CheckList
+    {
+        foreach ($blocks as $block) {
+            if ($block->content instanceof CheckList) {
+                return $block->content;
+            }
+        }
+
+        throw new \LogicException('No check list.');
+    }
+
     private static function stack(ComponentSnapshot ...$snapshots): StackState
     {
         $state = $snapshots === [] ? Snapshots::state([]) : Snapshots::stack(...$snapshots);
@@ -302,6 +485,12 @@ final class ComponentScreenTest extends TestCase
             Component::System => new ServerDetail(),
             Component::Php => new PhpDetail(),
             Component::Symfony => new SymfonyDetail(),
+            default => new class implements DetailInterface {
+                public function sections(InstanceState $instance, array $findings, int $now, bool $reading = true): array
+                {
+                    return [];
+                }
+            },
         };
 
         return new ComponentScreen($component, $detail, new ServiceLocator([

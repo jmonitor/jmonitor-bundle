@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` Stack screen: FrankenPHP, Apache and Nginx read live from their status page, with what to check and a detail each.
 - `/jmonitor` Messages screen: the messages waiting in each Messenger transport, shown even without storage or recording.
 - `stack` options `frankenphp`, `apache`, `nginx` and `symfony.messenger`: turn a web server or the queue count off, or set the address of a status page.
+- `/jmonitor` Stack screen: the MySQL and MariaDB servers of the Doctrine connections read live, one card per server, with what to check and a detail per connection.
+- `stack` options `mysql` and `exclude_connections`: choose the Doctrine connections the Stack screen reads.
+- Stack screen: a server of the application that cannot be reached raises a `Critical` check.
 
 ### Changed
 - Requires PHP 8.2.

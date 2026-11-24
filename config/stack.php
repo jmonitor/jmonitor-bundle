@@ -11,7 +11,10 @@ use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
+use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
@@ -23,6 +26,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ApacheDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\MysqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
@@ -112,6 +116,17 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ])
         ->tag('jmonitor.stack.detector', ['index' => Component::Nginx->value]);
 
+    $services->set(MysqlDetector::class)
+        ->args([service(DatabaseInstances::class), param('jmonitor.stack.mysql.connections'), param('jmonitor.stack.end_of_life')])
+        ->tag('jmonitor.stack.detector', ['index' => Component::Mysql->value]);
+
+    $services->set(DoctrineConnections::class)
+        ->args([service_locator([]), [], null])
+        ->tag('kernel.reset', ['method' => 'reset']);
+
+    $services->set(DatabaseInstances::class)
+        ->args([service(DoctrineConnections::class), service('service_container'), [], param('jmonitor.stack.exclude_connections')]);
+
     if ($builder->getParameter('jmonitor.stack.symfony.messenger') && interface_exists(MessageCountAwareInterface::class)) {
         $services->set(QueuesCommand::class)
             ->args([service_locator([]), []])
@@ -185,6 +200,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(FrankenPhpDetail::class);
     $services->set(ApacheDetail::class);
     $services->set(NginxDetail::class);
+    $services->set(MysqlDetail::class);
 
     $services->set(StackScreen::class)
         ->args([
@@ -202,6 +218,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                 Component::FrankenPhp->value => service(FrankenPhpDetail::class),
                 Component::Apache->value => service(ApacheDetail::class),
                 Component::Nginx->value => service(NginxDetail::class),
+                Component::Mysql->value => service(MysqlDetail::class),
             ]),
         ])
         ->tag('jmonitor.screen', ['priority' => 10]);

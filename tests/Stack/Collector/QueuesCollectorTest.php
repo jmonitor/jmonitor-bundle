@@ -73,7 +73,6 @@ final class QueuesCollectorTest extends TestCase
                 ['name' => 'reports', 'count' => null, 'reason' => 'Connection refused'],
                 ['name' => 'batch', 'count' => null, 'reason' => 'this transport cannot count'],
             ],
-            'complete' => true,
         ], $this->collect($output));
     }
 
@@ -93,7 +92,6 @@ final class QueuesCollectorTest extends TestCase
                 ['name' => 'async', 'count' => null, 'reason' => 'this transport cannot count'],
                 ['name' => 'failed', 'count' => null, 'reason' => 'this transport cannot count'],
             ],
-            'complete' => true,
         ], $this->collect($output), 'a negative or non-integer count is no count, the first answer of a transport is its answer');
     }
 
@@ -104,7 +102,7 @@ final class QueuesCollectorTest extends TestCase
             . "{\"name\":\"now\",\"skip\":true}\n"
             . "{\"name\":\"async\",\"count\":2}\n";
 
-        self::assertSame(['transports' => [['name' => 'async', 'count' => 2, 'reason' => null]], 'complete' => true], $this->collect($output));
+        self::assertSame(['transports' => [['name' => 'async', 'count' => 2, 'reason' => null]]], $this->collect($output));
     }
 
     public function testATransportWithANumericNameKeepsItsName(): void
@@ -116,7 +114,6 @@ final class QueuesCollectorTest extends TestCase
                 ['name' => '2024', 'count' => 3, 'reason' => null],
                 ['name' => '1', 'count' => 4, 'reason' => null],
             ],
-            'complete' => true,
         ], $this->collect($output));
     }
 
@@ -130,7 +127,6 @@ final class QueuesCollectorTest extends TestCase
                 ['name' => 'reports', 'count' => null, 'reason' => 'did not answer in time'],
                 ['name' => 'batch', 'count' => null, 'reason' => 'not counted: an earlier transport did not answer in time'],
             ],
-            'complete' => false,
         ], $this->collector($runner)->collect(), 'the transports are counted one after the other: the first without a line is the one that hung');
     }
 
@@ -139,7 +135,7 @@ final class QueuesCollectorTest extends TestCase
         $runner = (new FakeProcessRunner())->answer(null, "{\"transports\":[\"async\"]}\n", 255, 'PHP Fatal error:  Allowed memory size exhausted');
 
         self::assertSame(
-            ['transports' => [['name' => 'async', 'count' => null, 'reason' => 'no answer']], 'complete' => true],
+            ['transports' => [['name' => 'async', 'count' => null, 'reason' => 'no answer']]],
             $this->collector($runner)->collect(),
         );
     }
@@ -235,7 +231,7 @@ final class QueuesCollectorTest extends TestCase
     }
 
     /**
-     * @return array{transports: array<string, array{count: ?int, reason: ?string}>, complete: bool}
+     * @return array{transports: array<string, array{count: ?int, reason: ?string}>}
      */
     private function collect(string $output): array
     {

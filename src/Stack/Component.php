@@ -12,6 +12,7 @@ enum Component: string
     case FrankenPhp = 'frankenphp';
     case Apache = 'apache';
     case Nginx = 'nginx';
+    case Mysql = 'mysql';
 
     public function label(): string
     {
@@ -22,6 +23,7 @@ enum Component: string
             self::FrankenPhp => 'FrankenPHP',
             self::Apache => 'Apache',
             self::Nginx => 'Nginx',
+            self::Mysql => 'MySQL',
         };
     }
 
@@ -29,7 +31,7 @@ enum Component: string
     {
         return match ($this) {
             self::FrankenPhp, self::Apache, self::Nginx => true,
-            self::System, self::Php, self::Symfony => false,
+            self::System, self::Php, self::Symfony, self::Mysql => false,
         };
     }
 
@@ -38,6 +40,6 @@ enum Component: string
      */
     public function isNodeLocal(): bool
     {
-        return true;
+        return $this !== self::Mysql;
     }
 }

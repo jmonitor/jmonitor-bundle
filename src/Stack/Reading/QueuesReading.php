@@ -10,11 +10,9 @@ final readonly class QueuesReading
 {
     /**
      * @param list<array{name: string, count: ?int, reason: ?string}> $transports in the order of the command
-     * @param bool                                                     $complete   false when the command stopped before every transport answered
      */
     private function __construct(
         public array $transports,
-        public bool $complete,
     ) {}
 
     public static function of(ComponentSnapshot $snapshot): self
@@ -36,6 +34,6 @@ final readonly class QueuesReading
             ];
         }
 
-        return new self($transports, ($data['complete'] ?? true) !== false);
+        return new self($transports);
     }
 }

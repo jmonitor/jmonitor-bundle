@@ -53,7 +53,9 @@ use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Command\QueuesCommand;
 use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
@@ -1484,7 +1486,7 @@ class JmonitorBundleTest extends TestCase
         static::assertTrue($container->getParameter('jmonitor.stack.end_of_life'));
         static::assertTrue($container->getParameter('jmonitor.stack.symfony.flex'));
         static::assertSame(
-            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto']],
+            ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto']],
             $container->getParameter('jmonitor.stack.components'),
         );
         static::assertTrue($container->hasDefinition('jmonitor.stack.cache'));
@@ -1526,7 +1528,7 @@ class JmonitorBundleTest extends TestCase
      */
     public static function stackComponentProvider(): iterable
     {
-        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto']];
+        $auto = ['system' => ['enabled' => 'auto'], 'php' => ['enabled' => 'auto'], 'symfony' => ['enabled' => 'auto'], 'frankenphp' => ['enabled' => 'auto'], 'apache' => ['enabled' => 'auto'], 'nginx' => ['enabled' => 'auto'], 'mysql' => ['enabled' => 'auto']];
 
         yield 'system: false' => [['system' => false], array_replace($auto, ['system' => ['enabled' => false]]), true];
         yield 'php: true' => [['php' => true], array_replace($auto, ['php' => ['enabled' => true]]), true];
@@ -1586,6 +1588,44 @@ class JmonitorBundleTest extends TestCase
         $this->loadBundle(['stack' => [$webServer => ['endpoint' => '']]]);
     }
 
+    public function testMysqlHasItsSwitchAndItsConnections(): void
+    {
+        $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+        $off = $this->loadBundle(['stack' => ['mysql' => false]]);
+        $listed = $this->loadBundle(['stack' => ['mysql' => ['connections' => ['default', 'legacy']]]]);
+        $named = $this->loadBundle(['stack' => ['mysql' => ['enabled' => true, 'connections' => ['default' => null, 'my-legacy' => null]]]]);
+
+        $mysql = static fn(ContainerBuilder $container): mixed => ((array) $container->getParameter('jmonitor.stack.components'))['mysql'] ?? null;
+
+        static::assertSame(['enabled' => 'auto'], $mysql($default));
+        static::assertSame([], $default->getParameter('jmonitor.stack.mysql.connections'));
+        static::assertSame(['enabled' => false], $mysql($off));
+        static::assertSame(['default' => [], 'legacy' => []], $listed->getParameter('jmonitor.stack.mysql.connections'));
+        static::assertSame(['enabled' => true], $mysql($named));
+        static::assertSame(['default' => [], 'my-legacy' => []], $named->getParameter('jmonitor.stack.mysql.connections'));
+        static::assertSame([['index' => 'mysql']], $default->getDefinition(MysqlDetector::class)->getTag('jmonitor.stack.detector'));
+        static::assertSame(
+            [DatabaseInstances::class, '%jmonitor.stack.mysql.connections%', '%jmonitor.stack.end_of_life%'],
+            array_map(strval(...), $default->getDefinition(MysqlDetector::class)->getArguments()),
+        );
+    }
+
+    public function testAnOptionUnderAMysqlConnectionIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.mysql.connections.default"');
+
+        $this->loadBundle(['stack' => ['mysql' => ['connections' => ['default' => ['limit' => 3]]]]]);
+    }
+
+    public function testAConnectionBothListedAndExcludedIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('The Doctrine connection "legacy_backup" is both listed under "jmonitor.stack.mysql.connections" and excluded by "jmonitor.stack.exclude_connections".');
+
+        $this->loadBundle(['stack' => ['exclude_connections' => ['*_backup'], 'mysql' => ['connections' => ['default', 'legacy_backup']]]]);
+    }
+
     public function testIgnoredChecksAreAListOfIdentifiers(): void
     {
         $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
@@ -1601,6 +1641,26 @@ class JmonitorBundleTest extends TestCase
         $this->expectExceptionMessage('"jmonitor.stack.ignore_checks');
 
         $this->loadBundle(['stack' => ['ignore_checks' => [['a']]]]);
+    }
+
+    public function testTheExcludedConnectionsAreAListOfPatterns(): void
+    {
+        $default = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
+        $single = $this->loadBundle(['stack' => ['exclude_connections' => 'shard_*']]);
+        $list = $this->loadBundle(['stack' => ['exclude_connections' => ['*_backup', 'legacy?']]]);
+
+        static::assertSame([], $default->getParameter('jmonitor.stack.exclude_connections'));
+        static::assertSame(['shard_*'], $single->getParameter('jmonitor.stack.exclude_connections'));
+        static::assertSame(['*_backup', 'legacy?'], $list->getParameter('jmonitor.stack.exclude_connections'));
+        static::assertSame('%jmonitor.stack.exclude_connections%', $default->getDefinition(DatabaseInstances::class)->getArgument(3));
+    }
+
+    public function testAnEmptyPatternIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('"jmonitor.stack.exclude_connections');
+
+        $this->loadBundle(['stack' => ['exclude_connections' => ['legacy', '']]]);
     }
 
     public function testAnUnknownComponentSettingIsRefused(): void
@@ -1634,7 +1694,7 @@ class JmonitorBundleTest extends TestCase
         $container = $this->loadBundle([], bundles: ['FrameworkBundle' => FrameworkBundle::class]);
 
         $detectors = $container->findTaggedServiceIds('jmonitor.stack.detector');
-        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class], array_keys($detectors));
+        static::assertEqualsCanonicalizing([SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, MysqlDetector::class], array_keys($detectors));
         static::assertSame([['index' => 'system']], $detectors[SystemDetector::class]);
         static::assertSame([['index' => 'php']], $detectors[PhpDetector::class]);
         static::assertSame([['index' => 'symfony']], $detectors[SymfonyDetector::class]);

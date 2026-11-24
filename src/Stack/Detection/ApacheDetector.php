@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack\Detection;
 
+use Jmonitor\JmonitorBundle\Stack\Collector\ApacheSoftwareCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\ApacheStatusCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
@@ -43,7 +44,10 @@ final readonly class ApacheDetector implements ComponentDetectorInterface
             return Detection::unavailable('Apache is not serving this page.');
         }
 
-        $specs = [new CollectorSpec(new ApacheStatusCollector($this->endpoint, $this->fetcher ?? new StatusPageFetcher()), Lifetime::Dynamic, CostClass::Network, trackDelta: true)];
+        $specs = [
+            new CollectorSpec(new ApacheStatusCollector($this->endpoint, $this->fetcher ?? new StatusPageFetcher()), Lifetime::Dynamic, CostClass::Network, trackDelta: true),
+            new CollectorSpec(new ApacheSoftwareCollector(is_string($software) ? $software : null, $this->sapi), Lifetime::Dynamic, CostClass::Immediate),
+        ];
 
         if ($this->endOfLife) {
             $specs[] = new CollectorSpec(new EndOfLifeCollector('apache-http-server', $this->endOfLifeFetcher ?? new UrlFetcher(3)), Lifetime::Day, CostClass::Slow, shared: true);

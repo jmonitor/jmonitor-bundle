@@ -8,10 +8,12 @@ use Jmonitor\JmonitorBundle\DependencyInjection\CachePoolPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\EasyAdminTemplatesPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\HttpClientPass;
+use Jmonitor\JmonitorBundle\DependencyInjection\StackConnectionsPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Jmonitor\JmonitorBundle\EasyAdmin\Requirements;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -28,6 +30,7 @@ final class JmonitorBundle extends AbstractBundle
         $container->addCompilerPass(new ComponentAvailabilityPass());
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new EasyAdminTemplatesPass());
+        $container->addCompilerPass(new StackConnectionsPass());
         // After the CacheCollectorPass of debug mode: the profiler keeps tracing the pools from inside the wrappers.
         $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
     }
@@ -111,6 +114,7 @@ final class JmonitorBundle extends AbstractBundle
         $builder->setParameter('jmonitor.stack.symfony.flex', $config['stack']['symfony']['flex']);
         $builder->setParameter('jmonitor.stack.symfony.messenger', $config['stack']['symfony']['messenger']);
         $builder->setParameter('jmonitor.stack.ignore_checks', $config['stack']['ignore_checks']);
+        $builder->setParameter('jmonitor.stack.exclude_connections', $config['stack']['exclude_connections']);
         $builder->setParameter('jmonitor.stack.components', [
             'system' => ['enabled' => $config['stack']['system']],
             'php' => ['enabled' => $config['stack']['php']],
@@ -118,10 +122,12 @@ final class JmonitorBundle extends AbstractBundle
             'frankenphp' => ['enabled' => $config['stack']['frankenphp']['enabled']],
             'apache' => ['enabled' => $config['stack']['apache']['enabled']],
             'nginx' => ['enabled' => $config['stack']['nginx']['enabled']],
+            'mysql' => ['enabled' => $config['stack']['mysql']['enabled']],
         ]);
         $builder->setParameter('jmonitor.stack.frankenphp.endpoint', $config['stack']['frankenphp']['endpoint']);
         $builder->setParameter('jmonitor.stack.apache.endpoint', $config['stack']['apache']['endpoint']);
         $builder->setParameter('jmonitor.stack.nginx.endpoint', $config['stack']['nginx']['endpoint']);
+        $builder->setParameter('jmonitor.stack.mysql.connections', $config['stack']['mysql']['connections']);
 
         $container->import('../config/recording.php');
         $container->import('../config/dashboard.php');
@@ -429,10 +435,23 @@ final class JmonitorBundle extends AbstractBundle
                 ->end()
                 ->arrayNode('stack')
                     ->canBeDisabled()
-                    ->info('Read the server, PHP, Symfony and the web server live on the Stack screen.')
+                    ->info('Read the server, PHP, Symfony, the web server and the databases live on the Stack screen.')
                     ->beforeNormalization()
                         ->ifTrue(static fn(mixed $v): bool => \is_string($v) || (\is_array($v) && \is_string($v['enabled'] ?? null)))
                         ->then(static fn(): never => throw new \LogicException('The "jmonitor.stack" option cannot be read from an environment variable: its services are registered when the container is built.'))
+                    ->end()
+                    ->validate()
+                        ->always(static function (array $stack): array {
+                            foreach (array_keys($stack['mysql']['connections']) as $name) {
+                                foreach ($stack['exclude_connections'] as $pattern) {
+                                    if (fnmatch($pattern, (string) $name)) {
+                                        throw new InvalidConfigurationException(\sprintf('The Doctrine connection "%s" is both listed under "jmonitor.stack.mysql.connections" and excluded by "jmonitor.stack.exclude_connections".', $name));
+                                    }
+                                }
+                            }
+
+                            return $stack;
+                        })
                     ->end()
                     ->children()
                         ->booleanNode('end_of_life')->defaultTrue()->info('Look up support dates on endoflife.date, once a day per product.')->end()
@@ -443,6 +462,19 @@ final class JmonitorBundle extends AbstractBundle
                             ->validate()
                                 ->ifTrue(static fn(array $ids): bool => array_filter($ids, static fn(mixed $id): bool => !\is_string($id)) !== [])
                                 ->thenInvalid('The "ignore_checks" option takes a list of strings.')
+                            ->end()
+                        ->end()
+                        ->arrayNode('exclude_connections')
+                            ->info('Doctrine connections the Stack screen never reads, as shell patterns (*, ?).')
+                            ->beforeNormalization()
+                                ->ifString()
+                                ->then(static fn(string $pattern): array => [$pattern])
+                            ->end()
+                            ->scalarPrototype()->cannotBeEmpty()->end()
+                            ->defaultValue([])
+                            ->validate()
+                                ->ifTrue(static fn(array $patterns): bool => array_filter($patterns, static fn(mixed $pattern): bool => !\is_string($pattern)) !== [])
+                                ->thenInvalid('The "exclude_connections" option takes a list of shell patterns.')
                             ->end()
                         ->end()
                         ->enumNode('system')->values(['auto', true, false])->defaultValue('auto')->end()
@@ -462,6 +494,27 @@ final class JmonitorBundle extends AbstractBundle
                         ->append(self::webServerNode('frankenphp', 'http://localhost:2019/metrics', 'URL of the Caddy metrics, served by its admin API.'))
                         ->append(self::webServerNode('apache', 'http://localhost/server-status', 'URL of the mod_status page, read in its machine-readable form (?auto).'))
                         ->append(self::webServerNode('nginx', 'http://localhost/nginx_status', 'URL of the stub_status page.'))
+                        ->arrayNode('mysql')
+                            ->info('Read the MySQL and MariaDB servers of the Doctrine connections.')
+                            ->addDefaultsIfNotSet()
+                            ->beforeNormalization()
+                                ->ifTrue(static fn(mixed $v): bool => \is_string($v) || \is_bool($v))
+                                ->then(static fn(string|bool $v): array => ['enabled' => $v])
+                            ->end()
+                            ->children()
+                                ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
+                                ->arrayNode('connections')
+                                    ->info('Names of the Doctrine connections to read; all of them when empty.')
+                                    ->normalizeKeys(false)
+                                    ->useAttributeAsKey('name')
+                                    ->beforeNormalization()
+                                        ->ifTrue(static fn(mixed $v): bool => \is_array($v) && array_is_list($v) && array_filter($v, static fn(mixed $name): bool => !\is_string($name)) === [])
+                                        ->then(static fn(array $names): array => array_fill_keys($names, []))
+                                    ->end()
+                                    ->arrayPrototype()->end()
+                                ->end()
+                            ->end()
+                        ->end()
                     ->end()
                 ->end()
             ->end()

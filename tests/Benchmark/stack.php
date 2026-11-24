@@ -17,6 +17,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
@@ -30,6 +31,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
 use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\MysqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
@@ -133,7 +135,7 @@ final class WebStack
 /**
  * @return array{LocalStackReader, ComponentRegistry}
  */
-function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null): array
+function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null): array
 {
     $detectors = [
         'system' => new SystemDetector(),
@@ -147,6 +149,9 @@ function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInte
         $detectors['nginx'] = new NginxDetector('http://localhost/nginx_status', $requests, $web->nginx, false, $web->pages);
         $queues = new QueuesInstance(new QueuesCollector($web->queues, new PhpCli(static fn(): string => '/usr/local/bin/php'), dirname(__DIR__) . '/Fixtures/App', 'prod', false));
     }
+    if ($mysql !== null) {
+        $detectors['mysql'] = $mysql;
+    }
     $registry = Detectors::registry($detectors, array_map(static fn(): array => ['enabled' => 'auto'], $detectors));
     $node = new WebNode();
     $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10, 300), $cache, $clock, $node);
@@ -159,9 +164,9 @@ function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInte
  *
  * @param list<string> $built the services of the stack the screen asked for
  */
-function stackScreen(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null): StackScreen
+function stackScreen(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null): StackScreen
 {
-    return screens($cache, $clock, $kernel, $built, $endOfLife, $web)[0];
+    return screens($cache, $clock, $kernel, $built, $endOfLife, $web, $mysql)[0];
 }
 
 /**
@@ -171,11 +176,11 @@ function stackScreen(CacheItemPoolInterface $cache, ClockInterface $clock, Kerne
  *
  * @return array{StackScreen, MessagesScreen} Messages counts the queues when $web is given
  */
-function screens(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null): array
+function screens(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null): array
 {
     $node = new WebNode();
     $services = [
-        StackReaderInterface::class => static fn(): StackReaderInterface => engine($cache, $clock, $kernel, $endOfLife, $web)[0],
+        StackReaderInterface::class => static fn(): StackReaderInterface => engine($cache, $clock, $kernel, $endOfLife, $web, $mysql)[0],
         StackChecks::class => static fn(): StackChecks => new StackChecks([], false, $clock),
         StackSummary::class => static fn(): StackSummary => new StackSummary(new ServiceLocator(['cache' => static fn(): CacheItemPoolInterface => $cache]), $node, $clock),
     ];
@@ -196,6 +201,7 @@ function screens(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInt
             Component::System->value => static fn(): ServerDetail => new ServerDetail(),
             Component::Php->value => static fn(): PhpDetail => new PhpDetail(),
             Component::Symfony->value => static fn(): SymfonyDetail => new SymfonyDetail(),
+            Component::Mysql->value => static fn(): MysqlDetail => new MysqlDetail(),
         ])),
         new MessagesScreen(true, true, $web === null ? null : new QueuesBlocks($locator, $clock)),
     ];
@@ -244,6 +250,71 @@ function coldDisplays(ClockInterface $clock, KernelInterface $kernel, Environmen
     }
 
     return [$slowest, $mostRefreshes];
+}
+
+/**
+ * The real clock moved forward at will.
+ */
+final class ShiftedClock implements ClockInterface
+{
+    public float $shift = 0.0;
+
+    public function now(): DateTimeImmutable
+    {
+        return DateTimeImmutable::createFromFormat('U.u', sprintf('%.6F', microtime(true) + $this->shift)) ?: throw new LogicException('The clock cannot be read.');
+    }
+}
+
+/**
+ * A MySQL server that accepts connections and never answers: the system completes the handshake of a listening socket.
+ */
+final class FrozenServer
+{
+    /** @var resource */
+    private $socket;
+
+    public readonly int $port;
+
+    public function __construct()
+    {
+        $socket = stream_socket_server('tcp://127.0.0.1:0', $code, $error);
+        if ($socket === false) {
+            throw new RuntimeException($error);
+        }
+        $this->socket = $socket;
+        $this->port = (int) substr((string) strrchr((string) stream_socket_get_name($socket, false), ':'), 1);
+    }
+
+    public function attempts(): int
+    {
+        $attempts = 0;
+        while (($connection = @stream_socket_accept($this->socket, 0)) !== false) {
+            ++$attempts;
+            fclose($connection);
+        }
+
+        return $attempts;
+    }
+}
+
+/**
+ * The connections the server counts so far, this one included.
+ */
+function serverConnections(string $url): int
+{
+    $parts = parse_url($url);
+    $pdo = new PDO(sprintf('mysql:host=%s;port=%d', $parts['host'] ?? '127.0.0.1', $parts['port'] ?? 3306), urldecode($parts['user'] ?? ''), urldecode($parts['pass'] ?? ''));
+    $row = $pdo->query("SHOW GLOBAL STATUS LIKE 'Connections'")?->fetch(PDO::FETCH_NUM);
+
+    return (int) ($row[1] ?? 0);
+}
+
+function mysqlDetector(KernelInterface $kernel): MysqlDetector
+{
+    $detector = $kernel->getContainer()->get(MysqlDetector::class);
+    assert($detector instanceof MysqlDetector);
+
+    return $detector;
 }
 
 function instances(StackState $state): int
@@ -497,4 +568,147 @@ report(
 );
 
 $kernel->shutdown();
+
+$mysqlUrl = getenv('JMONITOR_TEST_MYSQL_URL');
+if (!is_string($mysqlUrl) || $mysqlUrl === '') {
+    echo "MySQL measures skipped: JMONITOR_TEST_MYSQL_URL is not set\n";
+    (new Filesystem())->remove($dirs);
+
+    exit;
+}
+
+$stackConfig = ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false]]];
+$kernel = new TestKernel('prod', false, $stackConfig, withHttpClient: false, withPublicInternals: true, connections: ['main' => ['url' => $mysqlUrl]]);
+$kernel->boot();
+$dirs[] = $kernel->getVarDir();
+$web->reset();
+
+$dirs[] = $dir = workDir();
+$cache = filesystemCache($dir);
+[$reader] = engine($cache, $clock, $kernel, null, $web, mysqlDetector($kernel));
+$reader->overview(ReadMode::Page);
+$reader->overview(ReadMode::Fragment);
+$kernel->shutdown();
+$kernel->boot();
+[, $registry] = engine($cache, $clock, $kernel, null, $web, mysqlDetector($kernel));
+$cache->reset();
+$web->reset();
+$before = serverConnections($mysqlUrl);
+$detectMillis = millis(static fn(): array => array_map($registry->status(...), Component::cases()));
+$opened = serverConnections($mysqlUrl) - $before - 1;
+report('with Nginx and MySQL: detection of all components, warm, cache round trips', $cache->roundTrips(), 'trips', 0, sprintf('(%.2f ms)', $detectMillis), true);
+report('with Nginx and MySQL: detection of all components, warm, connections built', (int) $kernel->getContainer()->initialized('doctrine.dbal.main_connection'), 'built', 0, '', true);
+report('with Nginx and MySQL: detection of all components, warm, network calls', $opened + $web->calls(), 'calls', 0, sprintf('(%d connections to MySQL, %d status pages or commands)', $opened, $web->calls()), true);
+
+$mysql = mysqlDetector($kernel);
+$showStack = static function (CacheItemPoolInterface $cache, bool $rest = false) use ($clock, $kernel, $twig, $urls, $web, $storage, $mysql, &$built): string {
+    return renderer(screens($cache, $clock, $kernel, $built, null, $web, $mysql), $twig, $clock, $storage)->page(Request::create('/', 'GET', $rest ? ['rest' => '1'] : []), 'stack', $urls)->html;
+};
+
+$dirs[] = $dir = workDir();
+$cache = filesystemCache($dir);
+$showStack($cache);
+$showStack($cache, true);
+$cache->reset();
+$web->reset();
+$before = serverConnections($mysqlUrl);
+$html = $showStack($cache);
+$opened = serverConnections($mysqlUrl) - $before - 1;
+$cards = substr_count($html, 'data-jm-component=');
+report('Stack screen with Nginx and MySQL, everything in cache, cache round trips', $cache->roundTrips(), 'trips', 2 * $cards + 2, sprintf('(%d cards; %s)', $cards, json_encode($cache->calls, JSON_THROW_ON_ERROR)), true);
+report('Stack screen with Nginx and MySQL, everything in cache, MySQL connections', $opened, 'conn.', 0, sprintf('(%d status pages or commands)', $web->calls()), true);
+
+$total = 0.0;
+for ($i = 0; $i < SCREEN_RUNS; ++$i) {
+    $screen = stackScreen($cache, $clock, $kernel, $built, null, $web, $mysql);
+    $total += millis(static fn(): array => $screen->blocks(new ScreenRequest($clock->now()->getTimestamp())));
+}
+report('Stack screen with Nginx and MySQL, warm, blocks without Twig, duration', $total / SCREEN_RUNS, 'ms', 15, sprintf('(mean of %d; detection, reading, checks and summary included)', SCREEN_RUNS));
+
+$dirs[] = $dir = workDir();
+$mockClock = new MockClock();
+[$reader, $registry] = engine(filesystemCache($dir), $mockClock, $kernel, null, $web, $mysql);
+$reader->overview(ReadMode::Page);
+$reader->overview(ReadMode::Fragment);
+$web->reset();
+$before = serverConnections($mysqlUrl);
+$total = 0.0;
+$renewed = 0;
+for ($i = 0; $i < RENEWAL_RUNS; ++$i) {
+    $mockClock->sleep(11);
+    $registry->reset();
+    $total += millis(static function () use ($reader, $mockClock, &$renewed): void {
+        foreach ($reader->overview(ReadMode::Fragment)->components as $component) {
+            foreach ($component->instances[0]->snapshot->results ?? [] as $result) {
+                $renewed += (int) ($result->collectedAt === $mockClock->now()->getTimestamp());
+            }
+        }
+    });
+}
+$opened = serverConnections($mysqlUrl) - $before - 1;
+report('dynamic renewal of Server, PHP, Symfony, Nginx and MySQL, duration', $total / RENEWAL_RUNS, 'ms', 150, sprintf('(mean of %d)', RENEWAL_RUNS));
+report('dynamic renewal of Server, PHP, Symfony, Nginx and MySQL, values read', $renewed / RENEWAL_RUNS, 'calls', 5, '(per renewal; five dynamic collectors)', true);
+report('dynamic renewal of Server, PHP, Symfony, Nginx and MySQL, connections', $opened / RENEWAL_RUNS, 'conn.', null, '(per renewal, each closed at the end of the read)');
+
+$slowest = 0.0;
+$mostRefreshes = 0;
+$firstOpened = 0;
+for ($i = 0; $i < COLD_RUNS; ++$i) {
+    $dirs[] = $dir = workDir();
+    $cache = filesystemCache($dir);
+    $before = serverConnections($mysqlUrl);
+    $slowest = max($slowest, millis(static function () use ($showStack, $cache, &$html): void {
+        $html = $showStack($cache);
+    }));
+    $firstOpened = max($firstOpened, serverConnections($mysqlUrl) - $before - 1);
+    $refreshes = 0;
+    while (str_contains($html, 'data-jm-reading') && $refreshes < 10) {
+        $html = $showStack($cache, true);
+        ++$refreshes;
+    }
+    $mostRefreshes = max($mostRefreshes, str_contains($html, 'data-jm-reading') ? PHP_INT_MAX : $refreshes);
+}
+report('Stack screen with Nginx and MySQL, first display, empty cache, duration', $slowest, 'ms', 1200, sprintf('(slowest of %d, Twig included; %d connections to MySQL in the page at most)', COLD_RUNS, $firstOpened));
+report('Stack screen with Nginx and MySQL, first display, follow-ups until complete', $mostRefreshes, 'refr.', null, sprintf('(most of %d)', COLD_RUNS));
+$kernel->shutdown();
+
+$frozen = new FrozenServer();
+$kernel = new TestKernel('prod', false, $stackConfig, withHttpClient: false, withPublicInternals: true, connections: ['frozen' => ['url' => sprintf('mysql://jmonitor:jmonitor@127.0.0.1:%d/jmonitor', $frozen->port)]]);
+$kernel->boot();
+$dirs[] = $kernel->getVarDir();
+$shifted = new ShiftedClock();
+$dirs[] = $dir = workDir();
+[$reader, $registry] = engine(filesystemCache($dir), $shifted, $kernel, null, null, mysqlDetector($kernel));
+$frozenDisplay = static function () use ($reader, $registry, $frozen): array {
+    $registry->reset();
+    $millis = millis(static fn(): StackState => $reader->overview(ReadMode::Fragment));
+
+    return [$millis, $frozen->attempts()];
+};
+$waited = 0.0;
+$displays = 0;
+do {
+    [$waited, $tried] = $frozenDisplay();
+    ++$displays;
+} while ($tried === 0 && $displays < 5);
+$waitEnded = microtime(true);
+$waits = [];
+$slowest = 0.0;
+for ($i = 1; $i <= DISPLAYS; ++$i) {
+    $shifted->shift = $i * 59 / DISPLAYS - (microtime(true) - $waitEnded);
+    [$millis, $tried] = $frozenDisplay();
+    if ($tried > 0) {
+        $waits[] = sprintf('%.0f ms', $millis);
+    } else {
+        $slowest = max($slowest, $millis);
+    }
+}
+$shifted->shift = 61 - (microtime(true) - $waitEnded);
+[$again, $retried] = $frozenDisplay();
+report('frozen MySQL server, cold cache, the first display that tries, duration', $waited, 'ms', null, sprintf('(display %d; the read waits the 10 s set while the connection opens)', $displays));
+report(sprintf('frozen MySQL server, %d displays over the next 59 s, displays that wait', DISPLAYS), count($waits), 'disp.', 0, sprintf('(%s)', implode(', ', $waits)), true);
+report(sprintf('frozen MySQL server, %d displays over the next 59 s, slowest of the others', DISPLAYS), $slowest, 'ms', 50);
+report('frozen MySQL server, display 61 s after the first wait, duration', $again, 'ms', null, sprintf('(%d connection)', $retried));
+$kernel->shutdown();
+
 (new Filesystem())->remove($dirs);

@@ -44,6 +44,9 @@
             {% for name, label in actions %}
                 <form method="post" action="{{ urls.action(path) }}">
                     <input type="hidden" name="action" value="{{ name }}">
+                    {% for parameter, value in page.query %}
+                        <input type="hidden" name="{{ parameter }}" value="{{ value }}">
+                    {% endfor %}
                     {% if token is not null %}
                         <input type="hidden" name="token" value="{{ token }}">
                     {% endif %}
@@ -57,7 +60,7 @@
         </div>
     </div>
 </{{ header }}>
-<{{ main }} id="jm-main" class="jm-main" data-jm-live data-jm-fragment-url="{{ urls.fragment(path) }}">
+<{{ main }} id="jm-main" class="jm-main" data-jm-live data-jm-fragment-url="{{ urls.fragment(path, page.query) }}">
     <div class="jm-heading">
         <h1 class="jm-heading__title">{{ page.screen.label }}</h1>
         <p class="jm-heading__text">{{ page.screen.heading }}{% if page.period %}, {{ page.period|jmonitor_period|lower }}{% endif %}.</p>

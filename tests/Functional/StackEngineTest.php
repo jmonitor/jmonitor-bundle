@@ -8,7 +8,10 @@ use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ApacheDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
+use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
@@ -48,6 +51,9 @@ final class StackEngineTest extends WebTestCase
         FrankenPhpDetector::class,
         ApacheDetector::class,
         NginxDetector::class,
+        MysqlDetector::class,
+        DoctrineConnections::class,
+        DatabaseInstances::class,
     ];
 
     private string $bufferDir;
@@ -96,7 +102,7 @@ final class StackEngineTest extends WebTestCase
             self::assertFreshValues($component);
         }
         if ($linux) {
-            static::assertSame(['frankenphp', 'apache', 'nginx'], array_keys($state->notDetected));
+            static::assertSame(['frankenphp', 'apache', 'nginx', 'mysql'], array_keys($state->notDetected));
         }
     }
 
@@ -115,6 +121,7 @@ final class StackEngineTest extends WebTestCase
                 'frankenphp' => 'FrankenPHP is not serving this page.',
                 'apache' => 'Apache is not serving this page.',
                 'nginx' => 'Nginx is not serving this page.',
+                'mysql' => 'No MySQL Doctrine connection found.',
             ],
             array_diff_key($state->notDetected, [Component::System->value => true]),
         );
@@ -201,6 +208,26 @@ final class StackEngineTest extends WebTestCase
         static::assertSame(self::collectedAt($first), self::collectedAt($second));
     }
 
+    public function testDetectingMysqlBuildsNoConnection(): void
+    {
+        $connections = ['e' => ['url' => 'mysql://jmonitor:jmonitor@127.0.0.1:1/jmonitor', 'mapping_types' => ['enum' => 'string']]];
+        $warmUp = self::kernel([], connections: $connections);
+        $warmUp->boot();
+        $warmUp->shutdown();
+        $this->kernels[] = $kernel = self::kernel([], connections: $connections);
+        $kernel->boot();
+        $container = $kernel->getContainer();
+        $reader = $container->get(StackReaderInterface::class);
+        static::assertInstanceOf(StackReaderInterface::class, $reader);
+
+        $state = $reader->overview(ReadMode::Page);
+
+        static::assertSame(CacheState::Cold, $state->cache);
+        static::assertSame(['e'], array_map(static fn($instance): ?string => $instance->id, $state->component(Component::Mysql)->instances ?? []));
+        static::assertFalse($container->initialized('doctrine.dbal.e_connection'));
+        static::assertFalse($container->initialized('doctrine.dbal.default_connection'));
+    }
+
     public function testTheStackOffLeavesNoService(): void
     {
         $client = static::createClient(['jmonitor' => ['stack' => false]]);
@@ -281,9 +308,10 @@ final class StackEngineTest extends WebTestCase
     }
 
     /**
-     * @param array<string, mixed> $jmonitor
+     * @param array<string, mixed>                $jmonitor
+     * @param array<string, array<string, mixed>> $connections
      */
-    private static function kernel(array $jmonitor, bool $withDoctrine = true, bool $withEasyAdmin = false, ?string $cacheApp = null): TestKernel
+    private static function kernel(array $jmonitor, bool $withDoctrine = true, bool $withEasyAdmin = false, ?string $cacheApp = null, array $connections = []): TestKernel
     {
         $kernel = new TestKernel(
             'test',
@@ -293,6 +321,7 @@ final class StackEngineTest extends WebTestCase
             withPublicInternals: true,
             withEasyAdmin: $withEasyAdmin,
             cacheApp: $cacheApp,
+            connections: $connections,
         );
         self::$varDirs[] = $kernel->getVarDir();
 

@@ -22,7 +22,11 @@ use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
 use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
+use Jmonitor\JmonitorBundle\Stack\Detection\DatabaseInstances;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
+use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
+use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
+use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
@@ -41,6 +45,7 @@ use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FakeHostUrls;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeDatabase;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
@@ -57,6 +62,7 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Cache\Adapter\NullAdapter;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\HttpFoundation\Request;
@@ -73,6 +79,7 @@ final class DisplayCostTest extends TestCase
     private const BETWEEN_DISPLAYS = 0.2;
     private const BETWEEN_REFRESHES = 0.18;
     private const BETWEEN_QUEUE_DISPLAYS = 0.58;
+    private const MYSQL = ['driver' => 'pdo_mysql', 'host' => 'db.internal', 'port' => null, 'user' => 'root', 'password' => 's3cr3t', 'dbname' => 'shop'];
     private const QUEUES = '{"transports":["async"]}' . "\n" . '{"name":"async","count":12}' . "\n";
 
     private MockClock $clock;
@@ -110,7 +117,7 @@ final class DisplayCostTest extends TestCase
 
         $last = $this->display(static fn(): LocalStackReader => $reader);
 
-        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1]], $this->calls());
+        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1]], $this->calls());
         self::assertSame(CacheState::Working, $last->cache);
         self::assertFalse($last->isReading());
 
@@ -144,9 +151,9 @@ final class DisplayCostTest extends TestCase
     {
         $last = $this->display(fn(): LocalStackReader => $this->reader($pool()));
 
-        self::assertSame([0, 0, 0, 0, 0, 0], $this->calls()['Network']);
-        self::assertSame([0, 0, 0, 0, 0, 0], $this->calls()['Slow']);
-        self::assertSame([50, 50, 50, 50, 50, 50], $this->calls()['Immediate']);
+        self::assertSame([0, 0, 0, 0, 0, 0, 0], $this->calls()['Network']);
+        self::assertSame([0, 0, 0, 0, 0, 0, 0], $this->calls()['Slow']);
+        self::assertSame([50, 50, 50, 50, 50, 50, 50], $this->calls()['Immediate']);
         self::assertSame($cache, $last->cache);
 
         foreach (Component::cases() as $component) {
@@ -161,8 +168,8 @@ final class DisplayCostTest extends TestCase
         $this->clock->sleep(self::BETWEEN_DISPLAYS);
         $reader->overview(ReadMode::Fragment);
         $this->clock->sleep(1 - self::BETWEEN_DISPLAYS);
-        $once = ['Immediate' => [1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1]];
-        $twice = ['Immediate' => [2, 2, 2, 2, 2, 2], 'Network' => [2, 2, 2, 2, 2, 2], 'Slow' => [2, 2, 2, 2, 2, 2]];
+        $once = ['Immediate' => [1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1]];
+        $twice = ['Immediate' => [2, 2, 2, 2, 2, 2, 2], 'Network' => [2, 2, 2, 2, 2, 2, 2], 'Slow' => [2, 2, 2, 2, 2, 2, 2]];
         self::assertSame($once, $this->calls());
 
         $forgotten = (int) $reader->refresh();
@@ -238,7 +245,7 @@ final class DisplayCostTest extends TestCase
             $this->clock->sleep(self::BETWEEN_DISPLAYS);
         }
 
-        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1]], $this->calls());
+        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1]], $this->calls());
         self::assertStringNotContainsString('data-jm-rest', $html);
     }
 
@@ -354,6 +361,55 @@ final class DisplayCostTest extends TestCase
         self::assertSame(2, $pages->calls);
     }
 
+    public function testAnInstanceIsReadInOneRoundTrip(): void
+    {
+        $ids = ['a', 'a.b', 'é/1'];
+        $instances = array_map(static fn(string $id): Instance => Instance::found(Component::Php, new CollectorSet(Component::Php, [
+            new CollectorSpec(new FakeCollector('php.status', ['ok' => true]), Lifetime::Dynamic, CostClass::Immediate),
+            new CollectorSpec(new FakeCollector('php.remote', ['ok' => true]), Lifetime::Dynamic, CostClass::Network),
+            new CollectorSpec(new FakeCollector('php.slow', ['ok' => true]), Lifetime::Dynamic, CostClass::Slow, shared: true),
+        ]), $id), $ids);
+        $this->registry = Detectors::registry(
+            [Component::Php->value => new StaticDetector(Component::Php, Detection::instances($instances))],
+            [Component::Php->value => ['enabled' => 'auto']],
+        );
+        $cache = new CountingCachePool();
+        $reader = $this->reader($cache);
+
+        foreach ($ids as $id) {
+            $reader->component(Component::Php, $id, ReadMode::Page);
+            $reader->component(Component::Php, $id, ReadMode::Fragment);
+            $cache->reset();
+
+            $state = $reader->component(Component::Php, $id, ReadMode::Fragment);
+
+            self::assertFalse($state->isReading(), $id);
+            self::assertSame(['getItem' => 1, 'getItems' => 1], $cache->calls, 'the probe, then the instance: ' . $id);
+        }
+    }
+
+    public function testForgettingBuildsNoCollector(): void
+    {
+        $cache = new CountingCachePool();
+        $broken = new FakeCollector('php.remote', collectFailure: new \RuntimeException('Connection refused'));
+        $instance = Instance::found(Component::Php, new CollectorSet(Component::Php, [
+            new CollectorSpec($broken, Lifetime::Dynamic, CostClass::Network),
+        ]), 'main');
+        $keys = ['jmonitor.stack.result.%node.web-1.php.main.php.remote', 'jmonitor.stack.failure.%node.web-1.php.main.php.remote'];
+
+        foreach ($keys as $key) {
+            $cache->save($cache->getItem($key)->set(['kept' => true]));
+        }
+
+        (new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, new WebNode('web-1')))->forget([$instance]);
+
+        self::assertSame(0, $broken->collects);
+
+        foreach ($keys as $key) {
+            self::assertFalse($cache->hasItem($key), $key);
+        }
+    }
+
     public function testAPoolThatThrowsNeverBreaksAnApplicationScreen(): void
     {
         $logger = self::logger();
@@ -364,6 +420,99 @@ final class DisplayCostTest extends TestCase
         self::assertSame('Requests', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
         self::assertSame('<span data-jm-slot="nav-stack"></span>', $crawler->filter('[data-jm-slot="nav-stack"]')->outerHtml());
         self::assertSame(['warning The summary of the live stack could not be read: Connection refused'], $logger->messages);
+    }
+
+    public function testFiftyDisplaysOfADeadDatabaseAskItOnce(): void
+    {
+        $container = new class extends Container {
+            public int $asked = 0;
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+
+                throw new \RuntimeException('SQLSTATE[HY000] [2002] Connection refused');
+            }
+        };
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->mysqlReader($container, ['default' => self::MYSQL], $cache);
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(59 / self::DISPLAYS);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertLessThan(self::START + 60, $this->clock->now()->getTimestamp());
+        self::assertSame(1, $container->asked);
+        self::assertSame(ResultState::Failed, $state->component(Component::Mysql)?->instances[0]->snapshot?->result('mysql')?->state);
+
+        $this->clock->sleep(self::START + 61 - $this->clock->now()->getTimestamp());
+        $reader()->overview(ReadMode::Fragment);
+
+        self::assertSame(2, $container->asked);
+    }
+
+    public function testAFrozenDatabaseMakesOneDisplayWait(): void
+    {
+        $container = new class ($this->clock) extends Container {
+            public int $asked = 0;
+
+            public function __construct(
+                private readonly MockClock $clock,
+            ) {
+                parent::__construct();
+            }
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+                $this->clock->sleep(10);
+
+                throw new \RuntimeException('SQLSTATE[HY000] [2006] MySQL server has gone away');
+            }
+        };
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->mysqlReader($container, ['default' => self::MYSQL], $cache);
+        $detail = null;
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $reader()->overview(ReadMode::Page);
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+            $detail = $reader()->component(Component::Mysql, 'default', ReadMode::Fragment);
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+        }
+
+        self::assertSame(1, $container->asked);
+        self::assertEqualsWithDelta(self::START + 10 + 2 * self::DISPLAYS * self::BETWEEN_DISPLAYS, (float) $this->clock->now()->format('U.u'), 0.001, 'one wait of ten seconds');
+        self::assertFalse($detail?->isReading());
+
+        $snapshot = $detail?->component(Component::Mysql)?->instances[0]->snapshot;
+
+        foreach (['mysql', 'mysql.variables', 'mysql.sizes', 'mysql.slow_queries'] as $name) {
+            self::assertSame(ResultState::Failed, $snapshot?->result($name)?->state, $name);
+        }
+    }
+
+    public function testTwoConnectionsOnOneServerReadItsStatusOnce(): void
+    {
+        $container = new Container();
+        $databases = [];
+        foreach (['default', 'reporting'] as $name) {
+            $container->set('doctrine.dbal.' . $name . '_connection', $databases[$name] = new FakeDatabase(['@@performance_schema' => [['enabled' => '1']]]));
+        }
+        $cache = new CountingCachePool();
+
+        $this->mysqlReader($container, ['default' => self::MYSQL, 'reporting' => ['dbname' => 'reports'] + self::MYSQL], $cache)->overview(ReadMode::Page);
+        $state = $this->mysqlReader($container, ['default' => self::MYSQL, 'reporting' => ['dbname' => 'reports'] + self::MYSQL], $cache)->overview(ReadMode::Fragment);
+
+        self::assertFalse($state->isReading());
+        self::assertCount(2, $state->component(Component::Mysql)->instances ?? []);
+        $statusQueries = array_filter(
+            [...$databases['default']->queries, ...$databases['reporting']->queries],
+            static fn(string $query): bool => str_contains($query, 'SHOW GLOBAL STATUS WHERE'),
+        );
+        self::assertCount(1, $statusQueries);
     }
 
     /**
@@ -400,6 +549,28 @@ final class DisplayCostTest extends TestCase
         );
 
         return $this->reader(new CountingCachePool());
+    }
+
+    /**
+     * A reader of the MySQL servers of these connections only, detected again as each request does.
+     *
+     * @param array<string, array<string, mixed>> $params the parameters of each connection
+     */
+    private function mysqlReader(Container $container, array $params, CacheItemPoolInterface $cache): LocalStackReader
+    {
+        $names = array_map(strval(...), array_keys($params));
+        $instances = new DatabaseInstances(
+            new DoctrineConnections(new ServiceLocator(array_map(static fn(array $connection): \Closure => static fn(): \ArrayObject => new \ArrayObject($connection), $params)), $names),
+            $container,
+            array_combine($names, array_map(static fn(string $name): string => 'doctrine.dbal.' . $name . '_connection', $names)),
+            [],
+        );
+        $this->registry = Detectors::registry(
+            [Component::Mysql->value => new MysqlDetector($instances, [], false)],
+            [Component::Mysql->value => ['enabled' => 'auto']],
+        );
+
+        return $this->reader($cache);
     }
 
     /**

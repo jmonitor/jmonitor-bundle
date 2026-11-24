@@ -30,7 +30,7 @@ final readonly class QueuesCollector implements CollectorInterface
     ) {}
 
     /**
-     * @return array{transports: list<array{name: string, count: ?int, reason: ?string}>, complete: bool} in the order of the command
+     * @return array{transports: list<array{name: string, count: ?int, reason: ?string}>} in the order of the command
      *
      * @throws MissingPrerequisiteException the console or the PHP of the command line cannot be found
      * @throws \RuntimeException            the command did not list the transports
@@ -77,7 +77,7 @@ final readonly class QueuesCollector implements CollectorInterface
             }
         }
 
-        return ['transports' => $transports, 'complete' => !$run['timed_out']];
+        return ['transports' => $transports];
     }
 
     public function getVersion(): int

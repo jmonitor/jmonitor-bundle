@@ -13,7 +13,7 @@
                     <div class="jm-component__head">
                         <h3 class="jm-component__name">
                             {%- if card.path is not null -%}
-                                <a class="jm-component__link" href="{{ urls.page(card.path) }}">{{ card.name }}</a>
+                                <a class="jm-component__link" href="{{ urls.page(card.path, card.query) }}">{{ card.name }}</a>
                             {%- else -%}
                                 {{ card.name }}
                             {%- endif -%}

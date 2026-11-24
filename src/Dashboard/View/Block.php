@@ -14,6 +14,7 @@ final class Block
     public const COMPONENTS = 'components';
     public const GAUGES = 'gauges';
     public const FACTS = 'facts';
+    public const INSTANCES = 'instances';
 
     private function __construct(
         public readonly string $type,
@@ -63,6 +64,11 @@ final class Block
     public static function facts(Facts $facts): self
     {
         return new self(self::FACTS, BlockState::Ready, $facts);
+    }
+
+    public static function instances(InstanceNav $nav): self
+    {
+        return new self(self::INSTANCES, BlockState::Ready, $nav);
     }
 
     public static function unavailable(string $type, BlockState $state, string $title = '', string $text = ''): self
