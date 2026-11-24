@@ -5,7 +5,13 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Stack\Detection;
 
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
+use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
+use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
+use Jmonitor\JmonitorBundle\Stack\Collector\EndOfLifeCollector;
+use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
+use Jmonitor\JmonitorBundle\Stack\Collector\RedisInfoCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\Utils\UrlFetcher;
 
 /**
  * One instance per Redis or Valkey server: those of the configuration, otherwise those of the cache and
@@ -17,6 +23,8 @@ final readonly class RedisDetector implements ComponentDetectorInterface
 
     public function __construct(
         private RedisDsns $dsns,
+        private bool $endOfLife,
+        private ?UrlFetcher $endOfLifeFetcher = null,
     ) {}
 
     public function component(): Component
@@ -63,7 +71,7 @@ final readonly class RedisDetector implements ComponentDetectorInterface
 
             if (!isset($servers[$server->key])) {
                 $servers[$server->key] = true;
-                $instances[] = $this->instance($id, $server);
+                $instances[] = $this->instance($id, $id, $server);
             }
         }
 
@@ -88,14 +96,26 @@ final readonly class RedisDetector implements ComponentDetectorInterface
                 continue;
             }
 
-            $instances[$server->key] ??= $this->instance($server->address, $server);
+            $instances[$server->key] ??= $this->instance($entry, $server->address, $server);
         }
 
         return array_values($instances);
     }
 
-    private function instance(string $id, Server $server): Instance
+    /**
+     * The product is only known once its server is read, so both support lookups are set.
+     */
+    private function instance(string $entry, string $id, Server $server): Instance
     {
-        return Instance::found(Component::Redis, new CollectorSet(Component::Redis, []), $id, null, $server);
+        $link = $this->dsns->link($entry);
+        $specs = [new CollectorSpec(new RedisInfoCollector($link), Lifetime::Dynamic, CostClass::Network, trackDelta: true)];
+
+        if ($this->endOfLife) {
+            $fetcher = $this->endOfLifeFetcher ?? new UrlFetcher(3);
+            $specs[] = new CollectorSpec(new EndOfLifeCollector('redis', $fetcher), Lifetime::Day, CostClass::Slow, shared: true);
+            $specs[] = new CollectorSpec(new EndOfLifeCollector('valkey', $fetcher), Lifetime::Day, CostClass::Slow, shared: true);
+        }
+
+        return Instance::found(Component::Redis, new CollectorSet(Component::Redis, $specs, $link->release(...)), $id, null, $server);
     }
 }

@@ -33,6 +33,7 @@ use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\Group;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\KernelInterface;
@@ -256,6 +257,29 @@ final class StackEngineTest extends WebTestCase
         static::assertFalse($container->initialized('doctrine.dbal.default_connection'));
     }
 
+    public function testDetectingRedisOpensNoConnection(): void
+    {
+        $url = getenv('JMONITOR_TEST_REDIS_URL');
+        if (!\is_string($url) || $url === '') {
+            self::markTestSkipped('JMONITOR_TEST_REDIS_URL is not set.');
+        }
+        $stack = ['stack' => self::STACK + ['redis' => ['connections' => ['main' => $url]]]];
+        $warmUp = self::kernel($stack);
+        $warmUp->boot();
+        $warmUp->shutdown();
+        $this->kernels[] = $kernel = self::kernel($stack);
+        $kernel->boot();
+        $reader = $kernel->getContainer()->get(StackReaderInterface::class);
+        static::assertInstanceOf(StackReaderInterface::class, $reader);
+        $received = self::connectionsReceived($url);
+
+        $state = $reader->overview(ReadMode::Page);
+
+        static::assertSame(CacheState::Cold, $state->cache);
+        static::assertSame(['main'], array_map(static fn($instance): ?string => $instance->id, $state->component(Component::Redis)->instances ?? []));
+        static::assertSame($received + 1, self::connectionsReceived($url));
+    }
+
     public function testTheStackOffLeavesNoService(): void
     {
         $client = static::createClient(['jmonitor' => ['stack' => false]]);
@@ -268,6 +292,20 @@ final class StackEngineTest extends WebTestCase
 
         $client->request('GET', '/jmonitor/requests');
         static::assertResponseStatusCodeSame(200);
+    }
+
+    /**
+     * The connections the server has received so far, the one asking for them included.
+     */
+    private static function connectionsReceived(string $url): int
+    {
+        $link = (new RedisDsns(new ServiceLocator(['main' => static fn(): \ArrayObject => new \ArrayObject([$url])]), ['main'], []))->link('main');
+
+        try {
+            return (int) $link->info()['total_connections_received'];
+        } finally {
+            $link->release();
+        }
     }
 
     private static function assertFreshValues(ComponentState $component): void

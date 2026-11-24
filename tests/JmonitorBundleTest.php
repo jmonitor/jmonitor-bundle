@@ -1702,7 +1702,7 @@ class JmonitorBundleTest extends TestCase
             $set->getDefinition(RedisDsns::class)->getArgument(1),
         );
         static::assertSame([['index' => 'redis']], $default->getDefinition(RedisDetector::class)->getTag('jmonitor.stack.detector'));
-        static::assertSame([RedisDsns::class], array_map(strval(...), $default->getDefinition(RedisDetector::class)->getArguments()));
+        static::assertSame([RedisDsns::class, '%jmonitor.stack.end_of_life%'], array_map(strval(...), $default->getDefinition(RedisDetector::class)->getArguments()));
         static::assertSame([['method' => 'reset']], $default->getDefinition(RedisDsns::class)->getTag('kernel.reset'));
     }
 

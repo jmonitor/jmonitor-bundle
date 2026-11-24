@@ -4,11 +4,18 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Detection;
 
+use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
+use Jmonitor\JmonitorBundle\Stack\Collector\EndOfLifeCollector;
+use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
+use Jmonitor\JmonitorBundle\Stack\Collector\RedisInfoCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Jmonitor\JmonitorBundle\Stack\Detection\RedisDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeRedis;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeUrlFetcher;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RedisPayloads;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Exception\EnvNotFoundException;
 use Symfony\Component\DependencyInjection\ServiceLocator;
@@ -113,24 +120,84 @@ final class RedisDetectorTest extends TestCase
         self::assertSame([null], array_map(static fn(Instance $instance): ?string => $instance->error, $detection->instances));
     }
 
-    /**
-     * @param array<string, string|\Throwable|null> $configured
-     * @param array<string, string|\Throwable|null> $found
-     */
-    private static function detector(array $configured, array $found): RedisDetector
+    public function testEachServerIsReadByOneCollectorAndTheSupportOfBothProducts(): void
     {
-        return new RedisDetector(self::dsns($configured, $found));
+        $endOfLife = new FakeUrlFetcher(null);
+        $detection = (new RedisDetector(self::dsns(['main' => 'redis://cache'], []), true, $endOfLife))->detect();
+
+        $instance = $detection->instances[0];
+        self::assertNotNull($instance->collectors);
+        self::assertSame(['redis', 'eol.redis', 'eol.valkey'], $instance->collectors->names());
+        $flags = [];
+        foreach ($instance->collectors->specs() as $spec) {
+            $flags[$spec->name] = [$spec->collector::class, $spec->lifetime, $spec->cost, $spec->trackDelta, $spec->shared, $spec->detailOnly, $spec->perServer];
+        }
+        self::assertSame([
+            'redis' => [RedisInfoCollector::class, Lifetime::Dynamic, CostClass::Network, true, false, false, false],
+            'eol.redis' => [EndOfLifeCollector::class, Lifetime::Day, CostClass::Slow, false, true, false, false],
+            'eol.valkey' => [EndOfLifeCollector::class, Lifetime::Day, CostClass::Slow, false, true, false, false],
+        ], $flags);
+        self::assertSame(0, $endOfLife->calls);
+    }
+
+    public function testWithoutEndOfLifeThereIsNoSupportLookup(): void
+    {
+        self::assertSame(['redis'], self::detector(['main' => 'redis://cache'], [])->detect()->instances[0]->collectors?->names());
+    }
+
+    public function testDetectingOpensNoConnection(): void
+    {
+        $connects = 0;
+        $detector = new RedisDetector(self::dsns(['main' => 'redis://cache', 'other' => 'redis://other'], [], $connects), true, new FakeUrlFetcher(null));
+
+        $detection = $detector->detect();
+
+        self::assertCount(2, $detection->instances);
+        self::assertSame(0, $connects);
+    }
+
+    public function testEachServerReadsThroughItsOwnLinkAndClosesIt(): void
+    {
+        $connects = 0;
+        $detection = (new RedisDetector(self::dsns([], ['.cache_connection.a' => 'redis://cache', 'session.abstract_handler' => 'redis://sessions'], $connects), false))->detect();
+
+        foreach ($detection->instances as $instance) {
+            self::assertNotNull($instance->collectors);
+            $kept = $instance->collectors->get('redis')?->collector->collect();
+            $instance->collectors->release();
+
+            self::assertSame('7.2.4', $kept['server']['version'] ?? null);
+        }
+        self::assertSame(2, $connects);
     }
 
     /**
      * @param array<string, string|\Throwable|null> $configured
      * @param array<string, string|\Throwable|null> $found
      */
-    private static function dsns(array $configured, array $found): RedisDsns
+    private static function detector(array $configured, array $found): RedisDetector
+    {
+        return new RedisDetector(self::dsns($configured, $found), false);
+    }
+
+    /**
+     * @param array<string, string|\Throwable|null> $configured
+     * @param array<string, string|\Throwable|null> $found
+     */
+    private static function dsns(array $configured, array $found, int &$connects = 0): RedisDsns
     {
         $entries = array_map(static fn(string|\Throwable|null $dsn): \Closure => static fn(): \ArrayObject => $dsn instanceof \Throwable ? throw $dsn : new \ArrayObject([$dsn]), $configured + $found);
 
-        return new RedisDsns(new ServiceLocator($entries), array_map(strval(...), array_keys($configured)), array_map(strval(...), array_keys($found)));
+        return new RedisDsns(
+            new ServiceLocator($entries),
+            array_map(strval(...), array_keys($configured)),
+            array_map(strval(...), array_keys($found)),
+            static function () use (&$connects): FakeRedis {
+                ++$connects;
+
+                return new FakeRedis(RedisPayloads::info());
+            },
+        );
     }
 
     /**

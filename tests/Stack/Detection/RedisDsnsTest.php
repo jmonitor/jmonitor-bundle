@@ -6,6 +6,8 @@ namespace Jmonitor\JmonitorBundle\Tests\Stack\Detection;
 
 use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\Failures;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeRedis;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RedisPayloads;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Exception\EnvNotFoundException;
 use Symfony\Component\DependencyInjection\ServiceLocator;
@@ -103,15 +105,54 @@ final class RedisDsnsTest extends TestCase
         self::assertSame(1, $reads);
     }
 
+    public function testTheOptionsOfTheDsnThatWouldOutliveTheReadAreDropped(): void
+    {
+        $calls = [];
+        $dsns = self::dsns(['main' => 'redis://:s3cr3t@cache:6380?persistent=1&timeout=30&read_timeout=0&lazy=0&dbindex=2&retry_interval=5&persistent_id=app&class=Redis&ssl[verify_peer]=0#x'], $calls);
+
+        $dsns->link('main')->info();
+
+        self::assertSame([['redis://:s3cr3t@cache:6380?dbindex=2&ssl[verify_peer]=0#x', ['lazy' => true, 'timeout' => 1, 'read_timeout' => 2]]], $calls);
+    }
+
+    public function testADsnWithoutOptionsIsGivenAsItIs(): void
+    {
+        $calls = [];
+        $dsns = self::dsns(['main' => 'rediss://user:p%40ss@cache/1', 'bare' => 'redis://cache?persistent=1'], $calls);
+
+        $dsns->link('main')->info();
+        $dsns->link('bare')->info();
+
+        self::assertSame(['rediss://user:p%40ss@cache/1', 'redis://cache'], array_column($calls, 0));
+    }
+
+    public function testReadingATargetOpensNothing(): void
+    {
+        $calls = [];
+        $dsns = self::dsns(['main' => 'redis://cache'], $calls);
+
+        $dsns->target('main');
+        $link = $dsns->link('main');
+        $link->release();
+
+        self::assertSame([], $calls);
+    }
+
     /**
-     * @param array<string, string> $entries
+     * @param array<string, string>                       $entries
+     * @param ?list<array{string, array<string, mixed>}> $calls   what the factory of the connections receives
      */
-    private static function dsns(array $entries): RedisDsns
+    private static function dsns(array $entries, ?array &$calls = null): RedisDsns
     {
         return new RedisDsns(
             new ServiceLocator(array_map(static fn(string $dsn): \Closure => static fn(): \ArrayObject => new \ArrayObject([$dsn]), $entries)),
             array_keys($entries),
             [],
+            static function (string $dsn, array $options) use (&$calls): FakeRedis {
+                $calls[] = [$dsn, $options];
+
+                return new FakeRedis(RedisPayloads::info());
+            },
         );
     }
 }

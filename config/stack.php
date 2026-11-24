@@ -134,7 +134,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->tag('jmonitor.stack.detector', ['index' => Component::Postgresql->value]);
 
     $services->set(RedisDetector::class)
-        ->args([service(RedisDsns::class)])
+        ->args([service(RedisDsns::class), param('jmonitor.stack.end_of_life')])
         ->tag('jmonitor.stack.detector', ['index' => Component::Redis->value]);
 
     $services->set(DoctrineConnections::class)

@@ -30,6 +30,8 @@ use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
@@ -49,6 +51,7 @@ use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeDatabase;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeRedis;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\Detectors;
@@ -564,6 +567,47 @@ final class DisplayCostTest extends TestCase
         $reader()->overview(ReadMode::Fragment);
 
         self::assertSame(2, $container->asked);
+    }
+
+    public function testFiftyDisplaysOfADeadRedisAskItOnce(): void
+    {
+        $asked = 0;
+        $dsns = static function () use (&$asked): RedisDsns {
+            return new RedisDsns(
+                new ServiceLocator(['main' => static fn(): \ArrayObject => new \ArrayObject(['redis://cache.internal:6379'])]),
+                ['main'],
+                [],
+                static function () use (&$asked): FakeRedis {
+                    ++$asked;
+
+                    return new FakeRedis(new \RuntimeException('Redis connection failed: Connection refused'));
+                },
+            );
+        };
+        $cache = new CountingCachePool();
+        $reader = function () use ($dsns, $cache): LocalStackReader {
+            $this->registry = Detectors::registry(
+                [Component::Redis->value => new RedisDetector($dsns(), false)],
+                [Component::Redis->value => ['enabled' => 'auto']],
+            );
+
+            return $this->reader($cache);
+        };
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(59 / self::DISPLAYS);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertLessThan(self::START + 60, $this->clock->now()->getTimestamp());
+        self::assertSame(1, $asked);
+        self::assertSame(ResultState::Failed, $state->component(Component::Redis)?->instances[0]->snapshot?->result('redis')?->state);
+
+        $this->clock->sleep(self::START + 61 - $this->clock->now()->getTimestamp());
+        $reader()->overview(ReadMode::Fragment);
+
+        self::assertSame(2, $asked);
     }
 
     public function testEightPostgresqlConnectionsOfASilentServerMakeOneDisplayWait(): void
