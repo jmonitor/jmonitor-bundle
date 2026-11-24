@@ -14,7 +14,7 @@ final class ErrorMessage
     private const MAX_CLEANED_LENGTH = 8000;
 
     private const RULES = [
-        '~(?<![a-z0-9])(' . self::SECRET_PARAMETERS . ')=[^&;"\'\s]*~iu' => '$1=…',
+        '~(?<![a-z0-9])(' . self::SECRET_PARAMETERS . ')=(?:\'[^\']*\'|"[^"]*"|[^&;"\'\s]*)~iu' => '$1=…',
         '~(["\'])((?:[a-z][a-z0-9+.-]*:)?//)[^"\']*@~iu' => '$1$2',
         '~((?:[a-z][a-z0-9+.-]*:|(?<![\w+.:/-]))//)\S*@~iu' => '$1',
         '~Invalid option\(s\) ".*?" passed to~su' => 'Invalid option(s) passed to',

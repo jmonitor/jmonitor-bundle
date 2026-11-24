@@ -75,6 +75,9 @@ final class ErrorMessageTest extends TestCase
         yield 'the secret key of a queue' => ['sqs://default/queue?access_key=AKIAEXAMPLE&secret_key=SeCr3t%2FKey&region=eu-west-1', 'SeCr3t', 'region=eu-west-1'];
         yield 'a PDO password' => ['mysql:host=db;dbname=app;password=Zqs3cr3t', 'Zqs3cr3t', 'dbname=app'];
         yield 'a libpq password' => ['host=db password=Zqs3cr3t dbname=app', 'Zqs3cr3t', 'dbname=app'];
+        yield 'a quoted libpq password' => ["connection failed: host=db user=app password='my s3cret' dbname=app", 's3cret', 'host=db user=app password=… dbname=app'];
+        yield 'a quoted password in a DSN' => ['bad DSN "mysql:host=db;password=\'s3 cret\'"', 's3 cret', '"mysql:host=db;password=…"'];
+        yield 'a double-quoted auth parameter' => ['Cannot reach redis://127.0.0.1:6379?auth="p w"&timeout=2', 'p w', '127.0.0.1:6379?auth=…&timeout=2'];
         yield 'an encoded slash without scheme' => ['//jmonitor:Zq%2Fsl4sh@127.0.0.1:3306/db', 'Zq%2Fsl4sh', '127.0.0.1:3306/db'];
         yield 'an option name Messenger copies' => ['Invalid option(s) "r3tTail" passed to the Redis Messenger transport.', 'r3tTail', 'passed to the Redis Messenger transport'];
         yield 'a scheme glued to a colon' => ['DSN:mysql://u:s3cr@h/db', 's3cr', 'h/db'];
