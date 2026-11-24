@@ -45,8 +45,11 @@ final class PostgresqlChecks
         }
 
         $hitRate = $postgresql->cacheHitRate;
-        $judged = $hitRate->source === RateSource::Delta
-            || ($hitRate->source === RateSource::SinceStart && $postgresql->cacheBlocks !== null && $postgresql->cacheBlocks >= self::CACHE_BLOCKS_SINCE_RESET);
+        $judged = $postgresql->cacheBlocks !== null && match ($hitRate->source) {
+            RateSource::Delta => $postgresql->cacheBlocks >= PostgresqlReading::CACHE_BLOCKS,
+            RateSource::SinceStart => $postgresql->cacheBlocks >= self::CACHE_BLOCKS_SINCE_RESET,
+            default => false,
+        };
 
         if ($judged && $hitRate->value !== null && $hitRate->value < 95) {
             $findings[] = $raise(

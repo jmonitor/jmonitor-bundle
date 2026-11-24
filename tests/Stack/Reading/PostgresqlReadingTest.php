@@ -23,8 +23,8 @@ final class PostgresqlReadingTest extends TestCase
         'database_stats' => [
             'xact_commit' => 124_900,
             'xact_rollback' => 110,
-            'blks_read' => 3_980,
-            'blks_hit' => 395_020,
+            'blks_read' => 3_800,
+            'blks_hit' => 386_200,
             'tup_inserted' => 4_900,
             'tup_updated' => 2_450,
             'tup_deleted' => 250,
@@ -54,9 +54,9 @@ final class PostgresqlReadingTest extends TestCase
         self::assertFalse($reading->limitedRole);
         self::assertSame(0, $reading->hiddenSessions);
 
-        self::assertSame(98.0, $reading->cacheHitRate->value, '980 hits out of 1 000 blocks');
+        self::assertSame(98.0, $reading->cacheHitRate->value, '9 800 hits out of 10 000 blocks');
         self::assertSame(RateSource::Delta, $reading->cacheHitRate->source);
-        self::assertSame(1_000, $reading->cacheBlocks);
+        self::assertSame(10_000, $reading->cacheBlocks);
         self::assertSame(11.0, $reading->transactionsPerSecond->value, '100 commits and 10 rollbacks in 10 seconds');
         self::assertSame('tx/s', $reading->transactionsPerSecond->unit);
         self::assertSame(9.09, $reading->rollbackRate->value, '10 rolled back out of 110');
@@ -64,7 +64,7 @@ final class PostgresqlReadingTest extends TestCase
         self::assertSame(110, $reading->transactions);
         self::assertSame(20.0, $reading->rowsWrittenPerSecond->value, '100 inserted, 50 updated and 50 deleted in 10 seconds');
         self::assertSame('rows/s', $reading->rowsWrittenPerSecond->unit);
-        self::assertSame(2.0, $reading->diskReadsPerSecond->value, '20 blocks read outside the cache in 10 seconds');
+        self::assertSame(20.0, $reading->diskReadsPerSecond->value, '200 blocks read outside the cache in 10 seconds');
         self::assertSame('blocks/s', $reading->diskReadsPerSecond->unit);
         self::assertSame(3, $reading->temporaryFiles);
         self::assertSame(6_291_456, $reading->temporaryBytes);
@@ -196,12 +196,12 @@ final class PostgresqlReadingTest extends TestCase
             DatabasePayloads::postgresqlActivity(),
         )), self::today());
 
-        $enough = $window(1_000);
-        $tooFew = $window(999);
+        $enough = $window(10_000);
+        $tooFew = $window(9_999);
 
         self::assertSame(RateSource::Delta, $enough->cacheHitRate->source);
         self::assertSame(100.0, $enough->cacheHitRate->value, 'no block read outside the cache over the window');
-        self::assertSame(1_000, $enough->cacheBlocks);
+        self::assertSame(10_000, $enough->cacheBlocks);
 
         self::assertSame(RateSource::SinceStart, $tooFew->cacheHitRate->source);
         self::assertSame(99.0, $tooFew->cacheHitRate->value);

@@ -915,11 +915,11 @@ final class StackChecksTest extends TestCase
         yield 'connections 94.9 %' => [self::postgresqlConnections(949), [], 'postgresql.connections', Severity::Warning];
         yield 'connections 95 %' => [self::postgresqlConnections(950), [], 'postgresql.connections', Severity::Critical];
 
-        yield 'cache hit rate 95 % over 1000 blocks' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 950, 'blks_read' => 50]), 'postgresql.cache_hit_rate', null];
+        yield 'cache hit rate 95 % over 10 000 blocks' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 9_500, 'blks_read' => 500]), 'postgresql.cache_hit_rate', null];
         yield 'cache hit rate 94.99 % over 10 000 blocks' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 9_499, 'blks_read' => 501]), 'postgresql.cache_hit_rate', Severity::Warning];
-        yield 'cache hit rate 94.9 % over 1000 blocks' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 949, 'blks_read' => 51]), 'postgresql.cache_hit_rate', Severity::Warning];
-        yield 'cache hit rate 94.9 % over 999 blocks, 99 999 since the reset' => [...self::postgresqlWindow(['blks_hit' => 93_951, 'blks_read' => 5_049], ['blks_hit' => 94_899, 'blks_read' => 5_100]), 'postgresql.cache_hit_rate', null];
-        yield 'cache hit rate 94.9 % over 999 blocks, 100 000 since the reset' => [...self::postgresqlWindow(['blks_hit' => 93_952, 'blks_read' => 5_049], ['blks_hit' => 94_900, 'blks_read' => 5_100]), 'postgresql.cache_hit_rate', Severity::Warning];
+        yield 'cache hit rate 94.9 % over 9 999 blocks, the same since the reset' => [...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0], ['blks_hit' => 9_489, 'blks_read' => 510]), 'postgresql.cache_hit_rate', null];
+        yield 'cache hit rate 94.9 % over 9 999 blocks, 99 999 since the reset' => [...self::postgresqlWindow(['blks_hit' => 85_410, 'blks_read' => 4_590], ['blks_hit' => 94_899, 'blks_read' => 5_100]), 'postgresql.cache_hit_rate', null];
+        yield 'cache hit rate 94.9 % over 9 999 blocks, 100 000 since the reset' => [...self::postgresqlWindow(['blks_hit' => 85_411, 'blks_read' => 4_590], ['blks_hit' => 94_900, 'blks_read' => 5_100]), 'postgresql.cache_hit_rate', Severity::Warning];
         yield 'cache hit rate 94.9 % without second sample, 99 999 blocks' => [self::postgresqlActivity(['database_stats' => ['blks_hit' => 94_899, 'blks_read' => 5_100]]), [], 'postgresql.cache_hit_rate', null];
         yield 'cache hit rate 94.9 % without second sample, 100 000 blocks' => [self::postgresqlActivity(['database_stats' => ['blks_hit' => 94_900, 'blks_read' => 5_100]]), [], 'postgresql.cache_hit_rate', Severity::Warning];
         yield 'cache hit rate 40 % over 500 blocks, 99 % since the reset' => [...self::postgresqlWindow(['blks_hit' => 395_800, 'blks_read' => 3_700], ['blks_hit' => 396_000, 'blks_read' => 4_000]), 'postgresql.cache_hit_rate', null];
@@ -966,7 +966,7 @@ final class StackChecksTest extends TestCase
     {
         $health = static fn(array $data, array $deltas = []): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, $data, deltas: $deltas)));
         $connections = $health(self::postgresqlConnections(905));
-        $recent = $health(...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0, 'xact_commit' => 0, 'xact_rollback' => 0], ['blks_hit' => 1_800, 'blks_read' => 200, 'xact_commit' => 170, 'xact_rollback' => 30]));
+        $recent = $health(...self::postgresqlWindow(['blks_hit' => 0, 'blks_read' => 0, 'xact_commit' => 0, 'xact_rollback' => 0], ['blks_hit' => 18_000, 'blks_read' => 2_000, 'xact_commit' => 170, 'xact_rollback' => 30]));
         $sinceReset = $health(self::postgresqlActivity(['database_stats' => ['blks_hit' => 180_000, 'blks_read' => 20_000]]));
         $deadRows = $health(self::postgresqlActivity(database: ['dead_tuples' => 30_000, 'live_tuples' => 70_000]));
         $idle = $health(self::postgresqlActivity(['sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 342]]));
