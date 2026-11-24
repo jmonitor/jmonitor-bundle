@@ -13,7 +13,8 @@ use Jmonitor\Utils\DatabaseAdapter\DatabaseAdapterInterface;
 /**
  * The statements of one database that take the longest on average, as pg_stat_statements keeps them.
  * Only the statements that read or write rows are kept, and their text is normalized again: pg_stat_statements
- * keeps the comments, and the values of a statement whose entry was evicted while it ran.
+ * keeps the comments, and the values of a statement whose entry was evicted while it ran. The statements that
+ * only differ by the size of a list have the same text once normalized: they are merged.
  */
 final readonly class PostgresqlSlowQueriesCollector implements CollectorInterface
 {
@@ -48,7 +49,7 @@ final readonly class PostgresqlSlowQueriesCollector implements CollectorInterfac
             throw PostgresqlFailure::of($e, PostgresqlFailure::STATEMENTS);
         }
 
-        $queries = [];
+        $merged = [];
         $hidden = 0;
 
         foreach ($rows as $row) {
@@ -60,18 +61,32 @@ final readonly class PostgresqlSlowQueriesCollector implements CollectorInterfac
                 continue;
             }
 
-            if ($text === null || \count($queries) === self::KEPT || !self::isShown($text) || ($text = SqlNormalizer::normalize($text, SqlDialect::PostgreSql)) === null) {
+            if ($text === null || !self::isShown($text) || ($text = SqlNormalizer::normalize($text, SqlDialect::PostgreSql)) === null) {
                 continue;
             }
 
-            $queries[] = [
-                'text' => $text,
-                'executions' => self::rounded($row['exec_count'] ?? null),
-                'average_ms' => self::rounded($row['avg_time_ms'] ?? null),
-                'max_ms' => self::rounded($row['max_time_ms'] ?? null),
-                'total_ms' => self::rounded($row['total_time_ms'] ?? null),
+            $statement = $merged[$text] ?? ['executions' => 0.0, 'total' => 0.0, 'max' => 0.0];
+            $merged[$text] = [
+                'executions' => $statement['executions'] + self::number($row['exec_count'] ?? null),
+                'total' => $statement['total'] + self::number($row['total_time_ms'] ?? null),
+                'max' => max($statement['max'], self::number($row['max_time_ms'] ?? null)),
             ];
         }
+
+        $queries = [];
+
+        foreach ($merged as $text => $statement) {
+            $queries[] = [
+                'text' => (string) $text,
+                'executions' => (int) round($statement['executions']),
+                'average_ms' => $statement['executions'] > 0 ? $statement['total'] / $statement['executions'] : 0.0,
+                'max_ms' => (int) round($statement['max']),
+                'total_ms' => (int) round($statement['total']),
+            ];
+        }
+
+        usort($queries, static fn(array $a, array $b): int => $b['average_ms'] <=> $a['average_ms']);
+        $queries = array_map(static fn(array $query): array => array_replace($query, ['average_ms' => (int) round($query['average_ms'])]), \array_slice($queries, 0, self::KEPT));
 
         return ['queries' => $queries, 'hidden' => $hidden];
     }
@@ -101,8 +116,8 @@ final readonly class PostgresqlSlowQueriesCollector implements CollectorInterfac
         return true;
     }
 
-    private static function rounded(mixed $value): int
+    private static function number(mixed $value): float
     {
-        return is_numeric($value) ? (int) round((float) $value) : 0;
+        return is_numeric($value) ? (float) $value : 0.0;
     }
 }

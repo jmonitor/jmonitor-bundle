@@ -155,6 +155,37 @@ final class PostgresqlSlowQueriesCollectorTest extends TestCase
         self::assertSame(['text' => 'SELECT * FROM t30 WHERE id = $1', 'executions' => 2, 'average_ms' => 30, 'max_ms' => 30, 'total_ms' => 60], $queries[0]);
     }
 
+    public function testStatementsThatOnlyDifferByTheSizeOfAListAreMerged(): void
+    {
+        $database = self::database([
+            DatabasePayloads::statement('SELECT * FROM product WHERE id IN ($1, $2, $3)', 60, 2.5, 20, 150),
+            DatabasePayloads::statement('SELECT * FROM product WHERE id IN ($1)', 10, 2.2, 9, 22),
+            DatabasePayloads::statement('SELECT * FROM t WHERE id = $1', 2, 2.1),
+            DatabasePayloads::statement('SELECT * FROM product WHERE id IN ($1, $2)', 30, 1.0, 4, 30),
+        ]);
+
+        $queries = (new PostgresqlSlowQueriesCollector(new DbalLink(static fn() => $database)))->collect()['queries'];
+
+        self::assertSame([
+            ['text' => 'SELECT * FROM t WHERE id = $1', 'executions' => 2, 'average_ms' => 2, 'max_ms' => 2, 'total_ms' => 4],
+            ['text' => 'SELECT * FROM product WHERE id IN (?)', 'executions' => 100, 'average_ms' => 2, 'max_ms' => 20, 'total_ms' => 202],
+        ], $queries, 'ranked by the average of the merged statement, 202 ms over 100 executions, below 2.1 ms');
+    }
+
+    public function testTenStatementsAreKeptOnceMerged(): void
+    {
+        $rows = [];
+        for ($i = 30; $i > 20; --$i) {
+            $rows[] = DatabasePayloads::statement('SELECT * FROM t' . $i . ' WHERE id IN ($1)', 2, $i);
+            $rows[] = DatabasePayloads::statement('SELECT * FROM t' . $i . ' WHERE id IN ($1, $2)', 2, $i);
+        }
+
+        $queries = (new PostgresqlSlowQueriesCollector(new DbalLink(static fn() => self::database($rows))))->collect()['queries'];
+
+        self::assertCount(10, $queries);
+        self::assertSame(array_fill(0, 10, 4), array_column($queries, 'executions'));
+    }
+
     public function testTheLibraryCollectorIsNotBooted(): void
     {
         $database = self::database([]);
