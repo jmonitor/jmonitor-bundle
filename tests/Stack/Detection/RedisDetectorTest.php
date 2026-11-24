@@ -120,6 +120,30 @@ final class RedisDetectorTest extends TestCase
         self::assertSame([null], array_map(static fn(Instance $instance): ?string => $instance->error, $detection->instances));
     }
 
+    public function testARedisFoundButNotReadSaysWhy(): void
+    {
+        $cluster = self::detector([], ['.cache_connection.a' => 'redis://jm-user:jm-secret@jm-host:6390?redis_cluster=1', RedisDsns::ENVIRONMENT => null])->detect();
+        $slash = self::detector([], ['session.abstract_handler' => 'redis://jm-user:jm/secret@jm-host:6390', '.cache_connection.a' => 'memcached://cache'])->detect();
+
+        self::assertFalse($cluster->isFound());
+        self::assertSame('Redis is used by the application, but not read here: A Redis Cluster, a Sentinel or several hosts are not read. Name a server to read under jmonitor.stack.redis.connections.', $cluster->error);
+        self::assertFalse($slash->isFound());
+        self::assertSame('Redis is used by the application, but not read here: The DSN of this connection cannot be read. Name a server to read under jmonitor.stack.redis.connections.', $slash->error);
+    }
+
+    public function testWhatIsNotRedisStaysSilent(): void
+    {
+        $detection = self::detector([], [
+            '.cache_connection.a' => 'memcached://memcached.internal',
+            'session.abstract_handler' => 'mysql://user:secret@db/sessions',
+            '.cache_connection.b' => '',
+            '.cache_connection.c' => new EnvNotFoundException('Environment variable not found: "POOL_URL".'),
+            RedisDsns::ENVIRONMENT => null,
+        ])->detect();
+
+        self::assertSame(self::NONE, $detection->error);
+    }
+
     public function testEachServerIsReadByOneCollectorAndTheSupportOfBothProducts(): void
     {
         $endOfLife = new FakeUrlFetcher(null);

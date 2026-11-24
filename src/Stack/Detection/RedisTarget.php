@@ -24,7 +24,8 @@ final readonly class RedisTarget
     ) {}
 
     /**
-     * @throws \RuntimeException the DSN is not read; its message carries no part of it
+     * @throws \UnexpectedValueException a Redis DSN this class does not read; its message carries no part of it
+     * @throws \RuntimeException         the DSN is not one of Redis
      */
     public static function of(string $dsn): self
     {
@@ -45,7 +46,7 @@ final readonly class RedisTarget
         $end = strcspn($rest, '/?#');
 
         if (str_contains(substr($rest, $end), '@')) {
-            throw new \RuntimeException(self::UNREADABLE . '.');
+            throw new \UnexpectedValueException(self::UNREADABLE . '.');
         }
 
         $authority = substr($rest, 0, $end);
@@ -57,7 +58,7 @@ final readonly class RedisTarget
         parse_str($query, $options);
 
         if (self::readsSeveralServers($options)) {
-            throw new \RuntimeException(self::SEVERAL_SERVERS);
+            throw new \UnexpectedValueException(self::SEVERAL_SERVERS);
         }
 
         if (!$slashes) {
@@ -68,14 +69,14 @@ final readonly class RedisTarget
             $socket = preg_replace('#/(\d+)?$#', '', $path) ?? '';
 
             if ($socket === '') {
-                throw new \RuntimeException(self::UNREADABLE . '.');
+                throw new \UnexpectedValueException(self::UNREADABLE . '.');
             }
 
             return new self($scheme, null, null, $socket);
         }
 
         if (preg_match('#^(?:\[([^\[\]]+)\]|([^\[\]:]+))(?::(\d{1,5}))?$#', $host, $parts) !== 1) {
-            throw new \RuntimeException(self::UNREADABLE . '.');
+            throw new \UnexpectedValueException(self::UNREADABLE . '.');
         }
 
         return new self($scheme, $parts[1] !== '' ? $parts[1] : $parts[2], isset($parts[3]) ? (int) $parts[3] : null, null);

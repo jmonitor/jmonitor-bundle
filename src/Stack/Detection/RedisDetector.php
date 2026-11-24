@@ -20,6 +20,7 @@ use Jmonitor\Utils\UrlFetcher;
 final readonly class RedisDetector implements ComponentDetectorInterface
 {
     private const NONE = 'No Redis DSN found: set jmonitor.stack.redis.connections, use Redis for a cache pool or the sessions, or set the REDIS_URL environment variable.';
+    private const REFUSED = 'Redis is used by the application, but not read here: %s Name a server to read under jmonitor.stack.redis.connections.';
 
     public function __construct(
         private RedisDsns $dsns,
@@ -41,13 +42,18 @@ final readonly class RedisDetector implements ComponentDetectorInterface
         }
 
         $found = array_values(array_diff($this->dsns->found(), [RedisDsns::ENVIRONMENT]));
-        $instances = $this->found($found);
+        [$instances, $refused] = $this->found($found);
 
         if ($instances === [] && \in_array(RedisDsns::ENVIRONMENT, $this->dsns->found(), true)) {
-            $instances = $this->found([RedisDsns::ENVIRONMENT]);
+            [$instances, $refusedToo] = $this->found([RedisDsns::ENVIRONMENT]);
+            $refused ??= $refusedToo;
         }
 
-        return $instances === [] ? Detection::unavailable(self::NONE) : Detection::instances($instances);
+        if ($instances !== []) {
+            return Detection::instances($instances);
+        }
+
+        return Detection::unavailable($refused === null ? self::NONE : \sprintf(self::REFUSED, $refused));
     }
 
     /**
@@ -79,19 +85,24 @@ final readonly class RedisDetector implements ComponentDetectorInterface
     }
 
     /**
-     * A found entry that cannot be read, or is not one of a Redis server, is left out: Memcached goes the same way.
+     * A found entry that is not one of Redis, or cannot be read, is left out without a word: Memcached goes the same way.
      *
      * @param list<string> $entries
      *
-     * @return list<Instance>
+     * @return array{list<Instance>, ?string} the instances, and why the first Redis DSN that is not read is not
      */
     private function found(array $entries): array
     {
         $instances = [];
+        $refused = null;
 
         foreach ($entries as $entry) {
             try {
                 $server = $this->dsns->target($entry)->server();
+            } catch (\UnexpectedValueException $e) {
+                $refused ??= $e->getMessage();
+
+                continue;
             } catch (\RuntimeException) {
                 continue;
             }
@@ -99,7 +110,7 @@ final readonly class RedisDetector implements ComponentDetectorInterface
             $instances[$server->key] ??= $this->instance($entry, $server->address, $server);
         }
 
-        return array_values($instances);
+        return [array_values($instances), $refused];
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Collector;
 
+use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Collector\MissingPrerequisiteException;
 use Jmonitor\JmonitorBundle\Stack\Collector\RedisInfoCollector;
 use Jmonitor\JmonitorBundle\Stack\Collector\RedisLink;
@@ -23,7 +24,8 @@ final class RedisLinkTest extends TestCase
     private const PASSWORD = 'The Redis server asks for a password, or refuses the one given.';
     private const NO_INFO = 'The Redis server did not answer INFO.';
     private const CLIENT_FAILED = 'The Redis client failed while reading the server.';
-    private const DENIED = 'The Redis user of this connection may not run INFO.';
+    private const DENIED = 'The Redis user of this connection may not run INFO, or may not select its database.';
+    private const UNREADABLE_DSN = 'The DSN of this connection cannot be read.';
     private const NO_CLIENT = 'Reading Redis needs the redis extension or the predis/predis package.';
 
     private int $connects = 0;
@@ -82,7 +84,9 @@ final class RedisLinkTest extends TestCase
         $first = Failures::thrownBy(static fn() => $link->info());
         Failures::thrownBy(static fn() => $link->info());
 
-        self::assertInstanceOf(UnreachableServerException::class, $first);
+        self::assertSame(\RuntimeException::class, $first::class);
+        self::assertSame(self::UNREADABLE_DSN, $first->getMessage());
+        self::assertSame(FailureKind::Other, FailureKind::of($first));
         self::assertSame(1, $this->connects);
     }
 
@@ -151,9 +155,7 @@ final class RedisLinkTest extends TestCase
 
     public function testAnErrorOfTheClientIsCaught(): void
     {
-        $link = new RedisLink(static fn(): object => throw new \TypeError('Redis::__construct(): Argument #1 must be of type array'));
-
-        $failure = Failures::thrownBy(static fn() => $link->info());
+        $failure = Failures::thrownBy(fn() => $this->link(new FakeRedis(new \TypeError('Redis::info(): Return value must be of type array, bool returned')))->info());
 
         self::assertInstanceOf(UnreachableServerException::class, $failure);
         self::assertSame(self::CLIENT_FAILED, $failure->getMessage());
@@ -209,6 +211,19 @@ final class RedisLinkTest extends TestCase
         $link->release();
 
         self::assertSame(1, $redis->closes);
+    }
+
+    public function testADeniedSelectDoesNotOpenAConnectionToCloseIt(): void
+    {
+        $redis = new FakeRedis(new \RuntimeException("NOPERM User monitor has no permissions to run the 'select' command"));
+        $link = $this->link($redis);
+
+        $failure = Failures::thrownBy(static fn() => $link->info());
+        $link->release();
+
+        self::assertInstanceOf(MissingPrerequisiteException::class, $failure);
+        self::assertSame(self::DENIED, $failure->getMessage());
+        self::assertSame(0, $redis->closes);
     }
 
     public function testAConnectionThatFailedIsNotClosedByHand(): void
@@ -270,11 +285,15 @@ final class RedisLinkTest extends TestCase
 
     public function testAWarningOfTheClientReachesNoOne(): void
     {
-        $link = new RedisLink(static function (): never {
-            trigger_error('stream_socket_enable_crypto(): SSL: Handshake timed out', \E_USER_WARNING);
+        $client = new class {
+            public function info(): never
+            {
+                trigger_error('stream_socket_enable_crypto(): SSL: Handshake timed out', \E_USER_WARNING);
 
-            throw new \RuntimeException('Error while switching to encrypted communication [tls://127.0.0.1:6379]');
-        });
+                throw new \RuntimeException('Error while switching to encrypted communication [tls://127.0.0.1:6379]');
+            }
+        };
+        $link = new RedisLink(static fn(): object => $client);
         $warnings = [];
         set_error_handler(static function (int $level, string $message) use (&$warnings): bool {
             $warnings[] = $message;

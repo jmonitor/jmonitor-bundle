@@ -126,6 +126,18 @@ final class RedisDsnsTest extends TestCase
         self::assertSame(['rediss://user:p%40ss@cache/1', 'redis://cache'], array_column($calls, 0));
     }
 
+    public function testADsnTheFactoryRefusesCannotBeRead(): void
+    {
+        foreach (['redis://127.0.0.1:1/abc', 'redis://127.0.0.1:1/1?dbindex=4', 'redis://127.0.0.1:1?auth[]=a'] as $dsn) {
+            $dsns = new RedisDsns(new ServiceLocator(['main' => static fn(): \ArrayObject => new \ArrayObject([$dsn])]), ['main'], []);
+
+            $failure = Failures::thrownBy(static fn() => $dsns->link('main')->info());
+
+            self::assertSame(\RuntimeException::class, $failure::class, $dsn);
+            self::assertSame('The DSN of this connection cannot be read.', $failure->getMessage(), $dsn);
+        }
+    }
+
     public function testReadingATargetOpensNothing(): void
     {
         $calls = [];

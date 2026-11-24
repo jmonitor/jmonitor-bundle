@@ -1305,6 +1305,18 @@ final class StackChecksTest extends TestCase
         self::assertSame(Verdict::Unknown, $denied->verdict(Component::Redis));
     }
 
+    public function testAnUnreachableRedisIsToldFromTheConnectionOfTheStack(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Redis, [
+            'redis' => new CollectorResult('redis', [], ResultState::Failed, 'The Redis server asks for a password, or refuses the one given.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ])));
+
+        self::assertSame(
+            'The Stack screen reads this server through a connection of its own, opened with the DSN it was given or found: the application cannot use the server either when it reaches it with the same DSN. Fix the cause given, then refresh.',
+            self::find($health, 'redis.failed')?->explanation,
+        );
+    }
+
     public function testTheSupportOfRedisAndValkeyIsJudged(): void
     {
         $redis = static fn(array $server, array $eol = []): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, array_replace(self::redis(['server' => $server]), $eol))));

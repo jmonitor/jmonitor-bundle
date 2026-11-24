@@ -17,7 +17,8 @@ final class RedisLink
     private const PASSWORD = 'The Redis server asks for a password, or refuses the one given.';
     private const NO_INFO = 'The Redis server did not answer INFO.';
     private const CLIENT_FAILED = 'The Redis client failed while reading the server.';
-    private const DENIED = 'The Redis user of this connection may not run INFO.';
+    private const DENIED = 'The Redis user of this connection may not run INFO, or may not select its database.';
+    private const UNREADABLE_DSN = 'The DSN of this connection cannot be read.';
     private const NO_CLIENT = 'Reading Redis needs the redis extension or the predis/predis package.';
 
     private ?object $client = null;
@@ -91,25 +92,24 @@ final class RedisLink
         }
     }
 
+    /**
+     * The client is dropped, not closed: a lazy client that could not connect would connect again to be closed.
+     */
     private function failed(\Throwable $e): \RuntimeException
     {
-        if ($this->client === null && $e instanceof CacheException) {
-            return $this->fail(new MissingPrerequisiteException(self::NO_CLIENT));
-        }
-
-        if (self::code($e->getMessage()) === 'NOPERM') {
-            $this->connected = true;
-
-            return $this->fail(new MissingPrerequisiteException(self::DENIED));
+        if ($this->client === null) {
+            return $this->fail($e instanceof CacheException ? new MissingPrerequisiteException(self::NO_CLIENT) : new \RuntimeException(self::UNREADABLE_DSN));
         }
 
         $this->client = null;
+        $code = self::code($e->getMessage());
 
-        return $this->fail(new UnreachableServerException(match (true) {
-            self::code($e->getMessage()) !== null => self::PASSWORD,
-            $e instanceof \Error => self::CLIENT_FAILED,
-            default => self::UNREACHABLE,
-        }));
+        return $this->fail(match (true) {
+            $code === 'NOPERM' => new MissingPrerequisiteException(self::DENIED),
+            $code !== null => new UnreachableServerException(self::PASSWORD),
+            $e instanceof \Error => new UnreachableServerException(self::CLIENT_FAILED),
+            default => new UnreachableServerException(self::UNREACHABLE),
+        });
     }
 
     private function fail(\RuntimeException $failure): \RuntimeException

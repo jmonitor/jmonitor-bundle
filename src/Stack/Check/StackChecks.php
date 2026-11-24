@@ -216,7 +216,9 @@ final class StackChecks
             $component->value . '.failed',
             Severity::Critical,
             sprintf('%s cannot be reached: %s', self::subject($component), $reason),
-            'The application reaches this server through the same connection: when it cannot be reached from here, the application cannot use it either. Fix the cause given, then refresh.',
+            $component === Component::Redis
+                ? 'The Stack screen reads this server through a connection of its own, opened with the DSN it was given or found: the application cannot use the server either when it reaches it with the same DSN. Fix the cause given, then refresh.'
+                : 'The application reaches this server through the same connection: when it cannot be reached from here, the application cannot use it either. Fix the cause given, then refresh.',
             ...$judged,
         );
     }
