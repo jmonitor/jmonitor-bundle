@@ -37,6 +37,9 @@ final readonly class SnapshotProvider
     /** Longer than a remote server can keep a collector waiting before it fails on its own bound. */
     private const REMOTE_TIME_LIMIT = 45;
 
+    /** How long one operation on the cache may take once PHP stopped the request, when no time limit runs any more. */
+    private const STOPPED_CACHE_SECONDS = 1.0;
+
     private LoggerInterface $logger;
     private CacheKeys $keys;
     private Randomizer $random;
@@ -71,6 +74,8 @@ final readonly class SnapshotProvider
         try {
             return $this->readInstances($instances, $budget, $cache, $detail);
         } finally {
+            $this->inFlight->reading = null;
+            $this->inFlight->collecting = null;
             $this->putBackTimeLimit();
         }
     }
@@ -96,10 +101,17 @@ final readonly class SnapshotProvider
             }
         }
 
+        $collects = false;
+
         foreach ($reads as $read) {
             if ($this->mayCollect($read, $budget, $cache, $guard)) {
                 $this->takeWitness($read, $guard);
+                $collects = true;
             }
+        }
+
+        if ($collects) {
+            $this->watch($reads, $guard);
         }
 
         /** @var array<string, CollectorResult> $reused by result key */
@@ -131,6 +143,8 @@ final readonly class SnapshotProvider
         foreach ($reads as $read) {
             $this->finish($read, $guard);
         }
+
+        $this->inFlight->reading = null;
 
         $snapshots = [];
 
@@ -354,7 +368,12 @@ final readonly class SnapshotProvider
     private function collect(InstanceRead $read, CollectorSpec $spec, CacheGuard $guard, float $startedAt, array $reads): CollectorResult
     {
         $read->ran = true;
-        $this->watch($read, $spec, $guard, $startedAt, $reads);
+
+        if (!$read->instance->component->isNodeLocal()) {
+            $this->inFlight->timeLimit ??= $this->request->raiseTimeLimit(self::REMOTE_TIME_LIMIT);
+        }
+
+        $this->inFlight->collecting = ['read' => $read, 'spec' => $spec, 'startedAt' => $startedAt];
 
         try {
             $data = $this->runner->run($spec->collector);
@@ -398,12 +417,11 @@ final readonly class SnapshotProvider
     }
 
     /**
-     * Before a collector runs: PHP is given, once until it runs it, what to do if it stops the request meanwhile,
-     * and a remote server is left the time to fail on its own bound.
+     * Before the collectors run: PHP is given, once until it runs it, what to do if it stops the request meanwhile.
      *
      * @param array<string, InstanceRead> $reads every read of the display
      */
-    private function watch(InstanceRead $read, CollectorSpec $spec, CacheGuard $guard, float $startedAt, array $reads): void
+    private function watch(array $reads, CacheGuard $guard): void
     {
         $inFlight = $this->inFlight;
 
@@ -416,32 +434,36 @@ final readonly class SnapshotProvider
             });
         }
 
-        if (!$read->instance->component->isNodeLocal()) {
-            $inFlight->timeLimit ??= $this->request->raiseTimeLimit(self::REMOTE_TIME_LIMIT);
-        }
-
-        $inFlight->collecting = ['read' => $read, 'spec' => $spec, 'startedAt' => $startedAt, 'reads' => $reads, 'guard' => $guard];
+        $inFlight->reading = ['reads' => $reads, 'guard' => $guard];
     }
 
     /**
      * Once PHP stopped the request, the collector it was running fails as if it had thrown, a remote one as a server
      * that did not answer only when PHP stopped the request for its time limit, and the read finishes without closing
-     * what it opened, which could keep the request waiting as long again.
+     * what it opened, which could keep the request waiting as long again. Stopped between two collectors, the read
+     * only finishes.
      */
     private function stopped(): void
     {
+        $reading = $this->inFlight->reading;
         $collecting = $this->inFlight->collecting;
+        $this->inFlight->reading = null;
         $this->inFlight->collecting = null;
 
-        if ($collecting === null) {
+        if ($reading === null) {
             return;
         }
 
-        ['read' => $read, 'spec' => $spec, 'reads' => $reads, 'guard' => $guard] = $collecting;
+        ['reads' => $reads, 'guard' => $guard] = $reading;
 
         try {
-            $waiting = !$read->instance->component->isNodeLocal() && !$spec->shared && $this->request->stoppedByTimeLimit();
-            $this->failed($read, $spec, $waiting ? new UnreachableServerException(self::STOPPED_WAITING) : new \RuntimeException(self::STOPPED), $collecting['startedAt'], $reads);
+            $guard->bound($this->seconds(...), self::STOPPED_CACHE_SECONDS);
+
+            if ($collecting !== null) {
+                ['read' => $read, 'spec' => $spec] = $collecting;
+                $waiting = !$read->instance->component->isNodeLocal() && !$spec->shared && $this->request->stoppedByTimeLimit();
+                $this->failed($read, $spec, $waiting ? new UnreachableServerException(self::STOPPED_WAITING) : new \RuntimeException(self::STOPPED), $collecting['startedAt'], $reads);
+            }
 
             foreach ($reads as $each) {
                 $this->finish($each, $guard, release: false);

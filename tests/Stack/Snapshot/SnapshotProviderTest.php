@@ -36,10 +36,13 @@ use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FreezableCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RefusingCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\StallingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ThrowingCachePool;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Cache\CacheItemPoolInterface;
+use Psr\Clock\ClockInterface;
+use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
 use Random\Engine;
 use Random\RandomException;
@@ -2424,11 +2427,23 @@ final class SnapshotProviderTest extends TestCase
         self::assertEquals(new StoredFailure('PHP stopped the request before this was read.', self::START + 30 + 600, null, FailureKind::Other), $seen);
     }
 
-    public function testAStopOnceTheReadEndedWritesNothing(): void
+    /**
+     * @return iterable<string, array{bool}>
+     */
+    public static function lastCollectors(): iterable
     {
-        $failing = new FakeCollector('php.status', collectFailure: new \RuntimeException('Status page refused'));
-        $instance = self::instance([self::spec(new FakeCollector('php', ['memory' => 1])), self::spec($failing)]);
-        $this->read($this->provider(request: $this->request()), $instance);
+        yield 'the last collector succeeds' => [true];
+        yield 'the last collector throws' => [false];
+    }
+
+    #[DataProvider('lastCollectors')]
+    public function testAStopOnceTheReadEndedWritesNothing(bool $lastSucceeds): void
+    {
+        $succeeds = self::spec(new FakeCollector('postgresql', ['connections' => 3]), cost: CostClass::Network);
+        $throws = self::spec(new FakeCollector('postgresql.settings', collectFailure: new \RuntimeException('permission denied')), cost: CostClass::Network);
+        $instance = self::instance($lastSucceeds ? [$throws, $succeeds] : [$succeeds, $throws], 'c1', Component::Postgresql, new Server('pg.internal:5432', 'pg.internal:5432'));
+        $provider = $this->provider(request: $this->request());
+        $this->read($provider, $instance);
         $this->cache->reset();
 
         $this->stop();
@@ -2436,6 +2451,151 @@ final class SnapshotProviderTest extends TestCase
 
         self::assertCount(1, $this->stops);
         self::assertSame(0, $this->cache->roundTrips());
+    }
+
+    public function testARequestThatPhpStopsBetweenTwoCollectorsLiftsItsWitnessesAndWritesNoFailure(): void
+    {
+        $pool = new FreezableCachePool($this->recording);
+        $clock = new class ($this->clock) implements ClockInterface {
+            public ?\Closure $next = null;
+
+            public function __construct(
+                private readonly MockClock $clock,
+            ) {}
+
+            public function now(): \DateTimeImmutable
+            {
+                $next = $this->next;
+                $this->next = null;
+
+                if ($next !== null) {
+                    $next();
+                }
+
+                return $this->clock->now();
+            }
+        };
+        $seen = [];
+        $last = self::collector('postgresql', function () use ($clock, $pool, &$seen): array {
+            $clock->next = function () use ($pool, &$seen): void {
+                $this->stop();
+                $seen['first'] = $this->recording->hasItem('jmonitor.stack.result.postgresql.c1.postgresql.version');
+                $seen['failures'] = [$this->recording->hasItem('jmonitor.stack.failure.postgresql.c1.postgresql'), $this->recording->hasItem('jmonitor.stack.failure.postgresql.c1.postgresql.version')];
+                $seen['witness'] = $this->recording->hasItem('jmonitor.stack.collecting.postgresql.c1');
+                $pool->frozen = true;
+            };
+
+            return ['connections' => 3];
+        });
+        $instance = self::instance([self::spec(new FakeCollector('postgresql.version', ['version' => '17.2'])), new CollectorSpec($last, Lifetime::Dynamic, CostClass::Network)], 'c1', Component::Postgresql, new Server('pg.internal:5432', 'pg.internal:5432'));
+        $provider = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($pool, 10), $pool, $clock, new WebNode('web-1'), request: $this->request());
+
+        $provider->read([$instance], CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame(['first' => true, 'failures' => [false, false], 'witness' => false], $seen);
+    }
+
+    public function testARequestThatPhpStopsGivesUpOnACacheThatHangs(): void
+    {
+        $pool = new StallingCachePool($this->recording, $this->clock);
+        $stalled = null;
+        $stopped = self::collector('postgresql', function () use ($pool, &$stalled): array {
+            $this->clock->sleep(30);
+            $pool->stall = 2.0;
+            $this->stop();
+            $stalled = $pool->stalled;
+            $pool->stall = 0.0;
+
+            return [];
+        });
+        $server = new Server('pg.internal:5432', 'pg.internal:5432');
+        $instances = [
+            self::instance([new CollectorSpec($stopped, Lifetime::Dynamic, CostClass::Network)], 'c1', Component::Postgresql, $server),
+            self::instance([self::spec(new FakeCollector('postgresql', ['connections' => 3]), cost: CostClass::Network)], 'c2', Component::Postgresql, $server),
+        ];
+
+        $this->provider(cache: $pool, request: $this->request())->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame(['saveDeferred', 'commit'], $stalled, 'nothing is asked once one operation took longer than a second');
+    }
+
+    public function testARequestThatPhpStopsClosesNothing(): void
+    {
+        $releases = 0;
+        $atStop = null;
+        $pool = new FreezableCachePool($this->recording);
+        $stopped = self::collector('postgresql', function () use (&$releases, &$atStop, $pool): array {
+            $this->clock->sleep(30);
+            $this->stop();
+            $atStop = $releases;
+            $pool->frozen = true;
+
+            return [];
+        });
+        $instance = Instance::found(Component::Postgresql, new CollectorSet(Component::Postgresql, [new CollectorSpec($stopped, Lifetime::Dynamic, CostClass::Network)], static function () use (&$releases): void {
+            ++$releases;
+        }), 'c1', server: new Server('pg.internal:5432', 'pg.internal:5432'));
+
+        $this->read($this->provider(cache: $pool, request: $this->request()), $instance);
+
+        self::assertSame(0, $atStop, 'a connection half open could keep the stopped request waiting as long again');
+        self::assertSame(1, $releases);
+    }
+
+    public function testALogThatFailsWhileTheRequestStopsLetsNothingOut(): void
+    {
+        $broken = false;
+        $pool = new BreakingCachePool(static function () use (&$broken): bool {
+            return $broken;
+        });
+        $escaped = 'not stopped';
+        $stopped = self::collector('postgresql', function () use (&$broken, &$escaped): array {
+            $this->clock->sleep(30);
+            $broken = true;
+
+            try {
+                $this->stop();
+                $escaped = null;
+            } catch (\Throwable $e) {
+                $escaped = $e;
+            }
+
+            $broken = false;
+
+            return [];
+        });
+        $instance = self::instance([new CollectorSpec($stopped, Lifetime::Dynamic, CostClass::Network)], 'c1', Component::Postgresql, new Server('pg.internal:5432', 'pg.internal:5432'));
+
+        $this->read($this->provider(logger: self::refusingLogger(), cache: $pool, request: $this->request()), $instance);
+
+        self::assertNull($escaped);
+    }
+
+    public function testAReadThatThrowsStillPutsTheTimeLimitBackAndLeavesNothingToStop(): void
+    {
+        $this->timeLimit = 30;
+        $calls = 0;
+        $pool = new BreakingCachePool(static function (string $method) use (&$calls): bool {
+            ++$calls;
+
+            return $method === 'commit';
+        });
+        $instance = self::instance([self::spec(new FakeCollector('postgresql', ['connections' => 3]), cost: CostClass::Network)], 'c1', Component::Postgresql, new Server('pg.internal:5432', 'pg.internal:5432'));
+        $thrown = null;
+
+        try {
+            $this->read($this->provider(logger: self::refusingLogger(), cache: $pool, request: $this->request()), $instance);
+        } catch (\RuntimeException $e) {
+            $thrown = $e->getMessage();
+        }
+
+        self::assertSame('The log refused the line.', $thrown);
+        self::assertSame([45, 30], $this->timeLimits);
+
+        $before = $calls;
+        $this->stop();
+
+        self::assertSame($before, $calls);
     }
 
     public function testACacheThatFailsWhileTheRequestStopsLetsNothingOut(): void
@@ -2544,6 +2704,16 @@ final class SnapshotProviderTest extends TestCase
         $this->read($this->provider(request: $this->request()), self::instance([self::spec(new FakeCollector('php', ['memory' => 1]), cost: CostClass::Network)]));
 
         self::assertSame([], $this->timeLimits);
+    }
+
+    private static function refusingLogger(): LoggerInterface
+    {
+        return new class extends AbstractLogger {
+            public function log($level, \Stringable|string $message, array $context = []): void
+            {
+                throw new \RuntimeException('The log refused the line.');
+            }
+        };
     }
 
     private function request(): PhpRequest

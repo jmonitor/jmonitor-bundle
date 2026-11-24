@@ -65,7 +65,7 @@ The engine that reads the server, PHP, Symfony, the web server, the databases an
 - A component says itself whether it is grouped by server (`Component::groupsByServer()`); the server of an instance only says where it leads.
 - A connection that failed on a value of its server reads the server again itself, at the end of its pause and after a `Refresh`, and is healthy again only when its own read succeeds.
 - A server that does not answer makes one connection wait per display: its failure is copied to the other connections of that server read in the same display.
-- A request that PHP stops while it reads leaves a failure and lifts its witnesses.
+- A request that PHP stops while it reads lifts its witnesses; the collector it was running fails, as a server that did not answer only when PHP stopped it for its time limit. Once the request is stopped, a cache operation that takes longer than a second leaves the cache alone.
 - The time limit of the request is only raised by `SnapshotProvider`, around a remote collector, and put back at the end of the read.
 - A Redis server is read through the `RedisLink` of its instance, which opens a connection of its own and only sends `INFO`.
 - Of a Redis DSN, only the scheme, the host, the port and the socket come out (`RedisTarget`).

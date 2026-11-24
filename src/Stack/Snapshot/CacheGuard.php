@@ -18,6 +18,11 @@ final class CacheGuard
     private bool $refusalLogged = false;
     private bool $lifts = true;
 
+    /** @var ?\Closure(): float */
+    private ?\Closure $clock = null;
+
+    private float $bound = 0.0;
+
     public function __construct(
         private readonly LoggerInterface $logger,
         private bool $works,
@@ -26,6 +31,18 @@ final class CacheGuard
     public function works(): bool
     {
         return $this->works;
+    }
+
+    /**
+     * From now on, an operation that takes longer than $seconds leaves the cache alone for the rest, as one that
+     * throws: a cache that hangs would keep each of the next ones waiting as long.
+     *
+     * @param \Closure(): float $clock
+     */
+    public function bound(\Closure $clock, float $seconds): void
+    {
+        $this->clock = $clock;
+        $this->bound = $seconds;
     }
 
     /**
@@ -42,6 +59,8 @@ final class CacheGuard
             return $fallback;
         }
 
+        $startedAt = $this->clock === null ? null : ($this->clock)();
+
         try {
             return $operation();
         } catch (\Throwable $e) {
@@ -52,6 +71,8 @@ final class CacheGuard
             ]);
 
             return $fallback;
+        } finally {
+            $this->timed($startedAt);
         }
     }
 
@@ -67,9 +88,21 @@ final class CacheGuard
             return;
         }
 
+        $startedAt = $this->clock === null ? null : ($this->clock)();
+
         try {
             $operation();
         } catch (\Throwable) {
+            $this->lifts = false;
+        } finally {
+            $this->timed($startedAt);
+        }
+    }
+
+    private function timed(?float $startedAt): void
+    {
+        if ($startedAt !== null && $this->clock !== null && ($this->clock)() - $startedAt > $this->bound) {
+            $this->works = false;
             $this->lifts = false;
         }
     }

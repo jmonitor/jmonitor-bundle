@@ -19,6 +19,9 @@ final class ReadInFlight
     /** the time limit to put back once the read ends */
     public ?int $timeLimit = null;
 
-    /** @var ?array{read: InstanceRead, spec: CollectorSpec, startedAt: float, reads: array<string, InstanceRead>, guard: CacheGuard} */
+    /** @var ?array{reads: array<string, InstanceRead>, guard: CacheGuard} the read that may hold witnesses */
+    public ?array $reading = null;
+
+    /** @var ?array{read: InstanceRead, spec: CollectorSpec, startedAt: float} */
     public ?array $collecting = null;
 }
