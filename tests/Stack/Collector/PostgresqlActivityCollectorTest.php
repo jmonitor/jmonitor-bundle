@@ -68,18 +68,32 @@ final class PostgresqlActivityCollectorTest extends TestCase
 
         $activity = (new PostgresqlActivityCollector(new DbalLink(static fn() => $database)))->collect();
 
-        self::assertSame(['database_stats', 'connections', 'sessions', 'server_connections'], array_keys($activity));
+        self::assertSame(['database_stats', 'connections', 'sessions', 'server_connections', 'hidden_sessions'], array_keys($activity));
     }
 
     public function testTheConnectionsOfTheWholeServerAreRead(): void
     {
-        $database = new FakeDatabase(['server_connections' => [['server_connections' => '58']]] + DatabasePayloads::postgresqlActivityRows());
+        $database = new FakeDatabase(['server_connections' => [['server_connections' => '58', 'hidden_sessions' => 0]]] + DatabasePayloads::postgresqlActivityRows());
 
         $activity = (new PostgresqlActivityCollector(new DbalLink(static fn() => $database)))->collect();
 
         self::assertSame(58, $activity['server_connections']);
         self::assertSame(7, $activity['database_stats']['numbackends']);
-        self::assertContains('SELECT COALESCE(SUM(numbackends), 0) AS server_connections FROM pg_stat_database', $database->queries);
+        self::assertNotSame([], array_filter($database->queries, static fn(string $query): bool => str_starts_with($query, 'SELECT COALESCE(SUM(numbackends), 0) AS server_connections') && str_ends_with($query, 'FROM pg_stat_database')));
+    }
+
+    public function testTheSessionsOfOtherRolesItMayNotReadAreCounted(): void
+    {
+        $database = new FakeDatabase(['server_connections' => [['server_connections' => 37, 'hidden_sessions' => '3']]] + DatabasePayloads::postgresqlActivityRows());
+
+        $activity = (new PostgresqlActivityCollector(new DbalLink(static fn() => $database)))->collect();
+        $query = array_values(array_filter($database->queries, static fn(string $query): bool => str_contains($query, 'hidden_sessions')))[0] ?? '';
+
+        self::assertSame(3, $activity['hidden_sessions']);
+        self::assertStringContainsString('usename IS NOT NULL', $query, 'a background worker has no user');
+        self::assertStringContainsString("query = '<insufficient privilege>'", $query);
+        self::assertStringContainsString('datname = current_database()', $query);
+        self::assertCount(1, array_filter($database->queries, static fn(string $query): bool => str_contains($query, 'pg_stat_activity') && str_contains($query, 'server_connections')), 'one round trip for both');
     }
 
     public function testAnUnknownWaitStaysUnknown(): void
@@ -100,7 +114,7 @@ final class PostgresqlActivityCollectorTest extends TestCase
     public static function unreadableServerConnections(): iterable
     {
         yield 'no row' => [[]];
-        yield 'a null' => [[['server_connections' => null]]];
+        yield 'a null' => [[['server_connections' => null, 'hidden_sessions' => null]]];
     }
 
     /**
@@ -114,6 +128,7 @@ final class PostgresqlActivityCollectorTest extends TestCase
         $activity = (new PostgresqlActivityCollector(new DbalLink(static fn() => $database)))->collect();
 
         self::assertNull($activity['server_connections']);
+        self::assertNull($activity['hidden_sessions']);
     }
 
     public function testAnUnreachableServerStaysUnreachable(): void

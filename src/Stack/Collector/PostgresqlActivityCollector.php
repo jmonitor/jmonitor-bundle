@@ -11,10 +11,11 @@ use Jmonitor\Utils\DatabaseAdapter\DatabaseAdapterInterface;
 /**
  * The counters and the sessions of one database, and the connections of its whole server.
  * No text of a query is kept: a blocked session or the one blocking it may carry values.
+ * A session of another role keeps its user when the role may not read it, a background worker has none.
  */
 final readonly class PostgresqlActivityCollector implements CollectorInterface
 {
-    private const SERVER_CONNECTIONS = 'SELECT COALESCE(SUM(numbackends), 0) AS server_connections FROM pg_stat_database';
+    private const SERVER_CONNECTIONS = "SELECT COALESCE(SUM(numbackends), 0) AS server_connections, (SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database() AND usename IS NOT NULL AND query = '<insufficient privilege>') AS hidden_sessions FROM pg_stat_database";
 
     private const DATABASE_STATS = [
         'numbackends', 'xact_commit', 'xact_rollback', 'blks_read', 'blks_hit',
@@ -36,7 +37,8 @@ final readonly class PostgresqlActivityCollector implements CollectorInterface
      *     connections: array<string, int>,
      *     sessions: array<string, mixed>,
      *     server_connections: ?int,
-     * } the connections by state, "unknown" for the sessions the role may not see
+     *     hidden_sessions: ?int,
+     * } "unknown" counts the sessions whose state the role may not see, hidden_sessions those of other roles it may not read
      *
      * @throws UnreachableServerException
      */
@@ -47,7 +49,7 @@ final readonly class PostgresqlActivityCollector implements CollectorInterface
         try {
             $activity->boot();
             $data = $activity->collect();
-            $server = $this->db->fetchAllAssociative(self::SERVER_CONNECTIONS)[0]['server_connections'] ?? null;
+            $server = $this->db->fetchAllAssociative(self::SERVER_CONNECTIONS)[0] ?? [];
         } catch (\Throwable $e) {
             throw PostgresqlFailure::of($e);
         }
@@ -56,7 +58,8 @@ final readonly class PostgresqlActivityCollector implements CollectorInterface
             'database_stats' => self::integers(\is_array($data['database_stats'] ?? null) ? $data['database_stats'] : [], self::DATABASE_STATS),
             'connections' => self::connections(\is_array($data['connections'] ?? null) ? $data['connections'] : []),
             'sessions' => self::sessions(\is_array($data['sessions'] ?? null) ? $data['sessions'] : []),
-            'server_connections' => is_numeric($server) ? (int) $server : null,
+            'server_connections' => is_numeric($server['server_connections'] ?? null) ? (int) $server['server_connections'] : null,
+            'hidden_sessions' => is_numeric($server['hidden_sessions'] ?? null) ? (int) $server['hidden_sessions'] : null,
         ];
     }
 

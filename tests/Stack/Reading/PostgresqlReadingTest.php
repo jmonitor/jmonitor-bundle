@@ -119,6 +119,7 @@ final class PostgresqlReadingTest extends TestCase
                         'blocked_queries' => ['x', ['blocked_pid' => 'a', 'wait_seconds' => 50], ['wait_seconds' => 50]],
                     ],
                     'server_connections' => [37],
+                    'hidden_sessions' => 'some',
                 ],
                 'postgresql.settings' => ['server_version' => ['17.2'], 'max_connections' => 'lots', 'autovacuum' => 'maybe', 'work_mem' => [1]],
                 'postgresql.database' => ['schema' => [], 'db_size' => 'big', 'tables' => 'none'],
@@ -199,14 +200,17 @@ final class PostgresqlReadingTest extends TestCase
 
     public function testARoleThatSeesNoStateIsLimited(): void
     {
-        $limited = PostgresqlReading::of(self::snapshot(activity: ['connections' => ['active' => 1, 'unknown' => 4]]), self::today());
-        $seesAll = PostgresqlReading::of(self::snapshot(activity: ['connections' => ['active' => 1, 'unknown' => 0]]), self::today());
+        $limited = PostgresqlReading::of(self::snapshot(activity: ['connections' => ['active' => 1, 'unknown' => 4], 'hidden_sessions' => 4]), self::today());
+        $duringAnAutovacuum = PostgresqlReading::of(self::snapshot(activity: ['connections' => ['active' => 1, 'unknown' => 1], 'hidden_sessions' => 0]), self::today());
+        $notRead = PostgresqlReading::of(self::snapshot(activity: ['connections' => ['active' => 1, 'unknown' => 4], 'hidden_sessions' => null]), self::today());
 
         self::assertTrue($limited->limitedRole);
         self::assertSame(4, $limited->hiddenSessions);
-        self::assertSame(['active' => 1], $limited->connectionsByState);
-        self::assertFalse($seesAll->limitedRole);
-        self::assertSame(0, $seesAll->hiddenSessions);
+        self::assertSame(['active' => 1, 'unknown' => 4], $limited->connectionsByState);
+        self::assertFalse($duringAnAutovacuum->limitedRole, 'a background worker shows no state to an ordinary role');
+        self::assertSame(0, $duringAnAutovacuum->hiddenSessions);
+        self::assertFalse($notRead->limitedRole);
+        self::assertNull($notRead->hiddenSessions);
     }
 
     public function testABlockedSessionCarriesNoQueryText(): void

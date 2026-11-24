@@ -125,7 +125,7 @@ final class PostgresqlDetail implements DetailInterface
         if ($postgresql->limitedRole) {
             $hidden = (int) $postgresql->hiddenSessions;
             $blocks[] = Block::notice(new Notice('info', 'This role only sees its own sessions', sprintf(
-                'PostgreSQL does not show it the state of %d %s of this database, so the counts below leave them out. Grant it the pg_monitor role to see them all.',
+                'PostgreSQL does not show it the state of %d %s of other roles in this database, so the counts below leave them out. Grant it the pg_monitor role to see them all.',
                 $hidden,
                 $hidden === 1 ? 'session' : 'sessions',
             )));
@@ -260,15 +260,11 @@ final class PostgresqlDetail implements DetailInterface
     }
 
     /**
-     * "2 active · 4 idle", and the sessions whose state the role may not see.
+     * "2 active · 4 idle".
      */
     private static function states(PostgresqlReading $postgresql): ?string
     {
         $states = array_map(static fn(string $state, int $count): string => $count . ' ' . $state, array_keys($postgresql->connectionsByState), $postgresql->connectionsByState);
-
-        if ($postgresql->hiddenSessions !== null && $postgresql->hiddenSessions > 0) {
-            $states[] = $postgresql->hiddenSessions . ' hidden from this role';
-        }
 
         return $states === [] ? null : implode(' · ', $states);
     }

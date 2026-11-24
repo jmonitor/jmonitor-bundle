@@ -90,6 +90,29 @@ final class PostgresqlLiveTest extends TestCase
         }
     }
 
+    public function testARoleWithoutPrivilegeCountsTheSessionsItCannotSee(): void
+    {
+        $role = 'jm_probe_' . bin2hex(random_bytes(6));
+        $params = ConnectionProvider::parse((string) getenv('JMONITOR_TEST_PGSQL_URL'));
+        $password = bin2hex(random_bytes(16));
+        $this->connection->executeStatement('CREATE ROLE ' . $role . " LOGIN PASSWORD '" . $password . "'");
+        $other = DriverManager::getConnection($params);
+        $limited = DriverManager::getConnection(['user' => $role, 'password' => $password] + $params);
+
+        try {
+            $other->fetchOne('SELECT 1');
+            $seenByItsOwner = (new PostgresqlActivityCollector($this->link()))->collect();
+            $seenByAnother = (new PostgresqlActivityCollector(new DbalLink(static fn(): Connection => $limited)))->collect();
+        } finally {
+            $limited->close();
+            $other->close();
+            $this->connection->executeStatement('DROP ROLE ' . $role);
+        }
+
+        self::assertSame(0, $seenByItsOwner['hidden_sessions']);
+        self::assertGreaterThanOrEqual(1, $seenByAnother['hidden_sessions'], 'the sessions of the role of the test');
+    }
+
     private function link(): DbalLink
     {
         $connection = $this->connection;

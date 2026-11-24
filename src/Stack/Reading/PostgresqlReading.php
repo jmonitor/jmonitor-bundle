@@ -20,14 +20,13 @@ final readonly class PostgresqlReading
     /** the statistics of a database survive a restart of the server */
     private const SINCE_RESET = 'since the statistics were reset';
 
-    private const HIDDEN_STATE = 'unknown';
-
     /**
      * @param ?string                        $version                 the numbers ahead of the build, such as "16.4" for "16.4 (Debian 16.4-1.pgdg120+1)"
      * @param ?SupportStatus                 $support                 null without a cycle for this version, as for a development version or a server that only speaks its protocol, such as CockroachDB
      * @param ?int                           $serverConnections       every database of the server included
-     * @param array<string, int>             $connectionsByState      the connections of this database whose state the role may see
-     * @param ?int                           $hiddenSessions          the sessions of this database whose state the role may not see
+     * @param array<string, int>             $connectionsByState      the connections of this database, "unknown" for those whose state the role may not see
+     * @param bool                           $limitedRole             the role may not read the sessions of other roles; a background worker does not count
+     * @param ?int                           $hiddenSessions          the sessions of other roles in this database that the role may not read
      * @param Rate                           $cacheHitRate            the variation between the two samples when it holds CACHE_BLOCKS, else since the statistics were reset
      * @param ?int                           $cacheBlocks             the blocks the rate shown counts
      * @param ?int                           $transactions            committed or rolled back between the last two samples
@@ -93,7 +92,7 @@ final readonly class PostgresqlReading
 
         $serverConnections = Values::int($activity['server_connections'] ?? null);
         $maxConnections = Values::int($settings['max_connections'] ?? null);
-        $hiddenSessions = $connections === null ? null : Values::int($connections[self::HIDDEN_STATE] ?? 0);
+        $hiddenSessions = Values::int($activity['hidden_sessions'] ?? null);
 
         $hits = Values::int($stats['blks_hit'] ?? null);
         $reads = Values::int($stats['blks_read'] ?? null);
@@ -194,7 +193,7 @@ final readonly class PostgresqlReading
         foreach ($connections as $state => $count) {
             $count = Values::int($count);
 
-            if ($count !== null && $state !== self::HIDDEN_STATE) {
+            if ($count !== null) {
                 $states[(string) $state] = $count;
             }
         }

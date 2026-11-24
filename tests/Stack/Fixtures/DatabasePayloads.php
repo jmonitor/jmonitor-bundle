@@ -126,6 +126,7 @@ final class DatabasePayloads
                 ],
             ],
             'server_connections' => 37,
+            'hidden_sessions' => 0,
         ];
     }
 
@@ -137,7 +138,7 @@ final class DatabasePayloads
     public static function postgresqlActivityRows(): array
     {
         return [
-            'server_connections' => [['server_connections' => 37]],
+            'server_connections' => [['server_connections' => 37, 'hidden_sessions' => 0]],
             'server_version_num' => [['server_version_num' => '170002']],
             'xact_commit' => [[
                 'numbackends' => 7,

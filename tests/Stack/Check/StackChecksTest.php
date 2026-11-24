@@ -942,8 +942,8 @@ final class StackChecksTest extends TestCase
         yield 'autovacuum off' => [self::postgresqlActivity(settings: ['autovacuum' => 'off']), [], 'postgresql.autovacuum_off', Severity::Critical];
         yield 'track_counts off' => [self::postgresqlActivity(settings: ['track_counts' => 'off']), [], 'postgresql.autovacuum_off', Severity::Critical];
 
-        yield 'every state seen' => [self::postgresqlActivity(['connections' => ['active' => 2, 'unknown' => 0]]), [], 'postgresql.limited_role', null];
-        yield 'one state hidden' => [self::postgresqlActivity(['connections' => ['active' => 2, 'unknown' => 1]]), [], 'postgresql.limited_role', Severity::Info];
+        yield 'every session of other roles read' => [self::postgresqlActivity(['hidden_sessions' => 0]), [], 'postgresql.limited_role', null];
+        yield 'one session of another role hidden' => [self::postgresqlActivity(['connections' => ['unknown' => 1], 'hidden_sessions' => 1]), [], 'postgresql.limited_role', Severity::Info];
 
         yield 'PostgreSQL supported, not ended' => [self::postgresqlActivity(settings: ['server_version' => '17.2']), [], 'postgresql.end_of_life', null];
         yield 'PostgreSQL ended' => [self::postgresqlActivity(settings: ['server_version' => '13.18']), [], 'postgresql.end_of_life', Severity::Critical];
@@ -982,8 +982,8 @@ final class StackChecksTest extends TestCase
         $autovacuum = $health(self::postgresqlActivity(settings: ['autovacuum' => 'off']));
         $trackCounts = $health(self::postgresqlActivity(settings: ['track_counts' => 'off']));
         $both = $health(self::postgresqlActivity(settings: ['autovacuum' => 'off', 'track_counts' => 'off']));
-        $limited = $health(self::postgresqlActivity(['connections' => ['active' => 1, 'unknown' => 4]]));
-        $limitedOne = $health(self::postgresqlActivity(['connections' => ['active' => 1, 'unknown' => 1]]));
+        $limited = $health(self::postgresqlActivity(['connections' => ['active' => 1, 'unknown' => 4], 'hidden_sessions' => 4]));
+        $limitedOne = $health(self::postgresqlActivity(['connections' => ['active' => 1, 'unknown' => 1], 'hidden_sessions' => 1]));
         $ended = $health(self::postgresqlActivity(settings: ['server_version' => '13.18 (Debian 13.18-1.pgdg120+1)']));
         $securityOnly = $health(self::postgresqlActivity(settings: ['server_version' => '14.15']));
 
@@ -1005,8 +1005,8 @@ final class StackChecksTest extends TestCase
         self::assertSame('autovacuum is off', self::find($autovacuum, 'postgresql.autovacuum_off')?->sentence);
         self::assertSame('track_counts is off, which stops autovacuum', self::find($trackCounts, 'postgresql.autovacuum_off')?->sentence);
         self::assertSame('autovacuum and track_counts are off', self::find($both, 'postgresql.autovacuum_off')?->sentence);
-        self::assertSame('The role of this connection cannot see the state of 4 sessions', self::find($limited, 'postgresql.limited_role')?->sentence);
-        self::assertSame('The role of this connection cannot see the state of 1 session', self::find($limitedOne, 'postgresql.limited_role')?->sentence);
+        self::assertSame('The role of this connection cannot see the state of 4 sessions of other roles', self::find($limited, 'postgresql.limited_role')?->sentence);
+        self::assertSame('The role of this connection cannot see the state of 1 session of other roles', self::find($limitedOne, 'postgresql.limited_role')?->sentence);
         self::assertStringContainsString('pg_monitor', self::find($limited, 'postgresql.limited_role')->explanation);
         self::assertSame('PostgreSQL 13.18 has reached its end of life', self::find($ended, 'postgresql.end_of_life')?->sentence);
         self::assertSame('PostgreSQL 14.15 only receives security fixes', self::find($securityOnly, 'postgresql.security_only')?->sentence);
@@ -1035,12 +1035,26 @@ final class StackChecksTest extends TestCase
     {
         $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, self::postgresqlActivity([
             'connections' => ['active' => 1, 'unknown' => 4],
+            'hidden_sessions' => 4,
             'sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 3_600] + self::blocked(600),
         ]))));
 
         self::assertSame(['postgresql.limited_role'], array_map(static fn(Finding $finding): string => $finding->id, $health->findings));
         self::assertSame(Severity::Info, self::find($health, 'postgresql.limited_role')?->severity);
         self::assertSame(Verdict::Healthy, $health->verdict(Component::Postgresql));
+    }
+
+    public function testAnAutovacuumWorkerNeitherTellsNorSilences(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Postgresql, self::postgresqlActivity([
+            'connections' => ['active' => 1, 'unknown' => 1],
+            'hidden_sessions' => 0,
+            'sessions' => ['idle_in_transaction_count' => 1, 'oldest_idle_in_transaction_seconds' => 3_600] + self::blocked(600),
+        ]))));
+
+        self::assertNull(self::find($health, 'postgresql.limited_role'));
+        self::assertSame(Severity::Warning, self::find($health, 'postgresql.idle_in_transaction')?->severity);
+        self::assertSame(Severity::Warning, self::find($health, 'postgresql.blocked_sessions')?->severity);
     }
 
     public function testAnUnknownValueRaisesNothing(): void

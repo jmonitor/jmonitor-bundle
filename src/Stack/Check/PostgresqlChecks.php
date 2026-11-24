@@ -130,7 +130,7 @@ final class PostgresqlChecks
             $findings[] = $raise(
                 'postgresql.limited_role',
                 Severity::Info,
-                sprintf('The role of this connection cannot see the state of %d %s', $postgresql->hiddenSessions, $postgresql->hiddenSessions === 1 ? 'session' : 'sessions'),
+                sprintf('The role of this connection cannot see the state of %d %s of other roles', $postgresql->hiddenSessions, $postgresql->hiddenSessions === 1 ? 'session' : 'sessions'),
                 'PostgreSQL only shows a role without privilege the state of its own sessions, so the transactions left idle and the sessions waiting for a lock are not judged here. Grant it the pg_monitor role to see them all.',
                 'postgresql',
             );

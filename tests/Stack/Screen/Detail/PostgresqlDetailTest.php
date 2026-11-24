@@ -197,7 +197,7 @@ final class PostgresqlDetailTest extends TestCase
         $activity = DatabasePayloads::postgresqlActivity();
         $activity['sessions'] = ['blocked_count' => 0, 'blocked_queries' => []] + $activity['sessions'];
         $limited = $activity;
-        $limited['connections']['unknown'] = 2;
+        $limited['hidden_sessions'] = 2;
 
         $empty = (new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql' => $activity])), [], Snapshots::NOW)[4];
         $unseen = (new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql' => $limited])), [], Snapshots::NOW)[5];
@@ -210,6 +210,7 @@ final class PostgresqlDetailTest extends TestCase
     {
         $activity = DatabasePayloads::postgresqlActivity();
         $activity['connections']['unknown'] = 4;
+        $activity['hidden_sessions'] = 4;
         $snapshot = self::snapshot(['postgresql' => $activity]);
 
         $blocks = (new PostgresqlDetail())->sections(self::connection($snapshot), self::findings($snapshot), Snapshots::NOW);
@@ -217,16 +218,16 @@ final class PostgresqlDetailTest extends TestCase
 
         self::assertSame(['Usage', 'Traffic', 'Cache', 'notice: This role only sees its own sessions', 'Sessions', 'Blocked sessions'], array_slice($titles, 0, 6));
         self::assertSame(
-            ['notice', 'info', 'This role only sees its own sessions', 'PostgreSQL does not show it the state of 4 sessions of this database, so the counts below leave them out. Grant it the pg_monitor role to see them all.'],
+            ['notice', 'info', 'This role only sees its own sessions', 'PostgreSQL does not show it the state of 4 sessions of other roles in this database, so the counts below leave them out. Grant it the pg_monitor role to see them all.'],
             self::describe($blocks)[3],
         );
-        self::assertSame('2 active · 4 idle · 1 idle in transaction · 4 hidden from this role', self::hints($blocks)['Usage / Database connections']);
+        self::assertSame('2 active · 4 idle · 1 idle in transaction · 4 unknown', self::hints($blocks)['Usage / Database connections']);
         self::assertSame(['Waiting for a lock' => '1', 'Oldest transaction' => self::nb('5 min 40 s'), 'Idle in a transaction' => '1'], self::describe($blocks)[4][2], 'the checks that depend on what it cannot see keep quiet');
 
-        $activity['connections']['unknown'] = 1;
+        $activity['hidden_sessions'] = 1;
         $one = self::describe((new PostgresqlDetail())->sections(self::connection(self::snapshot(['postgresql' => $activity])), [], Snapshots::NOW))[3];
 
-        self::assertStringStartsWith('PostgreSQL does not show it the state of 1 session of this database', $one[3]);
+        self::assertStringStartsWith('PostgreSQL does not show it the state of 1 session of other roles in this database', $one[3]);
         self::assertNotContains('notice: This role only sees its own sessions', self::titles((new PostgresqlDetail())->sections(self::connection(self::snapshot()), [], Snapshots::NOW)));
     }
 
