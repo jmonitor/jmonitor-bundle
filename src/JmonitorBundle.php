@@ -588,15 +588,17 @@ final class JmonitorBundle extends AbstractBundle
 
     private static function connectionsNode(): ArrayNodeDefinition
     {
-        return (new ArrayNodeDefinition('connections'))
+        $connections = (new ArrayNodeDefinition('connections'))
             ->info('Names of the Doctrine connections to read; all of them when empty.')
             ->normalizeKeys(false)
-            ->useAttributeAsKey('name')
-            ->beforeNormalization()
-                ->ifTrue(static fn(mixed $v): bool => \is_array($v) && array_is_list($v) && array_filter($v, static fn(mixed $name): bool => !\is_string($name)) === [])
-                ->then(static fn(array $names): array => array_fill_keys($names, []))
-            ->end()
-            ->arrayPrototype()->end();
+            ->useAttributeAsKey('name');
+        $connections->arrayPrototype()->end();
+        $connections->beforeNormalization()
+            ->ifTrue(static fn(mixed $v): bool => \is_array($v) && array_is_list($v) && array_filter($v, static fn(mixed $name): bool => !\is_string($name)) === [])
+            ->then(static fn(array $names): array => array_fill_keys($names, []))
+        ->end();
+
+        return $connections;
     }
 
     private static function webServerNode(string $name, string $endpoint, string $info): ArrayNodeDefinition
