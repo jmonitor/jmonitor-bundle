@@ -159,7 +159,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
     }
 
     /**
-     * One row of every instance; for the instances that reach servers, one row of the servers, each by its first
+     * One row of every instance; for a component grouped by server, one row of the servers, each by its first
      * instance, and one row of the instances of the server shown. A row of a single item is left out.
      */
     private function instances(ComponentState $component, ?InstanceState $shown, StackHealth $health): InstanceNav

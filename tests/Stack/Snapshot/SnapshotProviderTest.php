@@ -1061,6 +1061,27 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame(ResultState::Fresh, $afterRefresh->result('mysql')?->state, 'a refresh forgets the failure');
     }
 
+    public function testAHeldCollectorShowsTheFreshValueOfItsServerAsStale(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $refused = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection refused'));
+        $variables = new FakeCollector('mysql.variables', ['version' => '8.4']);
+        $a = self::instance([self::spec($refused, cost: CostClass::Network), self::spec(new FakeCollector('mysql.variables'), cost: CostClass::Network, perServer: true)], 'a', Component::Mysql, $server);
+        $b = self::instance([self::spec(new FakeCollector('mysql', ['Uptime' => 5]), cost: CostClass::Network), self::spec($variables, cost: CostClass::Network, perServer: true)], 'b', Component::Mysql, $server);
+        $provider = $this->provider();
+        $this->read($provider, $a);
+        $this->clock->sleep(1);
+        $this->read($provider, $b);
+        $this->clock->sleep(1);
+
+        $held = $this->read($provider, $a);
+
+        self::assertSame(1, $variables->collects);
+        self::assertSame(ResultState::Stale, $held->result('mysql.variables')?->state);
+        self::assertSame(['version' => '8.4'], $held->data('mysql.variables'));
+        self::assertSame('Connection refused', $held->result('mysql.variables')->error);
+    }
+
     public function testAHeldConnectionDoesNotTakeTheValueAnotherOneJustRead(): void
     {
         $server = new Server('db.internal:3306', 'db.internal:3306');
@@ -1131,6 +1152,71 @@ final class SnapshotProviderTest extends TestCase
         $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
 
         self::assertSame(2, $statuses[0]->collects);
+    }
+
+    public function testTheConnectionsOfASilentServerKeepItsFailureEvenWhenTheyAlreadyShowAValue(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $silent = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection timed out'), clock: $this->clock, duration: 30.0);
+        $answered = new FakeCollector('mysql', ['Uptime' => 5]);
+        $c1 = self::instance([self::spec($silent, cost: CostClass::Network)], 'c1', Component::Mysql, $server);
+        $c2 = self::instance([self::spec($answered, cost: CostClass::Network)], 'c2', Component::Mysql, $server);
+        $provider = $this->provider();
+        $this->read($provider, $c2);
+        $this->clock->sleep(5);
+
+        $snapshots = $provider->read([$c1, $c2], CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame(ResultState::Fresh, $snapshots['mysql.c2']->result('mysql')?->state, 'the value it already shows stays');
+        self::assertSame(150, $this->recording->ttls['jmonitor.stack.failure.mysql.c2.mysql']);
+
+        $this->clock->sleep(11);
+        $later = $this->read($provider, $c2);
+
+        self::assertSame(1, $answered->collects);
+        self::assertSame(ResultState::Stale, $later->result('mysql')?->state);
+        self::assertSame('Connection timed out', $later->result('mysql')->error);
+    }
+
+    public function testASilentServerReplacesAnotherKindOfFailureOfItsConnections(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $silent = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection timed out'), clock: $this->clock, duration: 30.0);
+        $missing = new FakeCollector('mysql', collectFailure: new MissingPrerequisiteException('performance_schema is off'));
+        $variables = new FakeCollector('mysql.variables', ['version' => '8.4']);
+        $c1 = self::instance([self::spec($silent, cost: CostClass::Network)], 'c1', Component::Mysql, $server);
+        $c2 = self::instance([self::spec($missing, cost: CostClass::Network), self::spec($variables, cost: CostClass::Network)], 'c2', Component::Mysql, $server);
+        $provider = $this->provider();
+        $this->read($provider, $c2);
+        $this->clock->sleep(11);
+
+        $provider->read([$c1, $c2], CollectBudget::fragment($this->clock), CacheState::Working);
+        $this->clock->sleep(1);
+        $later = $this->read($provider, $c2);
+
+        self::assertSame([1, 1], [$missing->collects, $variables->collects], 'not asked at the next display either');
+        self::assertSame('Connection timed out', $later->result('mysql.variables')?->error);
+        self::assertSame(FailureKind::Unreachable, $later->result('mysql')?->failure);
+    }
+
+    public function testASilentServerLeavesAnotherComponentOnItsAddressAlone(): void
+    {
+        $server = new Server('db.internal:3306', 'db.internal:3306');
+        $silent = new FakeCollector('mysql', collectFailure: new UnreachableServerException('Connection timed out'), clock: $this->clock, duration: 30.0);
+        $other = new FakeCollector('symfony', ['ok' => true]);
+        $instances = [
+            self::instance([self::spec($silent, cost: CostClass::Network)], 'c1', Component::Mysql, $server),
+            self::instance([self::spec($other, cost: CostClass::Network)], 'c2', Component::Symfony, $server),
+        ];
+        $provider = $this->provider();
+
+        $snapshots = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+        $this->clock->sleep(1);
+        $later = $provider->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame(ResultState::Pending, $snapshots['symfony.c2']->result('symfony')?->state);
+        self::assertSame(1, $other->collects);
+        self::assertSame(ResultState::Fresh, $later['symfony.c2']->result('symfony')?->state);
     }
 
     public function testAQuickRefusalStaysWithItsConnection(): void

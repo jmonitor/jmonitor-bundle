@@ -323,7 +323,8 @@ final readonly class SnapshotProvider
 
     /**
      * A server that kept the read waiting would keep each of its other connections waiting as long: those of
-     * the display take its failure on their main collector, under their own key. A result they already show stays.
+     * the display take its failure on their main collector, under their own key, unless they already keep a failure
+     * to reach it that lasts as long. A result they already show stays.
      *
      * @param array<string, InstanceRead> $reads
      */
@@ -345,7 +346,7 @@ final readonly class SnapshotProvider
             $theirs = new StoredFailure($failure->error, $failure->until, $other->forgotten, $failure->kind);
             $shown = $other->results[$main->name] ?? null;
 
-            if ($shown?->failure === null || $shown->expiresAt < $failure->until) {
+            if ($shown?->failure !== FailureKind::Unreachable || $shown->expiresAt < $failure->until) {
                 $other->write($main, $this->keys->failure($other->instance, $main), $theirs->toCache(), self::failureKeptFor($main, $failure->until - $now), value: false);
             }
 
