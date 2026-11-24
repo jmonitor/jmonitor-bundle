@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\UnreachableServerException;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\Failures;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeDatabase;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class PostgresqlActivityCollectorTest extends TestCase
@@ -79,6 +80,40 @@ final class PostgresqlActivityCollectorTest extends TestCase
         self::assertSame(58, $activity['server_connections']);
         self::assertSame(7, $activity['database_stats']['numbackends']);
         self::assertContains('SELECT COALESCE(SUM(numbackends), 0) AS server_connections FROM pg_stat_database', $database->queries);
+    }
+
+    public function testAnUnknownWaitStaysUnknown(): void
+    {
+        $rows = DatabasePayloads::postgresqlActivityRows();
+        $rows['pg_blocking_pids'][0]['blocked_wait_seconds'] = null;
+        unset($rows['pg_blocking_pids'][0]['blocking_state']);
+        $database = new FakeDatabase($rows);
+
+        $activity = (new PostgresqlActivityCollector(new DbalLink(static fn() => $database)))->collect();
+
+        self::assertSame([['blocked_pid' => 4242, 'wait_seconds' => null, 'blocking_pid' => 4100, 'blocking_state' => null]], $activity['sessions']['blocked_queries']);
+    }
+
+    /**
+     * @return iterable<string, array{list<array<string, mixed>>}>
+     */
+    public static function unreadableServerConnections(): iterable
+    {
+        yield 'no row' => [[]];
+        yield 'a null' => [[['server_connections' => null]]];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $answer
+     */
+    #[DataProvider('unreadableServerConnections')]
+    public function testAnUnreadableCountOfTheServerConnectionsStaysUnknown(array $answer): void
+    {
+        $database = new FakeDatabase(['server_connections' => $answer] + DatabasePayloads::postgresqlActivityRows());
+
+        $activity = (new PostgresqlActivityCollector(new DbalLink(static fn() => $database)))->collect();
+
+        self::assertNull($activity['server_connections']);
     }
 
     public function testAnUnreachableServerStaysUnreachable(): void

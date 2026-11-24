@@ -35,7 +35,7 @@ final readonly class PostgresqlActivityCollector implements CollectorInterface
      *     database_stats: array<string, int>,
      *     connections: array<string, int>,
      *     sessions: array<string, mixed>,
-     *     server_connections: int,
+     *     server_connections: ?int,
      * } the connections by state, "unknown" for the sessions the role may not see
      *
      * @throws UnreachableServerException
@@ -56,7 +56,7 @@ final readonly class PostgresqlActivityCollector implements CollectorInterface
             'database_stats' => self::integers(\is_array($data['database_stats'] ?? null) ? $data['database_stats'] : [], self::DATABASE_STATS),
             'connections' => self::connections(\is_array($data['connections'] ?? null) ? $data['connections'] : []),
             'sessions' => self::sessions(\is_array($data['sessions'] ?? null) ? $data['sessions'] : []),
-            'server_connections' => is_numeric($server) ? (int) $server : 0,
+            'server_connections' => is_numeric($server) ? (int) $server : null,
         ];
     }
 
@@ -131,7 +131,7 @@ final readonly class PostgresqlActivityCollector implements CollectorInterface
 
             $kept['blocked_queries'][] = [
                 'blocked_pid' => (int) $row['blocked_pid'],
-                'wait_seconds' => is_numeric($row['blocked_wait_seconds'] ?? null) ? (int) $row['blocked_wait_seconds'] : 0,
+                'wait_seconds' => is_numeric($row['blocked_wait_seconds'] ?? null) ? (int) $row['blocked_wait_seconds'] : null,
                 'blocking_pid' => (int) $row['blocking_pid'],
                 'blocking_state' => \is_string($row['blocking_state'] ?? null) ? $row['blocking_state'] : null,
             ];
