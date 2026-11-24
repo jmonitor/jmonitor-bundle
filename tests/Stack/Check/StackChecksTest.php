@@ -19,6 +19,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\Delta;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RedisPayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -1167,6 +1168,189 @@ final class StackChecksTest extends TestCase
     }
 
     /**
+     * @return iterable<string, array{array<string, array<string, mixed>>, array<string, Delta>, string, ?Severity}>
+     */
+    public static function redisThresholds(): iterable
+    {
+        yield 'memory 89.9 % under noeviction' => [self::redisMemory(899, 'noeviction'), [], 'redis.memory', null];
+        yield 'memory 90 % under noeviction' => [self::redisMemory(900, 'noeviction'), [], 'redis.memory', Severity::Warning];
+        yield 'memory 97.9 % under noeviction' => [self::redisMemory(979, 'noeviction'), [], 'redis.memory', Severity::Warning];
+        yield 'memory 98 % under noeviction' => [self::redisMemory(980, 'noeviction'), [], 'redis.memory', Severity::Critical];
+        yield 'memory 99 % under allkeys-lru' => [self::redisMemory(990, 'allkeys-lru'), [], 'redis.memory', null];
+        yield 'memory 99 % under volatile-ttl' => [self::redisMemory(990, 'volatile-ttl'), [], 'redis.memory', null];
+
+        yield 'hit rate 79.9 % over 1000 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 799, 'keyspace_misses' => 201]), 'redis.hit_rate', Severity::Info];
+        yield 'hit rate 80 % over 1000 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 800, 'keyspace_misses' => 200]), 'redis.hit_rate', null];
+        yield 'hit rate 50 % over 999 lookups' => [...self::redisWindow(['keyspace_hits' => 0, 'keyspace_misses' => 0], ['keyspace_hits' => 500, 'keyspace_misses' => 499]), 'redis.hit_rate', null];
+        yield 'hit rate 10 % since the server started' => [self::redis(['stats' => ['keyspace_hits' => 10_000, 'keyspace_misses' => 90_000]]), [], 'redis.hit_rate', null];
+
+        yield 'no key evicted' => [...self::redisWindow(['evicted_keys' => 7], ['evicted_keys' => 7]), 'redis.evictions', null];
+        yield 'one key evicted' => [...self::redisWindow(['evicted_keys' => 6], ['evicted_keys' => 7]), 'redis.evictions', Severity::Info];
+        yield 'keys evicted since the server started only' => [self::redis(['stats' => ['evicted_keys' => 5_000]]), [], 'redis.evictions', null];
+
+        yield 'no connection refused' => [...self::redisWindow(['rejected_connections' => 3], ['rejected_connections' => 3]), 'redis.rejected_connections', null];
+        yield 'one connection refused' => [...self::redisWindow(['rejected_connections' => 3], ['rejected_connections' => 4]), 'redis.rejected_connections', Severity::Warning];
+        yield 'connections refused since the server started only' => [self::redis(['stats' => ['rejected_connections' => 50]]), [], 'redis.rejected_connections', null];
+
+        yield 'last snapshot ok' => [self::redis(['persistence' => ['rdb_last_bgsave_status' => 'ok']]), [], 'redis.rdb_failed', null];
+        yield 'last snapshot failed' => [self::redis(['persistence' => ['rdb_last_bgsave_status' => 'err']]), [], 'redis.rdb_failed', Severity::Critical];
+
+        yield 'AOF on, last rewrite ok' => [self::redis(['persistence' => ['aof_enabled' => 1, 'aof_last_bgrewrite_status' => 'ok']]), [], 'redis.aof_failed', null];
+        yield 'AOF on, last rewrite failed' => [self::redis(['persistence' => ['aof_enabled' => 1, 'aof_last_bgrewrite_status' => 'err']]), [], 'redis.aof_failed', Severity::Critical];
+
+        yield 'Redis supported, not ended' => [self::redis(['server' => ['version' => '7.4.2']]), [], 'redis.end_of_life', null];
+        yield 'Redis ended' => [self::redis(['server' => ['version' => '6.2.14']]), [], 'redis.end_of_life', Severity::Critical];
+        yield 'Redis supported' => [self::redis(['server' => ['version' => '7.4.2']]), [], 'redis.security_only', null];
+        yield 'Redis security fixes only' => [self::redis(['server' => ['version' => '7.2.4']]), [], 'redis.security_only', Severity::Warning];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $data
+     * @param array<string, Delta>                $deltas
+     */
+    #[DataProvider('redisThresholds')]
+    public function testEachRedisCheckRisesAtItsThresholdAndNotJustBelow(array $data, array $deltas, string $id, ?Severity $expected): void
+    {
+        $this->testEachCheckRisesAtItsThresholdAndNotJustBelow(Component::Redis, $data, $deltas, $id, $expected);
+    }
+
+    public function testARedisSentenceSaysWhatItCovers(): void
+    {
+        $health = static fn(array $data, array $deltas = []): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, $data, deltas: $deltas)));
+        $full = $health(self::redis(['memory' => ['used' => 1_932_735_284, 'max_memory' => 2_147_483_648, 'max_memory_policy' => 'noeviction']]));
+        $window = $health(...self::redisWindow(
+            ['keyspace_hits' => 0, 'keyspace_misses' => 0, 'evicted_keys' => 0, 'rejected_connections' => 0],
+            ['keyspace_hits' => 1_400, 'keyspace_misses' => 600, 'evicted_keys' => 12, 'rejected_connections' => 3],
+        ));
+        $once = $health(...self::redisWindow(['evicted_keys' => 0, 'rejected_connections' => 0], ['evicted_keys' => 1, 'rejected_connections' => 1]));
+        $snapshot = $health(self::redis(['persistence' => ['rdb_last_bgsave_status' => 'err']]));
+        $rewrite = $health(self::redis(['persistence' => ['aof_enabled' => 1, 'aof_last_bgrewrite_status' => 'err']]));
+        $ended = $health(self::redis(['server' => ['version' => '6.2.14']]));
+        $securityOnly = $health(self::redis(['server' => ['version' => '7.2.4']]));
+        $valkey = $health(self::redis(['server' => ['name' => 'valkey', 'valkey_version' => '7.2.5'], 'memory' => ['used' => 1_932_735_284, 'max_memory' => 2_147_483_648, 'max_memory_policy' => 'noeviction']]));
+
+        self::assertSame("Redis uses 90\u{00A0}% of its memory limit (1.8\u{00A0}GB of 2\u{00A0}GB)", self::find($full, 'redis.memory')?->sentence);
+        self::assertStringContainsString('noeviction', self::find($full, 'redis.memory')->explanation);
+        self::assertStringContainsString('maxmemory', self::find($full, 'redis.memory')->explanation);
+        self::assertSame("The hit rate is 70\u{00A0}% over the last 60\u{00A0}s", self::find($window, 'redis.hit_rate')?->sentence);
+        self::assertSame("12 keys were evicted over the last 60\u{00A0}s", self::find($window, 'redis.evictions')?->sentence);
+        self::assertSame("1 key was evicted over the last 60\u{00A0}s", self::find($once, 'redis.evictions')?->sentence);
+        self::assertStringContainsString('allkeys-lru', self::find($window, 'redis.evictions')->explanation, 'the policy of the server');
+        self::assertSame("3 connections were refused over the last 60\u{00A0}s", self::find($window, 'redis.rejected_connections')?->sentence);
+        self::assertSame("1 connection was refused over the last 60\u{00A0}s", self::find($once, 'redis.rejected_connections')?->sentence);
+        self::assertStringContainsString('maxclients', self::find($window, 'redis.rejected_connections')->explanation);
+        self::assertSame('The last RDB snapshot failed', self::find($snapshot, 'redis.rdb_failed')?->sentence);
+        self::assertSame('The last rewrite of the AOF failed', self::find($rewrite, 'redis.aof_failed')?->sentence);
+        self::assertSame('Redis 6.2.14 has reached its end of life', self::find($ended, 'redis.end_of_life')?->sentence);
+        self::assertSame('Redis 7.2.4 only receives security fixes', self::find($securityOnly, 'redis.security_only')?->sentence);
+        self::assertSame("Valkey uses 90\u{00A0}% of its memory limit (1.8\u{00A0}GB of 2\u{00A0}GB)", self::find($valkey, 'redis.memory')?->sentence);
+        self::assertSame('Valkey 7.2.5 has reached its end of life', self::find($valkey, 'redis.end_of_life')?->sentence);
+    }
+
+    public function testAHealthyRedisRaisesNothing(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, self::redis())));
+
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Redis));
+    }
+
+    public function testAFailedSnapshotIsCritical(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, self::redis(['persistence' => ['rdb_last_bgsave_status' => 'err']]))));
+
+        self::assertSame(Severity::Critical, self::find($health, 'redis.rdb_failed')?->severity);
+        self::assertStringContainsString('disk', self::find($health, 'redis.rdb_failed')->explanation);
+        self::assertSame(Verdict::Critical, $health->verdict(Component::Redis));
+    }
+
+    public function testASnapshotInProgressIsNotAFailure(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, self::redis(['persistence' => [
+            'rdb_bgsave_in_progress' => 1,
+            'rdb_last_bgsave_status' => 'err',
+            'aof_enabled' => 1,
+            'aof_rewrite_in_progress' => 1,
+            'aof_last_bgrewrite_status' => 'err',
+        ]]))));
+
+        self::assertSame([], $health->findings, 'the one under way may succeed');
+    }
+
+    public function testAFailedRewriteOnlyCountsWithAofOn(): void
+    {
+        $off = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, self::redis(['persistence' => ['aof_enabled' => 0, 'aof_last_bgrewrite_status' => 'err']]))));
+        $on = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, self::redis(['persistence' => ['aof_enabled' => 1, 'aof_last_bgrewrite_status' => 'err']]))));
+
+        self::assertNull(self::find($off, 'redis.aof_failed'));
+        self::assertSame(Severity::Critical, self::find($on, 'redis.aof_failed')?->severity);
+        self::assertSame(Verdict::Critical, $on->verdict(Component::Redis));
+    }
+
+    public function testAnUnreachableRedisIsCritical(): void
+    {
+        $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Redis, [
+            'redis' => new CollectorResult('redis', [], ResultState::Failed, 'The Redis server cannot be reached.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ])));
+        $denied = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Redis, [
+            'redis' => new CollectorResult('redis', [], ResultState::Failed, 'The Redis user of this connection may not run INFO.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::MissingPrerequisite),
+        ])));
+
+        self::assertSame(['redis.failed'], array_map(static fn(Finding $finding): string => $finding->id, $health->findings));
+        self::assertSame(Severity::Critical, self::find($health, 'redis.failed')?->severity);
+        self::assertSame('Redis cannot be reached: The Redis server cannot be reached.', self::find($health, 'redis.failed')->sentence);
+        self::assertSame(Verdict::Critical, $health->verdict(Component::Redis));
+
+        self::assertSame(Severity::Warning, self::find($denied, 'redis.failed')?->severity, 'the server answered');
+        self::assertSame(Verdict::Unknown, $denied->verdict(Component::Redis));
+    }
+
+    public function testTheSupportOfRedisAndValkeyIsJudged(): void
+    {
+        $redis = static fn(array $server, array $eol = []): StackHealth => self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, array_replace(self::redis(['server' => $server]), $eol))));
+
+        self::assertSame(Severity::Critical, self::find($redis(['version' => '6.2.14']), 'redis.end_of_life')?->severity);
+        self::assertSame(Severity::Warning, self::find($redis(['version' => '7.2.4']), 'redis.security_only')?->severity);
+        self::assertSame([], $redis(['version' => '7.4.2'])->findings);
+        self::assertSame([], $redis(['version' => '6.2.14'], ['eol.redis' => []])->findings, 'no cycle read');
+
+        $valkey = $redis(['name' => 'valkey', 'valkey_version' => '7.2.5']);
+        self::assertSame(Severity::Critical, self::find($valkey, 'redis.end_of_life')?->severity, 'the cycles of Valkey, not those of the Redis 7.2.4 it tells');
+        self::assertSame([], $redis(['name' => 'valkey', 'valkey_version' => '8.0.1'])->findings);
+        self::assertSame([], $redis(['name' => 'valkey', 'valkey_version' => '7.2.5'], ['eol.valkey' => []])->findings);
+    }
+
+    public function testAnIgnoredRedisCheckIsDroppedBeforeTheVerdict(): void
+    {
+        $full = Snapshots::stack(Snapshots::of(Component::Redis, self::redisMemory(990, 'noeviction')));
+        $unreachable = Snapshots::stack(new ComponentSnapshot(Component::Redis, [
+            'redis' => new CollectorResult('redis', [], ResultState::Failed, 'Nothing answers.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ]));
+
+        self::assertSame(Verdict::Critical, self::checks()->health($full)->verdict(Component::Redis));
+
+        $health = self::checks(['redis.memory'])->health($full);
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Redis));
+
+        $health = self::checks(['redis.failed'])->health($unreachable);
+        self::assertSame([], $health->findings);
+        self::assertSame(Verdict::Unknown, $health->verdict(Component::Redis));
+    }
+
+    public function testInformationOnRedisDoesNotChangeTheVerdict(): void
+    {
+        [$data, $deltas] = self::redisWindow(
+            ['keyspace_hits' => 0, 'keyspace_misses' => 0, 'evicted_keys' => 0],
+            ['keyspace_hits' => 100, 'keyspace_misses' => 900, 'evicted_keys' => 50],
+        );
+        $health = self::checks()->health(Snapshots::stack(Snapshots::of(Component::Redis, $data, deltas: $deltas)));
+
+        self::assertSame(['redis.evictions', 'redis.hit_rate'], array_map(static fn(Finding $finding): string => $finding->id, $health->findings));
+        self::assertSame(Verdict::Healthy, $health->verdict(Component::Redis));
+    }
+
+    /**
      * @param list<string> $ignored
      */
     private static function checks(array $ignored = [], bool $debug = false): StackChecks
@@ -1430,6 +1614,48 @@ final class StackChecksTest extends TestCase
         return ['blocked_count' => 1, 'max_wait_seconds' => $seconds, 'blocked_queries' => [
             ['blocked_pid' => 4242, 'wait_seconds' => $seconds, 'blocking_pid' => 4100, 'blocking_state' => 'idle in transaction'],
         ]];
+    }
+
+    /**
+     * A Redis 7.4 with nothing to tell, the values given replaced.
+     *
+     * @param array<string, mixed> $replaced replacing what the stack keeps of the server, recursively
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private static function redis(array $replaced = []): array
+    {
+        $kept = RedisPayloads::kept();
+        $kept['server']['version'] = '7.4.2';
+
+        return [
+            'redis' => array_replace_recursive($kept, $replaced),
+            'eol.redis' => RedisPayloads::redisCycles(),
+            'eol.valkey' => RedisPayloads::valkeyCycles(),
+        ];
+    }
+
+    /**
+     * @return array<string, array<string, mixed>> a Redis whose memory limit is 1 000 000 000 bytes
+     */
+    private static function redisMemory(int $usedPerThousand, string $policy): array
+    {
+        return self::redis(['memory' => ['used' => $usedPerThousand * 1_000_000, 'max_memory' => 1_000_000_000, 'max_memory_policy' => $policy]]);
+    }
+
+    /**
+     * A Redis whose given counters went from $previous to $current between two samples a minute apart.
+     *
+     * @param array<string, int> $previous
+     * @param array<string, int> $current
+     *
+     * @return array{array<string, array<string, mixed>>, array<string, Delta>}
+     */
+    private static function redisWindow(array $previous, array $current): array
+    {
+        $data = self::redis(['stats' => $current]);
+
+        return [$data, ['redis' => Snapshots::delta(['stats' => $previous], $data['redis'])]];
     }
 
     /**

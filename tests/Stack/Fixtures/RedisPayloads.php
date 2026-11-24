@@ -120,6 +120,34 @@ final class RedisPayloads
     }
 
     /**
+     * Release cycles of Redis as the end of life collector keeps them; at Snapshots::NOW, 7.4 is supported,
+     * 7.2 only gets security fixes, 6.2 has ended.
+     *
+     * @return array{cycles: array<string, array{eol: string, support: string}>}
+     */
+    public static function redisCycles(): array
+    {
+        return ['cycles' => [
+            '7.4' => ['eol' => '2027-11-30', 'support' => '2026-11-30'],
+            '7.2' => ['eol' => '2027-02-28', 'support' => '2026-02-28'],
+            '6.2' => ['eol' => '2025-02-28', 'support' => '2024-02-28'],
+        ]];
+    }
+
+    /**
+     * Release cycles of Valkey; at Snapshots::NOW, 8.0 is supported and 7.2 has ended.
+     *
+     * @return array{cycles: array<string, array{eol: string, support: string}>}
+     */
+    public static function valkeyCycles(): array
+    {
+        return ['cycles' => [
+            '8.0' => ['eol' => '2027-09-30', 'support' => '2026-09-30'],
+            '7.2' => ['eol' => '2025-04-30', 'support' => '2024-10-30'],
+        ]];
+    }
+
+    /**
      * @return array<string, string>
      */
     private static function database(string $line): array

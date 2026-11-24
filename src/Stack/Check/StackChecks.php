@@ -16,6 +16,7 @@ use Jmonitor\JmonitorBundle\Stack\Reading\MysqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PostgresqlReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\RedisReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
@@ -122,7 +123,7 @@ final class StackChecks
                 Component::Nginx => self::nginx(NginxReading::of($snapshot, $now), $snapshot, $raise),
                 Component::Mysql => self::mysql(MysqlReading::of($snapshot, $now), $snapshot, $raise),
                 Component::Postgresql => self::postgresql(PostgresqlReading::of($snapshot, $now), $snapshot, $raise),
-                Component::Redis => [],
+                Component::Redis => self::redis(RedisReading::of($snapshot, $now), $snapshot, $raise),
             },
         ];
     }
@@ -478,6 +479,21 @@ final class StackChecks
         return [
             ...PostgresqlChecks::of($postgresql, $snapshot, $raise),
             ...self::support('postgresql', 'postgresql', 'PostgreSQL', $postgresql->version, $postgresql->support, $raise, 'postgresql.settings'),
+        ];
+    }
+
+    /**
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     *
+     * @return list<Finding>
+     */
+    private static function redis(RedisReading $redis, ComponentSnapshot $snapshot, \Closure $raise): array
+    {
+        $valkey = $redis->product === 'Valkey';
+
+        return [
+            ...RedisChecks::of($redis, $snapshot, $raise),
+            ...self::support('redis', $valkey ? 'valkey' : 'redis', $redis->product ?? 'Redis', $redis->version, $redis->support, $raise, 'redis'),
         ];
     }
 
