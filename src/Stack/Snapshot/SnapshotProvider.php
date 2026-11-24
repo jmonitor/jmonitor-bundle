@@ -124,7 +124,8 @@ final readonly class SnapshotProvider
 
     /**
      * Also lifts the witness of a request that died. The values of the other web servers cannot be listed:
-     * a new forget marker outdates them.
+     * a new forget marker outdates them. A failure of a value of the server is not forgotten but ended: the
+     * connection reads the server again at once, itself, instead of taking the value another connection reads.
      *
      * @param list<Instance> $instances
      */
@@ -135,23 +136,61 @@ final readonly class SnapshotProvider
 
         foreach ($instances as $instance) {
             $keys = [$this->keys->witness($instance)];
+            $ofServer = [];
 
             foreach ($instance->collectors?->specs() ?? [] as $spec) {
                 if ($spec->lifetime !== Lifetime::Day) {
                     $keys[] = $this->keys->result($instance, $spec);
-                    $keys[] = $this->keys->failure($instance, $spec);
+
+                    if ($spec->perServer) {
+                        $ofServer[] = $this->keys->failure($instance, $spec);
+                    } else {
+                        $keys[] = $this->keys->failure($instance, $spec);
+                    }
                 }
             }
 
             $guard->attempt(fn(): bool => $this->cache->deleteItems($keys), false);
 
             foreach ([$this->keys->forgotten($instance), $this->keys->forgotten($instance, true)] as $forgotten) {
-                if ($forgotten !== null && !isset($markers[$forgotten])) {
-                    $markers[$forgotten] = true;
-                    $guard->attempt(fn(): bool => $this->cache->save($this->cache->getItem($forgotten)->set($this->token())->expiresAfter(self::FORGOTTEN_SECONDS)), false);
+                if ($forgotten !== null && !array_key_exists($forgotten, $markers)) {
+                    $markers[$forgotten] = null;
+                    $guard->attempt(function () use ($forgotten, &$markers): bool {
+                        $markers[$forgotten] = $this->token();
+
+                        return $this->cache->save($this->cache->getItem($forgotten)->set($markers[$forgotten])->expiresAfter(self::FORGOTTEN_SECONDS));
+                    }, false);
                 }
             }
+
+            if ($ofServer !== []) {
+                $this->endFailures($ofServer, $markers[$this->keys->forgotten($instance) ?? ''] ?? null, $guard);
+            }
         }
+    }
+
+    /**
+     * @param list<string> $keys
+     * @param ?string      $forgotten the forget marker of the instance just written
+     */
+    private function endFailures(array $keys, ?string $forgotten, CacheGuard $guard): void
+    {
+        $now = $this->now();
+
+        $guard->attempt(function () use ($keys, $forgotten, $now): bool {
+            $ended = false;
+
+            foreach ($this->cache->getItems($keys) as $item) {
+                $failure = $item->isHit() ? StoredFailure::fromCache($item->get()) : null;
+
+                if ($failure !== null) {
+                    $this->cache->saveDeferred($item->set((new StoredFailure($failure->error, $now, $forgotten, $failure->kind))->toCache())->expiresAfter(self::LAPSED_FAILURE_SECONDS));
+                    $ended = true;
+                }
+            }
+
+            return !$ended || $this->cache->commit();
+        }, false);
     }
 
     /**
