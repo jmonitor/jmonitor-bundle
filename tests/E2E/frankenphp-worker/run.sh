@@ -5,10 +5,11 @@ cd "$(dirname "$0")"
 
 PORT="${JMONITOR_E2E_PORT:-8090}"
 export JMONITOR_E2E_PORT="$PORT"
-export JMONITOR_FIXTURE_FEATURES=embed,easyadmin,queues,mysql
+export JMONITOR_FIXTURE_FEATURES=embed,easyadmin,queues,mysql,postgresql,redis
 BASE="http://127.0.0.1:$PORT"
 ADMIN=admin:test
 COMPOSE="docker compose -p jmonitor-bundle-e2e-worker -f compose.yaml"
+REDIS_CARD="redis.database:${JMONITOR_E2E_REDIS_PORT:-36380}"
 
 cleanup() {
     $COMPOSE down --volumes --remove-orphans >/dev/null 2>&1
@@ -139,6 +140,14 @@ mysql_sessions() {
     $COMPOSE exec -T -e MYSQL_PWD=root mysql mysql -uroot -N -B -e "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE USER = 'jmonitor'" || fail "the sessions of the MySQL server could not be counted"
 }
 
+postgresql_sessions() {
+    $COMPOSE exec -T postgres psql -U jmonitor -d jmonitor -tAc "SELECT COUNT(*) FROM pg_stat_activity WHERE usename = 'jmonitor' AND backend_type = 'client backend' AND pid <> pg_backend_pid()" || fail "the sessions of the PostgreSQL server could not be counted"
+}
+
+redis_clients() {
+    $COMPOSE exec -T redis redis-cli CLIENT LIST | grep -v ' cmd=client|list ' || true
+}
+
 card() {
     printf '%s\n' "$1" | tr '\n' ' ' | sed 's/<article /\n<article /g' | grep "data-jm-component=\"$2\"" | sed 's|</article>.*||'
 }
@@ -155,18 +164,30 @@ hit /jmonitor/stack 200
 complete=0
 for _ in $(seq 1 30); do
     page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
-    if [ "$(cards_of "$page")" = 'frankenphp mysql php symfony system ' ] && ! printf '%s\n' "$page" | grep -q 'data-jm-reading'; then
+    if [ "$(cards_of "$page")" = 'frankenphp mysql php postgresql postgresql redis symfony system ' ] && ! printf '%s\n' "$page" | grep -q 'data-jm-reading'; then
         complete=1
         break
     fi
     sleep 1
 done
-[ "$complete" = 1 ] || fail "the Stack screen did not show the frankenphp, mysql, system, php and symfony cards without data-jm-reading within 30 s: $(cards_of "$page")"
+[ "$complete" = 1 ] || fail "the Stack screen did not show the frankenphp, mysql, two postgresql, redis, system, php and symfony cards without data-jm-reading within 30 s: $(cards_of "$page")"
 mysql="$(card "$page" mysql.main)"
 [ "$(printf '%s\n' "$page" | grep -c 'data-jm-component="mysql\.')" = 1 ] || fail "the two connections of one MySQL server do not share one card: $(cards_of "$page")"
 printf '%s\n' "$mysql" | grep -Eq 'class="jm-component__version">MySQL [0-9]+\.[0-9]+\.[0-9]+<' || fail "the MySQL card shows no version: $mysql"
 if printf '%s\n' "$mysql" | grep -q 'data-jm-verdict="unknown"'; then
     fail "the MySQL card is unknown: $mysql"
+fi
+for connection in pg_main pg_reports; do
+    postgresql="$(card "$page" "postgresql.$connection")"
+    printf '%s\n' "$postgresql" | grep -Eq 'class="jm-component__version">PostgreSQL [0-9]+\.[0-9]+<' || fail "the PostgreSQL card of $connection shows no version: $postgresql"
+    if printf '%s\n' "$postgresql" | grep -q 'data-jm-verdict="unknown"'; then
+        fail "the PostgreSQL card of $connection is unknown: $postgresql"
+    fi
+done
+redis="$(card "$page" "$REDIS_CARD")"
+printf '%s\n' "$redis" | grep -Eq 'class="jm-component__version">Redis [0-9]+\.[0-9]+\.[0-9]+<' || fail "the Redis card shows no version: $redis"
+if printf '%s\n' "$redis" | grep -q 'data-jm-verdict="unknown"'; then
+    fail "the Redis card is unknown: $redis"
 fi
 frankenphp="$(card "$page" frankenphp)"
 if printf '%s\n' "$frankenphp" | grep -q 'data-jm-verdict="unknown"'; then
@@ -197,7 +218,7 @@ printf '%s\n' "$detail" | grep -q '/app/tests/E2E/frankenphp-worker/worker.php' 
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/stack")" || fail "GET /admin/jmonitor/stack failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/stack answered $status instead of 200"
-[ "$(cards_of "$admin")" = 'frankenphp mysql php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
+[ "$(cards_of "$admin")" = 'frankenphp mysql php postgresql postgresql redis symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
 
 hit '/jmonitor/stack/mysql?connection=reports&rest=1' 200
 detail="$(curl -sf "$BASE/jmonitor/stack/mysql?connection=reports&rest=1")" || fail "GET /jmonitor/stack/mysql?connection=reports&rest=1 did not return 2xx"
@@ -208,9 +229,36 @@ printf '%s\n' "$detail" | grep -q 'aria-label="Database · jmonitor"' || fail "t
 status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" "$BASE/admin/jmonitor/stack/mysql?connection=reports")"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/stack/mysql?connection=reports answered $status instead of 200"
 
+hit '/jmonitor/stack/postgresql?connection=pg_reports&rest=1' 200
+detail="$(curl -sf "$BASE/jmonitor/stack/postgresql?connection=pg_reports&rest=1")" || fail "GET /jmonitor/stack/postgresql?connection=pg_reports&rest=1 did not return 2xx"
+instances="$(printf '%s\n' "$detail" | tr '\n' ' ' | sed -n 's|.*\(<div class="jm-instances".*\)|\1|p' | sed 's|</div>.*||')"
+printf '%s\n' "$instances" | grep -q 'href="/jmonitor/stack/postgresql?connection=pg_main"' || fail "the selector of the PostgreSQL detail does not link to pg_main: $instances"
+printf '%s\n' "$instances" | grep -q 'href="/jmonitor/stack/postgresql?connection=pg_reports" aria-current="true"' || fail "the selector of the PostgreSQL detail does not show pg_reports as the current connection: $instances"
+for section in Usage Traffic Sessions Tables Settings; do
+    printf '%s\n' "$detail" | grep -q "aria-label=\"$section\"" || fail "the PostgreSQL detail of pg_reports has no $section section"
+done
+status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" "$BASE/admin/jmonitor/stack/postgresql?connection=pg_reports")"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor/stack/postgresql?connection=pg_reports answered $status instead of 200"
+
+hit /jmonitor/stack/redis 200
+detail="$(curl -sf "$BASE/jmonitor/stack/redis")" || fail "GET /jmonitor/stack/redis did not return 2xx"
+for section in Usage Traffic Memory Persistence Server; do
+    printf '%s\n' "$detail" | grep -q "aria-label=\"$section\"" || fail "the Redis detail has no $section section"
+done
+printf '%s\n' "$detail" | grep -q 'id="jm-redis-keyspace-title">Keyspace<' || fail "the Redis detail has no Keyspace table"
+status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" "$BASE/admin/jmonitor/stack/redis")"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor/stack/redis answered $status instead of 200"
+
 sleep 10
 sessions="$(mysql_sessions)"
 [ "$sessions" = 0 ] || fail "the MySQL server still holds $sessions sessions of the application 10 s after the last display"
+sessions="$(postgresql_sessions)"
+[ "$sessions" = 0 ] || fail "the PostgreSQL server still holds $sessions sessions of the application 10 s after the last display"
+clients="$(redis_clients)"
+[ "$(printf '%s\n' "$clients" | grep -c ' cmd=')" = 1 ] || fail "the Redis server holds other connections than the one of the cache of the application 10 s after the last display: $clients"
+if printf '%s\n' "$clients" | grep -q ' cmd=info '; then
+    fail "the connection that read the Redis server is still open 10 s after the last display: $clients"
+fi
 
 $COMPOSE stop mysql >/dev/null 2>&1 || fail "the MySQL server could not be stopped"
 timed '/jmonitor/stack?rest=1'
@@ -247,6 +295,44 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 [ "$readable" = 1 ] || fail "the MySQL card was not read again within 30 s of a refresh, once the server was back: $mysql"
+
+$COMPOSE stop postgres >/dev/null 2>&1 || fail "the PostgreSQL server could not be stopped"
+sleep 11
+timed '/jmonitor/stack?rest=1'
+faster_than 3 || fail "the Stack screen took $took s with a stopped PostgreSQL server"
+echo "the Stack screen with a stopped PostgreSQL server: $took s"
+for connection in pg_main pg_reports; do
+    postgresql="$(card "$page" "postgresql.$connection")"
+    printf '%s\n' "$postgresql" | grep -q 'data-jm-verdict="bad"' || fail "the PostgreSQL card of $connection is not critical with a stopped server: $postgresql"
+    printf '%s\n' "$postgresql" | grep -q '>Critical<' || fail "the PostgreSQL card of $connection does not say Critical with a stopped server: $postgresql"
+done
+[ "$(printf '%s\n' "$page" | grep -c 'PostgreSQL cannot be reached')" = 2 ] || fail "the Stack screen does not say twice that PostgreSQL cannot be reached"
+before="$(read_at "$(card "$page" postgresql.pg_main)")"
+timed '/jmonitor/stack?rest=1'
+faster_than 1 || fail "the display after a stopped PostgreSQL server took $took s"
+echo "the next display: $took s"
+for connection in pg_main pg_reports; do
+    printf '%s\n' "$(card "$page" "postgresql.$connection")" | grep -q 'data-jm-verdict="bad"' || fail "the PostgreSQL card of $connection is no longer critical on the next display"
+done
+
+$COMPOSE up --detach --wait postgres >/dev/null 2>&1 || fail "the PostgreSQL server could not be started again"
+status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' --data 'action=refresh' "$BASE/jmonitor/_action/stack")"
+[ "$status" = 303 ] || fail "POST /jmonitor/_action/stack answered $status instead of 303"
+readable=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
+    readable=1
+    for connection in pg_main pg_reports; do
+        postgresql="$(card "$page" "postgresql.$connection")"
+        after="$(read_at "$postgresql")"
+        if [ -z "$after" ] || [ "$after" -le "$before" ] || printf '%s\n' "$postgresql" | grep -Eq 'data-jm-verdict="(bad|unknown)"'; then
+            readable=0
+        fi
+    done
+    [ "$readable" = 1 ] && break
+    sleep 1
+done
+[ "$readable" = 1 ] || fail "the PostgreSQL cards were not read again within 30 s of a refresh, once the server was back: $postgresql"
 
 hit /jmonitor/messages 200
 counted=0
@@ -303,7 +389,31 @@ done
 
 # The first round runs in a worker that has already served the requests above, the second in a new one.
 captures_round 1
+
+# The Redis server is also the one of cache.app, so of the cache of the Stack screen.
+$COMPOSE stop redis >/dev/null 2>&1 || fail "the Redis server could not be stopped"
+sleep 11
+timed /jmonitor/stack
+faster_than 3 || fail "the Stack screen took $took s with a stopped Redis server"
+echo "the Stack screen with a stopped Redis server: $took s"
+printf '%s\n' "$page" | grep -q 'The live stack needs a working cache' || fail "the Stack screen does not say that its cache is out of order with a stopped Redis server"
+[ -n "$(card "$page" "$REDIS_CARD")" ] || fail "the Stack screen shows no Redis card with a stopped Redis server: $(cards_of "$page")"
+
+$COMPOSE up --detach --wait redis >/dev/null 2>&1 || fail "the Redis server could not be started again"
+# A phpredis connection that lost its server does not open again: cache.app comes back with a new worker.
 start 1
+readable=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/stack?rest=1")" || fail "GET /jmonitor/stack?rest=1 did not return 2xx"
+    redis="$(card "$page" "$REDIS_CARD")"
+    if [ -n "$redis" ] && ! printf '%s\n' "$page" | grep -q 'The live stack needs a working cache' && ! printf '%s\n' "$redis" | grep -Eq 'data-jm-verdict="(bad|unknown)"|data-jm-reading'; then
+        readable=1
+        break
+    fi
+    sleep 1
+done
+[ "$readable" = 1 ] || fail "the Redis card was not read again within 30 s, once the server was back: $redis"
+
 captures_round 2
 
 $COMPOSE exec -T app php tests/Fixtures/App/bin/console app:work || fail "app:work failed"
@@ -350,4 +460,4 @@ if printf '%s\n' "$page" | grep -q '(unmatched)'; then
     fail "the Requests screen lists the probe of an address of the application"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server and a detail per connection, closes what it opened, says at once and once only that a stopped server cannot be reached, and reads it again once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
