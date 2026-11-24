@@ -81,6 +81,19 @@ final class PostgresqlSlowQueriesCollectorTest extends TestCase
         self::assertSame(['SELECT pg_sleep($1)'], array_column($queries, 'text'));
     }
 
+    public function testAStatementThatStartsWithACommentIsKept(): void
+    {
+        $database = self::database([
+            DatabasePayloads::statement("/* x */ CREATE ROLE app PASSWORD 's3cret'", 1, 900),
+            DatabasePayloads::statement('/* route=home */ SELECT * FROM product WHERE id = $1', 40, 12),
+            DatabasePayloads::statement("-- trace=jm-42\nSELECT numbackends FROM pg_stat_database WHERE datname = current_database()", 3, 10),
+        ]);
+
+        $queries = (new PostgresqlSlowQueriesCollector(new DbalLink(static fn() => $database)))->collect()['queries'];
+
+        self::assertSame(['SELECT * FROM product WHERE id = $1'], array_column($queries, 'text'));
+    }
+
     public function testAStatementThatCannotBeReadIsLeftOut(): void
     {
         $database = self::database([

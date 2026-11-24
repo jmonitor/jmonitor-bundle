@@ -61,7 +61,9 @@ final readonly class PostgresqlSlowQueriesCollector implements CollectorInterfac
                 continue;
             }
 
-            if ($text === null || !self::isShown($text) || ($text = SqlNormalizer::normalize($text, SqlDialect::PostgreSql)) === null) {
+            $text = $text === null || stripos($text, self::HIDDEN) !== false ? null : SqlNormalizer::normalize($text, SqlDialect::PostgreSql);
+
+            if ($text === null || !self::isShown($text)) {
                 continue;
             }
 
@@ -107,7 +109,7 @@ final readonly class PostgresqlSlowQueriesCollector implements CollectorInterfac
             return false;
         }
 
-        foreach ([self::HIDDEN, ...self::OWN] as $fragment) {
+        foreach (self::OWN as $fragment) {
             if (stripos($text, $fragment) !== false) {
                 return false;
             }
