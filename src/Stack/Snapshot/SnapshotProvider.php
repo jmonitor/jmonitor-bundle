@@ -424,8 +424,9 @@ final readonly class SnapshotProvider
     }
 
     /**
-     * Once PHP stopped the request, the collector it was running fails as if it had thrown, and the read finishes
-     * without closing what it opened, which could keep the request waiting as long again.
+     * Once PHP stopped the request, the collector it was running fails as if it had thrown, a remote one as a server
+     * that did not answer only when PHP stopped the request for its time limit, and the read finishes without closing
+     * what it opened, which could keep the request waiting as long again.
      */
     private function stopped(): void
     {
@@ -439,7 +440,7 @@ final readonly class SnapshotProvider
         ['read' => $read, 'spec' => $spec, 'reads' => $reads, 'guard' => $guard] = $collecting;
 
         try {
-            $waiting = !$read->instance->component->isNodeLocal() && !$spec->shared;
+            $waiting = !$read->instance->component->isNodeLocal() && !$spec->shared && $this->request->stoppedByTimeLimit();
             $this->failed($read, $spec, $waiting ? new UnreachableServerException(self::STOPPED_WAITING) : new \RuntimeException(self::STOPPED), $collecting['startedAt'], $reads);
 
             foreach ($reads as $each) {

@@ -65,6 +65,9 @@ final class SnapshotProviderTest extends TestCase
 
     private bool $timeLimitSettable = true;
 
+    /** @var ?array{type: int, message: string, file: string, line: int} what error_get_last() gives once PHP stopped the request */
+    private ?array $lastError = ['type' => \E_ERROR, 'message' => 'Maximum execution time of 30 seconds exceeded', 'file' => '/app/vendor/doctrine/dbal/src/Driver/PDO/PDOConnect.php', 'line' => 28];
+
     protected function setUp(): void
     {
         $this->recording = new RecordingCachePool();
@@ -2360,6 +2363,67 @@ final class SnapshotProviderTest extends TestCase
         self::assertSame('PHP stopped the request before this was read.', $next->result('php')->error);
     }
 
+    /**
+     * @return iterable<string, array{?array{type: int, message: string, file: string, line: int}}>
+     */
+    public static function stopsForAnotherReason(): iterable
+    {
+        yield 'the memory limit' => [['type' => \E_ERROR, 'message' => 'Allowed memory size of 134217728 bytes exhausted (tried to allocate 20480 bytes)', 'file' => '/app/src/Kernel.php', 'line' => 12]];
+        yield 'an exit of the application' => [null];
+        yield 'a warning before an exit' => [['type' => \E_WARNING, 'message' => 'Maximum execution time of 30 seconds exceeded', 'file' => '/app/src/Kernel.php', 'line' => 12]];
+    }
+
+    /**
+     * @param ?array{type: int, message: string, file: string, line: int} $lastError
+     */
+    #[DataProvider('stopsForAnotherReason')]
+    public function testARequestThatPhpStopsForAnotherReasonThanItsTimeLimitLeavesAnOrdinaryFailure(?array $lastError): void
+    {
+        $this->lastError = $lastError;
+        $server = new Server('pg.internal:5432', 'pg.internal:5432');
+        $pool = new FreezableCachePool($this->recording);
+        $seen = [];
+        $stopped = self::collector('postgresql', function () use (&$seen, $pool): array {
+            $this->clock->sleep(30);
+            $this->stop();
+            $seen['c1'] = StoredFailure::fromCache($this->recording->getItem('jmonitor.stack.failure.postgresql.c1.postgresql')->get());
+            $seen['c2'] = $this->recording->hasItem('jmonitor.stack.failure.postgresql.c2.postgresql');
+            $seen['witnesses'] = [$this->recording->hasItem('jmonitor.stack.collecting.postgresql.c1'), $this->recording->hasItem('jmonitor.stack.collecting.postgresql.c2')];
+            $pool->frozen = true;
+
+            return [];
+        });
+        $instances = [
+            self::instance([new CollectorSpec($stopped, Lifetime::Dynamic, CostClass::Network)], 'c1', Component::Postgresql, $server),
+            self::instance([self::spec(new FakeCollector('postgresql', ['connections' => 3]), cost: CostClass::Network)], 'c2', Component::Postgresql, $server),
+        ];
+
+        $this->provider(cache: $pool, request: $this->request())->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertEquals(new StoredFailure('PHP stopped the request before this was read.', self::START + 30 + 10, null, FailureKind::Other), $seen['c1'] ?? null);
+        self::assertFalse($seen['c2'] ?? null, 'the server answered: nothing is said of its other connections');
+        self::assertSame([false, false], $seen['witnesses'] ?? null);
+    }
+
+    public function testASharedCollectorOfARemoteComponentStoppedForItsTimeLimitLeavesAnOrdinaryFailure(): void
+    {
+        $pool = new FreezableCachePool($this->recording);
+        $seen = null;
+        $stopped = self::collector('eol.postgresql', function () use (&$seen, $pool): array {
+            $this->clock->sleep(30);
+            $this->stop();
+            $seen = StoredFailure::fromCache($this->recording->getItem('jmonitor.stack.failure.postgresql.%shared.eol.postgresql')->get());
+            $pool->frozen = true;
+
+            return [];
+        });
+        $instance = self::instance([new CollectorSpec($stopped, Lifetime::Day, CostClass::Slow, shared: true)], 'c1', Component::Postgresql, new Server('pg.internal:5432', 'pg.internal:5432'));
+
+        $this->read($this->provider(cache: $pool, request: $this->request()), $instance);
+
+        self::assertEquals(new StoredFailure('PHP stopped the request before this was read.', self::START + 30 + 600, null, FailureKind::Other), $seen);
+    }
+
     public function testAStopOnceTheReadEndedWritesNothing(): void
     {
         $failing = new FakeCollector('php.status', collectFailure: new \RuntimeException('Status page refused'));
@@ -2494,6 +2558,7 @@ final class SnapshotProviderTest extends TestCase
             function (\Closure $stop): void {
                 $this->stops[] = $stop;
             },
+            fn(): ?array => $this->lastError,
         );
     }
 

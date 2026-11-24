@@ -15,11 +15,13 @@ final readonly class PhpRequest
      * @param ?\Closure(int): bool     $setTimeLimit set_time_limit(), null when PHP forbids it
      * @param \Closure(): int          $timeLimit    the time limit in force, in seconds, 0 for none
      * @param \Closure(\Closure): void $atShutdown   register_shutdown_function()
+     * @param \Closure(): ?array{type: int, message: string, file: string, line: int} $lastError error_get_last()
      */
     public function __construct(
         private ?\Closure $setTimeLimit,
         private \Closure $timeLimit,
         private \Closure $atShutdown,
+        private \Closure $lastError,
     ) {}
 
     public static function current(): self
@@ -30,6 +32,7 @@ final readonly class PhpRequest
             static function (\Closure $callback): void {
                 register_shutdown_function($callback);
             },
+            error_get_last(...),
         );
     }
 
@@ -56,6 +59,16 @@ final readonly class PhpRequest
         if ($this->setTimeLimit !== null) {
             ($this->setTimeLimit)($seconds);
         }
+    }
+
+    /**
+     * Once PHP stopped the request, whether it was for its time limit.
+     */
+    public function stoppedByTimeLimit(): bool
+    {
+        $error = ($this->lastError)();
+
+        return $error !== null && $error['type'] === \E_ERROR && str_starts_with($error['message'], 'Maximum execution time');
     }
 
     public function atShutdown(\Closure $callback): void

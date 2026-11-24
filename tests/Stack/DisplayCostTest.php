@@ -660,7 +660,7 @@ final class DisplayCostTest extends TestCase
         $stops = [];
         $request = new PhpRequest(null, static fn(): int => 0, static function (\Closure $stop) use (&$stops): void {
             $stops[] = $stop;
-        });
+        }, static fn(): array => ['type' => \E_ERROR, 'message' => 'Maximum execution time of 30 seconds exceeded', 'file' => '/app/vendor/doctrine/dbal/src/Driver/PDO/PDOConnect.php', 'line' => 28]);
         $cache = new FreezableCachePool(new CountingCachePool());
         $killed = static function () use (&$stops, $cache): void {
             foreach ($stops as $stop) {
