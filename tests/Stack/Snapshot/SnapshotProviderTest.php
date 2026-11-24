@@ -1150,6 +1150,28 @@ final class SnapshotProviderTest extends TestCase
         self::assertArrayHasKey('jmonitor.stack.result.mysql.%shared.eol.mysql', $this->recording->ttls);
     }
 
+    public function testASharedLookupThatFailsBesideAnOlderValueIsTriedOnceInARead(): void
+    {
+        $instances = static fn(array $endOfLife): array => array_map(static fn(string $name, FakeCollector $collector): Instance => self::instance(
+            [self::spec(new FakeCollector('mysql', ['Uptime' => 5])), self::spec($collector, Lifetime::Day, CostClass::Slow, shared: true)],
+            $name,
+            Component::Mysql,
+        ), ['main', 'reporting', 'legacy'], $endOfLife);
+        $provider = $this->provider();
+        $provider->read($instances(array_map(static fn(): FakeCollector => new FakeCollector('eol.mysql', ['cycles' => []]), range(1, 3))), CollectBudget::fragment($this->clock), CacheState::Working);
+        $this->clock->sleep(Lifetime::Day->seconds() + 1);
+        $failing = array_map(static fn(): FakeCollector => new FakeCollector('eol.mysql', collectFailure: new \RuntimeException('Lookup failed')), range(1, 3));
+
+        $snapshots = $provider->read($instances($failing), CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame(1, array_sum(array_map(static fn(FakeCollector $collector): int => $collector->collects, $failing)));
+        foreach ($snapshots as $key => $snapshot) {
+            self::assertSame(ResultState::Stale, $snapshot->result('eol.mysql')?->state, $key);
+            self::assertSame(['cycles' => []], $snapshot->data('eol.mysql'), $key);
+            self::assertSame('Lookup failed', $snapshot->result('eol.mysql')->error, $key);
+        }
+    }
+
     public function testAConnectionNamedLikeASharedCollectorSharesNoKeyWithIt(): void
     {
         $instance = static fn(FakeCollector $status, FakeCollector $endOfLife): Instance => self::instance([

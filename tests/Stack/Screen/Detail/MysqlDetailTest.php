@@ -216,6 +216,35 @@ final class MysqlDetailTest extends TestCase
         self::assertSame(['notice', 'warn', 'The size of the database could not be read', 'Nothing answers.'], self::describe((new MysqlDetail())->sections(self::connection($answering), [], Snapshots::NOW))[5], 'the server answers: only the sizes cannot be read');
     }
 
+    public function testADeadServerSaysOnceThatItsFiguresAreOld(): void
+    {
+        $stale = static fn(string $name, array $data): CollectorResult => new CollectorResult($name, $data, ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable);
+        $unreachable = static fn(string $name): CollectorResult => new CollectorResult($name, [], ResultState::Failed, 'Nothing answers.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable);
+        $dead = new ComponentSnapshot(Component::Mysql, [
+            'mysql' => $stale('mysql', DatabasePayloads::mysqlStatus()),
+            'mysql.variables' => $stale('mysql.variables', DatabasePayloads::mysqlVariables()),
+            'mysql.sizes' => $unreachable('mysql.sizes'),
+            'mysql.slow_queries' => $unreachable('mysql.slow_queries'),
+        ]);
+
+        $blocks = (new MysqlDetail())->sections(self::connection($dead), [], Snapshots::NOW);
+
+        self::assertSame(['notice: Could not be read again: Nothing answers.', 'Usage', 'Traffic', 'InnoDB', 'Temporary tables and locks', 'Settings'], self::titles($blocks));
+    }
+
+    public function testAStaleSettingThatFailedOtherwiseKeepsItsNotice(): void
+    {
+        $other = new CollectorResult('mysql.variables', DatabasePayloads::mysqlVariables(), ResultState::Stale, 'Access denied.', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Other);
+        $dead = self::snapshot(results: [
+            new CollectorResult('mysql', DatabasePayloads::mysqlStatus(), ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            $other,
+        ]);
+
+        $titles = self::titles((new MysqlDetail())->sections(self::connection($dead), [], Snapshots::NOW));
+
+        self::assertSame(['notice: Could not be read again: Nothing answers.', 'Usage', 'Traffic', 'InnoDB', 'Temporary tables and locks', 'notice: Could not be read again: Access denied.', 'Settings'], array_slice($titles, 0, 7));
+    }
+
     public function testWhatIsShownIsEscapedByTheTemplatesNotHere(): void
     {
         $queries = ['queries' => [['text' => '<script>alert(1)</script>', 'executions' => 1, 'average_ms' => 1, 'max_ms' => 1, 'total_ms' => 1]]];

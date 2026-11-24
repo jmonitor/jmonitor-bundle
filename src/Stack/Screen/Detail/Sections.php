@@ -55,7 +55,7 @@ final class Sections
             return $failure === null || $snapshot->failedWithItsServer($collector) ? [] : [Block::notice(new Notice('warn', $failure, $result->error ?? 'no reason given'))];
         }
 
-        return $result->state === ResultState::Stale ? [Block::notice(self::outdated($result, $now)), ...$sections()] : $sections();
+        return $result->state === ResultState::Stale && !$snapshot->staleWithItsServer($collector) ? [Block::notice(self::outdated($result, $now)), ...$sections()] : $sections();
     }
 
     /**

@@ -404,12 +404,12 @@ final readonly class SnapshotProvider
 
     /**
      * Within a read, what the other instances take from the first one: a value of the server, and a shared result
-     * even failed, since it is the same for all of them.
+     * even when its lookup failed, since it is the same for all of them.
      */
     private static function reusable(CollectorSpec $spec, CollectorResult $result): bool
     {
         return match (true) {
-            $spec->shared => $result->state === ResultState::Fresh || $result->state === ResultState::Failed,
+            $spec->shared => $result->state === ResultState::Fresh || $result->state === ResultState::Failed || $result->error !== null,
             $spec->perServer => $result->state === ResultState::Fresh,
             default => false,
         };

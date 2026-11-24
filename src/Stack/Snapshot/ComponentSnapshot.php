@@ -45,13 +45,16 @@ final readonly class ComponentSnapshot
      */
     public function failedWithItsServer(string $name): bool
     {
-        $result = $this->result($name);
+        return $this->withItsServer($name, ResultState::Failed);
+    }
 
-        return $name !== $this->component->value
-            && !$this->component->isNodeLocal()
-            && $result?->state === ResultState::Failed
-            && $result->failure === FailureKind::Unreachable
-            && $this->result($this->component->value)?->failure === FailureKind::Unreachable;
+    /**
+     * Whether this collector shows an older value because the server of a remote component cannot be reached,
+     * which the main collector of the component already tells.
+     */
+    public function staleWithItsServer(string $name): bool
+    {
+        return $this->withItsServer($name, ResultState::Stale);
     }
 
     public function delta(string $name): ?Delta
@@ -105,5 +108,16 @@ final readonly class ComponentSnapshot
         }
 
         return $errors;
+    }
+
+    private function withItsServer(string $name, ResultState $state): bool
+    {
+        $result = $this->result($name);
+
+        return $name !== $this->component->value
+            && !$this->component->isNodeLocal()
+            && $result?->state === $state
+            && $result->failure === FailureKind::Unreachable
+            && $this->result($this->component->value)?->failure === FailureKind::Unreachable;
     }
 }
