@@ -25,13 +25,16 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectBudget;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\PhpRequest;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\StoredFailure;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\BreakingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Cache\RecordingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FreezableCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RefusingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ThrowingCachePool;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -51,6 +54,9 @@ final class SnapshotProviderTest extends TestCase
     private RecordingCachePool $recording;
     private CountingCachePool $cache;
     private MockClock $clock;
+
+    /** @var list<\Closure(): void> what the request was given to run once PHP stops it */
+    private array $stops = [];
 
     protected function setUp(): void
     {
@@ -2254,6 +2260,187 @@ final class SnapshotProviderTest extends TestCase
         self::assertFalse($this->recording->hasItem('jmonitor.stack.failure.%node.web-1.php.php'));
     }
 
+    public function testARequestThatPhpStopsWhileAServerKeepsItWaitingLeavesTheFailureOfTheServer(): void
+    {
+        $server = new Server('pg.internal:5432', 'pg.internal:5432');
+        $pool = new FreezableCachePool($this->recording);
+        $seen = [];
+        $calls = 0;
+        $frozen = self::collector('postgresql', function () use (&$seen, &$calls, $pool): array {
+            ++$calls;
+            $this->clock->sleep(30);
+            $seen['watched'] = count($this->stops);
+            $this->stop();
+            $seen['ttls'] = $this->recording->ttls;
+            $seen['c1'] = StoredFailure::fromCache($this->recording->getItem('jmonitor.stack.failure.postgresql.c1.postgresql')->get());
+            $seen['c2'] = StoredFailure::fromCache($this->recording->getItem('jmonitor.stack.failure.postgresql.c2.postgresql')->get());
+            $seen['version'] = $this->recording->hasItem('jmonitor.stack.result.postgresql.c1.postgresql.version');
+            $seen['witnesses'] = [$this->recording->hasItem('jmonitor.stack.collecting.postgresql.c1'), $this->recording->hasItem('jmonitor.stack.collecting.postgresql.c2')];
+            $pool->frozen = true;
+
+            throw new UnreachableServerException('SQLSTATE[08006] [7] timeout expired');
+        });
+        $version = new FakeCollector('postgresql.version', ['version' => '17.2']);
+        $database = new FakeCollector('postgresql.database', ['tables' => 4]);
+        $other = new FakeCollector('postgresql', ['connections' => 3]);
+        $instances = [
+            self::instance([self::spec($version), new CollectorSpec($frozen, Lifetime::Dynamic, CostClass::Network), self::spec($database, cost: CostClass::Network)], 'c1', Component::Postgresql, $server),
+            self::instance([self::spec($other, cost: CostClass::Network)], 'c2', Component::Postgresql, $server),
+        ];
+
+        $this->provider(cache: $pool, request: $this->request())->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+        $stoppedAt = self::START + 30;
+
+        self::assertSame(1, $seen['watched'] ?? null, 'watched before the collector runs');
+        self::assertEquals(new StoredFailure('The server did not answer before PHP stopped the request reading it.', $stoppedAt + 150, null, FailureKind::Unreachable), $seen['c1'] ?? null);
+        self::assertSame(150, $seen['ttls']['jmonitor.stack.failure.postgresql.c1.postgresql'] ?? null);
+        self::assertEquals(new StoredFailure('The server did not answer before PHP stopped the request reading it.', $stoppedAt + 150, null, FailureKind::Unreachable), $seen['c2'] ?? null, 'the other connections of the server read in this display');
+        self::assertSame(150, $seen['ttls']['jmonitor.stack.failure.postgresql.c2.postgresql'] ?? null);
+        self::assertTrue($seen['version'] ?? null, 'what the read had to write is written');
+        self::assertSame([false, false], $seen['witnesses'] ?? null, 'every witness of the request is lifted');
+
+        $pool->frozen = false;
+        $this->clock->sleep(1);
+        $snapshots = $this->provider(cache: $pool, request: $this->request())->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertSame([1, 1, 0, 0], [$calls, $version->collects, $database->collects, $other->collects]);
+        self::assertSame(ResultState::Failed, $snapshots['postgresql.c1']->result('postgresql')?->state);
+        self::assertSame('The server did not answer before PHP stopped the request reading it.', $snapshots['postgresql.c1']->result('postgresql')->error);
+        self::assertSame(FailureKind::Unreachable, $snapshots['postgresql.c1']->result('postgresql')->failure);
+        self::assertSame(ResultState::Stale, $snapshots['postgresql.c1']->result('postgresql.version')?->state);
+        self::assertSame('The server did not answer before PHP stopped the request reading it.', $snapshots['postgresql.c1']->result('postgresql.version')->error);
+        self::assertSame(ResultState::Failed, $snapshots['postgresql.c1']->result('postgresql.database')?->state);
+        self::assertSame(ResultState::Failed, $snapshots['postgresql.c2']->result('postgresql')?->state);
+        self::assertSame('The server did not answer before PHP stopped the request reading it.', $snapshots['postgresql.c2']->result('postgresql')->error);
+
+        $state = new StackState(null, $this->clock->now()->getTimestamp(), CacheState::Working, [new ComponentState(Component::Postgresql, [
+            new InstanceState('c1', null, null, $snapshots['postgresql.c1']),
+            new InstanceState('c2', null, null, $snapshots['postgresql.c2']),
+        ], 0)], []);
+
+        self::assertFalse($state->isReading());
+        self::assertFalse(StackScreenParts::followUp($state), 'nothing is asked while the failure is kept');
+    }
+
+    public function testARequestThatPhpStopsWhileALocalCollectorRunsLeavesAnOrdinaryFailure(): void
+    {
+        $pool = new FreezableCachePool($this->recording);
+        $seen = [];
+        $calls = 0;
+        $stopped = self::collector('php', function () use (&$seen, &$calls, $pool): array {
+            ++$calls;
+            $this->clock->sleep(5);
+            $this->stop();
+            $seen['failure'] = StoredFailure::fromCache($this->recording->getItem('jmonitor.stack.failure.%node.web-1.php.php')->get());
+            $seen['witness'] = $this->recording->hasItem('jmonitor.stack.collecting.%node.web-1.php');
+            $pool->frozen = true;
+
+            return ['memory' => 1];
+        });
+        $instance = self::instance([new CollectorSpec($stopped, Lifetime::Dynamic, CostClass::Network)]);
+
+        $this->read($this->provider(cache: $pool, request: $this->request()), $instance);
+
+        self::assertEquals(new StoredFailure('PHP stopped the request before this was read.', self::START + 5 + 10, null, FailureKind::Other), $seen['failure'] ?? null);
+        self::assertFalse($seen['witness'] ?? null);
+
+        $pool->frozen = false;
+        $this->clock->sleep(1);
+        $next = $this->read($this->provider(cache: $pool, request: $this->request()), $instance);
+
+        self::assertSame(1, $calls);
+        self::assertSame(ResultState::Failed, $next->result('php')?->state);
+        self::assertSame('PHP stopped the request before this was read.', $next->result('php')->error);
+    }
+
+    public function testAStopOnceTheReadEndedWritesNothing(): void
+    {
+        $failing = new FakeCollector('php.status', collectFailure: new \RuntimeException('Status page refused'));
+        $instance = self::instance([self::spec(new FakeCollector('php', ['memory' => 1])), self::spec($failing)]);
+        $this->read($this->provider(request: $this->request()), $instance);
+        $this->cache->reset();
+
+        $this->stop();
+        $this->stop();
+
+        self::assertCount(1, $this->stops);
+        self::assertSame(0, $this->cache->roundTrips());
+    }
+
+    public function testACacheThatFailsWhileTheRequestStopsLetsNothingOut(): void
+    {
+        $broken = false;
+        $pool = new BreakingCachePool(static function () use (&$broken): bool {
+            return $broken;
+        });
+        $escaped = 'not stopped';
+        $stopped = self::collector('postgresql', function () use (&$broken, &$escaped): array {
+            $this->clock->sleep(30);
+            $broken = true;
+
+            try {
+                $this->stop();
+                $escaped = null;
+            } catch (\Throwable $e) {
+                $escaped = $e;
+            }
+
+            return [];
+        });
+        $server = new Server('pg.internal:5432', 'pg.internal:5432');
+        $instances = [
+            self::instance([new CollectorSpec($stopped, Lifetime::Dynamic, CostClass::Network)], 'c1', Component::Postgresql, $server),
+            self::instance([self::spec(new FakeCollector('postgresql', ['connections' => 3]), cost: CostClass::Network)], 'c2', Component::Postgresql, $server),
+        ];
+
+        $this->provider(cache: $pool, request: $this->request())->read($instances, CollectBudget::fragment($this->clock), CacheState::Working);
+
+        self::assertCount(1, $this->stops);
+        self::assertNull($escaped);
+    }
+
+    public function testTheStopOfTheRequestIsWatchedOnceUntilItRuns(): void
+    {
+        $status = new FakeCollector('php', ['memory' => 1]);
+        $instance = self::instance([self::spec($status)]);
+        $provider = $this->provider(request: $this->request());
+
+        $this->read($provider, $instance);
+        $this->clock->sleep(11);
+        $this->read($provider, $instance);
+
+        self::assertSame(2, $status->collects);
+        self::assertCount(1, $this->stops, 'a worker runs what it is given at shutdown once it ends, not after each request');
+
+        $this->stop();
+        $this->read($provider, $instance);
+
+        self::assertCount(1, $this->stops, 'a display that collects nothing watches nothing');
+
+        $this->clock->sleep(11);
+        $this->read($provider, $instance);
+
+        self::assertSame(3, $status->collects);
+        self::assertCount(2, $this->stops, 'a request that ran it watches again');
+    }
+
+    private function request(): PhpRequest
+    {
+        return new PhpRequest(function (\Closure $stop): void {
+            $this->stops[] = $stop;
+        });
+    }
+
+    /**
+     * Runs what the request was given to run at shutdown, as PHP does once it stops the request.
+     */
+    private function stop(): void
+    {
+        foreach ($this->stops as $stop) {
+            $stop();
+        }
+    }
+
     /**
      * @param \Closure(): array<string, mixed> $collect
      */
@@ -2302,11 +2489,11 @@ final class SnapshotProviderTest extends TestCase
         return new CollectorSpec($collector, $lifetime, $cost, $trackDelta, $shared, $detailOnly, $perServer);
     }
 
-    private function provider(string $node = 'web-1', ?LoggerInterface $logger = null, ?CacheItemPoolInterface $cache = null): SnapshotProvider
+    private function provider(string $node = 'web-1', ?LoggerInterface $logger = null, ?CacheItemPoolInterface $cache = null, ?PhpRequest $request = null): SnapshotProvider
     {
         $cache ??= $this->cache;
 
-        return new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, new WebNode($node), $logger);
+        return new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, new WebNode($node), $logger, request: $request);
     }
 
     private function read(SnapshotProvider $provider, Instance $instance, ?CollectBudget $budget = null, CacheState $cache = CacheState::Working, bool $detail = false): ComponentSnapshot

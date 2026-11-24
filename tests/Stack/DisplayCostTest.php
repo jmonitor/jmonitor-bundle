@@ -43,6 +43,7 @@ use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\PhpRequest;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
@@ -57,6 +58,7 @@ use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\Detectors;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\StaticDetector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ForgetfulCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FreezableCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ThrowingCachePool;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -653,6 +655,67 @@ final class DisplayCostTest extends TestCase
         }
     }
 
+    public function testADisplayKilledWhileItReadsCostsOneWait(): void
+    {
+        $stops = [];
+        $request = new PhpRequest(static function (\Closure $stop) use (&$stops): void {
+            $stops[] = $stop;
+        });
+        $cache = new FreezableCachePool(new CountingCachePool());
+        $killed = static function () use (&$stops, $cache): void {
+            foreach ($stops as $stop) {
+                $stop();
+            }
+            $cache->frozen = true;
+        };
+        $container = new class ($this->clock, $killed) extends Container {
+            public int $asked = 0;
+
+            public function __construct(
+                private readonly MockClock $clock,
+                private readonly \Closure $killed,
+            ) {
+                parent::__construct();
+            }
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+                $this->clock->sleep(30);
+                ($this->killed)();
+
+                throw new \RuntimeException('SQLSTATE[08006] [7] connection to server at "pg.internal" (10.0.0.9), port 5432 failed: timeout expired');
+            }
+        };
+        $params = [];
+        foreach (range(1, 8) as $i) {
+            $params['c' . $i] = ['dbname' => 'shop' . $i] + self::POSTGRESQL;
+        }
+        $reader = fn(): LocalStackReader => $this->postgresqlReader($container, $params, $cache, $request);
+
+        $reader()->overview(ReadMode::Page);
+        $reader()->overview(ReadMode::Fragment);
+        $cache->frozen = false;
+
+        self::assertSame(1, $container->asked);
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(2);
+            $state = $reader()->overview(ReadMode::Fragment);
+
+            self::assertFalse($state->isReading(), 'display ' . $i);
+
+            foreach ($state->component(Component::Postgresql)->instances ?? [] as $instance) {
+                self::assertSame(ResultState::Failed, $instance->snapshot?->result('postgresql')?->state, 'display ' . $i . ', ' . $instance->id);
+                self::assertSame('The server did not answer before PHP stopped the request reading it.', $instance->snapshot->result('postgresql')->error);
+            }
+        }
+
+        self::assertSame(1, $container->asked);
+        self::assertCount(8, $state->component(Component::Postgresql)->instances ?? []);
+        self::assertLessThan(self::START + 30 + 150, $this->clock->now()->getTimestamp(), 'within the time the failure is kept');
+    }
+
     public function testARefusedConnectionStaysCriticalWhileAnotherReadsItsServer(): void
     {
         $container = new class extends Container {
@@ -781,7 +844,7 @@ final class DisplayCostTest extends TestCase
      *
      * @param array<string, array<string, mixed>> $params the parameters of each connection
      */
-    private function postgresqlReader(Container $container, array $params, CacheItemPoolInterface $cache): LocalStackReader
+    private function postgresqlReader(Container $container, array $params, CacheItemPoolInterface $cache, ?PhpRequest $request = null): LocalStackReader
     {
         $names = array_map(strval(...), array_keys($params));
         $instances = new DatabaseInstances(
@@ -795,7 +858,7 @@ final class DisplayCostTest extends TestCase
             [Component::Postgresql->value => ['enabled' => 'auto']],
         );
 
-        return $this->reader($cache);
+        return $this->reader($cache, request: $request);
     }
 
     /**
@@ -806,10 +869,10 @@ final class DisplayCostTest extends TestCase
         return array_map(static fn(array $collectors): array => array_map(static fn(FakeCollector $collector): int => $collector->collects, $collectors), $this->collectors);
     }
 
-    private function reader(CacheItemPoolInterface $cache, ?FakeProcessRunner $runner = null): LocalStackReader
+    private function reader(CacheItemPoolInterface $cache, ?FakeProcessRunner $runner = null, ?PhpRequest $request = null): LocalStackReader
     {
         $node = new WebNode('web-1');
-        $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, $node);
+        $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, $node, request: $request);
         $queues = $runner === null ? null : new QueuesInstance(new QueuesCollector($runner, new PhpCli(static fn(): string => '/usr/local/bin/php'), \dirname(__DIR__) . '/Fixtures/App', 'prod', false));
 
         return new LocalStackReader($this->registry, $snapshots, new CacheProbe($cache, $this->clock), $cache, $this->clock, $node, null, $queues);

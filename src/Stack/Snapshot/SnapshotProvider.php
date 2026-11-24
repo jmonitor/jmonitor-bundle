@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Stack\Collector\CostClass;
 use Jmonitor\JmonitorBundle\Stack\Collector\ErrorMessage;
 use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Collector\Lifetime;
+use Jmonitor\JmonitorBundle\Stack\Collector\UnreachableServerException;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Psr\Cache\CacheItemInterface;
@@ -30,10 +31,14 @@ final readonly class SnapshotProvider
     private const LAPSED_FAILURE_SECONDS = 86400;
     private const FORGOTTEN_SECONDS = 604800;
     private const REFUSED = 'The cache refused to keep this value, it may be too large.';
+    private const STOPPED_WAITING = 'The server did not answer before PHP stopped the request reading it.';
+    private const STOPPED = 'PHP stopped the request before this was read.';
 
     private LoggerInterface $logger;
     private CacheKeys $keys;
     private Randomizer $random;
+    private PhpRequest $request;
+    private ReadInFlight $inFlight;
 
     public function __construct(
         private CollectorRunner $runner,
@@ -43,10 +48,13 @@ final readonly class SnapshotProvider
         private WebNode $node,
         ?LoggerInterface $logger = null,
         ?Randomizer $random = null,
+        ?PhpRequest $request = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
         $this->keys = new CacheKeys($node);
         $this->random = $random ?? new Randomizer();
+        $this->request = $request ?? PhpRequest::current();
+        $this->inFlight = new ReadInFlight();
     }
 
     /**
@@ -329,25 +337,17 @@ final readonly class SnapshotProvider
     private function collect(InstanceRead $read, CollectorSpec $spec, CacheGuard $guard, float $startedAt, array $reads): CollectorResult
     {
         $read->ran = true;
+        $this->watch($read, $spec, $guard, $startedAt, $reads);
 
         try {
             $data = $this->runner->run($spec->collector);
         } catch (\Throwable $e) {
-            $now = $this->now();
-            $kind = FailureKind::of($e);
-            $waited = $this->seconds() - $startedAt;
-            $kept = self::keptFor($kind, $spec->cost, $waited);
-            $failure = new StoredFailure(self::describe($e), $now + $kept, $read->forgotten, $kind);
-            $read->write($spec, $this->keys->failure($read->instance, $spec), $failure->toCache(), self::failureKeptFor($spec, $kept), value: false);
-            $read->holdOn($spec, $failure);
+            $this->inFlight->collecting = null;
 
-            if ($waited >= self::SILENT_SERVER_SECONDS && $read->holdsAll($spec, $failure)) {
-                $this->holdItsServer($read, $failure, $reads, $now);
-            }
-
-            return $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $failure);
+            return $this->failed($read, $spec, $e, $startedAt, $reads);
         }
 
+        $this->inFlight->collecting = null;
         $now = $this->now();
         $delta = $spec->trackDelta ? $guard->attempt(fn(): ?Delta => $this->deltas->track($this->keys->suffix($read->instance, $spec), $data, $now), null) : null;
         $value = new StoredValue($data, $now, $delta, $read->markers[$spec->name] ?? null);
@@ -358,6 +358,80 @@ final readonly class SnapshotProvider
         }
 
         return $this->shown($spec, $value, $now);
+    }
+
+    /**
+     * @param array<string, InstanceRead> $reads every read of the display
+     */
+    private function failed(InstanceRead $read, CollectorSpec $spec, \Throwable $e, float $startedAt, array $reads): CollectorResult
+    {
+        $now = $this->now();
+        $kind = FailureKind::of($e);
+        $waited = $this->seconds() - $startedAt;
+        $kept = self::keptFor($kind, $spec->cost, $waited);
+        $failure = new StoredFailure(self::describe($e), $now + $kept, $read->forgotten, $kind);
+        $read->write($spec, $this->keys->failure($read->instance, $spec), $failure->toCache(), self::failureKeptFor($spec, $kept), value: false);
+        $read->holdOn($spec, $failure);
+
+        if ($waited >= self::SILENT_SERVER_SECONDS && $read->holdsAll($spec, $failure)) {
+            $this->holdItsServer($read, $failure, $reads, $now);
+        }
+
+        return $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $failure);
+    }
+
+    /**
+     * Before a collector runs, PHP is given, once until it runs it, what to do if it stops the request meanwhile.
+     *
+     * @param array<string, InstanceRead> $reads every read of the display
+     */
+    private function watch(InstanceRead $read, CollectorSpec $spec, CacheGuard $guard, float $startedAt, array $reads): void
+    {
+        $inFlight = $this->inFlight;
+
+        if (!$inFlight->watched) {
+            $inFlight->watched = true;
+            $provider = \WeakReference::create($this);
+            $this->request->atShutdown(static function () use ($inFlight, $provider): void {
+                $inFlight->watched = false;
+                $provider->get()?->stopped();
+            });
+        }
+
+        $inFlight->collecting = ['read' => $read, 'spec' => $spec, 'startedAt' => $startedAt, 'reads' => $reads, 'guard' => $guard];
+    }
+
+    /**
+     * Once PHP stopped the request, the collector it was running fails as if it had thrown, and the read finishes
+     * without closing what it opened, which could keep the request waiting as long again.
+     */
+    private function stopped(): void
+    {
+        $collecting = $this->inFlight->collecting;
+        $this->inFlight->collecting = null;
+
+        if ($collecting === null) {
+            return;
+        }
+
+        ['read' => $read, 'spec' => $spec, 'reads' => $reads, 'guard' => $guard] = $collecting;
+
+        try {
+            $waiting = !$read->instance->component->isNodeLocal() && !$spec->shared;
+            $this->failed($read, $spec, $waiting ? new UnreachableServerException(self::STOPPED_WAITING) : new \RuntimeException(self::STOPPED), $collecting['startedAt'], $reads);
+
+            foreach ($reads as $each) {
+                $this->finish($each, $guard, release: false);
+            }
+        } catch (\Throwable $e) {
+            try {
+                $this->logger->error('The read of the live stack stopped by PHP could not be finished: {reason}', [
+                    'reason' => self::describe($e),
+                    'exception' => $e,
+                ]);
+            } catch (\Throwable) {
+            }
+        }
     }
 
     /**
@@ -417,7 +491,7 @@ final readonly class SnapshotProvider
     /**
      * Writes first, so that the next request finds the values once the witness is lifted.
      */
-    private function finish(InstanceRead $read, CacheGuard $guard): void
+    private function finish(InstanceRead $read, CacheGuard $guard, bool $release = true): void
     {
         if ($read->writes !== []) {
             $committed = $guard->attempt(function () use ($read): bool {
@@ -442,7 +516,7 @@ final readonly class SnapshotProvider
             $this->liftWitness($read->instance, $read->token, $guard);
         }
 
-        if ($read->ran) {
+        if ($read->ran && $release) {
             try {
                 $read->instance->collectors?->release();
             } catch (\Throwable $e) {
