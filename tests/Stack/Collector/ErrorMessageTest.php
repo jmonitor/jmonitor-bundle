@@ -99,6 +99,9 @@ final class ErrorMessageTest extends TestCase
         yield 'an escaped quote in a double-quoted password' => ['bad parameters: password="a\\"b t4il" host=db', 't4il', 'password=… host=db'];
         yield 'a quoted password cut short' => ["connection failed: host=db password='my s3cr", 's3cr', 'host=db password=…'];
         yield 'the account of a PostgreSQL user' => ['SQLSTATE[08006] [7] connection to server at "127.0.0.1", port 5432 failed: FATAL:  password authentication failed for user "jmonitor"', 'jmonitor', 'password authentication failed for user …'];
+        yield 'a PostgreSQL role that does not exist' => ['SQLSTATE[08006] [7] connection to server at "127.0.0.1", port 5432 failed: FATAL:  role "jmonitor" does not exist', 'jmonitor', 'role … does not exist'];
+        yield 'a role in single quotes' => ["SQLSTATE[42501]: Insufficient privilege: 7 ERROR:  permission denied for role 'app'", 'app', 'permission denied for role …'];
+        yield 'a role holding a doubled quote' => ['FATAL:  role "jm""onitor" does not exist', 'onitor', 'role … does not exist'];
     }
 
     #[DataProvider('secrets')]
@@ -123,6 +126,7 @@ final class ErrorMessageTest extends TestCase
         yield 'an IPv6 address, then an e-mail address' => ['Nothing answered at http://[::1]:8080 after 2 s, tell ops@example.com'];
         yield 'a port and a colon, then an e-mail address' => ['Cannot reach tcp://db:3306: timeout, admin@example.com'];
         yield 'quoted values that are no secret' => ["host=db dbname='app' sslmode='require'"];
+        yield 'a PostgreSQL database that does not exist' => ['FATAL:  database "shop" does not exist'];
     }
 
     #[DataProvider('ordinaryMessages')]

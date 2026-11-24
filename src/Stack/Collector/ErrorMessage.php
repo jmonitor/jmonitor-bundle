@@ -21,6 +21,7 @@ final class ErrorMessage
         '~Invalid option\(s\) ".*?" passed to~su' => 'Invalid option(s) passed to',
         '~Unknown option found( in DSN)?: \[.*?\]\.(?=\s+Allowed options are \[|\z)~su' => 'Unknown option found$1.',
         '~\buser (?:\'[^\']*\'(?:@\'[^\']*\')?|"[^"]*")~iu' => 'user …',
+        '~\brole (?:\'(?:[^\']|\'\')*\'|"(?:[^"]|"")*")~iu' => 'role …',
     ];
 
     /**
@@ -40,7 +41,7 @@ final class ErrorMessage
 
     /**
      * Drops what a message carries of a secret, the credentials of an address, the value of a password or key
-     * parameter, the option names a transport copies, the account a database server names, and cuts it to MAX_LENGTH characters.
+     * parameter, the option names a transport copies, the account or role a database server names, and cuts it to MAX_LENGTH characters.
      */
     public static function clean(string $message): string
     {
