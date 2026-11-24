@@ -26,6 +26,7 @@ use Random\Randomizer;
 final readonly class SnapshotProvider
 {
     private const WITNESS_SECONDS = 300;
+    private const SILENT_SERVER_SECONDS = 2;
     private const FORGOTTEN_SECONDS = 604800;
     private const REFUSED = 'The cache refused to keep this value, it may be too large.';
 
@@ -89,7 +90,7 @@ final readonly class SnapshotProvider
                     $result = $this->kept($read, $spec, $now) ?? $reused[$key] ?? null;
 
                     if ($result === null) {
-                        $result = $this->collectOrLeave($read, $spec, $budget, $cache, $guard, $now);
+                        $result = $this->collectOrLeave($read, $spec, $budget, $cache, $guard, $now, $reads);
 
                         if (self::reusable($spec, $result)) {
                             $reused[$key] = $result;
@@ -221,7 +222,10 @@ final readonly class SnapshotProvider
         return $failure === null ? null : $this->shown($spec, $value, $now, ResultState::Failed, $failure);
     }
 
-    private function collectOrLeave(InstanceRead $read, CollectorSpec $spec, CollectBudget $budget, CacheState $cache, CacheGuard $guard, int $now): CollectorResult
+    /**
+     * @param array<string, InstanceRead> $reads every read of the display
+     */
+    private function collectOrLeave(InstanceRead $read, CollectorSpec $spec, CollectBudget $budget, CacheState $cache, CacheGuard $guard, int $now, array $reads): CollectorResult
     {
         $value = $read->values[$spec->name] ?? null;
 
@@ -234,7 +238,7 @@ final readonly class SnapshotProvider
         }
 
         $startedAt = $this->seconds();
-        $result = $this->collect($read, $spec, $guard, $startedAt);
+        $result = $this->collect($read, $spec, $guard, $startedAt, $reads);
         $budget->ran($spec->cost, $this->seconds() - $startedAt);
 
         return $result;
@@ -266,7 +270,10 @@ final readonly class SnapshotProvider
         return $spec->cost === CostClass::Immediate || ($cache === CacheState::Working && $guard->works());
     }
 
-    private function collect(InstanceRead $read, CollectorSpec $spec, CacheGuard $guard, float $startedAt): CollectorResult
+    /**
+     * @param array<string, InstanceRead> $reads every read of the display
+     */
+    private function collect(InstanceRead $read, CollectorSpec $spec, CacheGuard $guard, float $startedAt, array $reads): CollectorResult
     {
         $read->ran = true;
 
@@ -275,10 +282,15 @@ final readonly class SnapshotProvider
         } catch (\Throwable $e) {
             $now = $this->now();
             $kind = FailureKind::of($e);
-            $kept = self::keptFor($kind, $spec->cost, $this->seconds() - $startedAt);
+            $waited = $this->seconds() - $startedAt;
+            $kept = self::keptFor($kind, $spec->cost, $waited);
             $failure = new StoredFailure(self::describe($e), $now + $kept, $read->forgotten, $kind);
             $read->write($spec, $this->keys->failure($read->instance, $spec), $failure->toCache(), $kept, value: false);
             $read->holdOn($spec, $failure);
+
+            if ($waited >= self::SILENT_SERVER_SECONDS && $read->holdsAll($spec, $failure)) {
+                $this->holdItsServer($read, $failure, $reads, $now);
+            }
 
             return $this->shown($spec, $read->values[$spec->name] ?? null, $now, ResultState::Failed, $failure);
         }
@@ -289,6 +301,38 @@ final readonly class SnapshotProvider
         $read->write($spec, $this->keys->result($read->instance, $spec), $value->toCache(), $spec->lifetime->keptFor(), value: true);
 
         return $this->shown($spec, $value, $now);
+    }
+
+    /**
+     * A server that kept the read waiting would keep each of its other connections waiting as long: those of
+     * the display take its failure on their main collector, under their own key. A result they already show stays.
+     *
+     * @param array<string, InstanceRead> $reads
+     */
+    private function holdItsServer(InstanceRead $read, StoredFailure $failure, array $reads, int $now): void
+    {
+        $server = $read->instance->server;
+
+        if ($server === null) {
+            return;
+        }
+
+        foreach ($reads as $other) {
+            $main = $other->main();
+
+            if ($other === $read || $main === null || $other->instance->component !== $read->instance->component || $other->instance->server?->key !== $server->key) {
+                continue;
+            }
+
+            $theirs = new StoredFailure($failure->error, $failure->until, $other->forgotten, $failure->kind);
+            $shown = $other->results[$main->name] ?? null;
+
+            if ($shown?->failure === null || $shown->expiresAt < $failure->until) {
+                $other->write($main, $this->keys->failure($other->instance, $main), $theirs->toCache(), $failure->until - $now, value: false);
+            }
+
+            $other->holdOn($main, $theirs);
+        }
     }
 
     private function takeWitness(InstanceRead $read, CacheGuard $guard): void

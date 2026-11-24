@@ -67,7 +67,7 @@ final class InstanceRead
      */
     public function holdOn(CollectorSpec $spec, StoredFailure $failure): void
     {
-        if ($spec->shared || $this->instance->component->isNodeLocal() || $failure->kind !== FailureKind::Unreachable) {
+        if (!$this->holds($spec, $failure)) {
             return;
         }
 
@@ -76,6 +76,28 @@ final class InstanceRead
         } else {
             $this->hold = self::latest($this->hold, $failure);
         }
+    }
+
+    /**
+     * Whether this failure holds every collector of the instance but the shared ones.
+     */
+    public function holdsAll(CollectorSpec $spec, StoredFailure $failure): bool
+    {
+        return $this->holds($spec, $failure) && !$spec->detailOnly;
+    }
+
+    /**
+     * The collector named after the component.
+     */
+    public function main(): ?CollectorSpec
+    {
+        foreach ($this->specs as $spec) {
+            if ($spec->name === $this->instance->component->value) {
+                return $spec;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -104,6 +126,11 @@ final class InstanceRead
         }
 
         return $results;
+    }
+
+    private function holds(CollectorSpec $spec, StoredFailure $failure): bool
+    {
+        return !$spec->shared && !$this->instance->component->isNodeLocal() && $failure->kind === FailureKind::Unreachable;
     }
 
     private static function latest(?StoredFailure $held, ?StoredFailure $failure): ?StoredFailure

@@ -495,6 +495,44 @@ final class DisplayCostTest extends TestCase
         }
     }
 
+    public function testEightConnectionsOfASilentServerMakeOneDisplayWait(): void
+    {
+        $container = new class ($this->clock) extends Container {
+            public int $asked = 0;
+
+            public function __construct(
+                private readonly MockClock $clock,
+            ) {
+                parent::__construct();
+            }
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+                $this->clock->sleep(30);
+
+                throw new \RuntimeException('SQLSTATE[HY000] [2002] Connection timed out');
+            }
+        };
+        $params = [];
+        foreach (range(1, 8) as $i) {
+            $params['c' . $i] = ['dbname' => 'shop' . $i] + self::MYSQL;
+        }
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->mysqlReader($container, $params, $cache);
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(2);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertSame(1, $container->asked);
+        self::assertSame(self::START + 30 + 2 * (self::DISPLAYS - 1), $this->clock->now()->getTimestamp(), 'one wait of thirty seconds');
+        self::assertLessThan(self::START + 30 + 150, $this->clock->now()->getTimestamp(), 'within the time the failure is kept');
+        self::assertFalse($state->isReading());
+    }
+
     public function testARefusedConnectionStaysCriticalWhileAnotherReadsItsServer(): void
     {
         $container = new class extends Container {
