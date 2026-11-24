@@ -314,6 +314,31 @@ final class ComponentScreenTest extends TestCase
         ])]), $blocks[2]->content);
     }
 
+    public function testALocalComponentIgnoresTheConnectionAskedFor(): void
+    {
+        $reader = new FakeStackReader(self::stack(Snapshots::of(Component::Php, ['php' => Snapshots::php()])));
+
+        $blocks = $this->screen($reader, Component::Php)->blocks(new ScreenRequest(Snapshots::NOW, instance: 'reports'));
+
+        self::assertSame([null], $reader->instances);
+        self::assertSame([Block::SUBNAV, Block::COMPONENTS, Block::CHECKS], array_slice(array_map(static fn(Block $block): string => $block->type, $blocks), 0, 3));
+    }
+
+    public function testALongUnknownConnectionNameIsCut(): void
+    {
+        $reader = new FakeStackReader(self::databases(['main' => 'db1:3306', 'reports' => 'db1:3306']));
+
+        $blocks = $this->screen($reader, Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW, instance: str_repeat('é', 64) . str_repeat('x', 1000)));
+
+        self::assertInstanceOf(Notice::class, $blocks[1]->content);
+        self::assertSame('No connection named "' . str_repeat('é', 64) . '…" is read', $blocks[1]->content->title);
+
+        $blocks = $this->screen($reader, Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW, instance: str_repeat('x', 64)));
+
+        self::assertInstanceOf(Notice::class, $blocks[1]->content);
+        self::assertSame('No connection named "' . str_repeat('x', 64) . '" is read', $blocks[1]->content->title);
+    }
+
     public function testASingleConnectionHasNoSelector(): void
     {
         $blocks = $this->screen(new FakeStackReader(self::databases(['main' => 'db1:3306'], 'main')), Component::Mysql)->blocks(new ScreenRequest(Snapshots::NOW));

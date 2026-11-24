@@ -29,6 +29,8 @@ use Psr\Container\ContainerInterface;
 
 final class ComponentScreen implements BlockScreenInterface, ActionScreenInterface
 {
+    private const SHOWN_NAME_LENGTH = 64;
+
     private readonly StackScreenParts $parts;
 
     /**
@@ -86,7 +88,8 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
 
     public function blocks(ScreenRequest $request): array
     {
-        $state = $this->parts->reader()->component($this->component, $request->instance, $request->fragment ? ReadMode::Fragment : ReadMode::Page);
+        $asked = $this->component->isNodeLocal() ? null : $request->instance;
+        $state = $this->parts->reader()->component($this->component, $asked, $request->fragment ? ReadMode::Fragment : ReadMode::Page);
 
         if ($state->error !== null) {
             return [
@@ -98,10 +101,10 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
         $health = $this->parts->health($state);
         $blocks = [Block::subnav($this->subnav($health->componentVerdict($this->component), $state->node))];
         $component = $state->component($this->component);
-        $instance = $component === null ? null : self::shown($component, $request->instance);
+        $instance = $component === null ? null : self::shown($component, $asked);
 
         if ($component !== null && $instance === null) {
-            $blocks[] = Block::notice(new Notice('warn', sprintf('No connection named "%s" is read', $request->instance), 'It may have been renamed or left out of the configuration.'));
+            $blocks[] = Block::notice(new Notice('warn', sprintf('No connection named "%s" is read', self::cut((string) $asked)), 'It may have been renamed or left out of the configuration.'));
         }
 
         if ($component !== null && count($component->instances) > 1) {
@@ -147,6 +150,11 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
         }
 
         return null;
+    }
+
+    private static function cut(string $name): string
+    {
+        return mb_strlen($name) > self::SHOWN_NAME_LENGTH ? mb_substr($name, 0, self::SHOWN_NAME_LENGTH) . '…' : $name;
     }
 
     /**
