@@ -453,9 +453,9 @@ final class CardBuilderTest extends TestCase
         self::assertSame('PostgreSQL 14.15', $card->version);
         self::assertEquals([new Mark('warn', 'Security fixes only')], $card->badges);
         self::assertEquals([
-            new Vital('Connections', '37 / 100'),
+            new Vital('Connections', '37', 'of 100'),
             new Vital('Cache hit rate', '99.8 %', 'over the last 60' . self::NBSP . 's'),
-            new Vital('Transactions', '12.0 tx/s', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Transactions', '12.0/s', 'over the last 60' . self::NBSP . 's'),
         ], array_map(self::readable(...), $card->vitals));
         self::assertSame('db1:5432', $card->note);
         self::assertSame(['connection' => 'main'], $card->query);
@@ -465,6 +465,7 @@ final class CardBuilderTest extends TestCase
         self::assertNull($alone->version);
         self::assertSame([], $alone->badges);
         self::assertSame(['Connections' => '37', 'Cache hit rate' => '99 %', 'Transactions' => '—'], self::vitals($alone));
+        self::assertNull($alone->vitals[0]->hint, 'no limit read');
         self::assertSame('since the statistics were reset', $alone->vitals[1]->hint);
         self::assertSame('at the next refresh', $alone->vitals[2]->hint);
     }
@@ -520,16 +521,16 @@ final class CardBuilderTest extends TestCase
         self::assertSame('Redis 7.2.4', $card->version);
         self::assertEquals([new Mark('warn', 'Security fixes only')], $card->badges);
         self::assertEquals([
-            new Vital('Memory', '1.4 GB / 2 GB'),
+            new Vital('Memory', '1.4 GB', 'of 2' . self::NBSP . 'GB'),
             new Vital('Hit rate', '95.2 %', 'over the last 60' . self::NBSP . 's'),
-            new Vital('Commands', '1,000 cmd/s', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Commands', '1,000/s', 'over the last 60' . self::NBSP . 's'),
         ], array_map(self::readable(...), $card->vitals));
         self::assertSame('cache:6379', $card->note);
         self::assertSame(['connection' => 'main'], $card->query);
 
         $alone = $this->cardOf(Component::Redis, new InstanceState('main', null, null, Snapshots::of(Component::Redis, ['redis' => $kept]), new Server('cache:6379', 'cache:6379')));
 
-        self::assertSame(['Memory' => '1.4 GB / 2 GB', 'Hit rate' => '90.4 %', 'Commands' => '—'], self::vitals($alone));
+        self::assertSame(['Memory' => '1.4 GB', 'Hit rate' => '90.4 %', 'Commands' => '—'], self::vitals($alone));
         self::assertSame([], $alone->badges);
         self::assertSame('since the server started', $alone->vitals[1]->hint);
         self::assertSame('at the next refresh', $alone->vitals[2]->hint);
@@ -540,6 +541,40 @@ final class CardBuilderTest extends TestCase
         $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, Snapshots::of(Component::Redis, ['redis' => RedisPayloads::kept()]), new Server('cache:6379', 'cache:6379')));
 
         self::assertSame('1.4 GB', self::vitals($card)['Memory']);
+        self::assertNull($card->vitals[0]->hint);
+    }
+
+    /**
+     * A column of a card writes about nine figures on one line: no value of these cards is longer than its widest case.
+     */
+    public function testTheFiguresOfADatabaseOrRedisCardHoldOnOneLine(): void
+    {
+        $activity = DatabasePayloads::postgresqlActivity();
+        $activity['server_connections'] = 1_024;
+        $previous = ['database_stats' => ['xact_commit' => $activity['database_stats']['xact_commit'] - 74_040, 'xact_rollback' => $activity['database_stats']['xact_rollback'], 'blks_hit' => 0, 'blks_read' => $activity['database_stats']['blks_read']]];
+        $postgresql = Snapshots::of(Component::Postgresql, [
+            'postgresql' => $activity,
+            'postgresql.settings' => ['max_connections' => '1024'] + DatabasePayloads::postgresqlSettings(),
+        ], deltas: ['postgresql' => Snapshots::delta($previous, $activity)]);
+
+        $kept = RedisPayloads::kept();
+        $kept['memory'] = ['used' => 1_072_693_248, 'max_memory' => 1_072_693_248] + $kept['memory'];
+        $kept['stats'] = ['total_commands_processed' => 8_000_000, 'keyspace_hits' => 10_000, 'keyspace_misses' => 0] + $kept['stats'];
+        $redis = Snapshots::of(Component::Redis, ['redis' => $kept], deltas: ['redis' => Snapshots::delta(['stats' => ['total_commands_processed' => 592_640, 'keyspace_hits' => 0, 'keyspace_misses' => 0]], $kept)]);
+
+        $postgresqlCard = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $postgresql, new Server('db1:5432', 'db1:5432')));
+        $redisCard = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $redis, new Server('cache:6379', 'cache:6379')));
+
+        self::assertEquals([
+            new Vital('Connections', '1,024', 'of 1,024'),
+            new Vital('Cache hit rate', '100 %', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Transactions', '1,234/s', 'over the last 60' . self::NBSP . 's'),
+        ], array_map(self::readable(...), $postgresqlCard->vitals));
+        self::assertEquals([
+            new Vital('Memory', '1,023 MB', 'of 1,023' . self::NBSP . 'MB'),
+            new Vital('Hit rate', '100 %', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Commands', '123,456/s', 'over the last 60' . self::NBSP . 's'),
+        ], array_map(self::readable(...), $redisCard->vitals));
     }
 
     public function testAFoundRedisDoesNotRepeatItsAddress(): void

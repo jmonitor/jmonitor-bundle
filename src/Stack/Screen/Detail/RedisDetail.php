@@ -57,20 +57,6 @@ final class RedisDetail implements DetailInterface
     }
 
     /**
-     * What it uses of its limit, such as "1.4 GB / 2 GB", or what it uses without one.
-     */
-    public static function usedMemory(RedisReading $redis): ?string
-    {
-        if ($redis->usedMemory === null) {
-            return null;
-        }
-
-        return $redis->maxMemory === null
-            ? Figures::bytes($redis->usedMemory)
-            : Figures::bytes($redis->usedMemory) . Sections::NBSP . '/' . Sections::NBSP . Figures::bytes($redis->maxMemory);
-    }
-
-    /**
      * @param list<Finding> $findings
      *
      * @return list<Block>

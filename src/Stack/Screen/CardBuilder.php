@@ -282,9 +282,9 @@ final class CardBuilder
         return [
             PostgresqlDetail::version($postgresql),
             [
-                new Vital('Connections', $main(PostgresqlDetail::connections($postgresql))),
+                new Vital('Connections', $main(self::count($postgresql->serverConnections)), self::of($postgresql->maxConnections === null ? null : Figures::count($postgresql->maxConnections))),
                 new Vital('Cache hit rate', $main(self::percent($hitRate->value)), Figures::span($hitRate, $elapsed)),
-                new Vital('Transactions', $main(Sections::rate($transactions)), Figures::span($transactions, $elapsed)),
+                new Vital('Transactions', $main(self::perSecond($transactions)), Figures::span($transactions, $elapsed)),
             ],
             $postgresql->support,
             null,
@@ -305,9 +305,9 @@ final class CardBuilder
         return [
             RedisDetail::version($redis),
             [
-                new Vital('Memory', $main(RedisDetail::usedMemory($redis))),
+                new Vital('Memory', $main($redis->usedMemory === null ? null : Figures::bytes($redis->usedMemory)), self::of($redis->maxMemory === null ? null : Figures::bytes($redis->maxMemory))),
                 new Vital('Hit rate', $main(self::percent($hitRate->value)), Figures::span($hitRate, $elapsed)),
-                new Vital('Commands', $main(Sections::rate($commands)), Figures::span($commands, $elapsed)),
+                new Vital('Commands', $main(self::perSecond($commands)), Figures::span($commands, $elapsed)),
             ],
             $redis->support,
             null,
@@ -343,5 +343,26 @@ final class CardBuilder
     private static function percent(?float $percent): ?string
     {
         return $percent === null ? null : Figures::percent($percent);
+    }
+
+    private static function count(?int $count): ?string
+    {
+        return $count === null ? null : Figures::count($count);
+    }
+
+    /**
+     * Its unit left to the label, such as "5.8/s".
+     */
+    private static function perSecond(Rate $rate): ?string
+    {
+        return $rate->value === null ? null : Figures::rate($rate->value, '') . '/s';
+    }
+
+    /**
+     * The limit a figure is measured against, such as "of 64 MB".
+     */
+    private static function of(?string $limit): ?string
+    {
+        return $limit === null ? null : 'of ' . $limit;
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack\Metric;
 
+use Jmonitor\JmonitorBundle\Dashboard\Format;
+
 /**
  * How the figures of the stack are written, in the sentences of the checks as on the screens.
  */
@@ -47,6 +49,14 @@ final class Figures
         });
 
         return $unit === '' ? $shown : $shown . self::NBSP . $unit;
+    }
+
+    /**
+     * With the separator of thousands of the tables.
+     */
+    public static function count(int $count): string
+    {
+        return Format::number($count);
     }
 
     public static function times(int $count): string
