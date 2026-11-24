@@ -245,7 +245,7 @@ final class RedisDetailTest extends TestCase
 
     public function testAnUnreachableServerIsToldOnce(): void
     {
-        $reason = 'The Redis server cannot be reached: the connection is refused, cannot be opened or gets no answer in time.';
+        $reason = 'The connection is refused, cannot be opened, or gets no answer in time.';
         $dead = new ComponentSnapshot(Component::Redis, [
             'redis' => new CollectorResult('redis', [], ResultState::Failed, $reason, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
         ]);

@@ -20,9 +20,9 @@ use Symfony\Component\Cache\Exception\InvalidArgumentException;
 
 final class RedisLinkTest extends TestCase
 {
-    private const UNREACHABLE = 'The Redis server cannot be reached: the connection is refused, cannot be opened or gets no answer in time.';
-    private const PASSWORD = 'The Redis server asks for a password, or refuses the one given.';
-    private const NO_INFO = 'The Redis server did not answer INFO.';
+    private const UNREACHABLE = 'The connection is refused, cannot be opened, or gets no answer in time.';
+    private const PASSWORD = 'The server asks for a password, or refuses the one given.';
+    private const NO_INFO = 'The server did not answer INFO.';
     private const CLIENT_FAILED = 'The Redis client failed while reading the server.';
     private const DENIED = 'The Redis user of this connection may not run INFO, or may not select its database.';
     private const UNREADABLE_DSN = 'The DSN of this connection cannot be read.';

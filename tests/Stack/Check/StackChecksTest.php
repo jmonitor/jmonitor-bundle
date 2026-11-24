@@ -1292,7 +1292,7 @@ final class StackChecksTest extends TestCase
     public function testAnUnreachableRedisIsCritical(): void
     {
         $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Redis, [
-            'redis' => new CollectorResult('redis', [], ResultState::Failed, 'The Redis server cannot be reached.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            'redis' => new CollectorResult('redis', [], ResultState::Failed, 'The connection is refused, cannot be opened, or gets no answer in time.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
         ])));
         $denied = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Redis, [
             'redis' => new CollectorResult('redis', [], ResultState::Failed, 'The Redis user of this connection may not run INFO.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::MissingPrerequisite),
@@ -1300,7 +1300,7 @@ final class StackChecksTest extends TestCase
 
         self::assertSame(['redis.failed'], array_map(static fn(Finding $finding): string => $finding->id, $health->findings));
         self::assertSame(Severity::Critical, self::find($health, 'redis.failed')?->severity);
-        self::assertSame('Redis cannot be reached: The Redis server cannot be reached.', self::find($health, 'redis.failed')->sentence);
+        self::assertSame('Redis cannot be reached: The connection is refused, cannot be opened, or gets no answer in time.', self::find($health, 'redis.failed')->sentence);
         self::assertSame(Verdict::Critical, $health->verdict(Component::Redis));
 
         self::assertSame(Severity::Warning, self::find($denied, 'redis.failed')?->severity, 'the server answered');
@@ -1310,7 +1310,7 @@ final class StackChecksTest extends TestCase
     public function testAnUnreachableRedisIsToldFromTheConnectionOfTheStack(): void
     {
         $health = self::checks()->health(Snapshots::stack(new ComponentSnapshot(Component::Redis, [
-            'redis' => new CollectorResult('redis', [], ResultState::Failed, 'The Redis server asks for a password, or refuses the one given.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            'redis' => new CollectorResult('redis', [], ResultState::Failed, 'The server asks for a password, or refuses the one given.', expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
         ])));
 
         self::assertSame(
