@@ -522,7 +522,11 @@ final class StackScreenTest extends WebTestCase
     public function testADeadMysqlIsCriticalAndTheNextDisplayDoesNotWait(): void
     {
         self::needsMysql();
-        $client = $this->client(['internals' => true, 'connections' => ['dead' => ['url' => 'mysql://jmonitor:jmonitor@127.0.0.1:1/jmonitor']]]);
+        $client = $this->client([
+            'internals' => true,
+            'connections' => ['dead' => ['url' => 'mysql://jmonitor:jmonitor@127.0.0.1:1/jmonitor']],
+            'jmonitor' => ['stack' => ['ignore_checks' => ['system.load']]],
+        ]);
 
         $client->request('GET', '/jmonitor/stack');
         $client->request('GET', '/jmonitor/_fragment/stack');
