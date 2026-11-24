@@ -17,6 +17,7 @@ use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\RedisPayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -434,6 +435,210 @@ final class CardBuilderTest extends TestCase
         self::assertNull($card->reason);
         self::assertSame(['Connections' => 'Reading…', 'Queries' => 'Reading…', 'Buffer pool hit rate' => 'Reading…'], self::vitals($card));
         self::assertEquals(new Mark('unknown', 'Unknown'), $card->mark);
+    }
+
+    public function testThePostgresqlCardShowsItsVersionItsThreeFiguresAndItsAddress(): void
+    {
+        $previous = ['database_stats' => ['xact_commit' => 124_400, 'xact_rollback' => 0, 'blks_hit' => 336_000, 'blks_read' => 3_880]];
+        $snapshot = Snapshots::of(Component::Postgresql, [
+            'postgresql' => DatabasePayloads::postgresqlActivity(),
+            'postgresql.settings' => ['server_version' => '14.15 (Debian 14.15-1.pgdg120+1)'] + DatabasePayloads::postgresqlSettings(),
+            'eol.postgresql' => ['cycles' => ['14' => ['eol' => '2026-11-12', 'support' => '2025-11-12']]],
+        ], deltas: ['postgresql' => Snapshots::delta($previous, DatabasePayloads::postgresqlActivity())]);
+
+        $card = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $snapshot, new Server('db1:5432', 'db1:5432')), 'stack/postgresql');
+
+        self::assertSame('postgresql.main', $card->id);
+        self::assertSame('PostgreSQL · main', $card->name);
+        self::assertSame('PostgreSQL 14.15', $card->version);
+        self::assertEquals([new Mark('warn', 'Security fixes only')], $card->badges);
+        self::assertEquals([
+            new Vital('Connections', '37', 'of 100'),
+            new Vital('Cache hit rate', '99.8 %', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Transactions', '12.0/s', 'over the last 60' . self::NBSP . 's'),
+        ], array_map(self::readable(...), $card->vitals));
+        self::assertSame('db1:5432', $card->note);
+        self::assertSame(['connection' => 'main'], $card->query);
+
+        $alone = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, Snapshots::of(Component::Postgresql, ['postgresql' => DatabasePayloads::postgresqlActivity()]), new Server('db1:5432', 'db1:5432')));
+
+        self::assertNull($alone->version);
+        self::assertSame([], $alone->badges);
+        self::assertSame(['Connections' => '37', 'Cache hit rate' => '99 %', 'Transactions' => '—'], self::vitals($alone));
+        self::assertNull($alone->vitals[0]->hint, 'no limit read');
+        self::assertSame('since the statistics were reset', $alone->vitals[1]->hint);
+        self::assertSame('at the next refresh', $alone->vitals[2]->hint);
+    }
+
+    public function testAnUnreachablePostgresqlKeepsItsVersionAndSaysWhy(): void
+    {
+        $reason = 'Nothing answers on db1:5432.';
+        $snapshot = new ComponentSnapshot(Component::Postgresql, [
+            'postgresql' => new CollectorResult('postgresql', [], ResultState::Failed, $reason, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            'postgresql.settings' => new CollectorResult('postgresql.settings', ['server_version' => '13.18'] + DatabasePayloads::postgresqlSettings(), ResultState::Stale, $reason, Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+            'eol.postgresql' => new CollectorResult('eol.postgresql', ['cycles' => ['13' => ['eol' => '2025-11-13', 'support' => '2025-11-13']]], ResultState::Fresh, collectedAt: Snapshots::NOW, expiresAt: Snapshots::NOW + 86_400),
+        ]);
+
+        $card = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $snapshot, new Server('db1:5432', 'db1:5432')), 'stack/postgresql');
+
+        self::assertSame($reason, $card->reason);
+        self::assertEquals(new Mark('bad', 'Critical'), $card->mark);
+        self::assertFalse($card->reading);
+        self::assertSame('PostgreSQL 13.18', $card->version);
+        self::assertEquals([new Mark('bad', 'End of life')], $card->badges);
+        self::assertSame([], $card->vitals);
+        self::assertSame('db1:5432', $card->note);
+        self::assertNull($card->readAt);
+
+        $never = new ComponentSnapshot(Component::Postgresql, ['postgresql' => $snapshot->results['postgresql']]);
+        $card = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $never, new Server('db1:5432', 'db1:5432')));
+
+        self::assertSame($reason, $card->reason);
+        self::assertNull($card->version);
+    }
+
+    public function testAPostgresqlCardWaitsForItsFirstReading(): void
+    {
+        $snapshot = Snapshots::of(Component::Postgresql, [], ['postgresql' => ResultState::Pending, 'postgresql.settings' => ResultState::Pending]);
+
+        $card = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $snapshot, new Server('db1:5432', 'db1:5432')), 'stack/postgresql');
+
+        self::assertTrue($card->reading);
+        self::assertSame(['Connections' => 'Reading…', 'Cache hit rate' => 'Reading…', 'Transactions' => 'Reading…'], self::vitals($card));
+    }
+
+    public function testTheRedisCardShowsItsVersionItsThreeFiguresAndItsAddress(): void
+    {
+        $kept = RedisPayloads::kept();
+        $kept['memory']['max_memory'] = 2_147_483_648;
+        $previous = ['stats' => ['total_commands_processed' => 840_000, 'keyspace_hits' => 8_950, 'keyspace_misses' => 1_000]];
+        $snapshot = Snapshots::of(Component::Redis, ['redis' => $kept, 'eol.redis' => RedisPayloads::redisCycles()], deltas: ['redis' => Snapshots::delta($previous, $kept)]);
+
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $snapshot, new Server('cache:6379', 'cache:6379')), 'stack/redis');
+
+        self::assertSame('redis.main', $card->id);
+        self::assertSame('Redis · main', $card->name);
+        self::assertSame('Redis 7.2.4', $card->version);
+        self::assertEquals([new Mark('warn', 'Security fixes only')], $card->badges);
+        self::assertEquals([
+            new Vital('Memory', '1.4 GB', 'of 2' . self::NBSP . 'GB'),
+            new Vital('Hit rate', '95.2 %', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Commands', '1,000/s', 'over the last 60' . self::NBSP . 's'),
+        ], array_map(self::readable(...), $card->vitals));
+        self::assertSame('cache:6379', $card->note);
+        self::assertSame(['connection' => 'main'], $card->query);
+
+        $alone = $this->cardOf(Component::Redis, new InstanceState('main', null, null, Snapshots::of(Component::Redis, ['redis' => $kept]), new Server('cache:6379', 'cache:6379')));
+
+        self::assertSame(['Memory' => '1.4 GB', 'Hit rate' => '90.4 %', 'Commands' => '—'], self::vitals($alone));
+        self::assertSame([], $alone->badges);
+        self::assertSame('since the server started', $alone->vitals[1]->hint);
+        self::assertSame('at the next refresh', $alone->vitals[2]->hint);
+    }
+
+    public function testARateWithoutSecondSampleIsOnlyPromisedWhileTheServerAnswers(): void
+    {
+        $stale = static fn(string $name, array $data): CollectorResult => new CollectorResult($name, $data, ResultState::Stale, 'Nothing answers.', Snapshots::NOW - 600, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable);
+        $redis = $this->cardOf(Component::Redis, new InstanceState('main', null, null, new ComponentSnapshot(Component::Redis, ['redis' => $stale('redis', RedisPayloads::kept())]), new Server('cache:6379', 'cache:6379')));
+        $mysql = $this->cardOf(Component::Mysql, new InstanceState('main', 'shop', null, new ComponentSnapshot(Component::Mysql, [
+            'mysql' => $stale('mysql', DatabasePayloads::mysqlStatus()),
+            'mysql.variables' => $stale('mysql.variables', DatabasePayloads::mysqlVariables()),
+        ]), new Server('db1:3306', 'db1:3306')));
+
+        self::assertSame('Commands', $redis->vitals[2]->label);
+        self::assertNull($redis->vitals[2]->hint);
+        self::assertSame('since the server started', $redis->vitals[1]->hint);
+        self::assertSame('Queries', $mysql->vitals[1]->label);
+        self::assertNull($mysql->vitals[1]->hint);
+    }
+
+    public function testARedisWithoutLimitShowsItsMemoryAlone(): void
+    {
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, Snapshots::of(Component::Redis, ['redis' => RedisPayloads::kept()]), new Server('cache:6379', 'cache:6379')));
+
+        self::assertSame('1.4 GB', self::vitals($card)['Memory']);
+        self::assertNull($card->vitals[0]->hint);
+    }
+
+    /**
+     * A column of a card writes about nine figures on one line: no value of these cards is longer than its widest case.
+     */
+    public function testTheFiguresOfADatabaseOrRedisCardHoldOnOneLine(): void
+    {
+        $activity = DatabasePayloads::postgresqlActivity();
+        $activity['server_connections'] = 1_024;
+        $previous = ['database_stats' => ['xact_commit' => $activity['database_stats']['xact_commit'] - 74_040, 'xact_rollback' => $activity['database_stats']['xact_rollback'], 'blks_hit' => 0, 'blks_read' => $activity['database_stats']['blks_read']]];
+        $postgresql = Snapshots::of(Component::Postgresql, [
+            'postgresql' => $activity,
+            'postgresql.settings' => ['max_connections' => '1024'] + DatabasePayloads::postgresqlSettings(),
+        ], deltas: ['postgresql' => Snapshots::delta($previous, $activity)]);
+
+        $kept = RedisPayloads::kept();
+        $kept['memory'] = ['used' => 1_072_693_248, 'max_memory' => 1_072_693_248] + $kept['memory'];
+        $kept['stats'] = ['total_commands_processed' => 8_000_000, 'keyspace_hits' => 10_000, 'keyspace_misses' => 0] + $kept['stats'];
+        $redis = Snapshots::of(Component::Redis, ['redis' => $kept], deltas: ['redis' => Snapshots::delta(['stats' => ['total_commands_processed' => 592_640, 'keyspace_hits' => 0, 'keyspace_misses' => 0]], $kept)]);
+
+        $postgresqlCard = $this->cardOf(Component::Postgresql, new InstanceState('main', 'shop', null, $postgresql, new Server('db1:5432', 'db1:5432')));
+        $redisCard = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $redis, new Server('cache:6379', 'cache:6379')));
+
+        self::assertEquals([
+            new Vital('Connections', '1,024', 'of 1,024'),
+            new Vital('Cache hit rate', '100 %', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Transactions', '1,234/s', 'over the last 60' . self::NBSP . 's'),
+        ], array_map(self::readable(...), $postgresqlCard->vitals));
+        self::assertEquals([
+            new Vital('Memory', '1,023 MB', 'of 1,023' . self::NBSP . 'MB'),
+            new Vital('Hit rate', '100 %', 'over the last 60' . self::NBSP . 's'),
+            new Vital('Commands', '123,456/s', 'over the last 60' . self::NBSP . 's'),
+        ], array_map(self::readable(...), $redisCard->vitals));
+    }
+
+    public function testAFoundRedisDoesNotRepeatItsAddress(): void
+    {
+        $card = $this->cardOf(Component::Redis, new InstanceState('cache:6379', null, null, Snapshots::of(Component::Redis, ['redis' => RedisPayloads::kept()]), new Server('cache:6379', 'cache:6379')), 'stack/redis');
+
+        self::assertSame('Redis · cache:6379', $card->name, 'a server found takes its address as its id');
+        self::assertNull($card->note);
+        self::assertSame(['connection' => 'cache:6379'], $card->query);
+    }
+
+    public function testAValkeyCardTellsItsOwnVersion(): void
+    {
+        $kept = RedisPayloads::kept();
+        $kept['server']['name'] = 'valkey';
+        $kept['server']['valkey_version'] = '7.2.5';
+        $snapshot = Snapshots::of(Component::Redis, ['redis' => $kept, 'eol.redis' => RedisPayloads::redisCycles(), 'eol.valkey' => RedisPayloads::valkeyCycles()]);
+
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $snapshot, new Server('cache:6379', 'cache:6379')));
+
+        self::assertSame('Valkey 7.2.5', $card->version);
+        self::assertEquals([new Mark('bad', 'End of life')], $card->badges);
+    }
+
+    public function testAnUnreachableRedisSaysWhy(): void
+    {
+        $reason = 'The connection is refused, cannot be opened, or gets no answer in time.';
+        $snapshot = new ComponentSnapshot(Component::Redis, [
+            'redis' => new CollectorResult('redis', [], ResultState::Failed, $reason, expiresAt: Snapshots::NOW + 300, failure: FailureKind::Unreachable),
+        ]);
+
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $snapshot, new Server('cache:6379', 'cache:6379')), 'stack/redis');
+
+        self::assertSame($reason, $card->reason);
+        self::assertEquals(new Mark('bad', 'Critical'), $card->mark);
+        self::assertNull($card->version);
+        self::assertSame([], $card->vitals);
+        self::assertSame('cache:6379', $card->note);
+    }
+
+    public function testARedisCardWaitsForItsFirstReading(): void
+    {
+        $snapshot = Snapshots::of(Component::Redis, [], ['redis' => ResultState::Pending]);
+
+        $card = $this->cardOf(Component::Redis, new InstanceState('main', null, null, $snapshot, new Server('cache:6379', 'cache:6379')), 'stack/redis');
+
+        self::assertTrue($card->reading);
+        self::assertSame(['Memory' => 'Reading…', 'Hit rate' => 'Reading…', 'Commands' => 'Reading…'], self::vitals($card));
     }
 
     private function card(ComponentSnapshot $snapshot, ?string $path = null): ComponentCard

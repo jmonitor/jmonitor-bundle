@@ -22,6 +22,9 @@ final class InstanceRead
     /** @var list<array{item: CacheItemInterface, spec: CollectorSpec, value: bool}> value: false for a failure */
     public array $writes = [];
 
+    /** @var list<string> the cache keys to delete */
+    public array $drops = [];
+
     /** proves the witness is ours, once set */
     public ?string $token = null;
 
@@ -39,6 +42,7 @@ final class InstanceRead
      * @param ?string                           $forgotten the forget marker of the instance, stored with a failure
      * @param array<string, StoredValue>        $values    the values that may show, keyed by collector name
      * @param array<string, StoredFailure>      $failures  the kept failures, keyed by collector name
+     * @param array<string, StoredFailure>      $lapsed    the failures of collectors of the server whose guard ended, keyed by collector name
      */
     public function __construct(
         public readonly Instance $instance,
@@ -49,6 +53,7 @@ final class InstanceRead
         public readonly ?string $forgotten,
         public readonly array $values,
         public readonly array $failures,
+        public readonly array $lapsed = [],
     ) {}
 
     public function write(CollectorSpec $spec, string $key, mixed $payload, int $seconds, bool $value): void
@@ -67,7 +72,7 @@ final class InstanceRead
      */
     public function holdOn(CollectorSpec $spec, StoredFailure $failure): void
     {
-        if ($spec->shared || $this->instance->component->isNodeLocal() || $failure->kind !== FailureKind::Unreachable) {
+        if (!$this->holds($spec, $failure)) {
             return;
         }
 
@@ -76,6 +81,28 @@ final class InstanceRead
         } else {
             $this->hold = self::latest($this->hold, $failure);
         }
+    }
+
+    /**
+     * Whether this failure holds every collector of the instance but the shared ones.
+     */
+    public function holdsAll(CollectorSpec $spec, StoredFailure $failure): bool
+    {
+        return $this->holds($spec, $failure) && !$spec->detailOnly;
+    }
+
+    /**
+     * The collector named after the component.
+     */
+    public function main(): ?CollectorSpec
+    {
+        foreach ($this->specs as $spec) {
+            if ($spec->name === $this->instance->component->value) {
+                return $spec;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -104,6 +131,11 @@ final class InstanceRead
         }
 
         return $results;
+    }
+
+    private function holds(CollectorSpec $spec, StoredFailure $failure): bool
+    {
+        return !$spec->shared && !$this->instance->component->isNodeLocal() && $failure->kind === FailureKind::Unreachable;
     }
 
     private static function latest(?StoredFailure $held, ?StoredFailure $failure): ?StoredFailure

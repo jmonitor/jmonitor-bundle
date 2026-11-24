@@ -36,7 +36,7 @@ final readonly class DatabaseInstances
      * @param array<string, array<string, mixed>>                                            $configured name => options; empty: every connection of the driver
      * @param \Closure(ConnectionTarget, DbalLink, array<string, mixed>): list<CollectorSpec> $collectors
      */
-    public function detect(Component $component, string $driver, string $product, array $configured, \Closure $collectors, bool $byServer, int $defaultPort): Detection
+    public function detect(Component $component, string $driver, string $product, array $configured, \Closure $collectors, int $defaultPort): Detection
     {
         $names = $this->connections->names();
 
@@ -44,7 +44,7 @@ final readonly class DatabaseInstances
             $instances = [];
 
             foreach ($configured as $name => $options) {
-                $instances[] = $this->configured($component, (string) $name, $options, $driver, $product, $collectors, $byServer, $defaultPort);
+                $instances[] = $this->configured($component, (string) $name, $options, $driver, $product, $collectors, $defaultPort);
             }
 
             return Detection::instances($instances);
@@ -71,7 +71,7 @@ final readonly class DatabaseInstances
             }
 
             if ($target->driver === $driver) {
-                $instances[] = $this->found($component, $target, [], $collectors, $byServer, $defaultPort);
+                $instances[] = $this->found($component, $target, [], $collectors, $defaultPort);
             }
         }
 
@@ -86,7 +86,7 @@ final readonly class DatabaseInstances
      * @param array<string, mixed>                                                           $options
      * @param \Closure(ConnectionTarget, DbalLink, array<string, mixed>): list<CollectorSpec> $collectors
      */
-    private function configured(Component $component, string $name, array $options, string $driver, string $product, \Closure $collectors, bool $byServer, int $defaultPort): Instance
+    private function configured(Component $component, string $name, array $options, string $driver, string $product, \Closure $collectors, int $defaultPort): Instance
     {
         if ($this->connections->names() === []) {
             return Instance::unavailable($component, self::NO_DBAL, $name);
@@ -106,14 +106,14 @@ final readonly class DatabaseInstances
             return Instance::unavailable($component, \sprintf('Doctrine connection "%s" is not a %s connection.', $name, $product), $name, $target->database);
         }
 
-        return $this->found($component, $target, $options, $collectors, $byServer, $defaultPort);
+        return $this->found($component, $target, $options, $collectors, $defaultPort);
     }
 
     /**
      * @param array<string, mixed>                                                           $options
      * @param \Closure(ConnectionTarget, DbalLink, array<string, mixed>): list<CollectorSpec> $collectors
      */
-    private function found(Component $component, ConnectionTarget $target, array $options, \Closure $collectors, bool $byServer, int $defaultPort): Instance
+    private function found(Component $component, ConnectionTarget $target, array $options, \Closure $collectors, int $defaultPort): Instance
     {
         $container = $this->container;
         $name = $target->name;
@@ -138,7 +138,7 @@ final readonly class DatabaseInstances
             new CollectorSet($component, $collectors($target, $link, $options), $link->release(...)),
             $name,
             $target->database,
-            $byServer ? $target->server($defaultPort) : null,
+            $target->server($defaultPort),
         );
     }
 

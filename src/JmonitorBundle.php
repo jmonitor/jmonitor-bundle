@@ -9,8 +9,10 @@ use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\EasyAdminTemplatesPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\HttpClientPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StackConnectionsPass;
+use Jmonitor\JmonitorBundle\DependencyInjection\StackRedisPass;
 use Jmonitor\JmonitorBundle\DependencyInjection\StorageConnectionPass;
 use Jmonitor\JmonitorBundle\EasyAdmin\Requirements;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
@@ -31,6 +33,7 @@ final class JmonitorBundle extends AbstractBundle
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new EasyAdminTemplatesPass());
         $container->addCompilerPass(new StackConnectionsPass());
+        $container->addCompilerPass(new StackRedisPass(), PassConfig::TYPE_BEFORE_REMOVING);
         // After the CacheCollectorPass of debug mode: the profiler keeps tracing the pools from inside the wrappers.
         $container->addCompilerPass(new CachePoolPass(), PassConfig::TYPE_BEFORE_REMOVING, -1);
     }
@@ -123,11 +126,15 @@ final class JmonitorBundle extends AbstractBundle
             'apache' => ['enabled' => $config['stack']['apache']['enabled']],
             'nginx' => ['enabled' => $config['stack']['nginx']['enabled']],
             'mysql' => ['enabled' => $config['stack']['mysql']['enabled']],
+            'postgresql' => ['enabled' => $config['stack']['postgresql']['enabled']],
+            'redis' => ['enabled' => $config['stack']['redis']['enabled']],
         ]);
         $builder->setParameter('jmonitor.stack.frankenphp.endpoint', $config['stack']['frankenphp']['endpoint']);
         $builder->setParameter('jmonitor.stack.apache.endpoint', $config['stack']['apache']['endpoint']);
         $builder->setParameter('jmonitor.stack.nginx.endpoint', $config['stack']['nginx']['endpoint']);
         $builder->setParameter('jmonitor.stack.mysql.connections', $config['stack']['mysql']['connections']);
+        $builder->setParameter('jmonitor.stack.postgresql.connections', $config['stack']['postgresql']['connections']);
+        $builder->setParameter('jmonitor.stack.postgresql.schema', $config['stack']['postgresql']['schema']);
 
         $container->import('../config/recording.php');
         $container->import('../config/dashboard.php');
@@ -138,6 +145,11 @@ final class JmonitorBundle extends AbstractBundle
 
         if ($stackEnabled) {
             $container->import('../config/stack.php');
+
+            $builder->getDefinition(RedisDsns::class)->replaceArgument(1, array_map(
+                static fn(array $connection): mixed => $connection['dsn'],
+                $config['stack']['redis']['connections'],
+            ));
         }
 
         if (!$config['project_api_key']) {
@@ -442,10 +454,12 @@ final class JmonitorBundle extends AbstractBundle
                     ->end()
                     ->validate()
                         ->always(static function (array $stack): array {
-                            foreach (array_keys($stack['mysql']['connections']) as $name) {
-                                foreach ($stack['exclude_connections'] as $pattern) {
-                                    if (fnmatch($pattern, (string) $name)) {
-                                        throw new InvalidConfigurationException(\sprintf('The Doctrine connection "%s" is both listed under "jmonitor.stack.mysql.connections" and excluded by "jmonitor.stack.exclude_connections".', $name));
+                            foreach (['mysql', 'postgresql'] as $component) {
+                                foreach (array_keys($stack[$component]['connections']) as $name) {
+                                    foreach ($stack['exclude_connections'] as $pattern) {
+                                        if (fnmatch($pattern, (string) $name)) {
+                                            throw new InvalidConfigurationException(\sprintf('The Doctrine connection "%s" is both listed under "jmonitor.stack.%s.connections" and excluded by "jmonitor.stack.exclude_connections".', $name, $component));
+                                        }
                                     }
                                 }
                             }
@@ -503,15 +517,60 @@ final class JmonitorBundle extends AbstractBundle
                             ->end()
                             ->children()
                                 ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
-                                ->arrayNode('connections')
-                                    ->info('Names of the Doctrine connections to read; all of them when empty.')
-                                    ->normalizeKeys(false)
-                                    ->useAttributeAsKey('name')
-                                    ->beforeNormalization()
-                                        ->ifTrue(static fn(mixed $v): bool => \is_array($v) && array_is_list($v) && array_filter($v, static fn(mixed $name): bool => !\is_string($name)) === [])
-                                        ->then(static fn(array $names): array => array_fill_keys($names, []))
+                                ->append(self::connectionsNode())
+                            ->end()
+                        ->end()
+                        ->arrayNode('postgresql')
+                            ->info('Read the PostgreSQL servers of the Doctrine connections.')
+                            ->addDefaultsIfNotSet()
+                            ->beforeNormalization()
+                                ->ifTrue(static fn(mixed $v): bool => \is_string($v) || \is_bool($v))
+                                ->then(static fn(string|bool $v): array => ['enabled' => $v])
+                            ->end()
+                            ->children()
+                                ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
+                                ->append(self::connectionsNode())
+                                ->scalarNode('schema')
+                                    ->info('Schema whose tables are counted and sized.')
+                                    ->defaultValue('public')
+                                    ->cannotBeEmpty()
+                                    ->validate()
+                                        ->ifTrue(static fn(mixed $schema): bool => !\is_string($schema))
+                                        ->thenInvalid('The "schema" option takes the name of a schema.')
                                     ->end()
-                                    ->arrayPrototype()->end()
+                                ->end()
+                            ->end()
+                        ->end()
+                        ->arrayNode('redis')
+                            ->info('Read the Redis and Valkey servers of the application.')
+                            ->addDefaultsIfNotSet()
+                            ->beforeNormalization()
+                                ->ifTrue(static fn(mixed $v): bool => \is_string($v) || \is_bool($v))
+                                ->then(static fn(string|bool $v): array => ['enabled' => $v])
+                            ->end()
+                            ->children()
+                                ->enumNode('enabled')->values(['auto', true, false])->defaultValue('auto')->end()
+                                ->arrayNode('connections')
+                                    ->info('DSN of the servers to read, each under an id; those of the cache, of the sessions or REDIS_URL when empty.')
+                                    ->normalizeKeys(false)
+                                    ->useAttributeAsKey('id')
+                                    ->beforeNormalization()
+                                        ->ifTrue(static fn(mixed $v): bool => \is_array($v) && $v !== [] && array_is_list($v))
+                                        ->then(static fn(): never => throw new InvalidConfigurationException('Each Redis connection needs an id.'))
+                                    ->end()
+                                    ->arrayPrototype()
+                                        ->beforeNormalization()
+                                            ->ifString()
+                                            ->then(static fn(string $dsn): array => ['dsn' => $dsn])
+                                        ->end()
+                                        ->children()
+                                            ->scalarNode('dsn')->isRequired()->cannotBeEmpty()->end()
+                                        ->end()
+                                        ->validate()
+                                            ->ifTrue(static fn(array $connection): bool => !\is_string($connection['dsn']))
+                                            ->thenInvalid('The DSN of a Redis connection is a string.')
+                                        ->end()
+                                    ->end()
                                 ->end()
                             ->end()
                         ->end()
@@ -525,6 +584,21 @@ final class JmonitorBundle extends AbstractBundle
                 ->thenInvalid('You cannot set both "dsn" and "adapter" for Redis collector. Please choose one.')
             ->end()
         ;
+    }
+
+    private static function connectionsNode(): ArrayNodeDefinition
+    {
+        $connections = (new ArrayNodeDefinition('connections'))
+            ->info('Names of the Doctrine connections to read; all of them when empty.')
+            ->normalizeKeys(false)
+            ->useAttributeAsKey('name');
+        $connections->arrayPrototype()->end();
+        $connections->beforeNormalization()
+            ->ifTrue(static fn(mixed $v): bool => \is_array($v) && array_is_list($v) && array_filter($v, static fn(mixed $name): bool => !\is_string($name)) === [])
+            ->then(static fn(array $names): array => array_fill_keys($names, []))
+        ->end();
+
+        return $connections;
     }
 
     private static function webServerNode(string $name, string $endpoint, string $info): ArrayNodeDefinition

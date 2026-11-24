@@ -15,6 +15,8 @@ use Jmonitor\JmonitorBundle\Stack\Reading\FrankenPhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\MysqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\PostgresqlReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\RedisReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
@@ -120,6 +122,8 @@ final class StackChecks
                 Component::Apache => self::apache(ApacheReading::of($snapshot, $now), $raise),
                 Component::Nginx => self::nginx(NginxReading::of($snapshot, $now), $snapshot, $raise),
                 Component::Mysql => self::mysql(MysqlReading::of($snapshot, $now), $snapshot, $raise),
+                Component::Postgresql => self::postgresql(PostgresqlReading::of($snapshot, $now), $snapshot, $raise),
+                Component::Redis => self::redis(RedisReading::of($snapshot, $now), $snapshot, $raise),
             },
         ];
     }
@@ -161,7 +165,7 @@ final class StackChecks
                     match ($component) {
                         Component::FrankenPhp => 'FrankenPHP serves this page, so it is running: only its metrics cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.',
                         Component::Apache, Component::Nginx => sprintf('%s serves this page, so it is running: only its status page cannot be read, so its live figures and the checks that need them are not available. Follow the reason given, then refresh.', $component->label()),
-                        Component::System, Component::Php, Component::Symfony, Component::Mysql => 'None of its checks can run without its values. Fix the cause given, then refresh.',
+                        Component::System, Component::Php, Component::Symfony, Component::Mysql, Component::Postgresql, Component::Redis => 'None of its checks can run without its values. Fix the cause given, then refresh.',
                     },
                 ),
                 'symfony.flex' => $raise(
@@ -178,7 +182,9 @@ final class StackChecks
                         'frankenphp.version' => 'The FrankenPHP version',
                         'mysql.variables' => 'The MySQL settings',
                         'mysql.sizes' => 'The size of the database',
-                        'mysql.slow_queries' => 'The slowest queries',
+                        'mysql.slow_queries', 'postgresql.slow_queries' => 'The slowest queries',
+                        'postgresql.settings' => 'The PostgreSQL settings',
+                        'postgresql.database' => 'The tables of the database',
                         default => $name,
                     }, $reason),
                     'What it reads is left out of the checks until it can be read.',
@@ -210,7 +216,9 @@ final class StackChecks
             $component->value . '.failed',
             Severity::Critical,
             sprintf('%s cannot be reached: %s', self::subject($component), $reason),
-            'The application reaches this server through the same connection: when it cannot be reached from here, the application cannot use it either. Fix the cause given, then refresh.',
+            $component === Component::Redis
+                ? 'The Stack screen reads this server through a connection of its own, opened with the DSN it was given or found: the application cannot use the server either when it reaches it with the same DSN. Fix the cause given, then refresh.'
+                : 'The application reaches this server through the same connection: when it cannot be reached from here, the application cannot use it either. Fix the cause given, then refresh.',
             ...$judged,
         );
     }
@@ -464,6 +472,34 @@ final class StackChecks
     }
 
     /**
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     *
+     * @return list<Finding>
+     */
+    private static function postgresql(PostgresqlReading $postgresql, ComponentSnapshot $snapshot, \Closure $raise): array
+    {
+        return [
+            ...PostgresqlChecks::of($postgresql, $snapshot, $raise),
+            ...self::support('postgresql', 'postgresql', 'PostgreSQL', $postgresql->version, $postgresql->support, $raise, 'postgresql.settings'),
+        ];
+    }
+
+    /**
+     * @param \Closure(string, Severity, string, string, string...): Finding $raise
+     *
+     * @return list<Finding>
+     */
+    private static function redis(RedisReading $redis, ComponentSnapshot $snapshot, \Closure $raise): array
+    {
+        $valkey = $redis->product === 'Valkey';
+
+        return [
+            ...RedisChecks::of($redis, $snapshot, $raise),
+            ...self::support('redis', $valkey ? 'valkey' : 'redis', $redis->product ?? 'Redis', $redis->version, $redis->support, $raise, 'redis'),
+        ];
+    }
+
+    /**
      * @param string                                                         $id      the component the findings are named after
      * @param string                                                         $product its name on endoflife.date
      * @param \Closure(string, Severity, string, string, string...): Finding $raise
@@ -499,7 +535,7 @@ final class StackChecks
         return match ($component) {
             Component::FrankenPhp => 'The FrankenPHP metrics',
             Component::Apache, Component::Nginx => sprintf('The %s status page', $component->label()),
-            Component::System, Component::Php, Component::Symfony, Component::Mysql => $component->label(),
+            Component::System, Component::Php, Component::Symfony, Component::Mysql, Component::Postgresql, Component::Redis => $component->label(),
         };
     }
 

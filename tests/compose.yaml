@@ -20,14 +20,27 @@ services:
 
   postgres:
     image: postgres:17
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
     environment:
       POSTGRES_DB: jmonitor
       POSTGRES_USER: jmonitor
       POSTGRES_PASSWORD: jmonitor
     ports:
       - "35432:5432"
+    volumes:
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/postgres-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jmonitor -d jmonitor"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "36379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 2s
       timeout: 3s
       retries: 30

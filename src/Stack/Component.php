@@ -13,6 +13,8 @@ enum Component: string
     case Apache = 'apache';
     case Nginx = 'nginx';
     case Mysql = 'mysql';
+    case Postgresql = 'postgresql';
+    case Redis = 'redis';
 
     public function label(): string
     {
@@ -24,6 +26,8 @@ enum Component: string
             self::Apache => 'Apache',
             self::Nginx => 'Nginx',
             self::Mysql => 'MySQL',
+            self::Postgresql => 'PostgreSQL',
+            self::Redis => 'Redis',
         };
     }
 
@@ -31,8 +35,16 @@ enum Component: string
     {
         return match ($this) {
             self::FrankenPhp, self::Apache, self::Nginx => true,
-            self::System, self::Php, self::Symfony, self::Mysql => false,
+            self::System, self::Php, self::Symfony, self::Mysql, self::Postgresql, self::Redis => false,
         };
+    }
+
+    /**
+     * What its main collector reads is the server's, the same through each of its connections.
+     */
+    public function groupsByServer(): bool
+    {
+        return $this === self::Mysql;
     }
 
     /**
@@ -40,6 +52,6 @@ enum Component: string
      */
     public function isNodeLocal(): bool
     {
-        return $this !== self::Mysql;
+        return !\in_array($this, [self::Mysql, self::Postgresql, self::Redis], true);
     }
 }

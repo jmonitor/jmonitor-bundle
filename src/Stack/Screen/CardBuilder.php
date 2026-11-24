@@ -20,12 +20,16 @@ use Jmonitor\JmonitorBundle\Stack\Reading\FrankenPhpReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\MysqlReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\NginxReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\PostgresqlReading;
+use Jmonitor\JmonitorBundle\Stack\Reading\RedisReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\ServerReading;
 use Jmonitor\JmonitorBundle\Stack\Reading\SymfonyReading;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ApacheDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\MysqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PostgresqlDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\RedisDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\Sections;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CollectorResult;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
@@ -69,9 +73,14 @@ final class CardBuilder
             [$version, $support] = [MysqlDetail::version($mysql), $mysql->support];
         }
 
+        if ($reason !== null && $snapshot !== null && $component === Component::Postgresql) {
+            $postgresql = PostgresqlReading::of($snapshot, $this->clock->now());
+            [$version, $support] = [PostgresqlDetail::version($postgresql), $postgresql->support];
+        }
+
         $note = implode(' · ', array_filter([
             $note,
-            $instance->server?->address,
+            $instance->server?->address === $instance->id ? null : $instance->server?->address,
             $instance->siblings > 0 ? ($instance->siblings + 1) . ' connections' : null,
             $reason === null && $main?->state === ResultState::Stale ? $this->age($main) : null,
         ])) ?: null;
@@ -109,6 +118,8 @@ final class CardBuilder
             Component::Apache => self::apache(ApacheReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Nginx => self::nginx(NginxReading::of($snapshot, $this->clock->now()), $snapshot, $main),
             Component::Mysql => self::mysql(MysqlReading::of($snapshot, $this->clock->now()), $snapshot, $main),
+            Component::Postgresql => self::postgresql(PostgresqlReading::of($snapshot, $this->clock->now()), $snapshot, $main),
+            Component::Redis => self::redis(RedisReading::of($snapshot, $this->clock->now()), $snapshot, $main),
         };
     }
 
@@ -141,7 +152,7 @@ final class CardBuilder
         $hitRate = $php->opcacheHitRate;
         $vitals = [
             new Vital('OPcache memory', $main(self::percent($php->opcacheMemoryPercent))),
-            new Vital('OPcache hit rate', $main(self::percent($hitRate->value)), Figures::span($hitRate, $snapshot->delta('php')?->elapsed)),
+            new Vital('OPcache hit rate', $main(self::percent($hitRate->value)), Sections::span($hitRate, $snapshot, 'php')),
         ];
 
         if ($php->fpm) {
@@ -210,7 +221,7 @@ final class CardBuilder
             $apache->version,
             [
                 new Vital('Workers', $main(ApacheDetail::workers($apache))),
-                self::requests($apache->requestsPerSecond, $snapshot->delta('apache')?->elapsed, $main),
+                self::requests($apache->requestsPerSecond, Sections::span($apache->requestsPerSecond, $snapshot, 'apache'), $main),
             ],
             $apache->support,
             null,
@@ -228,7 +239,7 @@ final class CardBuilder
             $nginx->version,
             [
                 new Vital('Connections', $main(NginxDetail::connections($nginx))),
-                self::requests($nginx->requestsPerSecond, $snapshot->delta('nginx')?->elapsed, $main),
+                self::requests($nginx->requestsPerSecond, Sections::span($nginx->requestsPerSecond, $snapshot, 'nginx'), $main),
             ],
             $nginx->support,
             null,
@@ -242,15 +253,14 @@ final class CardBuilder
      */
     private static function mysql(MysqlReading $mysql, ComponentSnapshot $snapshot, \Closure $main): array
     {
-        $elapsed = $snapshot->delta('mysql')?->elapsed;
         $hitRate = $mysql->bufferPoolHitRate;
 
         return [
             MysqlDetail::version($mysql),
             [
                 new Vital('Connections', $main(MysqlDetail::connections($mysql))),
-                new Vital('Queries', $main(Sections::rate($mysql->queriesPerSecond)), Figures::span($mysql->queriesPerSecond, $elapsed)),
-                new Vital('Buffer pool hit rate', $main(self::percent($hitRate->value)), Figures::span($hitRate, $elapsed)),
+                new Vital('Queries', $main(Sections::rate($mysql->queriesPerSecond)), Sections::span($mysql->queriesPerSecond, $snapshot, 'mysql')),
+                new Vital('Buffer pool hit rate', $main(self::percent($hitRate->value)), Sections::span($hitRate, $snapshot, 'mysql')),
             ],
             $mysql->support,
             null,
@@ -259,10 +269,54 @@ final class CardBuilder
 
     /**
      * @param \Closure(?string): string $main
+     *
+     * @return array{?string, list<Vital>, ?SupportStatus, ?string}
      */
-    private static function requests(Rate $rate, ?int $elapsed, \Closure $main): Vital
+    private static function postgresql(PostgresqlReading $postgresql, ComponentSnapshot $snapshot, \Closure $main): array
     {
-        return new Vital('Requests', $main(Sections::rate($rate)), Figures::span($rate, $elapsed));
+        $hitRate = $postgresql->cacheHitRate;
+        $transactions = $postgresql->transactionsPerSecond;
+
+        return [
+            PostgresqlDetail::version($postgresql),
+            [
+                new Vital('Connections', $main(self::count($postgresql->serverConnections)), self::of($postgresql->maxConnections === null ? null : Figures::count($postgresql->maxConnections))),
+                new Vital('Cache hit rate', $main(self::percent($hitRate->value)), Sections::span($hitRate, $snapshot, 'postgresql')),
+                new Vital('Transactions', $main(self::perSecond($transactions)), Sections::span($transactions, $snapshot, 'postgresql')),
+            ],
+            $postgresql->support,
+            null,
+        ];
+    }
+
+    /**
+     * @param \Closure(?string): string $main
+     *
+     * @return array{?string, list<Vital>, ?SupportStatus, ?string}
+     */
+    private static function redis(RedisReading $redis, ComponentSnapshot $snapshot, \Closure $main): array
+    {
+        $hitRate = $redis->hitRate;
+        $commands = $redis->commandsPerSecond;
+
+        return [
+            RedisDetail::version($redis),
+            [
+                new Vital('Memory', $main($redis->usedMemory === null ? null : Figures::bytes($redis->usedMemory)), self::of($redis->maxMemory === null ? null : Figures::bytes($redis->maxMemory))),
+                new Vital('Hit rate', $main(self::percent($hitRate->value)), Sections::span($hitRate, $snapshot, 'redis')),
+                new Vital('Commands', $main(self::perSecond($commands)), Sections::span($commands, $snapshot, 'redis')),
+            ],
+            $redis->support,
+            null,
+        ];
+    }
+
+    /**
+     * @param \Closure(?string): string $main
+     */
+    private static function requests(Rate $rate, ?string $span, \Closure $main): Vital
+    {
+        return new Vital('Requests', $main(Sections::rate($rate)), $span);
     }
 
     /**
@@ -286,5 +340,26 @@ final class CardBuilder
     private static function percent(?float $percent): ?string
     {
         return $percent === null ? null : Figures::percent($percent);
+    }
+
+    private static function count(?int $count): ?string
+    {
+        return $count === null ? null : Figures::count($count);
+    }
+
+    /**
+     * Its unit left to the label, such as "5.8/s".
+     */
+    private static function perSecond(Rate $rate): ?string
+    {
+        return $rate->value === null ? null : Figures::rate($rate->value, '') . '/s';
+    }
+
+    /**
+     * The limit a figure is measured against, such as "of 64 MB".
+     */
+    private static function of(?string $limit): ?string
+    {
+        return $limit === null ? null : 'of ' . $limit;
     }
 }

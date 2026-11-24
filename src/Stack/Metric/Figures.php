@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack\Metric;
 
+use Jmonitor\JmonitorBundle\Dashboard\Format;
+
 /**
  * How the figures of the stack are written, in the sentences of the checks as on the screens.
  */
@@ -49,6 +51,14 @@ final class Figures
         return $unit === '' ? $shown : $shown . self::NBSP . $unit;
     }
 
+    /**
+     * With the separator of thousands of the tables.
+     */
+    public static function count(int $count): string
+    {
+        return Format::number($count);
+    }
+
     public static function times(int $count): string
     {
         return $count === 1 ? 'once' : $count . ' times';
@@ -65,6 +75,29 @@ final class Figures
             RateSource::Pending => $rate->expected,
             RateSource::Unavailable => null,
         };
+    }
+
+    /**
+     * Its two largest units, such as "5 min 42 s" or "3 d 4 h".
+     */
+    public static function duration(int $seconds): string
+    {
+        $units = [
+            [intdiv($seconds, 86_400), 'd'],
+            [intdiv($seconds % 86_400, 3_600), 'h'],
+            [intdiv($seconds % 3_600, 60), 'min'],
+            [$seconds % 60, 's'],
+        ];
+
+        foreach (array_slice($units, 0, 3) as $i => [$count, $unit]) {
+            if ($count > 0) {
+                [$nextCount, $nextUnit] = $units[$i + 1];
+
+                return $count . self::NBSP . $unit . ($nextCount > 0 ? self::NBSP . $nextCount . self::NBSP . $nextUnit : '');
+            }
+        }
+
+        return $seconds . self::NBSP . 's';
     }
 
     public static function lastSeconds(int $seconds): string

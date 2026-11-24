@@ -78,7 +78,6 @@ final class MysqlDetail implements DetailInterface
      */
     private static function status(MysqlReading $mysql, ComponentSnapshot $snapshot, array $findings): array
     {
-        $elapsed = $snapshot->delta('mysql')?->elapsed;
         $limited = $mysql->maxConnections !== null;
 
         return [
@@ -98,19 +97,19 @@ final class MysqlDetail implements DetailInterface
                 ),
             ])),
             Block::facts(new Facts('Traffic', [
-                self::rate('Queries per second', Sections::rate($mysql->queriesPerSecond), $mysql->queriesPerSecond, $elapsed),
+                self::rate('Queries per second', Sections::rate($mysql->queriesPerSecond), $mysql->queriesPerSecond, $snapshot),
                 new Fact('Running threads', Sections::value(self::count($mysql->running))),
                 new Fact('Peak connections', Sections::value(self::count($mysql->maxUsedConnections)), hint: $mysql->maxUsedConnections === null ? null : self::SINCE_START),
                 new Fact('Slow queries', Sections::value(self::count($mysql->slowQueriesSinceStart)), hint: $mysql->slowQueriesSinceStart === null ? null : self::slowQueriesHint($mysql)),
             ])),
             Block::facts(new Facts('InnoDB', [
-                self::rate('Buffer pool hit rate', self::percent($mysql->bufferPoolHitRate), $mysql->bufferPoolHitRate, $elapsed, Sections::mark($findings, 'mysql.buffer_pool_hit_rate')),
-                self::rate('Disk reads per second', Sections::rate($mysql->innodbReadsPerSecond), $mysql->innodbReadsPerSecond, $elapsed),
-                self::rate('Disk writes per second', Sections::rate($mysql->innodbWritesPerSecond), $mysql->innodbWritesPerSecond, $elapsed),
+                self::rate('Buffer pool hit rate', self::percent($mysql->bufferPoolHitRate), $mysql->bufferPoolHitRate, $snapshot, Sections::mark($findings, 'mysql.buffer_pool_hit_rate')),
+                self::rate('Disk reads per second', Sections::rate($mysql->innodbReadsPerSecond), $mysql->innodbReadsPerSecond, $snapshot),
+                self::rate('Disk writes per second', Sections::rate($mysql->innodbWritesPerSecond), $mysql->innodbWritesPerSecond, $snapshot),
             ])),
             Block::facts(new Facts('Temporary tables and locks', [
-                self::rate('Temporary tables on disk', self::percent($mysql->diskTemporaryTables), $mysql->diskTemporaryTables, $elapsed, Sections::mark($findings, 'mysql.disk_temporary_tables')),
-                self::rate('Table lock waits', self::percent($mysql->tableLockWaits), $mysql->tableLockWaits, $elapsed, Sections::mark($findings, 'mysql.table_lock_waits')),
+                self::rate('Temporary tables on disk', self::percent($mysql->diskTemporaryTables), $mysql->diskTemporaryTables, $snapshot, Sections::mark($findings, 'mysql.disk_temporary_tables')),
+                self::rate('Table lock waits', self::percent($mysql->tableLockWaits), $mysql->tableLockWaits, $snapshot, Sections::mark($findings, 'mysql.table_lock_waits')),
             ])),
         ];
     }
@@ -180,9 +179,9 @@ final class MysqlDetail implements DetailInterface
         ));
     }
 
-    private static function rate(string $label, ?string $value, Rate $rate, ?int $elapsed, ?Mark $mark = null): Fact
+    private static function rate(string $label, ?string $value, Rate $rate, ComponentSnapshot $snapshot, ?Mark $mark = null): Fact
     {
-        return new Fact($label, Sections::value($value), $mark, Figures::span($rate, $elapsed));
+        return new Fact($label, Sections::value($value), $mark, Sections::span($rate, $snapshot, 'mysql'));
     }
 
     private static function percent(Rate $rate): ?string

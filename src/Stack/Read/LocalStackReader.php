@@ -171,7 +171,7 @@ final readonly class LocalStackReader implements StackReaderInterface
         $instances = [];
 
         foreach ($statuses as $status) {
-            $servers = self::servers($status->instances);
+            $servers = self::servers($status);
             $firsts = $servers === null ? $status->instances : array_map(static fn(array $server): Instance => $server[0], $servers);
             array_push($instances, ...array_slice($firsts, 0, self::OVERVIEW_INSTANCES));
         }
@@ -181,21 +181,23 @@ final readonly class LocalStackReader implements StackReaderInterface
 
     /**
      * The instances grouped by the server they reach, in the order they were detected; one that reaches
-     * no known server is alone in its group. Null when none reaches a known server.
-     *
-     * @param list<Instance> $instances
+     * no known server is alone in its group. Null for a component that is not grouped by server.
      *
      * @return ?list<non-empty-list<Instance>>
      */
-    private static function servers(array $instances): ?array
+    private static function servers(ComponentStatus $status): ?array
     {
+        if (!$status->component->groupsByServer()) {
+            return null;
+        }
+
         $servers = [];
 
-        foreach ($instances as $instance) {
+        foreach ($status->instances as $instance) {
             $servers[$instance->server === null ? "\0" . $instance->key() : $instance->server->key][] = $instance;
         }
 
-        return array_filter($instances, static fn(Instance $instance): bool => $instance->server !== null) === [] ? null : array_values($servers);
+        return array_values($servers);
     }
 
     /**
@@ -203,7 +205,7 @@ final readonly class LocalStackReader implements StackReaderInterface
      */
     private static function componentState(ComponentStatus $status, array $snapshots): ComponentState
     {
-        $servers = self::servers($status->instances);
+        $servers = self::servers($status);
         $siblings = [];
 
         foreach ($servers ?? [] as $server) {

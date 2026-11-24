@@ -12,6 +12,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
+use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSet;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorSpec;
@@ -27,7 +28,10 @@ use Jmonitor\JmonitorBundle\Stack\Detection\Detection;
 use Jmonitor\JmonitorBundle\Stack\Detection\DoctrineConnections;
 use Jmonitor\JmonitorBundle\Stack\Detection\Instance;
 use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
@@ -39,6 +43,7 @@ use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\DeltaCalculator;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\PhpRequest;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\SnapshotProvider;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
@@ -47,11 +52,13 @@ use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeCollector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeDatabase;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeRedis;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\Detectors;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\StaticDetector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ForgetfulCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FreezableCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ThrowingCachePool;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -80,6 +87,7 @@ final class DisplayCostTest extends TestCase
     private const BETWEEN_REFRESHES = 0.18;
     private const BETWEEN_QUEUE_DISPLAYS = 0.58;
     private const MYSQL = ['driver' => 'pdo_mysql', 'host' => 'db.internal', 'port' => null, 'user' => 'root', 'password' => 's3cr3t', 'dbname' => 'shop'];
+    private const POSTGRESQL = ['driver' => 'pdo_pgsql', 'host' => 'pg.internal', 'port' => null, 'user' => 'app', 'password' => 's3cr3t', 'dbname' => 'shop'];
     private const QUEUES = '{"transports":["async"]}' . "\n" . '{"name":"async","count":12}' . "\n";
 
     private MockClock $clock;
@@ -117,7 +125,7 @@ final class DisplayCostTest extends TestCase
 
         $last = $this->display(static fn(): LocalStackReader => $reader);
 
-        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1]], $this->calls());
+        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1, 1, 1]], $this->calls());
         self::assertSame(CacheState::Working, $last->cache);
         self::assertFalse($last->isReading());
 
@@ -151,9 +159,9 @@ final class DisplayCostTest extends TestCase
     {
         $last = $this->display(fn(): LocalStackReader => $this->reader($pool()));
 
-        self::assertSame([0, 0, 0, 0, 0, 0, 0], $this->calls()['Network']);
-        self::assertSame([0, 0, 0, 0, 0, 0, 0], $this->calls()['Slow']);
-        self::assertSame([50, 50, 50, 50, 50, 50, 50], $this->calls()['Immediate']);
+        self::assertSame([0, 0, 0, 0, 0, 0, 0, 0, 0], $this->calls()['Network']);
+        self::assertSame([0, 0, 0, 0, 0, 0, 0, 0, 0], $this->calls()['Slow']);
+        self::assertSame([50, 50, 50, 50, 50, 50, 50, 50, 50], $this->calls()['Immediate']);
         self::assertSame($cache, $last->cache);
 
         foreach (Component::cases() as $component) {
@@ -168,8 +176,8 @@ final class DisplayCostTest extends TestCase
         $this->clock->sleep(self::BETWEEN_DISPLAYS);
         $reader->overview(ReadMode::Fragment);
         $this->clock->sleep(1 - self::BETWEEN_DISPLAYS);
-        $once = ['Immediate' => [1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1]];
-        $twice = ['Immediate' => [2, 2, 2, 2, 2, 2, 2], 'Network' => [2, 2, 2, 2, 2, 2, 2], 'Slow' => [2, 2, 2, 2, 2, 2, 2]];
+        $once = ['Immediate' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1, 1, 1]];
+        $twice = ['Immediate' => [2, 2, 2, 2, 2, 2, 2, 2, 2], 'Network' => [2, 2, 2, 2, 2, 2, 2, 2, 2], 'Slow' => [2, 2, 2, 2, 2, 2, 2, 2, 2]];
         self::assertSame($once, $this->calls());
 
         $forgotten = (int) $reader->refresh();
@@ -245,7 +253,7 @@ final class DisplayCostTest extends TestCase
             $this->clock->sleep(self::BETWEEN_DISPLAYS);
         }
 
-        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1]], $this->calls());
+        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Slow' => [1, 1, 1, 1, 1, 1, 1, 1, 1]], $this->calls());
         self::assertStringNotContainsString('data-jm-rest', $html);
     }
 
@@ -494,6 +502,264 @@ final class DisplayCostTest extends TestCase
         }
     }
 
+    public function testEightConnectionsOfASilentServerMakeOneDisplayWait(): void
+    {
+        $container = new class ($this->clock) extends Container {
+            public int $asked = 0;
+
+            public function __construct(
+                private readonly MockClock $clock,
+            ) {
+                parent::__construct();
+            }
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+                $this->clock->sleep(30);
+
+                throw new \RuntimeException('SQLSTATE[HY000] [2002] Connection timed out');
+            }
+        };
+        $params = [];
+        foreach (range(1, 8) as $i) {
+            $params['c' . $i] = ['dbname' => 'shop' . $i] + self::MYSQL;
+        }
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->mysqlReader($container, $params, $cache);
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(2);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertSame(1, $container->asked);
+        self::assertSame(self::START + 30 + 2 * (self::DISPLAYS - 1), $this->clock->now()->getTimestamp(), 'one wait of thirty seconds');
+        self::assertLessThan(self::START + 30 + 150, $this->clock->now()->getTimestamp(), 'within the time the failure is kept');
+        self::assertFalse($state->isReading());
+    }
+
+    public function testFiftyDisplaysOfADeadPostgresqlAskItOnce(): void
+    {
+        $container = new class extends Container {
+            public int $asked = 0;
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+
+                throw new \RuntimeException('SQLSTATE[08006] [7] connection to server at "pg.internal" (10.0.0.9), port 5432 failed: Connection refused');
+            }
+        };
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->postgresqlReader($container, ['default' => self::POSTGRESQL], $cache);
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(59 / self::DISPLAYS);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertLessThan(self::START + 60, $this->clock->now()->getTimestamp());
+        self::assertSame(1, $container->asked);
+        self::assertSame(ResultState::Failed, $state->component(Component::Postgresql)?->instances[0]->snapshot?->result('postgresql')?->state);
+
+        $this->clock->sleep(self::START + 61 - $this->clock->now()->getTimestamp());
+        $reader()->overview(ReadMode::Fragment);
+
+        self::assertSame(2, $container->asked);
+    }
+
+    public function testFiftyDisplaysOfADeadRedisAskItOnce(): void
+    {
+        $asked = 0;
+        $dsns = static function () use (&$asked): RedisDsns {
+            return new RedisDsns(
+                new ServiceLocator(['main' => static fn(): \ArrayObject => new \ArrayObject(['redis://cache.internal:6379'])]),
+                ['main'],
+                [],
+                static function () use (&$asked): FakeRedis {
+                    ++$asked;
+
+                    return new FakeRedis(new \RuntimeException('Redis connection failed: Connection refused'));
+                },
+            );
+        };
+        $cache = new CountingCachePool();
+        $reader = function () use ($dsns, $cache): LocalStackReader {
+            $this->registry = Detectors::registry(
+                [Component::Redis->value => new RedisDetector($dsns(), false)],
+                [Component::Redis->value => ['enabled' => 'auto']],
+            );
+
+            return $this->reader($cache);
+        };
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(59 / self::DISPLAYS);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertLessThan(self::START + 60, $this->clock->now()->getTimestamp());
+        self::assertSame(1, $asked);
+        self::assertSame(ResultState::Failed, $state->component(Component::Redis)?->instances[0]->snapshot?->result('redis')?->state);
+
+        $this->clock->sleep(self::START + 61 - $this->clock->now()->getTimestamp());
+        $reader()->overview(ReadMode::Fragment);
+
+        self::assertSame(2, $asked);
+    }
+
+    public function testEightPostgresqlConnectionsOfASilentServerMakeOneDisplayWait(): void
+    {
+        $container = new class ($this->clock) extends Container {
+            public int $asked = 0;
+
+            public function __construct(
+                private readonly MockClock $clock,
+            ) {
+                parent::__construct();
+            }
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+                $this->clock->sleep(30);
+
+                throw new \RuntimeException('SQLSTATE[08006] [7] connection to server at "pg.internal" (10.0.0.9), port 5432 failed: timeout expired');
+            }
+        };
+        $params = [];
+        foreach (range(1, 8) as $i) {
+            $params['c' . $i] = ['dbname' => 'shop' . $i] + self::POSTGRESQL;
+        }
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->postgresqlReader($container, $params, $cache);
+
+        $state = $reader()->overview(ReadMode::Page);
+        for ($i = 1; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(2);
+            $state = $reader()->overview(ReadMode::Fragment);
+        }
+
+        self::assertCount(8, $state->component(Component::Postgresql)->instances ?? []);
+        self::assertSame(1, $container->asked);
+        self::assertSame(self::START + 30 + 2 * (self::DISPLAYS - 1), $this->clock->now()->getTimestamp(), 'one wait of thirty seconds');
+        self::assertLessThan(self::START + 30 + 150, $this->clock->now()->getTimestamp(), 'within the time the failure is kept');
+        self::assertFalse($state->isReading());
+
+        foreach ($state->component(Component::Postgresql)->instances ?? [] as $instance) {
+            self::assertSame(ResultState::Failed, $instance->snapshot?->result('postgresql')?->state, (string) $instance->id);
+        }
+    }
+
+    public function testADisplayKilledWhileItReadsCostsOneWait(): void
+    {
+        $stops = [];
+        $request = new PhpRequest(null, static fn(): int => 0, static function (\Closure $stop) use (&$stops): void {
+            $stops[] = $stop;
+        }, static fn(): array => ['type' => \E_ERROR, 'message' => 'Maximum execution time of 30 seconds exceeded', 'file' => '/app/vendor/doctrine/dbal/src/Driver/PDO/PDOConnect.php', 'line' => 28]);
+        $cache = new FreezableCachePool(new CountingCachePool());
+        $killed = static function () use (&$stops, $cache): void {
+            foreach ($stops as $stop) {
+                $stop();
+            }
+            $cache->frozen = true;
+        };
+        $container = new class ($this->clock, $killed) extends Container {
+            public int $asked = 0;
+
+            public function __construct(
+                private readonly MockClock $clock,
+                private readonly \Closure $killed,
+            ) {
+                parent::__construct();
+            }
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+                $this->clock->sleep(30);
+                ($this->killed)();
+
+                throw new \RuntimeException('SQLSTATE[08006] [7] connection to server at "pg.internal" (10.0.0.9), port 5432 failed: timeout expired');
+            }
+        };
+        $params = [];
+        foreach (range(1, 8) as $i) {
+            $params['c' . $i] = ['dbname' => 'shop' . $i] + self::POSTGRESQL;
+        }
+        $reader = fn(): LocalStackReader => $this->postgresqlReader($container, $params, $cache, $request);
+
+        $reader()->overview(ReadMode::Page);
+        $reader()->overview(ReadMode::Fragment);
+        $cache->frozen = false;
+
+        self::assertSame(1, $container->asked);
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $this->clock->sleep(2);
+            $state = $reader()->overview(ReadMode::Fragment);
+
+            self::assertFalse($state->isReading(), 'display ' . $i);
+
+            foreach ($state->component(Component::Postgresql)->instances ?? [] as $instance) {
+                self::assertSame(ResultState::Failed, $instance->snapshot?->result('postgresql')?->state, 'display ' . $i . ', ' . $instance->id);
+                self::assertSame('The server did not answer before PHP stopped the request reading it.', $instance->snapshot->result('postgresql')->error);
+            }
+        }
+
+        self::assertSame(1, $container->asked);
+        self::assertCount(8, $state->component(Component::Postgresql)->instances ?? []);
+        self::assertLessThan(self::START + 30 + 150, $this->clock->now()->getTimestamp(), 'within the time the failure is kept');
+    }
+
+    public function testARefusedConnectionStaysCriticalWhileAnotherReadsItsServer(): void
+    {
+        $container = new class extends Container {
+            public int $refused = 0;
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                if ($id === 'doctrine.dbal.a_connection') {
+                    ++$this->refused;
+
+                    throw new \RuntimeException("SQLSTATE[HY000] [1045] Access denied for user 'root'@'10.0.0.1' (using password: YES)");
+                }
+
+                return parent::get($id, $invalidBehavior);
+            }
+        };
+        $container->set('doctrine.dbal.b_connection', new FakeDatabase(['@@performance_schema' => [['enabled' => '1']]]));
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->mysqlReader($container, ['a' => self::MYSQL, 'b' => ['dbname' => 'reports'] + self::MYSQL], $cache);
+        $checks = new StackChecks([], false, $this->clock);
+        $freshB = 0;
+        $reader()->overview(ReadMode::Page);
+        $startedAt = $this->clock->now()->getTimestamp();
+
+        for ($i = 0; $i < 200; ++$i) {
+            $id = $i % 2 === 0 ? 'a' : 'b';
+            $state = $reader()->component(Component::Mysql, $id, ReadMode::Fragment);
+            $result = $state->component(Component::Mysql)?->instances[$id === 'a' ? 0 : 1]->snapshot?->result('mysql');
+
+            if ($id === 'a') {
+                self::assertNotSame(ResultState::Fresh, $result?->state, 'read ' . $i);
+                self::assertSame(Verdict::Critical, $checks->health($state)->verdict(Component::Mysql, 'a'), 'read ' . $i);
+            } elseif ($result?->state === ResultState::Fresh) {
+                ++$freshB;
+            }
+
+            $this->clock->sleep(3);
+        }
+
+        self::assertSame($startedAt + 600, $this->clock->now()->getTimestamp());
+        self::assertSame(100, $freshB, 'the other connection reads the server meanwhile');
+        self::assertSame(10, $container->refused, 'once at the end of each sixty seconds the failure is kept');
+    }
+
     public function testTwoConnectionsOnOneServerReadItsStatusOnce(): void
     {
         $container = new Container();
@@ -574,6 +840,28 @@ final class DisplayCostTest extends TestCase
     }
 
     /**
+     * A reader of the PostgreSQL databases of these connections only, detected again as each request does.
+     *
+     * @param array<string, array<string, mixed>> $params the parameters of each connection
+     */
+    private function postgresqlReader(Container $container, array $params, CacheItemPoolInterface $cache, ?PhpRequest $request = null): LocalStackReader
+    {
+        $names = array_map(strval(...), array_keys($params));
+        $instances = new DatabaseInstances(
+            new DoctrineConnections(new ServiceLocator(array_map(static fn(array $connection): \Closure => static fn(): \ArrayObject => new \ArrayObject($connection), $params)), $names),
+            $container,
+            array_combine($names, array_map(static fn(string $name): string => 'doctrine.dbal.' . $name . '_connection', $names)),
+            [],
+        );
+        $this->registry = Detectors::registry(
+            [Component::Postgresql->value => new PostgresqlDetector($instances, [], 'public', false)],
+            [Component::Postgresql->value => ['enabled' => 'auto']],
+        );
+
+        return $this->reader($cache, request: $request);
+    }
+
+    /**
      * @return array<string, list<int>> the calls of each collector, by cost class
      */
     private function calls(): array
@@ -581,10 +869,10 @@ final class DisplayCostTest extends TestCase
         return array_map(static fn(array $collectors): array => array_map(static fn(FakeCollector $collector): int => $collector->collects, $collectors), $this->collectors);
     }
 
-    private function reader(CacheItemPoolInterface $cache, ?FakeProcessRunner $runner = null): LocalStackReader
+    private function reader(CacheItemPoolInterface $cache, ?FakeProcessRunner $runner = null, ?PhpRequest $request = null): LocalStackReader
     {
         $node = new WebNode('web-1');
-        $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, $node);
+        $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10), $cache, $this->clock, $node, request: $request);
         $queues = $runner === null ? null : new QueuesInstance(new QueuesCollector($runner, new PhpCli(static fn(): string => '/usr/local/bin/php'), \dirname(__DIR__) . '/Fixtures/App', 'prod', false));
 
         return new LocalStackReader($this->registry, $snapshots, new CacheProbe($cache, $this->clock), $cache, $this->clock, $node, null, $queues);

@@ -24,6 +24,9 @@ use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
@@ -111,6 +114,7 @@ final class TestKernel extends Kernel
         private readonly array $transports = [],
         private readonly ?string $queuesOutput = null,
         private readonly array $connections = [],
+        private readonly ?string $redisProvider = null,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
@@ -134,7 +138,7 @@ final class TestKernel extends Kernel
         $this->jmonitorConfig = ($jmonitorConfig ?: self::environmentConfig($withEasyAdmin)) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => false]]];
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer, $transports, $queuesOutput, $connections]));
+            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer, $transports, $queuesOutput, $connections, $redisProvider]));
     }
 
     public static function fromEnvironment(): self
@@ -143,7 +147,7 @@ final class TestKernel extends Kernel
         $debug = self::environmentValue('APP_DEBUG');
         $features = array_filter(array_map(trim(...), explode(',', self::environmentValue('JMONITOR_FIXTURE_FEATURES'))));
 
-        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'mysql', 'queues', 'scheduler', 'security']);
+        $unknown = array_diff($features, ['easyadmin', 'embed', 'gallery', 'messenger', 'mysql', 'postgresql', 'queues', 'redis', 'scheduler', 'security']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException(\sprintf('Unknown fixture feature "%s" in JMONITOR_FIXTURE_FEATURES.', implode('", "', $unknown)));
         }
@@ -156,6 +160,8 @@ final class TestKernel extends Kernel
             $stack['frankenphp'] = ['endpoint' => $frankenPhpEndpoint];
         }
         $mysql = ['url' => '%env(JMONITOR_FIXTURE_MYSQL_URL)%'];
+        $postgresql = ['url' => '%env(JMONITOR_FIXTURE_PGSQL_URL)%', 'server_version' => '17'];
+        $redis = \in_array('redis', $features, true);
 
         $kernel = new self(
             $environment !== '' ? $environment : 'dev',
@@ -168,7 +174,10 @@ final class TestKernel extends Kernel
             withEasyAdmin: $withEasyAdmin,
             withGallery: \in_array('gallery', $features, true),
             transports: $countsQueues ? ['counted' => 'counted://3', 'hanging' => 'counted://hanging'] : [],
-            connections: \in_array('mysql', $features, true) ? ['main' => $mysql, 'reports' => $mysql] : [],
+            cacheApp: $redis ? 'cache.adapter.redis' : null,
+            connections: (\in_array('mysql', $features, true) ? ['main' => $mysql, 'reports' => $mysql] : [])
+                + (\in_array('postgresql', $features, true) ? ['pg_main' => $postgresql, 'pg_reports' => $postgresql] : []),
+            redisProvider: $redis ? '%env(JMONITOR_FIXTURE_REDIS_URL)%' : null,
         );
         $kernel->countsInAProcess = true;
 
@@ -311,7 +320,7 @@ final class TestKernel extends Kernel
                     if ($container->hasDefinition(JmonitorController::class)) {
                         $container->getDefinition(JmonitorController::class)->setPublic(true);
                     }
-                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, ProcessRunner::class, FakeStatusPages::class, FakeProcessRunner::class, StackChecks::class, StackSummary::class, DoctrineConnections::class, DatabaseInstances::class, MysqlDetector::class] as $id) {
+                    foreach (['jmonitor.stack.cache', ComponentRegistry::class, SnapshotProvider::class, LocalStackReader::class, CacheProbe::class, SystemDetector::class, PhpDetector::class, SymfonyDetector::class, FrankenPhpDetector::class, ApacheDetector::class, NginxDetector::class, ProcessRunner::class, FakeStatusPages::class, FakeProcessRunner::class, StackChecks::class, StackSummary::class, DoctrineConnections::class, DatabaseInstances::class, MysqlDetector::class, PostgresqlDetector::class, RedisDetector::class, RedisDsns::class] as $id) {
                         if ($container->hasDefinition($id)) {
                             $container->getDefinition($id)->setPublic(true);
                         }
@@ -349,6 +358,10 @@ final class TestKernel extends Kernel
 
         if ($this->cacheApp !== null) {
             $container->extension('framework', ['cache' => ['app' => $this->cacheApp]]);
+        }
+
+        if ($this->redisProvider !== null) {
+            $container->extension('framework', ['cache' => ['default_redis_provider' => $this->redisProvider]]);
         }
 
         if ($this->withProfiler) {

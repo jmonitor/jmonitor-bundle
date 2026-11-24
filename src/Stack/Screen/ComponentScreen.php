@@ -66,6 +66,8 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
             Component::Apache => 'The Apache server answering this page, read live',
             Component::Nginx => 'The Nginx server answering this page, read live',
             Component::Mysql => 'A MySQL or MariaDB server of the application, read live',
+            Component::Postgresql => 'A PostgreSQL database of the application, read live',
+            Component::Redis => 'A Redis or Valkey server of the application, read live',
         };
     }
 
@@ -158,7 +160,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
     }
 
     /**
-     * One row of every instance; for the instances that reach servers, one row of the servers, each by its first
+     * One row of every instance; for a component grouped by server, one row of the servers, each by its first
      * instance, and one row of the instances of the server shown. A row of a single item is left out.
      */
     private function instances(ComponentState $component, ?InstanceState $shown, StackHealth $health): InstanceNav
@@ -172,7 +174,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
             $this->mark($instance, $health),
         );
 
-        if (array_filter($component->instances, static fn(InstanceState $instance): bool => $instance->server !== null) === []) {
+        if (!$this->component->groupsByServer()) {
             return new InstanceNav([new InstanceNavRow('Connections', array_map(
                 static fn(InstanceState $instance): InstanceNavItem => $item($instance, $instance->detail, $instance === $shown),
                 $component->instances,

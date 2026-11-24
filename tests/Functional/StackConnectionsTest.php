@@ -183,7 +183,7 @@ final class StackConnectionsTest extends TestCase
             $links[] = $link;
 
             return [];
-        }, true, 3306)->instances[0]->collectors;
+        }, 3306)->instances[0]->collectors;
         self::assertNotNull($set);
 
         self::assertEquals([['one' => 1]], $links[0]->fetchAllAssociative('SELECT 1 AS one'));
@@ -195,7 +195,7 @@ final class StackConnectionsTest extends TestCase
         $instances = $container->get(DatabaseInstances::class);
         self::assertInstanceOf(DatabaseInstances::class, $instances);
 
-        return $instances->detect(Component::System, 'mysql', 'MySQL', [], static fn(): array => [], true, 3306);
+        return $instances->detect(Component::System, 'mysql', 'MySQL', [], static fn(): array => [], 3306);
     }
 
     private static function connections(ContainerInterface $container): DoctrineConnections

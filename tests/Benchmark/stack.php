@@ -16,11 +16,14 @@ use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
 use Jmonitor\JmonitorBundle\Stack\Collector\ProcessRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Detection\ComponentDetectorInterface;
 use Jmonitor\JmonitorBundle\Stack\Detection\ComponentRegistry;
 use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
@@ -133,9 +136,11 @@ final class WebStack
 }
 
 /**
+ * @param array<string, ComponentDetectorInterface> $remote the detectors of the remote servers, under the name of their component
+ *
  * @return array{LocalStackReader, ComponentRegistry}
  */
-function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null): array
+function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null, array $remote = []): array
 {
     $detectors = [
         'system' => new SystemDetector(),
@@ -152,6 +157,7 @@ function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInte
     if ($mysql !== null) {
         $detectors['mysql'] = $mysql;
     }
+    $detectors += $remote;
     $registry = Detectors::registry($detectors, array_map(static fn(): array => ['enabled' => 'auto'], $detectors));
     $node = new WebNode();
     $snapshots = new SnapshotProvider(new CollectorRunner(), new DeltaCalculator($cache, 10, 300), $cache, $clock, $node);
@@ -162,25 +168,27 @@ function engine(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInte
 /**
  * The Stack screen of one request, on services of its own, as the container gives them.
  *
- * @param list<string> $built the services of the stack the screen asked for
+ * @param list<string>                          $built  the services of the stack the screen asked for
+ * @param array<string, ComponentDetectorInterface> $remote
  */
-function stackScreen(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null): StackScreen
+function stackScreen(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null, array $remote = []): StackScreen
 {
-    return screens($cache, $clock, $kernel, $built, $endOfLife, $web, $mysql)[0];
+    return screens($cache, $clock, $kernel, $built, $endOfLife, $web, $mysql, $remote)[0];
 }
 
 /**
  * The Stack and Messages screens of one request, on services of their own, as the container gives them.
  *
- * @param list<string> $built the services of the stack the screens asked for
+ * @param list<string>                          $built  the services of the stack the screens asked for
+ * @param array<string, ComponentDetectorInterface> $remote
  *
  * @return array{StackScreen, MessagesScreen} Messages counts the queues when $web is given
  */
-function screens(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null): array
+function screens(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null, array $remote = []): array
 {
     $node = new WebNode();
     $services = [
-        StackReaderInterface::class => static fn(): StackReaderInterface => engine($cache, $clock, $kernel, $endOfLife, $web, $mysql)[0],
+        StackReaderInterface::class => static fn(): StackReaderInterface => engine($cache, $clock, $kernel, $endOfLife, $web, $mysql, $remote)[0],
         StackChecks::class => static fn(): StackChecks => new StackChecks([], false, $clock),
         StackSummary::class => static fn(): StackSummary => new StackSummary(new ServiceLocator(['cache' => static fn(): CacheItemPoolInterface => $cache]), $node, $clock),
     ];
@@ -315,6 +323,61 @@ function mysqlDetector(KernelInterface $kernel): MysqlDetector
     assert($detector instanceof MysqlDetector);
 
     return $detector;
+}
+
+/**
+ * @return array{postgresql: PostgresqlDetector, redis: RedisDetector}
+ */
+function remoteDetectors(KernelInterface $kernel): array
+{
+    $postgresql = $kernel->getContainer()->get(PostgresqlDetector::class);
+    $redis = $kernel->getContainer()->get(RedisDetector::class);
+    assert($postgresql instanceof PostgresqlDetector && $redis instanceof RedisDetector);
+
+    return ['postgresql' => $postgresql, 'redis' => $redis];
+}
+
+/**
+ * The connections the Redis server received so far, this one included.
+ */
+function redisConnections(string $url): int
+{
+    $parts = parse_url($url);
+    $redis = new Redis();
+    $redis->connect($parts['host'] ?? '127.0.0.1', $parts['port'] ?? 6379, 1.0);
+    $received = (int) ($redis->info('stats')['total_connections_received'] ?? 0);
+    $redis->close();
+
+    return $received;
+}
+
+/**
+ * @param array<string, ComponentDetectorInterface> $remote
+ *
+ * @return array{float, float} the mean duration in ms, and the values read per renewal
+ */
+function renewals(KernelInterface $kernel, WebStack $web, MysqlDetector $mysql, array $remote, array &$dirs): array
+{
+    $dirs[] = $dir = workDir();
+    $mockClock = new MockClock();
+    [$reader, $registry] = engine(filesystemCache($dir), $mockClock, $kernel, null, $web, $mysql, $remote);
+    $reader->overview(ReadMode::Page);
+    $reader->overview(ReadMode::Fragment);
+    $total = 0.0;
+    $renewed = 0;
+    for ($i = 0; $i < RENEWAL_RUNS; ++$i) {
+        $mockClock->sleep(11);
+        $registry->reset();
+        $total += millis(static function () use ($reader, $mockClock, &$renewed): void {
+            foreach ($reader->overview(ReadMode::Fragment)->components as $component) {
+                foreach ($component->instances[0]->snapshot->results ?? [] as $result) {
+                    $renewed += (int) ($result->collectedAt === $mockClock->now()->getTimestamp());
+                }
+            }
+        });
+    }
+
+    return [$total / RENEWAL_RUNS, $renewed / RENEWAL_RUNS];
 }
 
 function instances(StackState $state): int
@@ -671,6 +734,73 @@ for ($i = 0; $i < COLD_RUNS; ++$i) {
 report('Stack screen with Nginx and MySQL, first display, empty cache, duration', $slowest, 'ms', 1200, sprintf('(slowest of %d, Twig included; %d connections to MySQL in the page at most)', COLD_RUNS, $firstOpened));
 report('Stack screen with Nginx and MySQL, first display, follow-ups until complete', $mostRefreshes, 'refr.', null, sprintf('(most of %d)', COLD_RUNS));
 $kernel->shutdown();
+
+$pgsqlUrl = getenv('JMONITOR_TEST_PGSQL_URL');
+$redisUrl = getenv('JMONITOR_TEST_REDIS_URL');
+if (!is_string($pgsqlUrl) || $pgsqlUrl === '' || !is_string($redisUrl) || $redisUrl === '') {
+    echo "PostgreSQL and Redis measures skipped: JMONITOR_TEST_PGSQL_URL or JMONITOR_TEST_REDIS_URL is not set\n";
+} else {
+    $remoteConfig = ['stack' => $stackConfig['stack'] + ['redis' => ['connections' => ['cache' => $redisUrl]]]];
+    $remoteConnections = ['main' => ['url' => $mysqlUrl], 'shop' => ['url' => $pgsqlUrl, 'server_version' => '17']];
+    $kernel = new TestKernel('prod', false, $remoteConfig, withHttpClient: false, withPublicInternals: true, connections: $remoteConnections);
+    $kernel->boot();
+    $dirs[] = $kernel->getVarDir();
+    $web->reset();
+
+    $dirs[] = $dir = workDir();
+    $cache = filesystemCache($dir);
+    [$reader] = engine($cache, $clock, $kernel, null, $web, mysqlDetector($kernel), remoteDetectors($kernel));
+    $reader->overview(ReadMode::Page);
+    $reader->overview(ReadMode::Fragment);
+    $kernel->shutdown();
+    $kernel->boot();
+    [, $registry] = engine($cache, $clock, $kernel, null, $web, mysqlDetector($kernel), remoteDetectors($kernel));
+    $cache->reset();
+    $web->reset();
+    $mysqlBefore = serverConnections($mysqlUrl);
+    $redisBefore = redisConnections($redisUrl);
+    $detectMillis = millis(static fn(): array => array_map($registry->status(...), Component::cases()));
+    $mysqlOpened = serverConnections($mysqlUrl) - $mysqlBefore - 1;
+    $redisOpened = redisConnections($redisUrl) - $redisBefore - 1;
+    $container = $kernel->getContainer();
+    $connectionsBuilt = (int) $container->initialized('doctrine.dbal.main_connection') + (int) $container->initialized('doctrine.dbal.shop_connection');
+    report('with Nginx, MySQL, PostgreSQL and Redis: detection, warm, cache round trips', $cache->roundTrips(), 'trips', 0, sprintf('(%.2f ms)', $detectMillis), true);
+    report('with Nginx, MySQL, PostgreSQL and Redis: detection, warm, connections built', $connectionsBuilt, 'built', 0, '(MySQL and PostgreSQL Doctrine connections)', true);
+    report('with Nginx, MySQL, PostgreSQL and Redis: detection, warm, network calls', $mysqlOpened + $redisOpened + $web->calls(), 'calls', 0, sprintf('(%d connections to MySQL, %d to Redis, %d status pages or commands; PostgreSQL: no connection built)', $mysqlOpened, $redisOpened, $web->calls()), true);
+
+    $mysql = mysqlDetector($kernel);
+    $remote = remoteDetectors($kernel);
+    $showStack = static function (CacheItemPoolInterface $cache, bool $rest = false) use ($clock, $kernel, $twig, $urls, $web, $storage, &$mysql, &$remote, &$built): string {
+        return renderer(screens($cache, $clock, $kernel, $built, null, $web, $mysql, $remote), $twig, $clock, $storage)->page(Request::create('/', 'GET', $rest ? ['rest' => '1'] : []), 'stack', $urls)->html;
+    };
+    $dirs[] = $dir = workDir();
+    $cache = filesystemCache($dir);
+    $showStack($cache);
+    $showStack($cache, true);
+    $kernel->shutdown();
+    $kernel->boot();
+    $mysql = mysqlDetector($kernel);
+    $remote = remoteDetectors($kernel);
+    $cache->reset();
+    $web->reset();
+    $mysqlBefore = serverConnections($mysqlUrl);
+    $redisBefore = redisConnections($redisUrl);
+    $html = $showStack($cache);
+    $mysqlOpened = serverConnections($mysqlUrl) - $mysqlBefore - 1;
+    $redisOpened = redisConnections($redisUrl) - $redisBefore - 1;
+    $cards = substr_count($html, 'data-jm-component=');
+    report('Stack screen with Nginx, MySQL, PostgreSQL and Redis, in cache, cache round trips', $cache->roundTrips(), 'trips', 2 * $cards + 2, sprintf('(%d cards; %s)', $cards, json_encode($cache->calls, JSON_THROW_ON_ERROR)), true);
+    report('Stack screen with Nginx, MySQL, PostgreSQL and Redis, in cache, connections', $mysqlOpened + $redisOpened + (int) $kernel->getContainer()->initialized('doctrine.dbal.shop_connection'), 'conn.', 0, sprintf('(MySQL %d, Redis %d, PostgreSQL connection built %s; %d status pages or commands)', $mysqlOpened, $redisOpened, $kernel->getContainer()->initialized('doctrine.dbal.shop_connection') ? 'yes' : 'no', $web->calls()), true);
+
+    $web->reset();
+    [$millis, $renewed] = renewals($kernel, $web, $mysql, ['redis' => $remote['redis']], $dirs);
+    report('dynamic renewal of Server, PHP, Symfony, Nginx, MySQL and Redis, duration', $millis, 'ms', 150, sprintf('(mean of %d)', RENEWAL_RUNS));
+    report('dynamic renewal of Server, PHP, Symfony, Nginx, MySQL and Redis, values read', $renewed, 'calls', 6, '(per renewal; six dynamic collectors)', true);
+    [$millis, $renewed] = renewals($kernel, $web, $mysql, $remote, $dirs);
+    report('same, with PostgreSQL, duration', $millis, 'ms', 150, sprintf('(mean of %d)', RENEWAL_RUNS));
+    report('same, with PostgreSQL, values read', $renewed, 'calls', null, '(per renewal)');
+    $kernel->shutdown();
+}
 
 $frozen = new FrozenServer();
 $kernel = new TestKernel('prod', false, $stackConfig, withHttpClient: false, withPublicInternals: true, connections: ['frozen' => ['url' => sprintf('mysql://jmonitor:jmonitor@127.0.0.1:%d/jmonitor', $frozen->port)]]);

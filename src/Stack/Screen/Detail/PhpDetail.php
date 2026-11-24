@@ -17,6 +17,7 @@ use Jmonitor\JmonitorBundle\Stack\Metric\Rate;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Reading\PhpReading;
 use Jmonitor\JmonitorBundle\Stack\Screen\Marks;
+use Jmonitor\JmonitorBundle\Stack\Snapshot\ComponentSnapshot;
 
 final class PhpDetail implements DetailInterface
 {
@@ -30,21 +31,20 @@ final class PhpDetail implements DetailInterface
 
         return Sections::of($snapshot, 'php', Block::FACTS, $now, $reading, static function () use ($snapshot, $findings, $now): array {
             $php = PhpReading::of($snapshot, new \DateTimeImmutable('@' . $now));
-            $elapsed = $snapshot->delta('php')?->elapsed;
             $blocks = [
                 Block::facts(new Facts('Runtime', self::runtime($php, $findings))),
-                self::opcache($php, $findings, $elapsed),
+                self::opcache($php, $findings, $snapshot),
             ];
 
             if ($php->apcuEnabled) {
                 $blocks[] = Block::gauges(new Gauges('APCu', [
                     new Gauge('Memory', $php->apcuMemoryPercent, Sections::percent($php->apcuMemoryPercent), Sections::mark($findings, 'php.apcu_memory'), Sections::share($php->apcuUsed, $php->apcuTotal)),
-                    self::hitRate($php->apcuHitRate, null, $elapsed),
+                    self::hitRate($php->apcuHitRate, null, $snapshot),
                 ]));
             }
 
             if ($php->fpm) {
-                $blocks[] = Block::facts(new Facts('PHP-FPM', self::fpm($php, $findings, $elapsed)));
+                $blocks[] = Block::facts(new Facts('PHP-FPM', self::fpm($php, $findings, $snapshot)));
             }
 
             return $blocks;
@@ -83,7 +83,7 @@ final class PhpDetail implements DetailInterface
     /**
      * @param list<Finding> $findings
      */
-    private static function opcache(PhpReading $php, array $findings, ?int $elapsed): Block
+    private static function opcache(PhpReading $php, array $findings, ComponentSnapshot $snapshot): Block
     {
         if (!$php->opcacheEnabled) {
             return Block::facts(new Facts('OPcache', [new Fact('Status', match (true) {
@@ -99,13 +99,13 @@ final class PhpDetail implements DetailInterface
 
         return Block::gauges(new Gauges('OPcache', [
             new Gauge('Memory', $php->opcacheMemoryPercent, Sections::percent($php->opcacheMemoryPercent), Sections::mark($findings, 'php.opcache_memory'), $wasted),
-            self::hitRate($php->opcacheHitRate, Sections::mark($findings, 'php.opcache_hit_rate'), $elapsed),
+            self::hitRate($php->opcacheHitRate, Sections::mark($findings, 'php.opcache_hit_rate'), $snapshot),
         ]));
     }
 
-    private static function hitRate(Rate $rate, ?Mark $mark, ?int $elapsed): Gauge
+    private static function hitRate(Rate $rate, ?Mark $mark, ComponentSnapshot $snapshot): Gauge
     {
-        return new Gauge('Hit rate', $rate->value, Sections::percent($rate->value), $mark, Figures::span($rate, $elapsed));
+        return new Gauge('Hit rate', $rate->value, Sections::percent($rate->value), $mark, Sections::span($rate, $snapshot, 'php'));
     }
 
     /**
@@ -113,7 +113,7 @@ final class PhpDetail implements DetailInterface
      *
      * @return list<Fact>
      */
-    private static function fpm(PhpReading $php, array $findings, ?int $elapsed): array
+    private static function fpm(PhpReading $php, array $findings, ComponentSnapshot $snapshot): array
     {
         $requests = $php->fpmRequestsPerSecond;
 
@@ -124,10 +124,10 @@ final class PhpDetail implements DetailInterface
             new Fact(
                 'Requests per second',
                 $requests->value === null ? Sections::MISSING : Sections::unbroken(Sections::decimal($requests->value, 1) . ' ' . $requests->unit),
-                hint: Figures::span($requests, $elapsed),
+                hint: Sections::span($requests, $snapshot, 'php'),
             ),
             new Fact('Queue', Sections::value($php->fpmQueue === null ? null : (string) $php->fpmQueue), Sections::mark($findings, 'php.fpm_queue')),
-            self::maxChildren($php, $findings, $elapsed),
+            self::maxChildren($php, $findings, $snapshot->delta('php')?->elapsed),
             new Fact(
                 'Slow requests',
                 Sections::value($php->fpmSlowRequests === null ? null : (string) $php->fpmSlowRequests),

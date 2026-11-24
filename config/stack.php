@@ -17,7 +17,10 @@ use Jmonitor\JmonitorBundle\Stack\Detection\FrankenPhpDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\MysqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\NginxDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\PhpDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\PostgresqlDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\QueuesInstance;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDetector;
+use Jmonitor\JmonitorBundle\Stack\Detection\RedisDsns;
 use Jmonitor\JmonitorBundle\Stack\Detection\SymfonyDetector;
 use Jmonitor\JmonitorBundle\Stack\Detection\SystemDetector;
 use Jmonitor\JmonitorBundle\Stack\Read\LocalStackReader;
@@ -29,6 +32,8 @@ use Jmonitor\JmonitorBundle\Stack\Screen\Detail\FrankenPhpDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\MysqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\NginxDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PhpDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PostgresqlDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\Detail\RedisDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
@@ -120,12 +125,29 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->args([service(DatabaseInstances::class), param('jmonitor.stack.mysql.connections'), param('jmonitor.stack.end_of_life')])
         ->tag('jmonitor.stack.detector', ['index' => Component::Mysql->value]);
 
+    $services->set(PostgresqlDetector::class)
+        ->args([
+            service(DatabaseInstances::class),
+            param('jmonitor.stack.postgresql.connections'),
+            param('jmonitor.stack.postgresql.schema'),
+            param('jmonitor.stack.end_of_life'),
+        ])
+        ->tag('jmonitor.stack.detector', ['index' => Component::Postgresql->value]);
+
+    $services->set(RedisDetector::class)
+        ->args([service(RedisDsns::class), param('jmonitor.stack.end_of_life')])
+        ->tag('jmonitor.stack.detector', ['index' => Component::Redis->value]);
+
     $services->set(DoctrineConnections::class)
         ->args([service_locator([]), [], null])
         ->tag('kernel.reset', ['method' => 'reset']);
 
     $services->set(DatabaseInstances::class)
         ->args([service(DoctrineConnections::class), service('service_container'), [], param('jmonitor.stack.exclude_connections')]);
+
+    $services->set(RedisDsns::class)
+        ->args([service_locator([]), [], []])
+        ->tag('kernel.reset', ['method' => 'reset']);
 
     if ($builder->getParameter('jmonitor.stack.symfony.messenger') && interface_exists(MessageCountAwareInterface::class)) {
         $services->set(QueuesCommand::class)
@@ -201,6 +223,8 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(ApacheDetail::class);
     $services->set(NginxDetail::class);
     $services->set(MysqlDetail::class);
+    $services->set(PostgresqlDetail::class);
+    $services->set(RedisDetail::class);
 
     $services->set(StackScreen::class)
         ->args([
@@ -219,6 +243,8 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
                 Component::Apache->value => service(ApacheDetail::class),
                 Component::Nginx->value => service(NginxDetail::class),
                 Component::Mysql->value => service(MysqlDetail::class),
+                Component::Postgresql->value => service(PostgresqlDetail::class),
+                Component::Redis->value => service(RedisDetail::class),
             ]),
         ])
         ->tag('jmonitor.screen', ['priority' => 10]);

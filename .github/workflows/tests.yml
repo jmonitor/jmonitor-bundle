@@ -57,18 +57,41 @@ jobs:
                     --health-interval=10s
                     --health-timeout=5s
                     --health-retries=10
+            redis:
+                image: redis:8-alpine
+                ports:
+                    - 6379:6379
+                options: >-
+                    --health-cmd="redis-cli ping"
+                    --health-interval=10s
+                    --health-timeout=5s
+                    --health-retries=10
 
         env:
             JMONITOR_TEST_MYSQL_URL: mysql://root:root@127.0.0.1:3306/jmonitor_test
             JMONITOR_TEST_PGSQL_URL: postgresql://postgres:root@127.0.0.1:5432/jmonitor_test
+            JMONITOR_TEST_REDIS_URL: redis://127.0.0.1:6379
 
         steps:
             - uses: actions/checkout@v4
+
+            # A service cannot be given a command, so the library is preloaded by restarting the container.
+            # Should it fail, the test of the slowest PostgreSQL queries skips itself.
+            - name: Load pg_stat_statements into PostgreSQL
+              continue-on-error: true
+              timeout-minutes: 2
+              run: |
+                  C=${{ job.services.postgres.id }}
+                  docker exec "$C" psql -U postgres -c "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'"
+                  docker restart "$C"
+                  until docker exec "$C" pg_isready -U postgres -h 127.0.0.1; do sleep 1; done
+                  docker exec "$C" psql -U postgres -d jmonitor_test -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"
 
             - name: Setup PHP ${{ matrix.php }}
               uses: shivammathur/setup-php@v2
               with:
                   php-version: ${{ matrix.php }}
+                  extensions: redis
                   coverage: none
                   tools: composer:v2
 

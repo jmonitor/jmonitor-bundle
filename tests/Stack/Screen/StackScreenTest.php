@@ -391,6 +391,41 @@ final class StackScreenTest extends TestCase
         }
     }
 
+    public function testEachPostgresqlConnectionHasItsCard(): void
+    {
+        $state = self::withNode(Snapshots::state(['postgresql' => [
+            self::postgresql('main', 'db1:5432', true),
+            self::postgresql('reports', 'db1:5432', true),
+            self::postgresql('archive', 'db2:5432', true),
+            self::postgresql('spare', 'db1:5432', false),
+        ]]));
+
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+
+        self::assertInstanceOf(ComponentCards::class, $cards);
+        self::assertSame(['postgresql.main', 'postgresql.reports', 'postgresql.archive'], array_map(static fn(ComponentCard $card): string => $card->id, $cards->cards));
+        self::assertSame(['db1:5432', 'db1:5432', 'db2:5432'], array_map(static fn(ComponentCard $card): ?string => $card->note, $cards->cards));
+        self::assertSame([['connection' => 'main'], ['connection' => 'reports'], ['connection' => 'archive']], array_map(static fn(ComponentCard $card): array => $card->query, $cards->cards));
+        self::assertSame(['stack/postgresql'], array_values(array_unique(array_map(static fn(ComponentCard $card): ?string => $card->path, $cards->cards))));
+        self::assertSame('1 more connection', $cards->more);
+    }
+
+    public function testBeyondEightPostgresqlConnectionsTheRestIsCounted(): void
+    {
+        foreach ([9 => '1 more connection', 10 => '2 more connections'] as $connections => $more) {
+            $state = self::withNode(Snapshots::state(['postgresql' => array_map(
+                static fn(int $i): InstanceState => self::postgresql('c' . $i, 'db1:5432', $i <= 8),
+                range(1, $connections),
+            )]));
+
+            $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+
+            self::assertInstanceOf(ComponentCards::class, $cards);
+            self::assertCount(8, $cards->cards);
+            self::assertSame($more, $cards->more);
+        }
+    }
+
     public function testACacheOutOfOrderIsToldAndNothingKeepsReading(): void
     {
         $state = new StackState('web-1', Snapshots::NOW, CacheState::OutOfOrder, Snapshots::stack(
@@ -640,6 +675,13 @@ final class StackScreenTest extends TestCase
             Snapshots::of(Component::Php, ['php' => $php]),
             Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()], ['symfony.flex' => ResultState::Pending]),
         ));
+    }
+
+    private static function postgresql(string $name, string $server, bool $read): InstanceState
+    {
+        $snapshot = $read ? Snapshots::of(Component::Postgresql, ['postgresql' => DatabasePayloads::postgresqlActivity(), 'postgresql.settings' => DatabasePayloads::postgresqlSettings()]) : null;
+
+        return new InstanceState($name, $name, null, $snapshot, new Server($server, $server));
     }
 
     private static function withNode(StackState $state): StackState

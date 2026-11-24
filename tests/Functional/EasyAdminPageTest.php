@@ -335,6 +335,50 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertResponseRedirects('/admin/jmonitor/stack/mysql?connection=a/b%20%C3%A9');
     }
 
+    public function testThePostgresqlDetailShowsUnderEasyAdmin(): void
+    {
+        if (!\is_string(getenv('JMONITOR_TEST_PGSQL_URL'))) {
+            static::markTestSkipped('JMONITOR_TEST_PGSQL_URL is not set.');
+        }
+        $client = $this->client(['jmonitor' => ['stack' => self::STACK], 'connections' => ['shop' => ['url' => '%env(JMONITOR_TEST_PGSQL_URL)%', 'server_version' => '17']]]);
+
+        $client->request('GET', '/admin/jmonitor/stack/postgresql?connection=shop');
+        $crawler = self::requestUntil($client, '/admin/jmonitor/stack/postgresql?connection=shop&rest=1', '.jm .jm-facts[aria-label="Tables"]');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('body.ea'));
+        static::assertCount(1, $crawler->filter('.jm [data-jm-component="postgresql.shop"]'));
+        static::assertMatchesRegularExpression('/^PostgreSQL \d+\.\d+$/', $crawler->filter('.jm [data-jm-component="postgresql.shop"] .jm-component__version')->text());
+        static::assertCount(1, $crawler->filter('.jm .jm-facts[aria-label="Tables"]'));
+        static::assertSame('/admin/jmonitor/stack/postgresql', $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->attr('href'));
+        static::assertSame('shop', $crawler->filter('.jm form[action="/admin/jmonitor/_action/stack/postgresql"] input[name="connection"]')->attr('value'));
+        foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
+            static::assertStringStartsWith('/admin/jmonitor', $url);
+        }
+    }
+
+    public function testTheRedisDetailShowsUnderEasyAdmin(): void
+    {
+        if (!\is_string(getenv('JMONITOR_TEST_REDIS_URL'))) {
+            static::markTestSkipped('JMONITOR_TEST_REDIS_URL is not set.');
+        }
+        $client = $this->client(['jmonitor' => ['stack' => self::STACK + ['redis' => ['connections' => ['cache' => (string) getenv('JMONITOR_TEST_REDIS_URL')]]]]]);
+
+        $client->request('GET', '/admin/jmonitor/stack/redis?connection=cache');
+        $crawler = self::requestUntil($client, '/admin/jmonitor/stack/redis?connection=cache&rest=1', '.jm .jm-facts[aria-label="Server"]');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('body.ea'));
+        static::assertCount(1, $crawler->filter('.jm [data-jm-component="redis.cache"]'));
+        static::assertMatchesRegularExpression('/^(Redis|Valkey) \d+\.\d+\.\d+$/', $crawler->filter('.jm [data-jm-component="redis.cache"] .jm-component__version')->text());
+        static::assertSame(['Usage', 'Traffic', 'Memory', 'Persistence', 'Server'], $crawler->filter('.jm .jm-gauges, .jm .jm-facts')->each(static fn(Crawler $section): string => (string) $section->attr('aria-label')));
+        static::assertSame('/admin/jmonitor/stack/redis', $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->attr('href'));
+        static::assertSame('cache', $crawler->filter('.jm form[action="/admin/jmonitor/_action/stack/redis"] input[name="connection"]')->attr('value'));
+        foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
+            static::assertStringStartsWith('/admin/jmonitor', $url);
+        }
+    }
+
     public function testRefreshWorksThroughEasyAdmin(): void
     {
         $client = $this->client(['jmonitor' => ['stack' => self::STACK]]);

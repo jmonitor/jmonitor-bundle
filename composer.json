@@ -32,6 +32,7 @@
         "monolog/monolog": "^3.0",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^10.5",
+        "predis/predis": "^2.3 || ^3.0",
         "symfony/browser-kit": "^6.4|^7.0|^8.0",
         "symfony/css-selector": "^6.4|^7.0|^8.0",
         "symfony/messenger": "^6.4|^7.0|^8.0",
@@ -46,6 +47,8 @@
     "suggest": {
         "doctrine/doctrine-bundle": "Stores the application metrics shown on the /jmonitor page",
         "easycorp/easyadmin-bundle": "Shows the /jmonitor screens inside an EasyAdmin back office",
+        "ext-redis": "To read Redis and Valkey on the Stack screen",
+        "predis/predis": "To read Redis and Valkey on the Stack screen",
         "symfony/security-csrf": "Protects the actions of the screens with a CSRF token"
     },
     "autoload": {

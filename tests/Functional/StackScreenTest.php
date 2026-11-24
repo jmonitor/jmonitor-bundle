@@ -19,6 +19,7 @@ use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeProcessRunner;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Collector\FakeStatusPages;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
+use Symfony\Component\Cache\Adapter\RedisAdapter;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
@@ -32,6 +33,8 @@ final class StackScreenTest extends WebTestCase
     private const SAME_ORIGIN = ['HTTP_SEC_FETCH_SITE' => 'same-origin'];
     private const NGINX = ['SERVER_SOFTWARE' => 'nginx/1.26.2'];
     private const MYSQL_URL = 'JMONITOR_TEST_MYSQL_URL';
+    private const PGSQL_URL = 'JMONITOR_TEST_PGSQL_URL';
+    private const REDIS_URL = 'JMONITOR_TEST_REDIS_URL';
 
     private string $bufferDir;
 
@@ -98,6 +101,24 @@ final class StackScreenTest extends WebTestCase
         static::assertCount(0, $crawler->filter('[data-jm-component^="mysql"]'));
         static::assertCount(0, $crawler->filter('[data-jm-notice="bad"]'));
         static::assertStringContainsString('MySQL: No Doctrine DBAL connection is configured.', self::notDetected($crawler));
+    }
+
+    public function testAnApplicationWithoutPostgresqlSaysWhy(): void
+    {
+        $crawler = $this->client()->request('GET', '/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(0, $crawler->filter('[data-jm-component^="postgresql"]'));
+        static::assertStringContainsString('PostgreSQL: No PostgreSQL Doctrine connection found.', self::notDetected($crawler));
+    }
+
+    public function testAnApplicationWithoutRedisSaysWhy(): void
+    {
+        $crawler = $this->client()->request('GET', '/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(0, $crawler->filter('[data-jm-component^="redis"]'));
+        static::assertStringContainsString('Redis: No Redis DSN found: set jmonitor.stack.redis.connections, use Redis for a cache pool or the sessions, or set the REDIS_URL environment variable.', self::notDetected($crawler));
     }
 
     public function testRecordingOffArrivesOnTheStack(): void
@@ -233,12 +254,12 @@ final class StackScreenTest extends WebTestCase
     {
         $client = $this->client();
 
-        foreach (['/jmonitor/stack/redis', '/jmonitor/stack/php/x', '/jmonitor/_fragment/stack/redis'] as $url) {
+        foreach (['/jmonitor/stack/memcached', '/jmonitor/stack/php/x', '/jmonitor/_fragment/stack/memcached'] as $url) {
             $client->request('GET', $url);
             static::assertResponseStatusCodeSame(404, $url);
         }
 
-        $client->request('POST', '/jmonitor/_action/stack/redis', ['action' => 'refresh'], server: self::SAME_ORIGIN);
+        $client->request('POST', '/jmonitor/_action/stack/memcached', ['action' => 'refresh'], server: self::SAME_ORIGIN);
         static::assertResponseStatusCodeSame(404);
 
         $client->request('POST', '/jmonitor/_action/stack/php', ['action' => 'forget'], server: self::SAME_ORIGIN);
@@ -501,7 +522,11 @@ final class StackScreenTest extends WebTestCase
     public function testADeadMysqlIsCriticalAndTheNextDisplayDoesNotWait(): void
     {
         self::needsMysql();
-        $client = $this->client(['internals' => true, 'connections' => ['dead' => ['url' => 'mysql://jmonitor:jmonitor@127.0.0.1:1/jmonitor']]]);
+        $client = $this->client([
+            'internals' => true,
+            'connections' => ['dead' => ['url' => 'mysql://jmonitor:jmonitor@127.0.0.1:1/jmonitor']],
+            'jmonitor' => ['stack' => ['ignore_checks' => ['system.load']]],
+        ]);
 
         $client->request('GET', '/jmonitor/stack');
         $client->request('GET', '/jmonitor/_fragment/stack');
@@ -549,6 +574,100 @@ final class StackScreenTest extends WebTestCase
         $queries = $client->request('GET', '/jmonitor/queries')->filter('.jm-screen')->text();
         foreach (['GLOBAL STATUS', 'GLOBAL VARIABLES', 'performance_schema', 'information_schema'] as $sql) {
             static::assertStringNotContainsStringIgnoringCase($sql, $queries);
+        }
+    }
+
+    public function testThePostgresqlDetailIsServed(): void
+    {
+        if (!\is_string(getenv(self::PGSQL_URL))) {
+            static::markTestSkipped(self::PGSQL_URL . ' is not set.');
+        }
+        $client = $this->client(['connections' => ['shop' => ['url' => '%env(' . self::PGSQL_URL . ')%', 'server_version' => '17']]]);
+        $slowest = '#jm-postgresql-slow-queries-title, .jm-state__title:contains("No statement of this database"), .jm-state__title:contains("This role cannot see the statements"), .jm-notice__title:contains("The slowest queries could not be read")';
+
+        $client->request('GET', '/jmonitor/stack/postgresql?connection=shop');
+        self::requestUntil($client, '/jmonitor/stack/postgresql?connection=shop&rest=1', '.jm-facts[aria-label="Tables"]');
+        $crawler = self::requestUntil($client, '/jmonitor/stack/postgresql?connection=shop&rest=1', $slowest);
+
+        static::assertResponseStatusCodeSame(200);
+        static::assertSame('JMonitor — PostgreSQL', $crawler->filter('title')->text());
+        $card = $crawler->filter('[data-jm-component="postgresql.shop"]');
+        static::assertCount(1, $card);
+        static::assertMatchesRegularExpression('/^PostgreSQL \d+\.\d+$/', $card->filter('.jm-component__version')->text());
+        static::assertSame(['Connections', 'Cache hit rate', 'Transactions'], array_keys(self::vitals($card)));
+        $url = (string) getenv(self::PGSQL_URL);
+        static::assertSame(parse_url($url, \PHP_URL_HOST) . ':' . (parse_url($url, \PHP_URL_PORT) ?? 5432), $card->filter('.jm-component__note')->text());
+        static::assertSame(['Usage', 'Traffic', 'Cache', 'Sessions', 'Tables', 'Settings'], $crawler->filter('.jm-gauges, .jm-facts')->each(static fn(Crawler $section): string => (string) $section->attr('aria-label')));
+        static::assertCount(1, $crawler->filter($slowest));
+        static::assertCount(0, $crawler->filter('[data-jm-instances]'));
+    }
+
+    public function testTheRedisDetailIsServed(): void
+    {
+        if (!\is_string(getenv(self::REDIS_URL))) {
+            static::markTestSkipped(self::REDIS_URL . ' is not set.');
+        }
+        $client = $this->client(['jmonitor' => ['stack' => ['redis' => ['connections' => ['cache' => '%env(' . self::REDIS_URL . ')%']]]]]);
+        $keyspace = '#jm-redis-keyspace-title, .jm-state__title:contains("No key in this server")';
+
+        $client->request('GET', '/jmonitor/stack/redis?connection=cache');
+        $crawler = self::requestUntil($client, '/jmonitor/stack/redis?connection=cache&rest=1', '.jm-facts[aria-label="Server"]');
+
+        static::assertResponseStatusCodeSame(200);
+        static::assertSame('JMonitor — Redis', $crawler->filter('title')->text());
+        $card = $crawler->filter('[data-jm-component="redis.cache"]');
+        static::assertCount(1, $card);
+        static::assertMatchesRegularExpression('/^(Redis|Valkey) \d+\.\d+\.\d+$/', $card->filter('.jm-component__version')->text());
+        static::assertSame(['Memory', 'Hit rate', 'Commands'], array_keys(self::vitals($card)));
+        $url = (string) getenv(self::REDIS_URL);
+        static::assertSame(parse_url($url, \PHP_URL_HOST) . ':' . (parse_url($url, \PHP_URL_PORT) ?? 6379), $card->filter('.jm-component__note')->text());
+        static::assertSame(['Usage', 'Traffic', 'Memory', 'Persistence', 'Server'], $crawler->filter('.jm-gauges, .jm-facts')->each(static fn(Crawler $section): string => (string) $section->attr('aria-label')));
+        static::assertCount(1, $crawler->filter($keyspace));
+        static::assertCount(0, $crawler->filter('[data-jm-instances]'));
+    }
+
+    public function testAMissingVariableOnlyBreaksItsRedisServer(): void
+    {
+        if (!\is_string(getenv(self::REDIS_URL))) {
+            static::markTestSkipped(self::REDIS_URL . ' is not set.');
+        }
+        $client = $this->client(['jmonitor' => ['stack' => ['redis' => ['connections' => [
+            'cache' => ['dsn' => '%env(' . self::REDIS_URL . ')%'],
+            'absent' => '%env(JMONITOR_TEST_ABSENT_REDIS_URL)%',
+        ]]]]]);
+
+        $crawler = self::requestUntil($client, '/jmonitor/stack', '[data-jm-component="redis.cache"][data-jm-read-at]');
+
+        static::assertResponseIsSuccessful();
+        static::assertMatchesRegularExpression('/^(Redis|Valkey) \d+\.\d+\.\d+$/', $crawler->filter('[data-jm-component="redis.cache"] .jm-component__version')->text());
+        static::assertSame(
+            'The DSN of this connection cannot be read: an environment variable is missing ("JMONITOR_TEST_ABSENT_REDIS_URL").',
+            $crawler->filter('[data-jm-component="redis.absent"] .jm-component__reason')->text(),
+        );
+    }
+
+    public function testAPercentSignInARedisPasswordIsRead(): void
+    {
+        $url = getenv(self::REDIS_URL);
+        if (!\is_string($url) || !\extension_loaded('redis')) {
+            static::markTestSkipped(self::REDIS_URL . ' is not set, or the redis extension is not loaded.');
+        }
+        $user = 'jm_percent_' . bin2hex(random_bytes(4));
+        $admin = RedisAdapter::createConnection($url);
+        \assert($admin instanceof \Redis);
+        $admin->rawCommand('ACL', 'SETUSER', $user, 'on', '>p@ss%40', '+@all', '~*');
+
+        try {
+            $dsn = \sprintf('redis://%s:p%%%%40ss%%%%2540@%s:%d', $user, parse_url($url, \PHP_URL_HOST), parse_url($url, \PHP_URL_PORT) ?? 6379);
+            $client = $this->client(['jmonitor' => ['stack' => ['redis' => ['connections' => ['percent' => $dsn]]]]]);
+
+            $crawler = self::requestUntil($client, '/jmonitor/stack', '[data-jm-component="redis.percent"][data-jm-read-at]');
+
+            static::assertCount(0, $crawler->filter('[data-jm-component="redis.percent"] .jm-component__reason'));
+            static::assertMatchesRegularExpression('/^(Redis|Valkey) \d+\.\d+\.\d+$/', $crawler->filter('[data-jm-component="redis.percent"] .jm-component__version')->text());
+        } finally {
+            $admin->rawCommand('ACL', 'DELUSER', $user);
+            $admin->close();
         }
     }
 
