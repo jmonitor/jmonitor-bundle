@@ -45,7 +45,6 @@ The engine that reads the server, PHP, Symfony, the web server and the databases
 - What a collector of the library returns is filtered before it is kept.
 - Every collector declares a lifetime (`Lifetime`) and a cost class (`CostClass`). A collector that starts a process or calls a service outside the stack over the network is `CostClass::Slow`.
 - Detection touches no server: it only says which components exist and builds their collectors.
-- A failure of a collector only read for the detail holds the other collectors of the detail, never the others.
 - A shared value is the same for every instance of its component: its cache keys name the component, never the instance.
 - `jmonitor.stack.cache` is not declared under `framework.cache.pools`, or its reads would be counted on the Cache screen.
 - No test calls the network or `composer`: fake fetchers and process runners stand in for them, and the test kernel turns `stack.end_of_life`, `stack.symfony.flex` and `stack.symfony.messenger` off unless a test sets `stack` itself.
@@ -62,7 +61,7 @@ The engine that reads the server, PHP, Symfony, the web server and the databases
 - A collector only read on the detail is `detailOnly`; a value shared by the connections of one server is `perServer`.
 - A PHPUnit test only reaches the databases of `tests/compose.yaml`, and skips without `JMONITOR_TEST_MYSQL_URL`, or a closed port of the machine (`127.0.0.1:1`) to play a server that is down.
 - A failure keeps its kind (`FailureKind`): an unreachable server, a missing prerequisite or another error are kept and judged apart.
-- A failure is kept with the connection it happened on, a value with its server; while a remote connection cannot be reached, none of its collectors runs.
+- A failure is kept with the connection it happened on, a value with its server. While a remote connection cannot be reached, none of its collectors runs but a shared one; when the collector that cannot reach it is only read for the detail, only the collectors of the detail are held.
 
 ## CHANGELOG
 

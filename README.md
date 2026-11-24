@@ -471,7 +471,7 @@ MariaDB turns `performance_schema` off by default: set `performance_schema = ON`
 
 The slowest queries are the digests of `performance_schema`, the 10 slowest on average: every value is replaced by `?`, so no value of your data shows. Their counts and times add up since the server started. The queries that name `performance_schema` or `information_schema` are left out, those of the screen among them, and so are the queries of your application that name them, such as the introspection of Doctrine Migrations.
 
-On MySQL 8, `information_schema` keeps the sizes in a cache of its own for a day (`information_schema_stats_expiry`): they can be up to a day old, and the detail says so. The query that renews that cache takes longer: 4 to 7 seconds for 2,000 tables, measured on MySQL 8.4 and 8.0. A reading of the sizes that takes more than 10 seconds shows as unreadable on the detail only: the server is not said to be down.
+On MySQL 8, `information_schema` keeps the sizes in a cache of its own for a day (`information_schema_stats_expiry`): they can be up to a day old, and the detail says so. The query that renews that cache takes longer: 4 to 7 seconds for 2,000 tables, measured on MySQL 8.4 and 8.0. A reading of the sizes that takes more than 10 seconds shows as unreadable on the detail only, and the slowest queries with it for the same time: the server is not said to be down.
 
 A connection the screen opened, by building it or by trying again after it was lost, is closed at the end of the read, and its wait for an answer is bounded to 10 seconds; a connection your application had already opened is used as it is and left open. Under the worker mode of FrankenPHP, nothing the screen opened stays open from one request to the next. A persistent connection (`persistent: true`, or `PDO::ATTR_PERSISTENT` in its `options`) is the exception: closing it hands it back to PHP, which keeps it for the next request of your application, so the screen does not bound its wait.
 
@@ -481,11 +481,11 @@ A server that cannot be reached raises a `Critical` check, `MySQL cannot be reac
 
 - a closed port, such as a stopped server on a host that answers: nothing, the refusal comes at once;
 - a host that does not answer at all: a display waits up to 30 seconds;
-- a server that accepts the connection and then stops answering: a display waits 10 seconds, when the screen opens the connection itself.
+- a server that accepts the connection and then stops answering: a display waits 10 seconds, when the screen opens the connection itself and PHP lets it call `ini_set` (not listed in `disable_functions`); otherwise it waits as long as the timeouts of your application.
 
 A connection your application already holds open, as under the worker mode of FrankenPHP once a request has used it, or a persistent one, is used with the timeouts of your application: a server that stops answering can then keep a display waiting much longer.
 
-After such a wait, none of the readings of that connection is asked again for five times the wait, one minute at least and ten minutes at most, and its card says why. `Refresh` asks again at once.
+After such a wait, none of the readings of that connection is asked again for five times the wait, one minute at least and ten minutes at most, and its card says why. `Refresh`, on the Stack screen or on the detail of any connection, asks every connection again at once.
 
 The wait is for each connection shown. The overview reads one connection per server, so a server that does not answer makes one display wait; the detail of another connection of that server waits once too. A connection that fails for a reason of its own, such as a refused password, does not make the other connections of its server show as failed.
 

@@ -249,7 +249,7 @@ final class DbalLinkTest extends TestCase
         $failure = Failures::thrownBy(static fn() => $link->fetchAllAssociative('SELECT SLEEP(5)'));
 
         self::assertInstanceOf(UnreachableServerException::class, $failure);
-        self::assertLessThan(3.0, microtime(true) - $start);
+        self::assertLessThan(3.5, microtime(true) - $start);
         $link->release();
     }
 

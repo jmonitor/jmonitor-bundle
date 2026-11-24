@@ -21,7 +21,7 @@ final readonly class MysqlSlowQueriesCollector implements CollectorInterface
     /** The queries of the collectors of the stack, which would otherwise rank among the slowest. */
     private const OWN_SCHEMAS = ['performance_schema', 'information_schema'];
 
-    /** The clock of the server, read by the variables collector: its digest without backticks nor spaces. */
+    /** The statements of the stack itself, as their digest without backticks nor spaces. */
     private const OWN_QUERIES = ['selectunix_timestamp()asts'];
 
     public function __construct(
