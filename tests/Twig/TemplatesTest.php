@@ -10,9 +10,11 @@ use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\CommandsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -33,6 +35,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
+use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
@@ -46,6 +49,7 @@ use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedSchedules;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\StubBlockScreen;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\StubScreen;
+use Jmonitor\JmonitorBundle\Tests\Dashboard\StubSection;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -602,6 +606,79 @@ final class TemplatesTest extends TestCase
             parse_str($url['query'] ?? '', $query);
             static::assertSame($names[$i % 3], $query['connection'] ?? null, $link);
         }
+    }
+
+    public function testASectionIsNamedByItsTitleAndItsTableHasNoTitleOfItsOwn(): void
+    {
+        $table = $this->table([new Row('k1', ['name' => new Cell('a'), 'count' => new Cell('3')])]);
+        $section = new Section('commands', 'Commands', 'Runs of bin/console, by cron, a deploy or by hand.', [Block::cards([new Card('Runs', '3')]), Block::table($table)], 'count', 'desc', ['count' => 'desc', 'name' => 'asc']);
+
+        $html = $this->composed(Block::section($section));
+        $crawler = new Crawler($html);
+        $element = $crawler->filter('.jm-screen > section.jm-section');
+
+        static::assertCount(1, $element);
+        static::assertSame('commands', $element->attr('id'));
+        static::assertSame('jm-section-commands-title', $element->attr('aria-labelledby'));
+        static::assertSame('Commands', $element->filter('h2#jm-section-commands-title')->text());
+        static::assertSame('Runs of bin/console, by cron, a deploy or by hand.', $element->filter('.jm-section__summary')->text());
+        static::assertSame('3', $element->filter('.jm-cards .jm-card__value')->text());
+        static::assertCount(0, $element->filter('.jm-panel h2'));
+        static::assertSame('jm-section-commands-title', $element->filter('.jm-panel')->attr('aria-labelledby'));
+        static::assertSame('jm-section-commands-title', $element->filter('.jm-table-wrap')->attr('aria-labelledby'));
+        static::assertSame('1 row', $element->filter('.jm-panel__meta')->text());
+        static::assertStringNotContainsString('Stubs', $html);
+        static::assertLessThan((int) strpos($html, 'jm-cards'), (int) strpos($html, 'jm-section__title'));
+        static::assertLessThan((int) strpos($html, 'jm-panel'), (int) strpos($html, 'jm-cards'));
+
+        $alone = new Crawler($this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]));
+
+        static::assertSame('Stubs', $alone->filter('.jm-panel h2#jm-stubs-title')->text());
+        static::assertSame('jm-stubs-title', $alone->filter('.jm-panel')->attr('aria-labelledby'));
+    }
+
+    public function testAnEmptySectionShowsNoTable(): void
+    {
+        $own = Block::notice(new Notice('info', 'No transport to count'));
+        $empty = ['title' => 'No scheduled task is declared.', 'text' => 'Tasks show up here once a schedule declares them.'];
+
+        $crawler = new Crawler($this->composed(Block::section(new Section('tasks', 'Scheduled tasks', 'What Symfony Scheduler starts by the clock.', [$own], 'count', 'desc', ['count' => 'desc'], $empty))));
+        $element = $crawler->filter('section#tasks');
+
+        foreach (['table', '.jm-panel', '.jm-cards', '.jm-state'] as $selector) {
+            static::assertCount(0, $element->filter($selector), $selector);
+        }
+        static::assertCount(1, $element->filter('.jm-notice'));
+        static::assertCount(1, $element->filter('p.jm-section__empty'));
+        static::assertSame('No scheduled task is declared. Tasks show up here once a schedule declares them.', $element->filter('p.jm-section__empty')->text());
+        static::assertSame('No scheduled task is declared.', $element->filter('p.jm-section__empty > strong')->text());
+        static::assertLessThan((int) strpos($element->html(), 'jm-section__empty'), (int) strpos($element->html(), 'jm-notice'));
+
+        $html = $this->composed(Block::section(new Section('tasks', 'Scheduled tasks', '', [], empty: ['title' => 'No scheduled task is declared.', 'text' => ''])));
+
+        static::assertStringContainsString('<p class="jm-section__empty"><strong>No scheduled task is declared.</strong></p>', $html);
+        static::assertStringNotContainsString('jm-section__empty', $this->composed(Block::section(new Section('tasks', 'Scheduled tasks', '', [Block::cards([])]))));
+    }
+
+    public function testTheTextsOfASectionAreEscaped(): void
+    {
+        $table = $this->table([new Row('k1', ['name' => new Cell(self::HOSTILE)])]);
+
+        foreach ([
+            $this->composed(Block::section(new Section('commands', self::HOSTILE, self::HOSTILE, [Block::table($table)], 'count', 'desc', ['count' => 'desc']))),
+            $this->composed(Block::section(new Section('tasks', self::HOSTILE, self::HOSTILE, [], empty: ['title' => self::HOSTILE, 'text' => self::HOSTILE_SQL]))),
+        ] as $html) {
+            static::assertStringContainsString('&lt;b&gt;&amp;&quot;x', $html);
+            static::assertStringNotContainsString('<b>', $html);
+            static::assertStringNotContainsString('<script>', $html);
+        }
+    }
+
+    private function composed(Block ...$blocks): string
+    {
+        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]);
+
+        return $this->render('_screen.html.twig', ['page' => new Page($screen, $blocks, Period::OneHour, '', '', []), 'path' => 'background', 'badges' => []]);
     }
 
     private function screen(Block ...$blocks): string

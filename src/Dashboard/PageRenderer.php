@@ -265,7 +265,7 @@ final class PageRenderer
     {
         $storageFailed = false;
 
-        if ($screen instanceof StorageScreenInterface && $this->flusher !== null) {
+        if ($screen instanceof RecordedScreenInterface && $this->flusher !== null) {
             $this->flusher->flush();
             $storageFailed = $this->flusher->lastFailure() !== null;
         }

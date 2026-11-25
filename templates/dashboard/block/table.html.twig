@@ -1,10 +1,13 @@
 {% autoescape 'html' %}
 {% set table = block.content %}
-{% set title_id = 'jm-' ~ table.id ~ '-title' %}
+{% set section = section ?? null %}
+{% set title_id = section ? 'jm-section-' ~ section.id ~ '-title' : 'jm-' ~ table.id ~ '-title' %}
 {% set shown = table.rows|filter(row => not row.muted)|length + table.remaining %}
 <section class="jm-panel" aria-labelledby="{{ title_id }}">
     <div class="jm-panel__header">
+{% if not section %}
         <h2 class="jm-panel__title" id="{{ title_id }}">{{ table.title }}</h2>
+{% endif %}
         <p class="jm-panel__meta">{{ shown|jmonitor_number }} {{ table.nounFor(shown) }}{% if table.note is not null %}, {{ table.note }}{% endif %}</p>
     </div>
     <div class="jm-table-wrap" id="jm-{{ table.id }}-wrap" role="region" aria-labelledby="{{ title_id }}" tabindex="0">
@@ -12,13 +15,16 @@
             <thead>
                 <tr>
                     {% for column in table.columns %}
-                        {% set active = column.sort is not null and column.sort == page.sort %}
+                        {% set active = column.sort is not null and column.sort == (section ? section.sort : page.sort) %}
+                        {%~ set direction = active ? (section ? section.direction : page.direction) : '' %}
                         <th scope="col" class="{{ column.numeric ? 'jm-num' : 'jm-col-' ~ column.id }}{{ active ? ' is-sorted' }}"
-                            {% if active %}aria-sort="{{ page.direction == 'asc' ? 'ascending' : 'descending' }}"{% endif %}>
+                            {% if active %}aria-sort="{{ direction == 'asc' ? 'ascending' : 'descending' }}"{% endif %}>
                             {% if column.sort is not null %}
-                                <a class="jm-sort" href="{{ urls.page(path ?? page.screen.id, page.period ? {period: page.period.label, sort: column.sort, dir: page.directionFor(column.sort)} : {}) }}">
+                                <a class="jm-sort" href="{{ section
+                                    ? urls.page(path ?? page.screen.id, (page.period ? {period: page.period.label} : {})|merge({sort: section.id ~ '.' ~ column.sort, dir: section.directionFor(column.sort)})) ~ '#' ~ section.id
+                                    : urls.page(path ?? page.screen.id, page.period ? {period: page.period.label, sort: column.sort, dir: page.directionFor(column.sort)} : {}) }}">
                                     <span>{{ column.label }}</span>
-                                    <span class="jm-sort__icon" aria-hidden="true">{{ active ? (page.direction == 'asc' ? '↑' : '↓') : '↕' }}</span>
+                                    <span class="jm-sort__icon" aria-hidden="true">{{ active ? (direction == 'asc' ? '↑' : '↓') : '↕' }}</span>
                                 </a>
                             {% else %}
                                 {{ column.label }}

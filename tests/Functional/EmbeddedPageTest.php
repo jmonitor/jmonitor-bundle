@@ -296,6 +296,24 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertCount(1, $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge'));
     }
 
+    public function testTheGalleryShowsASectionInEachState(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+
+        static::assertResponseIsSuccessful();
+        $sections = $crawler->filter('.jm-screen > section.jm-section');
+        static::assertSame(['full', 'quiet', 'counting'], $sections->each(static fn(Crawler $section): string => (string) $section->attr('id')));
+        static::assertCount(1, $sections->eq(0)->filter('.jm-cards'));
+        static::assertCount(1, $sections->eq(0)->filter('table'));
+        static::assertCount(0, $sections->eq(0)->filter('.jm-panel h2'));
+        static::assertStringEndsWith('#full', (string) $sections->eq(0)->filter('a.jm-sort')->attr('href'));
+        static::assertCount(1, $sections->eq(1)->filter('p.jm-section__empty'));
+        static::assertCount(0, $sections->eq(1)->filter('table'));
+        static::assertCount(1, $sections->eq(2)->filter('[data-jm-reading]'));
+    }
+
     public function testTheGalleryShowsTheSelectorOfAConnection(): void
     {
         $client = static::createClient(['gallery' => true]);

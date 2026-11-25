@@ -12,6 +12,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
 use Jmonitor\JmonitorBundle\Dashboard\View\Facts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
+use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -100,6 +101,18 @@ final class BlockTest extends TestCase
         $block = $create()->withReading();
 
         static::assertSame([$type, BlockState::Ready, $content, true], [$block->type, $block->state, $block->content, $block->reading]);
+    }
+
+    public function testASectionIsReadyAndReadingWhenOneOfItsBlocksIs(): void
+    {
+        $section = new Section('commands', 'Commands', 'Runs of bin/console.', [Block::cards([])]);
+        $block = Block::section($section);
+
+        static::assertSame([Block::SECTION, BlockState::Ready, $section, false], [$block->type, $block->state, $block->content, $block->reading]);
+        static::assertFileExists(__DIR__ . '/../../../templates/dashboard/block/section.html.twig');
+        static::assertTrue(Block::section(new Section('messages', 'Messages', '', [Block::cards([]), Block::unavailable(Block::FACTS, BlockState::Reading)]))->reading);
+        static::assertTrue(Block::section(new Section('messages', 'Messages', '', [Block::cards([])->withReading()]))->reading);
+        static::assertFalse(Block::section(new Section('messages', 'Messages', '', [], empty: ['title' => 'Nothing', 'text' => '']))->reading);
     }
 
     public function testAFactListMayCarryANote(): void

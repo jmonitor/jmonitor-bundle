@@ -33,7 +33,7 @@
                         {% for period in periods %}
                             <li>
                                 <a class="jm-segmented__item{{ period == page.period ? ' is-active' }}"
-                                   href="{{ urls.page(path, {period: period.label, sort: page.sort, dir: page.direction}) }}"
+                                   href="{{ urls.page(path, {period: period.label}|merge(page.sort is same as('') ? {} : {sort: page.sort, dir: page.direction})) }}"
                                    {% if period == page.period %}aria-current="true"{% endif %}>{{ period.label }}</a>
                             </li>
                         {% endfor %}

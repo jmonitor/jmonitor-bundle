@@ -59,7 +59,7 @@ final class ScreenRegistry
 
         if (!$storageUsable) {
             foreach ($available as $screen) {
-                if (!$screen instanceof StorageScreenInterface) {
+                if (!$screen instanceof RecordedScreenInterface) {
                     return $screen;
                 }
             }

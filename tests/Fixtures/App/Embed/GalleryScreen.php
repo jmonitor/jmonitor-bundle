@@ -10,8 +10,12 @@ use Jmonitor\JmonitorBundle\Dashboard\NavBadgeScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
+use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
+use Jmonitor\JmonitorBundle\Dashboard\View\Card;
+use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
+use Jmonitor\JmonitorBundle\Dashboard\View\Column;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
 use Jmonitor\JmonitorBundle\Dashboard\View\Fact;
@@ -23,14 +27,18 @@ use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavRow;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
+use Jmonitor\JmonitorBundle\Dashboard\View\Row;
+use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Symfony\Contracts\Service\ResetInterface;
 
 /**
- * Every block of the live stack in every state. Each request moves a counter kept in a file: the
- * badge shows it, and its tone and the web server named by the second navigation alternate with its parity.
+ * Every block of the live stack in every state, then a section in each of its states. Each request moves
+ * a counter kept in a file: the badge shows it, and its tone and the web server named by the second
+ * navigation alternate with its parity.
  */
 final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterface, ResetInterface
 {
@@ -138,6 +146,21 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 new Fact('async', '1,234'),
                 new Fact('failed', 'Uncountable', hint: 'An exception occurred in the driver: SQLSTATE[HY000] [2002] Connection refused while counting the messages waiting in doctrine://default?queue_name=failed'),
             ], "Messages waiting in each transport, counted 12\u{00A0}s ago")),
+            Block::section(new Section('full', 'A section with figures', 'Cards and a table, sorted within the section.', [
+                Block::cards([new Card('Runs', '1,284', 'in the last hour', series: [3, 5, 4, 8, 6]), new Card('Failed', '3', tone: 'bad'), new Card('Slowest', '4.2 s'), new Card('Commands', '12')]),
+                Block::table(new Table('gallery-full', 'Commands', [
+                    new Column('command', 'Command', false, 'command'),
+                    new Column('runs', 'Runs', sort: 'runs'),
+                    new Column('failed', 'Failed', sort: 'failed'),
+                ], [
+                    new Row('app:import', ['command' => new Cell('app:import', kind: 'code'), 'runs' => new Cell('1,280'), 'failed' => new Cell('3', 'bad')]),
+                    new Row('app:report', ['command' => new Cell('app:report', kind: 'code'), 'runs' => new Cell('4'), 'failed' => new Cell('0', 'zero')]),
+                ], noun: 'command')),
+            ], 'runs', 'desc', ['runs' => 'desc', 'command' => 'asc', 'failed' => 'desc'])),
+            Block::section(new Section('quiet', 'A section without activity', 'One line stands where its figures would be.', [], 'runs', 'desc', ['runs' => 'desc'], ['title' => 'Nothing ran in the last hour.', 'text' => self::LONG])),
+            Block::section(new Section('counting', 'A section with a block still being read', 'Its own block fills in on a quick refresh.', [
+                Block::unavailable(Block::FACTS, BlockState::Reading, 'Counting…', 'The figures of this block are being read.'),
+            ], 'runs', 'desc', ['runs' => 'desc'], ['title' => 'Nothing ran in the last hour.', 'text' => ''])),
         ];
     }
 

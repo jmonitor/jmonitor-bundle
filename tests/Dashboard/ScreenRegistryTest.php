@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use PHPUnit\Framework\TestCase;
 
@@ -50,6 +51,15 @@ final class ScreenRegistryTest extends TestCase
         $registry = new ScreenRegistry([new StubScreen('requests'), new StubScreen('queries')]);
 
         static::assertSame('requests', $registry->default(false)->id());
+    }
+
+    public function testWithoutStorageTheDefaultScreenIsNeitherAStorageNorAComposedOne(): void
+    {
+        $composed = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]);
+        $registry = new ScreenRegistry([$composed, new StubScreen('requests'), new StubBlockScreen('probe', space: Space::Stack)]);
+
+        static::assertSame('background', $registry->default(true)->id());
+        static::assertSame('probe', $registry->default(false)->id());
     }
 
     public function testSpacesAreThoseWithAnAvailableScreenInTheirOrder(): void

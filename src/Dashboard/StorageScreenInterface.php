@@ -8,7 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 
-interface StorageScreenInterface extends ScreenInterface
+interface StorageScreenInterface extends RecordedScreenInterface
 {
     /** @return non-empty-array<string, 'asc'|'desc'> sort id => default direction, the default sort first */
     public function sorts(): array;

@@ -189,6 +189,30 @@ final class StylesheetTest extends TestCase
         static::assertContains(['margin-top', '20px'], $margins('.jm .jm-rest'));
     }
 
+    public function testASectionReachedByItsAnchorKeepsItsTitleBelowTheStickyHeader(): void
+    {
+        foreach ([null, '@media (max-width: 1080px)', '@media (max-width: 720px)'] as $at) {
+            $margins = [];
+            foreach (self::rules() as $rule) {
+                if ($rule['at'] === $at && \in_array('body.jm .jm-section', $rule['selectors'], true)) {
+                    array_push($margins, ...array_filter($rule['declarations'], static fn(array $declaration): bool => $declaration[0] === 'scroll-margin-top'));
+                }
+            }
+
+            static::assertCount(1, $margins, (string) $at);
+            static::assertMatchesRegularExpression('/^[1-9][0-9]*px$/', $margins[0][1], (string) $at);
+        }
+    }
+
+    public function testASectionStacksItsHeaderOnANarrowScreen(): void
+    {
+        $found = array_filter(self::rules(), static fn(array $rule): bool => $rule['at'] === '@media (max-width: 720px)'
+            && \in_array('.jm-section__header', $rule['selectors'], true)
+            && \in_array(['flex-direction', 'column'], $rule['declarations'], true));
+
+        static::assertNotEmpty($found);
+    }
+
     public function testEveryTagOfTheTemplatesHasItsBrowserDefaultsRestatedForHostPages(): void
     {
         $restated = [];

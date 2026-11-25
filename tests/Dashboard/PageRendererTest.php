@@ -15,6 +15,8 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
@@ -951,6 +953,119 @@ final class PageRendererTest extends TestCase
         static::assertStringNotContainsString('Read right now', $renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html);
     }
 
+    public function testAComposedScreenFlushesBeforeItReads(): void
+    {
+        [$flusher, $storage] = $this->flusher();
+        $seen = [];
+        $section = new StubSection('commands', static function () use ($storage, &$seen): ScreenView {
+            $seen[] = $storage->stores;
+
+            return new ScreenView();
+        });
+        $renderer = $this->renderer([self::composed($section), new StubBlockScreen()], $flusher);
+
+        $renderer->page(Request::create('/'), 'probe', new FakeHostUrls());
+        static::assertSame(0, $storage->stores);
+
+        $renderer->page(Request::create('/'), 'background', new FakeHostUrls());
+        static::assertSame(1, $storage->stores);
+        static::assertSame([1], $seen);
+    }
+
+    public function testASortLinkOfASectionNamesItAndEndsWithItsAnchor(): void
+    {
+        $renderer = $this->renderer([self::composed(self::sectionWithATable('tasks'), self::sectionWithATable('commands'))]);
+        $links = static fn(Crawler $crawler, string $section): array => $crawler->filter('section#' . $section . ' a.jm-sort')->each(static fn(Crawler $link): string => (string) $link->attr('href'));
+        $sorted = static fn(Crawler $crawler, string $section): array => [$crawler->filter('section#' . $section . ' th[aria-sort]')->text(), $crawler->filter('section#' . $section . ' th[aria-sort]')->attr('aria-sort')];
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/', parameters: ['period' => '6h']), 'background', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/', parameters: ['period' => '6h']), 'background', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            $crawler = new Crawler($html);
+
+            static::assertSame(['/host/page/background?menu=3&period=6h&sort=tasks.name&dir=asc#tasks', '/host/page/background?menu=3&period=6h&sort=tasks.runs&dir=asc#tasks'], $links($crawler, 'tasks'), $kind);
+            static::assertSame(['/host/page/background?menu=3&period=6h&sort=commands.name&dir=asc#commands', '/host/page/background?menu=3&period=6h&sort=commands.runs&dir=asc#commands'], $links($crawler, 'commands'), $kind);
+            static::assertSame(['Runs ↓', 'descending'], $sorted($crawler, 'commands'), $kind);
+        }
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/', parameters: ['period' => '6h', 'sort' => 'commands.name', 'dir' => 'asc']), 'background', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/', parameters: ['period' => '6h', 'sort' => 'commands.name', 'dir' => 'asc']), 'background', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            $crawler = new Crawler($html);
+
+            static::assertSame(['/host/page/background?menu=3&period=6h&sort=commands.name&dir=desc#commands', '/host/page/background?menu=3&period=6h&sort=commands.runs&dir=desc#commands'], $links($crawler, 'commands'), $kind);
+            static::assertSame(['Name ↑', 'ascending'], $sorted($crawler, 'commands'), $kind);
+            static::assertSame(['/host/page/background?menu=3&period=6h&sort=tasks.name&dir=asc#tasks', '/host/page/background?menu=3&period=6h&sort=tasks.runs&dir=asc#tasks'], $links($crawler, 'tasks'), $kind);
+            static::assertSame(['Runs ↓', 'descending'], $sorted($crawler, 'tasks'), $kind);
+        }
+    }
+
+    public function testThePeriodLinksKeepTheChosenSortOfASection(): void
+    {
+        $renderer = $this->renderer([self::composed(self::sectionWithATable('tasks'), self::sectionWithATable('commands'))]);
+        $day = static fn(array $parameters): string => (string) (new Crawler($renderer->page(Request::create('/', parameters: $parameters), 'background', new FakeHostUrls())->html))->filter('.jm-segmented__item')->eq(2)->attr('href');
+
+        static::assertSame('/host/page/background?menu=3&period=24h&sort=commands.name&dir=asc', $day(['period' => '6h', 'sort' => 'commands.name', 'dir' => 'asc']));
+        static::assertSame('/host/page/background?menu=3&period=24h&sort=commands.runs&dir=desc', $day(['sort' => 'commands.runs']));
+        static::assertSame('/host/page/background?menu=3&period=24h', $day(['period' => '6h']));
+        static::assertSame('/host/page/background?menu=3&period=24h', $day(['period' => '6h', 'sort' => 'x.y', 'dir' => 'asc']));
+    }
+
+    public function testLoadTheRestKeepsThePeriodAndTheSort(): void
+    {
+        $queues = new StubSourceSection(new StubSection('messages'), [Block::unavailable(Block::FACTS, BlockState::Reading)]);
+        $renderer = $this->renderer([self::composed($queues, self::sectionWithATable('commands'))]);
+
+        foreach ([
+            '/host/page/background?menu=3&period=6h&sort=commands.name&dir=asc&rest=1' => ['period' => '6h', 'sort' => 'commands.name', 'dir' => 'asc'],
+            '/host/page/background?menu=3&period=6h&rest=1' => ['period' => '6h'],
+        ] as $rest => $parameters) {
+            foreach ([
+                'page' => $renderer->page(Request::create('/', parameters: $parameters), 'background', new FakeHostUrls())->html,
+                'fragment' => (string) $renderer->fragment(Request::create('/', parameters: $parameters), 'background', new FakeHostUrls())->getContent(),
+            ] as $kind => $html) {
+                $crawler = new Crawler($html);
+
+                static::assertCount(1, $crawler->filter('.jm-screen[data-jm-reading]'), $kind);
+                static::assertSame($rest, $crawler->filter('.jm-screen > p.jm-rest > a[data-jm-rest]')->attr('href'), $kind);
+            }
+        }
+    }
+
+    public function testAComposedScreenWithoutAvailableSectionIsNotFound(): void
+    {
+        $renderer = $this->renderer([new StubScreen(), self::composed(new StubSection('tasks', available: false))]);
+
+        foreach ([
+            static fn() => $renderer->page(Request::create('/'), 'background', new FakeHostUrls()),
+            static fn() => $renderer->fragment(Request::create('/'), 'background', new FakeHostUrls()),
+            fn() => $renderer->action($this->post(['action' => 'ping']), 'background', new FakeHostUrls()),
+        ] as $call) {
+            try {
+                $call();
+                static::fail('The composed screen was found.');
+            } catch (NotFoundHttpException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+
+        static::assertSame(['Application'], (new Crawler($renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html))->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+    }
+
+    public function testAHostileSortOfAComposedScreenSortsEachSectionByDefault(): void
+    {
+        $renderer = $this->renderer([self::composed(self::sectionWithATable('commands'))]);
+
+        foreach ([['sort' => ['commands.name']], ['sort' => 'commands.', 'dir' => ['asc']], ['sort' => 'commands.name.x'], ['sort' => 'commands.handled', 'dir' => 'asc']] as $parameters) {
+            $crawler = new Crawler($renderer->page(Request::create('/', parameters: $parameters), 'background', new FakeHostUrls())->html);
+
+            static::assertSame('Runs ↓', $crawler->filter('section#commands th[aria-sort]')->text());
+            static::assertSame('/host/page/background?menu=3&period=24h', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
+        }
+    }
+
     /**
      * @param array<string, mixed> $fields
      */
@@ -1008,6 +1123,52 @@ final class PageRendererTest extends TestCase
             'php' => static fn(): PhpDetail => new PhpDetail(),
             'symfony' => static fn(): SymfonyDetail => new SymfonyDetail(),
         ]));
+    }
+
+    private static function composed(SectionInterface ...$sections): ComposedScreen
+    {
+        return new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, $sections);
+    }
+
+    /** @param non-empty-string $id */
+    private static function sectionWithATable(string $id): StubSection
+    {
+        return new StubSection($id, static fn(): ScreenView => new ScreenView([new Card('Runs', '3')], [
+            new Table($id, ucfirst($id), [new Column('name', 'Name', false, 'name'), new Column('runs', 'Runs', sort: 'runs')], [
+                new Row('k1', ['name' => new Cell('a'), 'runs' => new Cell('1')]),
+            ]),
+        ]), sorts: ['runs' => 'desc', 'name' => 'asc']);
+    }
+
+    /**
+     * @return array{Flusher, StorageInterface&object{stores: int}} a flusher with one entry to store
+     */
+    private function flusher(): array
+    {
+        $this->dir = sys_get_temp_dir() . '/jmonitor-renderer-' . bin2hex(random_bytes(6));
+        mkdir($this->dir);
+        $clock = new MockClock('@1000');
+        $directory = new BufferDirectory($this->dir, 'app');
+        $buffer = new FileBuffer($directory, 10, $clock);
+        $buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1000.0, 20.0, ['status' => 200]));
+        $clock->sleep(11);
+        $storage = new class implements StorageInterface {
+            public int $stores = 0;
+
+            public function prepare(): bool
+            {
+                return false;
+            }
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                ++$this->stores;
+            }
+
+            public function purge(int $now): void {}
+        };
+
+        return [new Flusher($buffer, new Aggregator(500), $storage, new FlushLock($directory, 10, $clock), $clock), $storage];
     }
 
     private function screenWithATable(): StubScreen
