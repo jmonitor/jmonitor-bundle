@@ -149,11 +149,18 @@ final class HttpSection implements SectionInterface
         $failures = self::failures($report);
 
         return [
-            new Card('Calls', Format::number($calls), $report->keyCount === 1 ? 'To 1 host.' : 'To ' . Format::number($report->keyCount) . ' hosts.'),
+            new Card('Calls', Format::number($calls), self::hosts($report)),
             new Card('Time in calls', Format::duration($total), Format::duration($calls === 0 ? 0 : $total / $calls) . ' per call on average.'),
             new Card('Error responses', Format::number($errors), 'Answers with a 4xx or 5xx status.', $errors > 0 ? 'warn' : null),
             new Card('No answer', Format::number($failures), 'Timeouts and network errors.', $failures > 0 ? 'bad' : null),
         ];
+    }
+
+    private static function hosts(Report $report): string
+    {
+        $hosts = $report->keyCount + ($report->other === null ? 0 : 1);
+
+        return 'To ' . ($hosts === 1 ? '1 host' : Format::number($hosts) . ' hosts') . ($report->other === null ? '.' : ' or more.');
     }
 
     private static function brief(Report $report): Brief

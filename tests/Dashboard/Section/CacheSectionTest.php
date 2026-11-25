@@ -153,6 +153,29 @@ final class CacheSectionTest extends TestCase
         static::assertSame(['0 %', null], [$few->cards[1]->value, $few->cards[1]->tone]);
     }
 
+    public function testTheHitRateCardIsNotInAlertWhenNoListedPoolIsFlagged(): void
+    {
+        $rows = [self::pool('h1', 'cache.app', 5, 5)];
+        $view = self::section()->build($this->reader($rows, self::pool('ho', Aggregator::OTHER, 1, 39)), Period::OneHour, self::NOW, 'reads', 'desc', self::raisedFor($rows));
+
+        static::assertSame(['12 %', null], [$view->cards[1]->value, $view->cards[1]->tone]);
+        static::assertSame([[], []], array_map(static fn(Row $row): array => $row->cells['problems']->tags, $view->tables[0]->rows));
+        static::assertNotNull($view->checks);
+        static::assertSame([], $view->checks->lines);
+        static::assertNotNull($view->brief);
+        static::assertSame('', $view->brief->standout);
+    }
+
+    public function testTheHitRateCardIsInAlertWhenAListedPoolIsFlaggedEvenAboveHalfOverall(): void
+    {
+        $rows = [self::pool('h1', 'app.hot', 90, 0), self::pool('h2', 'app.cold', 2, 18)];
+        $view = self::section()->build($this->reader($rows), Period::OneHour, self::NOW, 'reads', 'desc', self::raisedFor($rows));
+
+        static::assertSame(['84 %', 'warn'], [$view->cards[1]->value, $view->cards[1]->tone]);
+        static::assertNotNull($view->checks);
+        static::assertSame(['cache.low_hit_rate'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
+    }
+
     public function testOtherPoolsAreNeverTaggedNorCounted(): void
     {
         $other = self::pool('ho', Aggregator::OTHER, 1, 39, 7, 3);

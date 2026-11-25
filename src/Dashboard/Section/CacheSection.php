@@ -92,7 +92,7 @@ final class CacheSection implements SectionInterface
         $low = \count(array_filter($report->rows, static fn(ReportRow $row): bool => CacheHitRateCheck::isLow($row->count(Metric::CACHE_HIT), self::reads($row))));
 
         return new ScreenView(
-            self::cards($report),
+            self::cards($report, $low),
             [$table],
             checks: new CheckList($this->checks->lines($findings, self::SCREEN, $period), emptyText: 'no pool with a low hit rate'),
             guide: new Guide([
@@ -117,14 +117,14 @@ final class CacheSection implements SectionInterface
     }
 
     /** @return list<Card> */
-    private static function cards(Report $report): array
+    private static function cards(Report $report, int $low): array
     {
         $hits = self::total($report, Metric::CACHE_HIT);
         $reads = $hits + self::total($report, Metric::CACHE_MISS);
 
         return [
             new Card('Reads', Format::number($reads), 'Times your code asked the cache.'),
-            new Card('Hit rate', $reads === 0 ? self::NO_RATE : Format::percent($hits / $reads), 'Reads found in the cache.', CacheHitRateCheck::isLow($hits, $reads) ? 'warn' : null),
+            new Card('Hit rate', $reads === 0 ? self::NO_RATE : Format::percent($hits / $reads), 'Reads found in the cache.', $low > 0 ? 'warn' : null),
             new Card('Writes', Format::number(self::total($report, Metric::CACHE_WRITE)), 'Items saved.'),
             new Card('Deletes', Format::number(self::total($report, Metric::CACHE_DELETE)), 'Items removed by your code.'),
         ];

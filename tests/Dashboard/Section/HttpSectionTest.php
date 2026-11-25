@@ -208,6 +208,20 @@ final class HttpSectionTest extends TestCase
         static::assertSame(['e.example', 'a.example', 'b.example', 'f.example', 'c.example', 'g.example', 'd.example', 'Other hosts'], $hosts($ascending));
     }
 
+    public function testHostsEqualByProblemsAreSortedByName(): void
+    {
+        $rows = [
+            self::host('h1', 'c.example', failures: 1),
+            self::host('h2', 'b.example', serverErrors: 2),
+            self::host('h3', 'a.example', failures: 1),
+            self::host('h4', 'd.example', serverErrors: 2),
+        ];
+
+        $hosts = fn(string $direction): array => array_map(static fn(Row $row): string => $row->cells['host']->text, $this->build($rows, sort: 'problems', direction: $direction)->tables[0]->rows);
+        static::assertSame(['a.example', 'c.example', 'b.example', 'd.example'], $hosts('desc'));
+        static::assertSame(['b.example', 'd.example', 'a.example', 'c.example'], $hosts('asc'));
+    }
+
     public function testTheOtherSortsKeepTheOrderOfTheDatabase(): void
     {
         $rows = [self::host('h1', 'z.example', failures: 3), self::host('h2', 'a.example')];
@@ -241,6 +255,31 @@ final class HttpSectionTest extends TestCase
         static::assertSame(['1', '20 ms', '0', '0'], array_map(static fn(Card $card): string => $card->value, $view->cards));
         static::assertSame('To 1 host.', $view->cards[0]->hint);
         static::assertSame([null, null, null, null], array_map(static fn(Card $card): ?string => $card->tone, $view->cards));
+    }
+
+    /**
+     * @return iterable<string, array{list<ReportRow>, ?ReportRow, int, string}>
+     */
+    public static function provideHosts(): iterable
+    {
+        $other = self::host('ho', Aggregator::OTHER, 2);
+
+        yield 'one host' => [[self::host('h1', 'a.example')], null, 1, 'To 1 host.'];
+        yield 'hosts' => [[self::host('h1', 'a.example'), self::host('h2', 'b.example')], null, 1200, 'To 1,200 hosts.'];
+        yield 'only the other line' => [[], $other, 0, 'To 1 host or more.'];
+        yield 'one host and the other line' => [[self::host('h1', 'a.example')], $other, 1, 'To 2 hosts or more.'];
+        yield 'hosts and the other line' => [[self::host('h1', 'a.example'), self::host('h2', 'b.example')], $other, 75, 'To 76 hosts or more.'];
+    }
+
+    /**
+     * @param list<ReportRow> $rows
+     */
+    #[DataProvider('provideHosts')]
+    public function testTheCallsCardCountsTheHostsBehindTheOtherLine(array $rows, ?ReportRow $other, int $keyCount, string $hint): void
+    {
+        $view = $this->build($rows, other: $other, keyCount: $keyCount);
+
+        static::assertSame(['Calls', $hint], [$view->cards[0]->label, $view->cards[0]->hint]);
     }
 
     /**
