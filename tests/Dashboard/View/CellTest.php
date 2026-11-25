@@ -85,7 +85,8 @@ final class CellTest extends TestCase
 
         static::assertSame(['php' => 0.0, 'sql' => 0.0, 'http' => 0.0], $odd->parts);
         static::assertSame([], $odd->segments());
-        static::assertSame('PHP <1 ms, SQL <1 ms, HTTP out <1 ms', $odd->data['spoken']);
+        static::assertSame('PHP 0 ms, SQL 0 ms, HTTP out 0 ms', $odd->data['spoken']);
+        static::assertSame('PHP 120 ms, SQL <1 ms, HTTP out 0 ms', Cell::split(['php' => 120.0, 'sql' => 0.4, 'http' => 0.0], '')->data['spoken']);
         static::assertSame([], Cell::split(['php' => 0.0, 'sql' => 0.0, 'http' => 0.0], '')->segments());
     }
 
@@ -97,5 +98,37 @@ final class CellTest extends TestCase
         static::assertSame(['', 'tags', $tags], [$cell->text, $cell->kind, $cell->tags]);
         static::assertSame([], Cell::tags([])->tags);
         static::assertSame([], (new Cell('a'))->tags);
+    }
+
+    public function testATinyPartStaysVisibleBesideAHugeOne(): void
+    {
+        $segments = Cell::split(['php' => 1e9, 'sql' => 0.001, 'http' => 0.0], '')->segments();
+
+        static::assertSame([['part' => 'php', 'x' => 0.0, 'width' => 93.0], ['part' => 'sql', 'x' => 95.0, 'width' => 1.0]], $segments);
+        static::assertSame(96.0, self::end($segments));
+
+        $three = Cell::split(['php' => 1e9, 'sql' => 0.001, 'http' => 0.002], '')->segments();
+
+        static::assertSame([90.0, 1.0, 1.0], array_column($three, 'width'));
+        static::assertSame(96.0, self::end($three));
+    }
+
+    public function testThreeEqualPartsFillTheBoxExactly(): void
+    {
+        $segments = Cell::split(['php' => 10.0, 'sql' => 10.0, 'http' => 10.0], '')->segments();
+
+        static::assertSame([30.66, 30.67, 30.67], array_column($segments, 'width'));
+        static::assertSame([0.0, 32.66, 65.33], array_column($segments, 'x'));
+        static::assertSame(96.0, self::end($segments));
+    }
+
+    /**
+     * @param list<array{part: string, x: float, width: float}> $segments
+     */
+    private static function end(array $segments): float
+    {
+        $last = $segments[\count($segments) - 1];
+
+        return round($last['x'] + $last['width'], 2);
     }
 }

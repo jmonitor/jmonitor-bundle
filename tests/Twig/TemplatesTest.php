@@ -862,7 +862,7 @@ final class TemplatesTest extends TestCase
 
         $odd = (new Crawler($this->cells(new Column('split', 'Time split', false), Cell::split(['php' => -3.0, 'sql' => \NAN, 'http' => \INF], 'odd'))))->filter('td.jm-col-split');
 
-        static::assertSame('PHP <1 ms, SQL <1 ms, HTTP out <1 ms', $odd->filter('.jm-visually-hidden')->text());
+        static::assertSame('PHP 0 ms, SQL 0 ms, HTTP out 0 ms', $odd->filter('.jm-visually-hidden')->text());
         static::assertCount(0, $odd->filter('svg'));
         static::assertSame('odd', $odd->filter('.jm-split__text')->text());
     }
@@ -875,7 +875,8 @@ final class TemplatesTest extends TestCase
         static::assertCount(1, $rect);
         static::assertSame(['jm-split__part jm-split__part--php', '0', '96'], [$rect->attr('class'), $rect->attr('x'), $rect->attr('width')]);
         static::assertSame('PHP only', $cell->filter('.jm-split__text')->text());
-        static::assertSame('PHP 120 ms, SQL <1 ms, HTTP out <1 ms', $cell->filter('.jm-visually-hidden')->text());
+        static::assertSame('PHP 120 ms, SQL 0 ms, HTTP out 0 ms', $cell->filter('.jm-visually-hidden')->text());
+        static::assertSame('PHP 120 ms, SQL <1 ms, HTTP out 0 ms', (new Crawler($this->cells(new Column('split', 'Time split', false), Cell::split(['php' => 120.0, 'sql' => 0.4, 'http' => 0.0], 'PHP only'))))->filter('td.jm-col-split .jm-visually-hidden')->text());
     }
 
     public function testABarIsBoundedAndHiddenFromAssistiveTechnology(): void
@@ -944,6 +945,21 @@ final class TemplatesTest extends TestCase
         static::assertStringNotContainsString('&"x', $html);
         $crawler = new Crawler($html);
         static::assertSame([1, 2, 1, 1], [$crawler->filter('h1')->count(), $crawler->filter('.jm-lead')->count(), $crawler->filter('.jm-guide')->count(), $crawler->filter('.jm-legend')->count()]);
+        static::assertCount(1, $crawler->filter('.jm-lead')->eq(0)->filter('h1 + p.jm-lead__detail'));
+        static::assertSame(['h2'], $crawler->filter('.jm-lead')->eq(1)->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertSame('How to read this screen', $crawler->filter('section.jm-guide')->attr('aria-label'));
+        static::assertSame('How to read this screen', $crawler->filter('section.jm-guide > h2')->text());
+    }
+
+    public function testALeadInASectionIsASecondLevelHeading(): void
+    {
+        $lead = Block::lead(new Lead('Sentence of the section', 'Detail.', [1, 3, 2], 'runs per minute', '1 hour ago'));
+        $section = new Section('commands', 'Commands', 'Runs of bin/console.', [$lead, Block::cards([new Card('Runs', '3')])]);
+        $crawler = new Crawler($this->composed(Block::section($section)));
+
+        static::assertSame(['Background'], $crawler->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()));
+        static::assertSame('Background', $crawler->filter('.jm-screen > .jm-heading > h1')->text());
+        static::assertSame('Sentence of the section', $crawler->filter('section#jm-commands > section.jm-lead > h2.jm-lead__title')->text());
     }
 
     public function testAHostGlobalDoesNotStandInForABlockVariable(): void

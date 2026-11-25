@@ -426,6 +426,19 @@ final class StylesheetTest extends TestCase
         static::assertContains(['border-color', 'CanvasText'], self::declarationsOf('.jm-tag', $at));
     }
 
+    public function testForcedColorsKeepEachSwatchOfTheLegendInTheColourOfItsPart(): void
+    {
+        $at = '@media (forced-colors: active)';
+
+        static::assertContains(['forced-color-adjust', 'none'], self::declarationsOf('.jm-legend__swatch', $at));
+        foreach (['php', 'sql', 'http'] as $part) {
+            $fill = array_column(self::declarationsOf('.jm-split__part--' . $part, $at), 1, 0)['fill'] ?? null;
+
+            static::assertNotNull($fill, $part);
+            static::assertContains(['background', $fill], self::declarationsOf('.jm-legend__swatch--' . $part, $at), $part);
+        }
+    }
+
     public function testANarrowScreenStacksTheAdviceOfACheckAndTheItemsOfTheGuide(): void
     {
         foreach (['.jm-check__advice', '.jm-guide__list'] as $selector) {

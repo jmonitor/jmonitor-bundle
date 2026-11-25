@@ -2293,6 +2293,22 @@ body.jm .jm-section {
         fill: Highlight;
     }
 
+    .jm-legend__swatch {
+        forced-color-adjust: none;
+    }
+
+    .jm-legend__swatch--php {
+        background: CanvasText;
+    }
+
+    .jm-legend__swatch--sql {
+        background: Highlight;
+    }
+
+    .jm-legend__swatch--http {
+        background: GrayText;
+    }
+
     .jm-split__part {
         stroke: Canvas;
         stroke-width: 1px;

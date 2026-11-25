@@ -13,6 +13,7 @@ final class Cell
     public const SPLIT_WIDTH = 96;
     private const PARTS = ['php' => 'PHP', 'sql' => 'SQL', 'http' => 'HTTP out'];
     private const SPLIT_GAP = 2;
+    private const SPLIT_MIN_PART = 1.0;
 
     /**
      * @param 'warn'|'bad'|'zero'|null                         $tone
@@ -70,7 +71,7 @@ final class Cell
             $kept[$part] = is_finite($value) && $value > 0 ? $value : 0.0;
         }
 
-        $spoken = implode(', ', array_map(static fn(string $part, string $name): string => $name . ' ' . Format::duration($kept[$part]), array_keys(self::PARTS), self::PARTS));
+        $spoken = implode(', ', array_map(static fn(string $part, string $name): string => $name . ' ' . ($kept[$part] > 0 ? Format::duration($kept[$part]) : '0 ms'), array_keys(self::PARTS), self::PARTS));
 
         return new self($text, kind: 'split', data: ['spoken' => $spoken], parts: $kept);
     }
@@ -82,7 +83,7 @@ final class Cell
     }
 
     /**
-     * @return list<array{part: string, x: float, width: float}> the parts drawn on a split, in a box SPLIT_WIDTH wide
+     * @return list<array{part: string, x: float, width: float}> the parts drawn on a split, filling a box SPLIT_WIDTH wide; the largest gives up what the others need to stay visible
      */
     public function segments(): array
     {
@@ -94,11 +95,13 @@ final class Cell
         }
 
         $room = self::SPLIT_WIDTH - self::SPLIT_GAP * (\count($drawn) - 1);
+        $widths = array_map(static fn(float $value): float => max(self::SPLIT_MIN_PART, round($room * $value / $total, 2)), $drawn);
+        $largest = array_keys($drawn, max($drawn), true)[0];
+        $widths[$largest] = round($room - array_sum($widths) + $widths[$largest], 2);
         $segments = [];
         $x = 0.0;
 
-        foreach ($drawn as $part => $value) {
-            $width = round($room * $value / $total, 2);
+        foreach ($widths as $part => $width) {
             $segments[] = ['part' => $part, 'x' => round($x, 2), 'width' => $width];
             $x += $width + self::SPLIT_GAP;
         }
