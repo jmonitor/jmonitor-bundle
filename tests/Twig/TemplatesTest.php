@@ -330,6 +330,37 @@ final class TemplatesTest extends TestCase
         }
     }
 
+    public function testTheLiveIndicatorIsAHiddenButtonWithAStateAndAnAge(): void
+    {
+        $page = new Page(new StubBlockScreen(), [], Period::OneHour, '', '', []);
+        $context = ['page' => $page, 'path' => 'probe', 'spaces' => [['id' => 'application', 'label' => 'Application', 'path' => 'probe', 'current' => true]], 'periods' => Period::cases()];
+
+        foreach ([false, true] as $standalone) {
+            $crawler = new Crawler($this->render('page.html.twig', $context + ['standalone' => $standalone]));
+            $live = $crawler->filter('[data-jm-live-toggle]');
+
+            static::assertCount(1, $live);
+            static::assertSame('button', $live->nodeName());
+            static::assertSame('button', $live->attr('type'));
+            static::assertSame('jm-live', $live->attr('class'));
+            static::assertNotNull($live->attr('hidden'));
+            static::assertSame('true', $live->attr('aria-pressed'));
+            static::assertSame('live', $live->attr('data-jm-live-state'));
+            static::assertSame('Live', $live->filter('[data-jm-live-word]')->text());
+            static::assertSame('updated just now', $live->filter('[data-jm-live-age]')->text());
+            static::assertCount(1, $live->filter('[data-jm-live-progress][aria-hidden="true"]'));
+            static::assertCount(1, $live->filter('.jm-live__mark[aria-hidden="true"]'));
+            $name = '';
+            foreach ($live->getNode(0)?->childNodes ?? [] as $child) {
+                $name .= $child instanceof \DOMElement && $child->getAttribute('aria-hidden') === 'true' ? ' ' : $child->textContent;
+            }
+            static::assertSame('Live updated just now', trim((string) preg_replace('/\s+/', ' ', $name)));
+            static::assertCount(0, $live->filter('input, [aria-live], [role]'));
+            static::assertNull($live->attr('aria-live'));
+            static::assertNull($live->attr('role'));
+        }
+    }
+
     public function testATabLabelAndItsBadgeAreEscaped(): void
     {
         $h = self::HOSTILE;

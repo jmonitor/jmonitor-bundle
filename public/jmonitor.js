@@ -5,6 +5,7 @@
     var INTERVAL = 10000;
     var FAST_DELAY = 2000;
     var FAST_TRIES = 5;
+    var SECOND = 1000;
     var PAGE_PARAMETERS = ['period', 'sort', 'dir'];
     var ROWS = '.jm-subnav, .jm-instances__row';
     var root = document.querySelector('[data-jm-live]');
@@ -44,8 +45,10 @@
     var url = root.getAttribute('data-jm-fragment-url');
     var content = root.querySelector('[data-jm-content]');
     var toggle = document.querySelector('[data-jm-live-toggle]');
-    var input = toggle ? toggle.querySelector('input') : null;
     var enabled = readPreference();
+    var failed = false;
+    var receivedAt = Date.now();
+    var ageTimer = null;
     var timer = null;
     var inFlight = false;
     var fastTimer = null;
@@ -75,13 +78,72 @@
         }
     }
 
-    function markFailed(failed) {
+    function markFailed(value) {
+        failed = value;
+        render();
+    }
+
+    function age() {
+        return Math.max(0, Date.now() - receivedAt);
+    }
+
+    function duration(milliseconds) {
+        var seconds = Math.floor(milliseconds / SECOND);
+
+        if (seconds < 60) {
+            return seconds + ' s';
+        }
+
+        return seconds < 3600 ? Math.floor(seconds / 60) + ' min' : Math.floor(seconds / 3600) + ' h';
+    }
+
+    function render() {
         if (!toggle) {
             return;
         }
 
-        toggle.classList.toggle('is-failed', failed);
-        toggle.title = !failed ? '' : liveRefused ? 'Refresh stopped: turn Live on again or reload the page' : 'Last refresh failed, retrying';
+        var elapsed = age();
+        var fresh = elapsed < SECOND;
+        var state = liveRefused || (enabled && failed) ? 'failed' : enabled ? 'live' : 'paused';
+        var texts = {
+            live: ['Live', fresh ? 'updated just now' : 'updated ' + duration(elapsed) + ' ago'],
+            paused: ['Paused', fresh ? 'data from just now' : 'data from ' + duration(elapsed) + ' ago'],
+            failed: ['Not updated', 'for ' + duration(elapsed) + (liveRefused ? '' : ' · retrying')],
+        };
+
+        toggle.setAttribute('data-jm-live-state', state);
+        toggle.setAttribute('aria-pressed', enabled && !liveRefused ? 'true' : 'false');
+        toggle.title = state !== 'failed' ? '' : liveRefused ? 'Refresh stopped: turn Live on again or reload the page' : 'Last refresh failed, retrying';
+        writeText('[data-jm-live-word]', texts[state][0]);
+        writeText('[data-jm-live-age]', texts[state][1]);
+    }
+
+    function writeText(selector, text) {
+        var element = toggle.querySelector(selector);
+
+        if (element && element.textContent !== text) {
+            element.textContent = text;
+        }
+    }
+
+    function tickAge() {
+        window.clearTimeout(ageTimer);
+        ageTimer = null;
+        render();
+
+        if (toggle && !document.hidden && root.isConnected) {
+            ageTimer = window.setTimeout(tickAge, SECOND - age() % SECOND);
+        }
+    }
+
+    function restartProgress() {
+        var progress = toggle ? toggle.querySelector('[data-jm-live-progress]') : null;
+
+        if (progress) {
+            progress.style.animation = 'none';
+            void progress.offsetWidth;
+            progress.style.animation = '';
+        }
     }
 
     function hasSelectionInside(element) {
@@ -221,6 +283,8 @@
         revealCurrentRows(row);
         fillSlots();
         tellNodeChange(node);
+        receivedAt = Date.now();
+        tickAge();
 
         if (!isReading()) {
             fastTries = 0;
@@ -392,7 +456,11 @@
         stop();
 
         if (enabled && !liveRefused && !document.hidden) {
-            timer = window.setInterval(refresh, INTERVAL);
+            timer = window.setInterval(function () {
+                restartProgress();
+                refresh();
+            }, INTERVAL);
+            restartProgress();
         }
     }
 
@@ -403,12 +471,11 @@
         }
     }
 
-    if (toggle && input) {
-        input.checked = enabled;
+    if (toggle) {
         toggle.hidden = false;
 
-        input.addEventListener('change', function () {
-            enabled = input.checked;
+        toggle.addEventListener('click', function () {
+            enabled = liveRefused || !enabled;
             liveRefused = false;
             writePreference(enabled);
             markFailed(false);
@@ -426,10 +493,12 @@
             refresh();
         }
 
+        tickAge();
         scheduleFastTry(0);
     });
 
     start();
+    tickAge();
     showRestLink();
     scheduleFastTry(0);
 })();

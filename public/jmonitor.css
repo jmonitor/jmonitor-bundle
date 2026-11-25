@@ -31,9 +31,6 @@
     --jm-focus: #a8bfff;
     --jm-segment-active-bg: rgba(110, 148, 255, .24);
     --jm-segment-active-border: rgba(168, 191, 255, .28);
-    --jm-live-on-bg: rgba(23, 227, 220, .18);
-    --jm-live-on-border: rgba(23, 227, 220, .45);
-    --jm-live-pulse: rgba(23, 227, 220, .55);
     --jm-method-bg: rgba(255, 255, 255, .07);
     --jm-method-text: #c3cad6;
     --jm-method-get-bg: rgba(110, 148, 255, .16);
@@ -86,9 +83,6 @@
     --jm-focus: #2d55cc;
     --jm-segment-active-bg: rgba(52, 96, 224, .12);
     --jm-segment-active-border: rgba(52, 96, 224, .4);
-    --jm-live-on-bg: rgba(11, 143, 138, .16);
-    --jm-live-on-border: rgba(11, 143, 138, .55);
-    --jm-live-pulse: rgba(11, 143, 138, .45);
     --jm-method-bg: rgba(37, 64, 143, .07);
     --jm-method-text: #46536b;
     --jm-method-get-bg: rgba(52, 96, 224, .11);
@@ -369,68 +363,118 @@ body.jm .jm-header {
 }
 
 .jm-live {
+    position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    max-width: 100%;
+    min-height: 32px;
+    margin: 0;
+    padding: 0 12px;
+    overflow: hidden;
+    border: 1px solid var(--jm-border);
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: none;
     color: var(--jm-muted);
+    font: inherit;
     font-size: 13px;
-    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    letter-spacing: normal;
+    text-transform: none;
+    white-space: nowrap;
     cursor: pointer;
-    user-select: none;
+    appearance: none;
+    -webkit-appearance: none;
 }
 
 .jm-live[hidden] {
     display: none;
 }
 
-.jm-live__switch {
-    position: relative;
-    width: 30px;
-    height: 18px;
-    margin: 0;
-    border: 1px solid var(--jm-border);
+.jm-live:focus-visible {
     border-radius: 999px;
-    background: var(--jm-surface-strong);
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    transition: background-color .15s ease, border-color .15s ease;
 }
 
-.jm-live__switch::before {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--jm-muted);
-    transition: transform .15s ease, background-color .15s ease;
+.jm-live__mark {
+    flex: none;
+    width: 8px;
+    height: 8px;
 }
 
-.jm-live__switch:checked {
-    border-color: var(--jm-live-on-border);
-    background: var(--jm-live-on-bg);
-}
-
-.jm-live__switch:checked::before {
-    background: var(--jm-ok);
-    transform: translateX(12px);
-    animation: jm-pulse 2s ease-out infinite;
-}
-
-.jm-live__switch:checked + .jm-live__label {
+.jm-live__word {
     color: var(--jm-text-strong);
+    font-weight: 600;
 }
 
-.jm-live.is-failed .jm-live__label {
+.jm-live__age {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jm-live:hover .jm-live__age {
+    color: var(--jm-text);
+}
+
+.jm-live__progress {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: none;
+    height: 2px;
+    background: var(--jm-ok);
+    transform: scaleX(0);
+    transform-origin: left;
+}
+
+.jm-live[data-jm-live-state="live"] {
+    border-color: var(--jm-ok-border);
+    background: var(--jm-ok-bg);
+}
+
+.jm-live[data-jm-live-state="live"] .jm-live__mark {
+    border-radius: 50%;
+    background: var(--jm-ok);
+}
+
+.jm-live[data-jm-live-state="live"] .jm-live__progress {
+    display: block;
+    animation: jm-live-progress 10s linear forwards;
+}
+
+.jm-live[data-jm-live-state="paused"] {
+    border-color: var(--jm-border);
+    background: transparent;
+}
+
+.jm-live[data-jm-live-state="paused"] .jm-live__mark {
+    border-inline: 3px solid var(--jm-muted);
+}
+
+.jm-live[data-jm-live-state="failed"] {
+    border-color: var(--jm-warn-border);
+    background: var(--jm-warn-bg);
+}
+
+.jm-live[data-jm-live-state="failed"] .jm-live__mark {
+    display: none;
+}
+
+.jm-live[data-jm-live-state="failed"] .jm-live__word {
     color: var(--jm-warn);
 }
 
-.jm-live.is-failed .jm-live__switch:checked::before {
-    background: var(--jm-warn);
-    animation: none;
+@keyframes jm-live-progress {
+    from {
+        transform: scaleX(0);
+    }
+
+    to {
+        transform: scaleX(1);
+    }
 }
 
 .jm-button {
@@ -450,17 +494,6 @@ body.jm .jm-header {
 .jm-button:hover {
     background: var(--jm-surface-strong);
     color: var(--jm-text-strong);
-}
-
-@keyframes jm-pulse {
-    0% {
-        box-shadow: 0 0 0 0 var(--jm-live-pulse);
-    }
-
-    70%,
-    100% {
-        box-shadow: 0 0 0 6px transparent;
-    }
 }
 
 .jm-main {
@@ -1832,6 +1865,11 @@ body.jm .jm-section {
         animation: none !important;
         transition: none !important;
     }
+
+    .jm-live__progress,
+    .jm-live[data-jm-live-state="live"] .jm-live__progress {
+        display: none;
+    }
 }
 
 @media (forced-colors: active) {
@@ -1840,23 +1878,30 @@ body.jm .jm-section {
         outline: 1px solid CanvasText;
     }
 
-    .jm-live__switch {
-        border-color: CanvasText;
+    .jm-live,
+    .jm-live[data-jm-live-state] {
+        border-color: ButtonText;
     }
 
-    .jm-live__switch::before {
-        background: CanvasText;
+    .jm-live[data-jm-live-state="failed"] {
+        border-style: dashed;
+    }
+
+    .jm-live__mark,
+    .jm-live__progress {
         forced-color-adjust: none;
     }
 
-    .jm-live__switch:checked::before,
-    .jm-live.is-failed .jm-live__switch:checked::before {
-        background: Highlight;
-        animation: none;
+    .jm-live[data-jm-live-state="live"] .jm-live__mark {
+        background: ButtonText;
     }
 
-    .jm-live.is-failed .jm-live__switch {
-        border-style: dashed;
+    .jm-live[data-jm-live-state="paused"] .jm-live__mark {
+        border-color: ButtonText;
+    }
+
+    .jm-live__progress {
+        background: Highlight;
     }
 
     .jm-subnav__item[aria-current="page"],

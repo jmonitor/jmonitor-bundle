@@ -24,9 +24,9 @@ final class StylesheetTest extends TestCase
     {
         $rules = self::rules();
 
-        static::assertContains('.jm-live__switch:checked', self::selectorsIn($rules, null));
+        static::assertContains('.jm-live[data-jm-live-state="live"]', self::selectorsIn($rules, null));
         static::assertContains('.jm-cards', self::selectorsIn($rules, '@media (max-width: 720px)'));
-        static::assertContains('0%', self::selectorsIn($rules, '@keyframes jm-pulse'));
+        static::assertContains('to', self::selectorsIn($rules, '@keyframes jm-live-progress'));
     }
 
     public function testEverySelectorLivesUnderJm(): void
@@ -121,11 +121,47 @@ final class StylesheetTest extends TestCase
         }
     }
 
-    public function testForcedColorsCoverTheLiveSwitch(): void
+    public function testEveryLiveStateIsDrawnWithColoursOfBothThemes(): void
     {
-        $selectors = self::selectorsIn(self::rules(), '@media (forced-colors: active)');
+        $dark = self::theme(self::DARK);
+        $light = self::theme(self::LIGHT);
 
-        static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => str_contains($selector, '.jm-live__switch')));
+        foreach (['live', 'paused', 'failed'] as $state) {
+            $declarations = self::declarationsOf('.jm-live[data-jm-live-state="' . $state . '"]', null);
+            $properties = array_column($declarations, 0);
+
+            static::assertContains('border-color', $properties, $state);
+            static::assertContains('background', $properties, $state);
+            foreach ($declarations as [$property, $value]) {
+                preg_match_all('/var\((--jm-[a-z0-9-]+)\)/', $value, $variables);
+                foreach ($variables[1] as $variable) {
+                    static::assertArrayHasKey($variable, $dark, $state . ' ' . $property);
+                    static::assertArrayHasKey($variable, $light, $state . ' ' . $property);
+                }
+            }
+        }
+
+        static::assertContains(['background', 'transparent'], self::declarationsOf('.jm-live[data-jm-live-state="paused"]', null));
+    }
+
+    public function testTheLiveButtonKeepsItsLookUnderAHost(): void
+    {
+        $properties = array_column(self::declarationsOf('.jm-live', null), 0);
+
+        foreach (['font', 'margin', 'border', 'border-radius', 'background', 'color', 'cursor', 'appearance', 'line-height', 'text-transform', 'min-height'] as $property) {
+            static::assertContains($property, $properties);
+        }
+    }
+
+    public function testTheLiveProgressDoesNotMoveUnderReducedMotion(): void
+    {
+        static::assertContains(['display', 'none'], self::declarationsOf('.jm-live__progress', '@media (prefers-reduced-motion: reduce)'));
+        static::assertContains(['animation', 'jm-live-progress 10s linear forwards'], self::declarationsOf('.jm-live[data-jm-live-state="live"] .jm-live__progress', null));
+    }
+
+    public function testForcedColorsKeepABorderOnTheLiveButton(): void
+    {
+        static::assertContains(['border-color', 'ButtonText'], self::declarationsOf('.jm-live', '@media (forced-colors: active)'));
     }
 
     public function testForcedColorsCoverTheMarksAndTheGauges(): void
@@ -161,15 +197,15 @@ final class StylesheetTest extends TestCase
         static::assertContains(['border-color', 'CanvasText'], $declarations('.jm-nav__badge', '@media (forced-colors: active)'));
     }
 
-    public function testForcedColorsTellAFailedLiveSwitchFromAnActiveOne(): void
+    public function testForcedColorsTellAFailedLiveButtonFromAnActiveOne(): void
     {
         $rules = array_filter(self::rules(), static fn(array $rule): bool => $rule['at'] === '@media (forced-colors: active)'
             && \in_array(['border-style', 'dashed'], $rule['declarations'], true));
         $selectors = array_merge(...array_column(array_values($rules), 'selectors'));
 
-        static::assertContains('.jm-live.is-failed .jm-live__switch', $selectors);
-        static::assertNotContains('.jm-live__switch', $selectors);
-        static::assertNotContains('.jm-live__switch:checked', $selectors);
+        static::assertContains('.jm-live[data-jm-live-state="failed"]', $selectors);
+        static::assertNotContains('.jm-live', $selectors);
+        static::assertNotContains('.jm-live[data-jm-live-state="live"]', $selectors);
     }
 
     public function testAStateIsSpacedOnlyFromABlockThatFollowsIt(): void
@@ -296,6 +332,21 @@ final class StylesheetTest extends TestCase
         }
 
         return $selectors;
+    }
+
+    /**
+     * @return list<array{string, string}> the declarations of every rule that lists $selector, in $at
+     */
+    private static function declarationsOf(string $selector, ?string $at): array
+    {
+        $found = [];
+        foreach (self::rules() as $rule) {
+            if ($rule['at'] === $at && \in_array($selector, $rule['selectors'], true)) {
+                array_push($found, ...$rule['declarations']);
+            }
+        }
+
+        return $found;
     }
 
     /**
