@@ -16,6 +16,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -73,6 +74,44 @@ final class DbalReaderTest extends TestCase
             ['route' => 'app_home', 'requests' => '3', 'total' => '120 ms', 'avg' => '40 ms', 'p95' => '60 ms', 'max' => '60 ms', 'split' => 'PHP only', 'problems' => '', 'memory' => '2.9 KB'],
             array_map(static fn(Cell $cell): string => $cell->text, $home->cells),
         );
+    }
+
+    #[DataProvider('connections')]
+    public function testThePageSortedByProblemsStartsWithTheCulpritOfTheSlowCheck(Connection $connection): void
+    {
+        $queries = [
+            'a1a1a1a1a1a1a1a1' => ['SELECT * FROM orders WHERE customer = ?', 3, 400.0],
+            'b2b2b2b2b2b2b2b2' => ['SELECT * FROM invoices WHERE customer = ?', 3, 300.0],
+            'c3c3c3c3c3c3c3c3' => ['SELECT * FROM items WHERE id = ?', 1, 200.0],
+            'd4d4d4d4d4d4d4d4' => ['SELECT 1', 0, 1.0],
+        ];
+        $children = [];
+        foreach ($queries as $id => [, $slow, $max]) {
+            $children[] = new Entry(Entry::TYPE_QUERY, $id, (float) (self::NOW - 10), $max, ['n' => 4, 'm' => $max, 'sl' => $slow]);
+        }
+        ConnectionProvider::dropTables($connection);
+        (new DbalStorage($connection, 604800))->store(
+            (new Aggregator(1000))->aggregate([new Entry(Entry::TYPE_REQUEST, 'GET app_list', (float) (self::NOW - 10), 900.0, ['status' => 200, 'memory' => 1024], $children)]),
+            self::NOW,
+            array_combine(array_keys($queries), array_column($queries, 0)),
+        );
+        $reader = new DbalReader($connection);
+        $check = new SlowQueriesCheck(100);
+
+        $page = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_SLOW, 'count', true, 100, Metric::QUERY_DURATION));
+        $culprit = $reader->read($check->query(Period::OneHour, self::NOW));
+
+        static::assertSame([3, 3], [$page->rows[0]->count(Metric::QUERY_SLOW), $page->rows[1]->count(Metric::QUERY_SLOW)], 'Two queries share the most slow executions.');
+        static::assertSame($culprit->rows[0]->key, $page->rows[0]->key);
+
+        $screen = new QueriesScreen(true, new ApplicationChecks([$check]), 100, 10);
+        $codes = [];
+        foreach ([['problems', 'desc'], ['problems', 'asc'], ['total', 'desc']] as [$sort, $direction]) {
+            $view = $screen->build($reader, Period::OneHour, self::NOW, $sort, $direction);
+            static::assertNotNull($view->checks);
+            $codes[] = $view->checks->lines[0]->code;
+        }
+        static::assertSame(array_fill(0, 3, $culprit->rows[0]->label), $codes);
     }
 
     #[DataProvider('connections')]

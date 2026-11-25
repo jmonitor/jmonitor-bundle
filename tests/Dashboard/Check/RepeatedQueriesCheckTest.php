@@ -142,6 +142,36 @@ final class RepeatedQueriesCheckTest extends TestCase
         static::assertSame('Queries repeated 10 times or more inside one request in the last 6 hours.', $finding->sentence);
     }
 
+    /**
+     * @return iterable<string, array{list<ReportRow>, int, string, string}>
+     */
+    public static function otherLines(): iterable
+    {
+        yield 'the other line alone' => [[], 0, 'Repeated query (N+1)', 'Queries repeated 10 times or more inside one request in the last hour.'];
+        yield 'one line and the other line' => [
+            [self::row(Entry::TYPE_REQUEST, 'GET app_list', 150.0, 6, 40.0)],
+            1,
+            '2 repeated queries (N+1)',
+            'GET app_list runs the same query 25 times on average, 40 at worst. 1 more is listed on Queries.',
+        ];
+    }
+
+    /**
+     * @param list<ReportRow> $rows
+     */
+    #[DataProvider('otherLines')]
+    public function testTheOtherLineCountsAsOneRepeatedQuery(array $rows, int $keyCount, string $title, string $sentence): void
+    {
+        $other = new ReportRow(md5(Aggregator::OTHER), Aggregator::OTHER, null, [Metric::NPLUS1_CALLS => new MetricValue(4, 60.0, 20.0)]);
+        $report = new Report($rows, $other, $keyCount);
+
+        $finding = (new RepeatedQueriesCheck(10))->finding($report, self::totals(), Period::OneHour);
+
+        static::assertSame(\count($rows) + 1, RepeatedQueriesCheck::count($report));
+        static::assertSame($title, $finding->title);
+        static::assertSame($sentence, $finding->sentence);
+    }
+
     /** @return array<string, MetricValue> */
     private static function totals(): array
     {

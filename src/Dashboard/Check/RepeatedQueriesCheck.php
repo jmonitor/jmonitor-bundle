@@ -91,10 +91,10 @@ final class RepeatedQueriesCheck implements CheckInterface
         );
     }
 
-    /** the repeated queries of a report read by query(), those beyond its lines included and the (other) key left out */
+    /** the repeated queries of a report read by query(), those beyond its lines included and the (other) line as one */
     public static function count(Report $report): int
     {
-        return \count($report->rows) + max(0, $report->keyCount - \count($report->rows));
+        return \count($report->rows) + max(0, $report->keyCount - \count($report->rows)) + ($report->other !== null ? 1 : 0);
     }
 
     private static function entryPoint(EntryPointKey $key): string

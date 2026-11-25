@@ -364,7 +364,9 @@ final class QueriesScreenTest extends TestCase
         yield 'two' => [[$one, $two], null, 2, '2', '2 repeated queries (N+1)'];
         yield 'beyond the lines read' => [[$one], null, 130, '130', '130 repeated queries (N+1)'];
         yield 'a line whose key does not read' => [[$one, $unreadable], null, 2, '2', '2 repeated queries (N+1)'];
-        yield 'with the other key' => [[$one, $two], $other, 2, '2', '2 repeated queries (N+1)'];
+        yield 'the other key alone' => [[], $other, 0, '1', 'Repeated query (N+1)'];
+        yield 'one and the other key' => [[$one], $other, 1, '2', '2 repeated queries (N+1)'];
+        yield 'two and the other key' => [[$one, $two], $other, 2, '3', '3 repeated queries (N+1)'];
     }
 
     /**
@@ -376,6 +378,7 @@ final class QueriesScreenTest extends TestCase
         $view = $this->build([$this->query('h1', 'SELECT 1')], nPlusOne: $nPlusOne, nPlusOneKeyCount: $keyCount, nPlusOneOther: $other);
 
         static::assertSame($card, $view->cards[3]->value);
+        static::assertSame('warn', $view->cards[3]->tone);
         static::assertNotNull($view->checks);
         static::assertSame($title, $view->checks->lines[0]->title);
         static::assertNotNull($view->lead);
@@ -615,7 +618,13 @@ final class QueriesScreenTest extends TestCase
         static::assertCount(1, $view->tables[1]->rows);
         static::assertTrue($view->tables[1]->rows[0]->muted);
         static::assertNotNull($view->checks);
-        static::assertSame(['queries.repeated'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
+        static::assertSame(
+            [['queries.repeated', 'Repeated query (N+1)', 'Queries repeated 10 times or more inside one request in the last hour.']],
+            array_map(static fn(CheckLine $line): array => [$line->id, $line->title, $line->sentence], $view->checks->lines),
+        );
+        static::assertNotNull($view->lead);
+        static::assertSame('None was slow. 1 query is repeated many times inside the same request.', $view->lead->detail);
+        static::assertSame(['1', 'warn'], [$view->cards[3]->value, $view->cards[3]->tone]);
     }
 
     public function testRepeatedQueriesBeyondTheLimitAreCounted(): void
