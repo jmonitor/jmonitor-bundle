@@ -8,11 +8,13 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
@@ -30,7 +32,7 @@ final class ReadCostTest extends KernelTestCase
 
     /** @var array<string, int> screen id => SQL statements read to display it once, the flush aside */
     private const BUDGET = [
-        'requests' => 3,
+        'requests' => 8,
         'queries' => 10,
         'exceptions' => 5,
         'users' => 5,
@@ -91,6 +93,23 @@ final class ReadCostTest extends KernelTestCase
                 ));
             }
         }
+    }
+
+    public function testTheBudgetOfRequestsIsMeasuredWithARouteThatRepeatsAQuery(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate(self::units()), self::NOW, self::LABELS);
+        $registry = static::getContainer()->get(ScreenRegistry::class);
+        \assert($registry instanceof ScreenRegistry);
+        $screen = $registry->get('requests');
+        \assert($screen instanceof RequestsScreen);
+        $recorder->statements = [];
+
+        $view = $screen->build(new DbalReader($connection), Period::OneHour, self::NOW, 'total', 'desc');
+
+        static::assertNotNull($view->checks);
+        static::assertSame(['queries.repeated'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
+        static::assertCount(self::BUDGET['requests'], $recorder->statements);
     }
 
     public function testEachSectionReadsWithinItsBudget(): void

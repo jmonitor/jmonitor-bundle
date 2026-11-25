@@ -59,10 +59,11 @@ final class HttpClientRecordingTest extends WebTestCase
         $headers = $crawler->filter('section[aria-labelledby="jm-routes-title"] thead th')->each(
             static fn(Crawler $th): string => trim(($th->filter('span')->count() > 0 ? $th->filter('span')->first() : $th)->text()),
         );
-        $column = array_search('HTTP out', $headers, true);
-        static::assertIsInt($column, 'The Requests screen has no HTTP out column.');
+        $column = array_search('Where the average goes', $headers, true);
+        static::assertIsInt($column, 'The Requests screen does not split the average of a route.');
         $cell = $crawler->filter('tr[data-jm-route="GET app_call"]')->filter('th, td')->eq($column);
-        static::assertStringEndsWith('ms', trim($cell->text()));
+        static::assertMatchesRegularExpression('/^HTTP out \S+ ms/', trim($cell->filter('.jm-split__text')->text()));
+        static::assertMatchesRegularExpression('/, HTTP out \S+ ms$/', trim($cell->filter('.jm-visually-hidden')->text()));
     }
 
     public function testACallRetriedByTheApplicationCountsOnce(): void

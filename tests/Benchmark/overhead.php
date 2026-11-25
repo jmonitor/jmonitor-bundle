@@ -14,6 +14,11 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
@@ -690,7 +695,7 @@ if (isset($bases['mysql'])) {
 
 foreach ($bases as $name => $connection) {
     $stored = fillPeriods($connection, $now, DISPLAYED);
-    foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpSection(true), new CacheSection(true), new MessagesSection(true, true), new TasksSection(true, new DeclaredTasks()), new CommandsSection(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
+    foreach ([new RequestsScreen(new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(1000), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]), 1000), new QueriesScreen(true, 100, 10), new HttpSection(true), new CacheSection(true), new MessagesSection(true, true), new TasksSection(true, new DeclaredTasks()), new CommandsSection(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
         [$milliseconds, $rows] = displayMillis($connection, $now, $screen);
         report(sprintf('display, %s, loaded database (%s)', $screen->id(), $name), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
     }

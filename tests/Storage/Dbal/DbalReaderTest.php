@@ -11,6 +11,11 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -58,13 +63,14 @@ final class DbalReaderTest extends TestCase
     {
         $this->seed($connection, $this->currentEntries());
 
-        $view = (new RequestsScreen())->build(new DbalReader($connection), Period::OneHour, self::NOW, 'total', 'desc');
+        $checks = new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(1000), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]);
+        $view = (new RequestsScreen($checks, 1000))->build(new DbalReader($connection), Period::OneHour, self::NOW, 'total', 'desc');
 
-        static::assertSame(['4', '405 ms', '1.5 s', '25 %'], array_map(static fn(Card $card): string => $card->value, $view->cards));
+        static::assertSame(['405 ms', '1.5 s', '1.5 s', '25 %', '1'], array_map(static fn(Card $card): string => $card->value, $view->cards));
         $home = $view->tables[0]->rows[1];
         static::assertSame('GET app_home', $home->attributes['data-jm-route']);
         static::assertSame(
-            ['route' => 'app_home', 'requests' => '3', 'total' => '120 ms', 'avg' => '40 ms', 'p95' => '60 ms', 'max' => '60 ms', 'sql' => '—', 'http' => '—', 'errors' => '1', 'slow' => '0', 'memory' => '2.9 KB'],
+            ['route' => 'app_home', 'requests' => '3', 'total' => '120 ms', 'avg' => '40 ms', 'p95' => '60 ms', 'max' => '60 ms', 'split' => 'PHP only', 'problems' => '', 'memory' => '2.9 KB'],
             array_map(static fn(Cell $cell): string => $cell->text, $home->cells),
         );
     }

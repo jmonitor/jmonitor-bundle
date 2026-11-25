@@ -124,9 +124,9 @@ final class EmbeddedPageTest extends WebTestCase
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
         $client->request('GET', '/hello/world');
-        $crawler = self::requestUntil($client, '/back-office/monitoring/requests?menu=3&period=6h&sort=sql&dir=asc', 'tr[data-jm-route="GET app_hello"]');
+        $crawler = self::requestUntil($client, '/back-office/monitoring/requests?menu=3&period=6h&sort=avg&dir=asc', 'tr[data-jm-route="GET app_hello"]');
 
-        static::assertSame('/back-office/monitoring/requests?menu=3&period=6h&sort=sql&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
+        static::assertSame('/back-office/monitoring/requests?menu=3&period=6h&sort=avg&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
     }
 
     public function testEmbeddedRequestsAreNotRecorded(): void

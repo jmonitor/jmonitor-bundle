@@ -127,6 +127,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->args([tagged_iterator('jmonitor.screen')]);
 
     $services->set(RequestsScreen::class)
+        ->args([service(ApplicationChecks::class), param('jmonitor.recording.slow_threshold')])
         ->tag('jmonitor.screen', ['priority' => 100]);
 
     $services->set(QueriesScreen::class)

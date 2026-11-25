@@ -198,6 +198,13 @@ final class ApplicationChecksTest extends TestCase
         ], $lines);
     }
 
+    public function testTheQueryOfACheckIsTheOneOfItsClass(): void
+    {
+        static::assertEquals((new RepeatedQueriesCheck(10))->query(Period::OneDay, self::NOW), self::checks()->query('queries.repeated', Period::OneDay, self::NOW));
+        static::assertEquals((new ServerErrorsCheck())->query(Period::OneHour, self::NOW), self::checks()->query('requests.server_errors', Period::OneHour, self::NOW));
+        static::assertNull(self::checks()->query('http.failures', Period::OneHour, self::NOW));
+    }
+
     public function testTheScreensOfTheChecksAreListedOnce(): void
     {
         static::assertSame(['requests', 'queries'], self::checks()->screens());

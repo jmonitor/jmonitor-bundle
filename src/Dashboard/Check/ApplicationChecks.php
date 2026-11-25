@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 
 final class ApplicationChecks
 {
@@ -31,6 +32,12 @@ final class ApplicationChecks
     public function screens(): array
     {
         return array_values(array_unique(array_map(static fn(CheckInterface $check): string => $check->screen(), array_values($this->checks))));
+    }
+
+    /** the read that names the first culprit of a check, null when no check has this id */
+    public function query(string $id, Period $period, int $now): ?ReportQuery
+    {
+        return isset($this->checks[$id]) ? $this->checks[$id]->query($period, $now) : null;
     }
 
     public function raised(ReaderInterface $reader, Period $period, int $now): RaisedChecks

@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Stack;
 
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
@@ -900,7 +901,7 @@ final class DisplayCostTest extends TestCase
             return $service;
         }, $services));
         $screen = new StackScreen($locator, new CardBuilder($this->clock), $this->clock, new ServiceLocator([]));
-        $screens = [new RequestsScreen(), ...($queues === null ? [] : [new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new MessagesSection(true, true, new QueuesBlocks($locator, $this->clock))])]), $screen];
+        $screens = [new RequestsScreen(new ApplicationChecks([]), 1000), ...($queues === null ? [] : [new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new MessagesSection(true, true, new QueuesBlocks($locator, $this->clock))])]), $screen];
 
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');

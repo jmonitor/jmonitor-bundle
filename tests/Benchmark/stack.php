@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
@@ -223,7 +224,7 @@ function screens(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInt
 function renderer(array|StackScreen $screens, Environment $twig, ClockInterface $clock, FixedReader $storage = new FixedReader()): PageRenderer
 {
     return new PageRenderer(
-        new ScreenRegistry([new RequestsScreen(), ...(is_array($screens) ? $screens : [$screens])]),
+        new ScreenRegistry([new RequestsScreen(new ApplicationChecks([]), 1000), ...(is_array($screens) ? $screens : [$screens])]),
         new ScreenBuilder($storage, true, $clock),
         null,
         $twig,
