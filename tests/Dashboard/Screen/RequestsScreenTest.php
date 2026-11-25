@@ -286,6 +286,12 @@ final class RequestsScreenTest extends TestCase
         static::assertSame($parts, $split->parts);
     }
 
+    public function testTheNumberOfQueriesChoosesItsDecimalsOnceRounded(): void
+    {
+        static::assertSame('SQL 5 ms · 9.9 queries', $this->table($this->build([self::splitRoute(100, 10000.0, 100, 500.0, 994.0)]))->rows[0]->cells['split']->text);
+        static::assertSame('SQL 5 ms · 10 queries', $this->table($this->build([self::splitRoute(100, 10000.0, 100, 500.0, 996.0)]))->rows[0]->cells['split']->text);
+    }
+
     public function testTheOtherRoutesFollowTheSameSplit(): void
     {
         $other = new ReportRow('h', Aggregator::OTHER, null, self::splitRoute(10, 1440.0, 10, 100.0, 50.0, 10, 570.0)->metrics);
@@ -383,6 +389,13 @@ final class RequestsScreenTest extends TestCase
         static::assertSame([], $view->checks->lines);
         static::assertNotNull($view->raised);
         static::assertTrue($view->raised->has('queries.repeated'));
+    }
+
+    public function testARepeatInACommandNamedLikeARouteDoesNotTagTheRoute(): void
+    {
+        $view = $this->build([$this->route('GET app_list')], nPlusOne: [$this->repeat(Entry::TYPE_COMMAND, 'GET app_list')]);
+
+        static::assertSame([], $this->table($view)->rows[0]->cells['problems']->tags);
     }
 
     public function testTheRepeatedQueriesAreNotReadWhenNoneIsRaised(): void

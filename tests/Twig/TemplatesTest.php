@@ -951,6 +951,25 @@ final class TemplatesTest extends TestCase
         static::assertSame('How to read this screen', $crawler->filter('section.jm-guide > h2')->text());
     }
 
+    public function testTheLinksOfAGuideItemAreSeparatedByADot(): void
+    {
+        $guide = Block::guide(new Guide([
+            new GuideItem('Where', 'the time goes.', ['Queries' => 'queries', 'Gone' => 'gone', 'Cache & HTTP' => 'cache-http', 'Stack' => 'stack/php']),
+            new GuideItem('Alone', 'one link.', ['Gone' => 'gone', 'Queries' => 'queries']),
+            new GuideItem('None', 'no link.', ['Gone' => 'gone']),
+        ]));
+
+        $items = (new Crawler($this->render('_screen.html.twig', ['page' => new Page(new StubBlockScreen('stack'), [$guide], null, '', '', []), 'path' => 'stack', 'badges' => [], 'screens' => ['stack', 'queries', 'cache-http']])))->filter('.jm-guide li');
+
+        static::assertSame('Where the time goes. Queries · Cache & HTTP · Stack', $items->eq(0)->text());
+        static::assertSame(['Queries', 'Cache & HTTP', 'Stack'], $items->eq(0)->filter('a')->each(static fn(Crawler $a): string => $a->text()));
+        static::assertSame([' · ', ' · '], $items->eq(0)->filter('span.jm-guide__separator[aria-hidden="true"]')->each(static fn(Crawler $span): string => $span->text(null, false)));
+        static::assertSame('Alone one link. Queries', $items->eq(1)->text());
+        static::assertCount(0, $items->eq(1)->filter('.jm-guide__separator'));
+        static::assertSame('None no link.', $items->eq(2)->text());
+        static::assertCount(0, $items->eq(2)->filter('a, .jm-guide__separator'));
+    }
+
     public function testALeadInASectionIsASecondLevelHeading(): void
     {
         $lead = Block::lead(new Lead('Sentence of the section', 'Detail.', [1, 3, 2], 'runs per minute', '1 hour ago'));

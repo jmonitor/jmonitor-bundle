@@ -346,7 +346,8 @@ final class RequestsScreen implements StorageScreenInterface
             : 'HTTP out ' . Format::duration($route['http']);
 
         if ($route['hasSql']) {
-            $text .= ' · ' . Format::number($route['queries'], $route['queries'] < 10 ? 1 : 0) . ' queries';
+            $queries = round($route['queries'], 1);
+            $text .= ' · ' . Format::number($queries, $queries < 10 ? 1 : 0) . ' queries';
         }
 
         return $text;

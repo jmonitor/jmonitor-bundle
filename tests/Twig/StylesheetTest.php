@@ -446,6 +446,40 @@ final class StylesheetTest extends TestCase
         }
     }
 
+    public function testARowOfCardsWithoutAWideCardSharesTheWidthEqually(): void
+    {
+        $equal = '.jm-screen > .jm-cards:not(:has(> .jm-card--wide))';
+        $four = $equal . ':has(> .jm-card:nth-child(4):last-child)';
+
+        static::assertContains(['grid-template-columns', 'minmax(0, 1.7fr) repeat(3, minmax(0, 1fr))'], self::declarationsOf('.jm-cards', null));
+        static::assertSame([['grid-template-columns', 'none'], ['grid-auto-columns', 'minmax(0, 1fr)'], ['grid-auto-flow', 'column']], self::declarationsOf($equal, null));
+        static::assertContains(['grid-template-columns', 'repeat(3, minmax(0, 1fr))'], self::declarationsOf($equal, '@media (max-width: 1080px)'));
+        static::assertContains(['grid-auto-flow', 'row'], self::declarationsOf($equal, '@media (max-width: 1080px)'));
+        static::assertContains(['grid-template-columns', 'repeat(2, minmax(0, 1fr))'], self::declarationsOf($four, '@media (max-width: 1080px)'));
+        static::assertContains(['grid-template-columns', 'repeat(2, minmax(0, 1fr))'], self::declarationsOf($equal, '@media (max-width: 720px)'));
+        foreach (['.jm-cards', $equal, $four] as $selector) {
+            static::assertContains(['grid-template-columns', 'minmax(0, 1fr)'], self::declarationsOf($selector, '@media (max-width: 380px)'), $selector);
+        }
+    }
+
+    public function testOnlyTheTitleOfAGuidedCheckIsBold(): void
+    {
+        static::assertContains(['font-weight', '600'], self::declarationsOf('.jm-check__sentence', null));
+        static::assertContains(['font-weight', '400'], self::declarationsOf('.jm-check--guided .jm-check__sentence', null));
+        static::assertContains(['color', 'var(--jm-text)'], self::declarationsOf('.jm-check--guided .jm-check__sentence', null));
+        static::assertSame([['color', 'var(--jm-text-strong)'], ['font-weight', '600']], self::declarationsOf('.jm-check--guided .jm-check__sentence strong', null));
+        static::assertSame([], self::declarationsOf('.jm-check__sentence strong', null));
+    }
+
+    public function testOnlyATableWithASplitTightensItsCells(): void
+    {
+        static::assertSame([['padding-left', '10px']], self::declarationsOf('.jm-table:has(.jm-split) :is(th, td):not(:first-child)', null));
+        static::assertSame([['padding-right', '10px']], self::declarationsOf('.jm-table:has(.jm-split) :is(th, td):not(:last-child)', null));
+        static::assertSame([['min-width', '220px']], self::declarationsOf('.jm-table:has(.jm-split) .jm-col-route', null));
+        static::assertContains(['padding', '10px 12px'], self::declarationsOf('.jm-table td', null));
+        static::assertContains(['min-width', '280px'], self::declarationsOf('.jm-col-route', null));
+    }
+
     public function testTheWordsOfASplitStayInTheScrollingBoxOfItsTable(): void
     {
         static::assertContains(['position', 'relative'], self::declarationsOf('.jm-split', null));

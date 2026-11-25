@@ -587,6 +587,12 @@ body.jm .jm-header {
     margin-bottom: 20px;
 }
 
+.jm-screen > .jm-cards:not(:has(> .jm-card--wide)) {
+    grid-template-columns: none;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+}
+
 .jm-card {
     display: flex;
     flex-direction: column;
@@ -1062,8 +1068,8 @@ body.jm .jm-section {
 .jm-bar {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
-    width: 190px;
+    gap: 8px;
+    width: 160px;
     vertical-align: middle;
 }
 
@@ -1093,7 +1099,7 @@ body.jm .jm-section {
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     max-width: 100%;
     vertical-align: middle;
 }
@@ -1119,12 +1125,24 @@ body.jm .jm-section {
 
 .jm-split__text {
     min-width: 0;
-    max-width: 180px;
+    max-width: 150px;
     overflow: hidden;
     color: var(--jm-muted);
     font-size: 13px;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.jm-table:has(.jm-split) :is(th, td):not(:first-child) {
+    padding-left: 10px;
+}
+
+.jm-table:has(.jm-split) :is(th, td):not(:last-child) {
+    padding-right: 10px;
+}
+
+.jm-table:has(.jm-split) .jm-col-route {
+    min-width: 220px;
 }
 
 .jm-tag {
@@ -1573,8 +1591,14 @@ body.jm .jm-section {
     width: 76px;
 }
 
-.jm-check__sentence strong {
-    font-weight: 700;
+.jm-check--guided .jm-check__sentence {
+    color: var(--jm-text);
+    font-weight: 400;
+}
+
+.jm-check--guided .jm-check__sentence strong {
+    color: var(--jm-text-strong);
+    font-weight: 600;
 }
 
 .jm-check__code {
@@ -2000,6 +2024,15 @@ body.jm .jm-section {
         grid-column: 1 / -1;
     }
 
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-auto-flow: row;
+    }
+
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(4):last-child) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .jm-components__grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -2042,6 +2075,10 @@ body.jm .jm-section {
 
     .jm-card:last-child:nth-child(odd of :not(.jm-card--wide)) {
         grid-column: 1 / -1;
+    }
+
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .jm-card__value {
@@ -2185,7 +2222,9 @@ body.jm .jm-section {
 }
 
 @media (max-width: 380px) {
-    .jm-cards {
+    .jm-cards,
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)),
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(4):last-child) {
         grid-template-columns: minmax(0, 1fr);
     }
 
