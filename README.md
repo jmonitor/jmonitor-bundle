@@ -255,8 +255,8 @@ The bundle can also record the HTTP requests your application serves, its consol
 The header of the page has three entries, `Application`, `Background` and `Stack`, with tabs under it:
 
 - **Application**, in five tabs:
-  - **Requests** (`/jmonitor/`, or `/jmonitor/requests` when nothing is recorded and the page opens on Stack): requests, response times (average, p95, max), SQL time and number of queries, time spent in outgoing HTTP calls (`HTTP out`), slow requests, 5xx errors and peak memory, per route.
-  - **Queries** (`/jmonitor/queries`): executions, total, average and maximum time and slow executions per SQL query, and the queries repeated within one request, command, message or task (N+1).
+  - **Requests** (`/jmonitor/`, or `/jmonitor/requests` when nothing is recorded and the page opens on Stack): per route, requests, total time, response times (average, p95, max), where the average request goes between your PHP code, SQL and outgoing HTTP calls (`HTTP out`), with the number of SQL queries per request, its problems (5xx errors, slow requests, `N+1`) and peak memory. Its key figures are the average, p95 and slowest response times, the share of 5xx errors and the number of slow requests.
+  - **Queries** (`/jmonitor/queries`): per SQL query, executions, total, average and maximum time, and its problems (slow executions, `N+1`); then the queries repeated within one request, command, message or task (N+1), with where they run. Its key figures are the number of queries, the SQL time, the slow executions and the repeated queries.
   - **Cache & HTTP** (`/jmonitor/cache-http`), in two sections:
     - `Cache` (`#jm-cache`): hits, misses, hit rate, writes and deletes, per cache pool.
     - `Outgoing HTTP` (`#jm-http`): calls, total, average and maximum time, 4xx and 5xx responses and network failures, per called host.
@@ -295,7 +295,7 @@ jmonitor:
     recording:
         enabled: ~               # default: true, except in the "test" environment
         flush_interval: 10       # seconds between two writes to the database (3600 maximum)
-        slow_threshold: 1000     # ms above which a request counts as slow
+        slow_threshold: 1000     # ms from which a request counts as slow
         ignore_routes: []        # route names not recorded, fnmatch patterns allowed (e.g. 'app_health*')
         buffer_dir: ~            # where the buffer gets its private subdirectory, must exist and be writable by every user running PHP; default: the system temporary directory
         sql:
@@ -382,7 +382,7 @@ Exceptions: only the class of the exception is kept: for a request, only when it
 
 Users: the identifier of the signed-in user (`getUserIdentifier()`, often a username or an email address) is stored in clear in your application database, in the `jmonitor_keys` table. Set `recording.users: false` to go without it. It needs the SecurityBundle. Anonymous requests are not counted, and under `switch_user` the request counts for the impersonated user. A request is attributed to a user only when your application resolved the user during that request: JMonitor never triggers a lazy authentication itself, so the public pages a signed-in user visits may not be counted.
 
-Outgoing HTTP calls: only the calls made through the `http_client` service and the scoped clients declared under `framework.http_client.scoped_clients` are seen, that is the clients your application receives by injection. A client created by hand with `HttpClient::create()`, Guzzle or curl is not seen. Only the host and port of a call are kept, never its scheme, credentials, path or query string. A retried call counts once, and its duration covers every attempt and the pauses between them. `HTTP out` adds up the durations of the calls of a request, so concurrent calls can make it longer than the request itself.
+Outgoing HTTP calls: only the calls made through the `http_client` service and the scoped clients declared under `framework.http_client.scoped_clients` are seen, that is the clients your application receives by injection. A client created by hand with `HttpClient::create()`, Guzzle or curl is not seen. Only the host and port of a call are kept, never its scheme, credentials, path or query string. A retried call counts once, and its duration covers every attempt and the pauses between them. `HTTP out` adds up the durations of the calls of a request, so concurrent calls can make it longer than the request itself; the PHP part of the average request is then 0 on the Requests screen.
 
 Cache: `cache.app`, whatever its adapter, and the pools declared under `framework.cache.pools` in YAML or PHP are counted. Not counted: the declared pools built on the system adapter (`cache.adapter.system`), those with `early_expiration_message_bus`, and the pools Symfony or other bundles create for their own use. Only counters are kept: hits, misses, writes and deletes per pool, never a key nor a value.
 
@@ -391,6 +391,21 @@ Each flush keeps the 300 most requested routes (method and route) of its batch; 
 What is recorded is buffered in files, in a subdirectory of the system temporary directory (or of `buffer_dir`) that only the user running PHP can access; the text of the recorded queries and the identifiers of the signed-in users are kept there too. When the web server and the console run as different users, each keeps and flushes its own buffer. `buffer_dir` must exist and be writable by every user that runs PHP; give it the permissions of `/tmp` (mode `1777`, sticky) rather than a plain `0777`. JMonitor never creates it: while it is missing, the system temporary directory is used instead and a warning is logged once. When that subdirectory cannot be used, nothing is recorded and the page shows "Buffer directory unusable".
 
 Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
+
+### Reading Requests and Queries
+
+The Requests and Queries screens read from top to bottom: a sentence that sums up the period, with the curve of the requests or of the queries; `Worth a look`, where each check found says what happened, why it matters and what to do, or `Nothing to flag` with what was checked; the key figures, each with its definition; the table, sorted by total time by default, with a bar on the total time; then `How to read this screen`. A screen with nothing recorded only says so.
+
+| Check | Severity | Shown on | Raised by | Threshold |
+|---|---|---|---|---|
+| `requests.server_errors` | Critical | Requests | a response with a 5xx status | none |
+| `requests.slow` | Warning | Requests | a request that took the threshold or more | `recording.slow_threshold` |
+| `queries.slow` | Warning | Queries | a query execution that took the threshold or more | `recording.sql.slow_threshold` |
+| `queries.repeated` | Warning | Queries | the same `SELECT` run the threshold number of times or more within one request, command, message or task (N+1) | `recording.sql.n_plus_one_threshold` |
+
+A check is raised as soon as one occurrence is recorded in the period shown. When it can, it names the route or query that counts the most occurrences, or, for `queries.repeated`, the route, command, message or task where a repeated query costs the most time. There is no option to silence one: `stack.ignore_checks` only applies to the checks of the Stack screen. `queries.repeated` also shows on Requests, with a link to Queries, when one of the routes listed there repeats a query.
+
+The `Requests` and `Queries` tabs carry a badge while one of their checks is raised: the number of checks and the highest severity, such as `1 warning` or `2 critical`, detailed when you hover it.
 
 ### The live stack
 
