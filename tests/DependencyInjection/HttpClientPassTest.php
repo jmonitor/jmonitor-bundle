@@ -50,6 +50,7 @@ final class HttpClientPassTest extends KernelTestCase
 
         static::assertFalse(static::getContainer()->has('http_client'));
         static::assertNotContains('http', $this->sections());
+        static::assertContains('cache', $this->sections());
         static::assertSame(200, $kernel->handle(Request::create('/hello/world'))->getStatusCode());
     }
 
