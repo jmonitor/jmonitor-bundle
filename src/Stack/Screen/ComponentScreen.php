@@ -246,6 +246,6 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
             }
         }
 
-        return new SubNav($items, $node);
+        return new SubNav(Space::Stack->label(), $items, $node);
     }
 }

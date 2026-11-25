@@ -713,6 +713,24 @@ final class PageRendererTest extends TestCase
         static::assertSame(array_fill(0, 2, 'error JMonitor could not read the navigation badge of the "watched" screen: Cache down'), $logger->messages);
     }
 
+    public function testATabBadgeThatThrowsLeavesTheTabWithoutBadge(): void
+    {
+        $logger = $this->logger();
+        $renderer = $this->renderer([new StubBlockScreen('plain'), new StubBadgeScreen('watched', new \RuntimeException('Cache down'))], logger: $logger);
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/'), 'plain', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/'), 'plain', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            $tabs = (new Crawler($html))->filter('.jm-subnav__item');
+
+            static::assertSame(['Plain', 'Watched'], $tabs->each(static fn(Crawler $item): string => $item->text()), $kind);
+            static::assertCount(0, $tabs->filter('.jm-nav__badge'), $kind);
+        }
+
+        static::assertSame(array_fill(0, 2, 'error JMonitor could not read the navigation badge of the "watched" screen: Cache down'), $logger->messages);
+    }
+
     public function testAReadingBlockMarksTheScreenAndOffersToLoadTheRest(): void
     {
         $reading = new StubBlockScreen('probe', blocks: [Block::cards([new Card('Hits', '12')]), Block::unavailable(Block::TABLE, BlockState::Reading)]);
@@ -871,7 +889,7 @@ final class PageRendererTest extends TestCase
         }
 
         $detail = new StubBlockScreen('php', blocks: [
-            Block::subnav(new SubNav([new SubNavItem('All components', 'stack'), new SubNavItem('PHP', 'stack/php', true)])),
+            Block::subnav(new SubNav('Stack', [new SubNavItem('All components', 'stack'), new SubNavItem('PHP', 'stack/php', true)])),
             Block::cards([new Card('Hits', '12')]),
         ], space: Space::Stack);
         $renderer = $this->renderer([new StubScreen('requests'), new StubScreen('queries'), new StubParentScreen('stack', ['php' => $detail], space: Space::Stack)]);

@@ -64,7 +64,7 @@ final class BlockTest extends TestCase
      */
     public static function stackBlocks(): iterable
     {
-        $subnav = new SubNav([]);
+        $subnav = new SubNav('Stack', []);
         $notice = new Notice('warn', 'Title');
         $checks = new CheckList([]);
         $components = new ComponentCards([]);

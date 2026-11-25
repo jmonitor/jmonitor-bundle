@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Twig;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 
@@ -213,6 +214,30 @@ final class StylesheetTest extends TestCase
         static::assertNotEmpty($found);
     }
 
+    /**
+     * @return iterable<string, array{list<string>, string}>
+     */
+    public static function navigationLinks(): iterable
+    {
+        $header = ['div.jm', 'div.jm-header', 'div.jm-header__inner'];
+        $tabs = ['div.jm', 'div.jm-main', 'div', 'div.jm-screen', 'div.jm-subbar', 'nav.jm-subnav'];
+
+        yield 'space' => [[...$header, 'nav.jm-nav', 'a.jm-nav__item'], 'var(--jm-muted)'];
+        yield 'current space' => [[...$header, 'nav.jm-nav', 'a.jm-nav__item[aria-current="page"]'], 'var(--jm-text-strong)'];
+        yield 'tab' => [[...$tabs, 'a.jm-subnav__item'], 'var(--jm-muted)'];
+        yield 'current tab' => [[...$tabs, 'a.jm-subnav__item[aria-current="page"]'], 'var(--jm-text-strong)'];
+        yield 'brand' => [[...$header, 'a.jm-brand'], 'var(--jm-text-strong)'];
+    }
+
+    /**
+     * @param list<string> $chain the element and its ancestors, outermost first
+     */
+    #[DataProvider('navigationLinks')]
+    public function testALinkOfTheNavigationIsMutedUnlessItIsCurrent(array $chain, string $colour): void
+    {
+        static::assertSame($colour, self::colourOf(array_map(self::compound(...), $chain)));
+    }
+
     public function testEveryTagOfTheTemplatesHasItsBrowserDefaultsRestatedForHostPages(): void
     {
         $restated = [];
@@ -410,6 +435,168 @@ final class StylesheetTest extends TestCase
         }
 
         return $end;
+    }
+
+    /**
+     * The colour the cascade gives to the last element of the chain, outside any at-rule and any user state.
+     *
+     * @param non-empty-list<array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool}> $chain
+     */
+    private static function colourOf(array $chain): ?string
+    {
+        $winner = null;
+        $best = [-1, -1, -1];
+
+        foreach (self::rules() as $rule) {
+            $colour = null;
+            foreach ($rule['declarations'] as [$property, $value]) {
+                if ($property === 'color') {
+                    $colour = $value;
+                }
+            }
+
+            if ($rule['at'] !== null || $colour === null) {
+                continue;
+            }
+
+            foreach ($rule['selectors'] as $selector) {
+                $parts = self::split((string) preg_replace('/\s*([>+~])\s*/', ' $1 ', $selector), ' ');
+                $specificity = self::specificity($parts);
+                if ($specificity >= $best && self::selectorMatches($parts, $chain)) {
+                    $best = $specificity;
+                    $winner = $colour;
+                }
+            }
+        }
+
+        return $winner;
+    }
+
+    /**
+     * @param list<string>                                                                                                                    $parts compounds and combinators
+     * @param list<array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool}> $chain
+     */
+    private static function selectorMatches(array $parts, array $chain): bool
+    {
+        $compound = array_pop($parts);
+        $element = array_pop($chain);
+
+        if ($compound === null || $element === null || !self::compoundMatches(self::compound($compound), $element)) {
+            return false;
+        }
+
+        if ($parts === []) {
+            return true;
+        }
+
+        $combinator = end($parts);
+        if ($combinator === '>') {
+            array_pop($parts);
+
+            return self::selectorMatches($parts, $chain);
+        }
+
+        if (\in_array($combinator, ['+', '~'], true)) {
+            return false;
+        }
+
+        while ($chain !== []) {
+            if (self::selectorMatches($parts, $chain)) {
+                return true;
+            }
+            array_pop($chain);
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool} $compound
+     * @param array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool} $element
+     */
+    private static function compoundMatches(array $compound, array $element): bool
+    {
+        if ($compound['other'] || ($compound['tag'] !== null && $compound['tag'] !== '*' && $compound['tag'] !== $element['tag'])) {
+            return false;
+        }
+
+        foreach ($compound['classes'] as $class) {
+            if (!\in_array($class, $element['classes'], true)) {
+                return false;
+            }
+        }
+
+        foreach ($compound['attributes'] as $name => $value) {
+            if (!\array_key_exists($name, $element['attributes']) || ($value !== null && $element['attributes'][$name] !== $value)) {
+                return false;
+            }
+        }
+
+        foreach ($compound['where'] as $list) {
+            if (array_filter(self::split($list, ','), static fn(string $alternative): bool => self::compoundMatches(self::compound($alternative), $element)) === []) {
+                return false;
+            }
+        }
+
+        foreach ($compound['not'] as $list) {
+            if (array_filter(self::split($list, ','), static fn(string $alternative): bool => self::compoundMatches(self::compound($alternative), $element)) !== []) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool} other: a pseudo-class or a pseudo-element this test does not read
+     */
+    private static function compound(string $text): array
+    {
+        $compound = ['tag' => null, 'classes' => [], 'attributes' => [], 'where' => [], 'not' => [], 'other' => false];
+
+        preg_match_all('/\G(?:(?<tag>[a-z][a-z0-9]*|\*)|\.(?<class>[a-zA-Z0-9_-]+)|\[(?<attribute>[a-z-]+)(?:="(?<value>[^"]*)")?\]|:(?<function>where|is|not|has)\((?<inner>(?:[^()]|\((?&inner)\))*)\)|(?<pseudo>::?[a-z-]+(?:\([^)]*\))?))/', $text, $matches, \PREG_SET_ORDER | \PREG_UNMATCHED_AS_NULL);
+        static::assertSame($text, implode('', array_map(static fn(array $match): string => (string) $match[0], $matches)), 'Unread selector: ' . $text);
+
+        foreach ($matches as $match) {
+            match (true) {
+                $match['tag'] !== null => $compound['tag'] = $match['tag'],
+                $match['class'] !== null => $compound['classes'][] = $match['class'],
+                $match['attribute'] !== null => $compound['attributes'][$match['attribute']] = $match['value'],
+                $match['function'] === 'not' => $compound['not'][] = (string) $match['inner'],
+                $match['function'] === 'where', $match['function'] === 'is' => $compound['where'][] = (string) $match['inner'],
+                default => $compound['other'] = true,
+            };
+        }
+
+        return $compound;
+    }
+
+    /**
+     * @param list<string> $parts compounds and combinators
+     *
+     * @return array{int, int, int}
+     */
+    private static function specificity(array $parts): array
+    {
+        $specificity = [0, 0, 0];
+
+        foreach ($parts as $part) {
+            if (\in_array($part, ['>', '+', '~'], true)) {
+                continue;
+            }
+
+            $compound = self::compound($part);
+            $specificity[2] += $compound['tag'] !== null && $compound['tag'] !== '*' ? 1 : 0;
+            $specificity[1] += \count($compound['classes']) + \count($compound['attributes']);
+            preg_match_all('/(?<!:):(?!where\(|is\(|not\(|has\()[a-z-]+/', $part, $pseudo);
+            $specificity[1] += \count($pseudo[0]);
+            foreach ($compound['not'] as $list) {
+                $inner = array_map(static fn(string $alternative): array => self::specificity([$alternative]), self::split($list, ','));
+                $specificity = array_map(static fn(int $a, int $b): int => $a + $b, $specificity, max($inner));
+            }
+        }
+
+        return $specificity;
     }
 
     /**

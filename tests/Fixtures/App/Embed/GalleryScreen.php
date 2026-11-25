@@ -90,7 +90,7 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
         $info = new Mark('info', 'Info');
 
         return [
-            Block::subnav(new SubNav([
+            Block::subnav(new SubNav('Gallery', [
                 new SubNavItem('Overview', 'gallery', true),
                 new SubNavItem('Server', 'gallery', false, $healthy),
                 new SubNavItem('PHP', 'gallery', false, $warning),

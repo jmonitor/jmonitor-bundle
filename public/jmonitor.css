@@ -140,10 +140,6 @@ body.jm {
     margin: 0;
 }
 
-.jm a {
-    color: inherit;
-}
-
 .jm code {
     font-family: var(--jm-font-mono);
     font-size: .92em;
@@ -179,6 +175,7 @@ body.jm {
 }
 
 .jm :where(a) {
+    color: inherit;
     font-weight: inherit;
     text-underline-offset: auto;
 }
@@ -1401,6 +1398,10 @@ body.jm .jm-section {
 
 .jm-component__link {
     text-decoration: none;
+}
+
+.jm-component__link:hover {
+    color: inherit;
 }
 
 .jm-component__link::after {

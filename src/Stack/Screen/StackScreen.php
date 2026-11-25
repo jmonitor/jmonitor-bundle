@@ -109,7 +109,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
 
         if ($state->error !== null) {
             return [
-                Block::subnav(new SubNav([StackScreenParts::overview(true)], $state->node)),
+                Block::subnav(new SubNav(Space::Stack->label(), [StackScreenParts::overview(true)], $state->node)),
                 Block::notice(StackScreenParts::engineFailure($state->error)),
             ];
         }
@@ -168,7 +168,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             $items[] = new SubNavItem($component->component->label(), StackScreenParts::path($component->component), false, Marks::verdict($health->componentVerdict($component->component)));
         }
 
-        return new SubNav($items, $state->node);
+        return new SubNav(Space::Stack->label(), $items, $state->node);
     }
 
     private function componentCards(StackState $state, StackHealth $health): ComponentCards

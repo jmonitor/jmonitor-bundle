@@ -240,14 +240,14 @@ final class PageRenderer
 
         $query = $page->period === null ? [] : ['period' => $page->period->label()];
 
-        return $page->withTabs(new SubNav(array_map(fn(ScreenInterface $screen): SubNavItem => new SubNavItem(
+        return $page->withTabs(new SubNav($root->space()->label(), array_map(fn(ScreenInterface $screen): SubNavItem => new SubNavItem(
             $screen->label(),
             $screen->id(),
             $screen->id() === $root->id(),
             null,
             $query,
             $screen instanceof NavBadgeScreenInterface ? $this->badge($screen) : null,
-        ), $screens), null, $root->space()->label()));
+        ), $screens)));
     }
 
     private function badge(NavBadgeScreenInterface $screen): ?NavBadge

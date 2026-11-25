@@ -332,7 +332,7 @@ final class TemplatesTest extends TestCase
     public function testATabLabelAndItsBadgeAreEscaped(): void
     {
         $h = self::HOSTILE;
-        $tabs = new SubNav([new SubNavItem($h, 'probe', true, null, ['period' => $h], new NavBadge($h, 'warn', $h)), new SubNavItem('Other', 'other')], name: $h);
+        $tabs = new SubNav($h, [new SubNavItem($h, 'probe', true, null, ['period' => $h], new NavBadge($h, 'warn', $h)), new SubNavItem('Other', 'other')]);
         $page = (new Page(new StubBlockScreen(), [], null, '', '', []))->withTabs($tabs);
 
         $html = $this->render('_screen.html.twig', ['page' => $page, 'path' => 'probe', 'badges' => []]);
@@ -354,7 +354,7 @@ final class TemplatesTest extends TestCase
         $h = self::HOSTILE;
         $mark = new Mark('warn', $h);
 
-        yield 'subnav' => [Block::subnav(new SubNav([new SubNavItem($h, $h, true, $mark), new SubNavItem($h, $h)], $h))];
+        yield 'subnav' => [Block::subnav(new SubNav($h, [new SubNavItem($h, $h, true, $mark), new SubNavItem($h, $h)], $h))];
         yield 'notice' => [Block::notice(new Notice('bad', $h, $h))];
         yield 'checks' => [Block::checks(new CheckList([new CheckLine($h, $mark, $h, $h, $h, $h, $h), new CheckLine($h, $mark, $h, $h, $h)]))];
         yield 'empty checks' => [Block::checks(new CheckList([], $h, $h))];
@@ -384,7 +384,7 @@ final class TemplatesTest extends TestCase
             $expected = '<span class="jm-mark jm-mark--' . $tone . '">Word ' . $tone . '</span>';
 
             foreach ([
-                Block::subnav(new SubNav([new SubNavItem('PHP', 'stack/php', false, $mark)])),
+                Block::subnav(new SubNav('Stack', [new SubNavItem('PHP', 'stack/php', false, $mark)])),
                 Block::checks(new CheckList([new CheckLine('php.x', $mark, 'Sentence', 'Explanation', 'PHP')])),
                 Block::components(new ComponentCards([new ComponentCard('php', 'PHP', $mark)])),
                 Block::components(new ComponentCards([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), badges: [$mark])])),
@@ -497,7 +497,7 @@ final class TemplatesTest extends TestCase
     {
         $warning = new Mark('warn', 'Warning');
         $crawler = new Crawler($this->screen(
-            Block::subnav(new SubNav([new SubNavItem('PHP', 'stack/php', false, $warning)])),
+            Block::subnav(new SubNav('Stack', [new SubNavItem('PHP', 'stack/php', false, $warning)])),
             Block::notice(new Notice('bad', 'The stack could not be read')),
             Block::checks(new CheckList([new CheckLine('php.x', $warning, 'Sentence', 'Explanation', 'PHP', 'stack/php', '12 s ago')])),
             Block::components(new ComponentCards([new ComponentCard('php', 'PHP', $warning, version: '8.2.29', badges: [new Mark('warn', 'Security fixes only')])])),
@@ -540,8 +540,8 @@ final class TemplatesTest extends TestCase
 
     public function testTheNodeIsNamedOnceAndItsChangeNoticeStartsHidden(): void
     {
-        $html = $this->screen(Block::subnav(new SubNav([new SubNavItem('Overview', 'stack', true)], 'web-1')));
-        $without = $this->screen(Block::subnav(new SubNav([new SubNavItem('Overview', 'stack', true)])));
+        $html = $this->screen(Block::subnav(new SubNav('Stack', [new SubNavItem('Overview', 'stack', true)], 'web-1')));
+        $without = $this->screen(Block::subnav(new SubNav('Stack', [new SubNavItem('Overview', 'stack', true)])));
 
         static::assertStringContainsString('<nav class="jm-subnav" aria-label="Stack">', $html);
         static::assertStringContainsString('<p class="jm-node" data-jm-node="web-1">Answered by <strong>web-1</strong><span data-jm-node-changed hidden> — another web server answered this refresh</span></p>', $html);
@@ -553,7 +553,7 @@ final class TemplatesTest extends TestCase
     public function testLinksOfABlockGoThroughTheHostUrls(): void
     {
         $crawler = new Crawler($this->screen(
-            Block::subnav(new SubNav([new SubNavItem('Overview', 'stack', true), new SubNavItem('PHP', 'stack/php')])),
+            Block::subnav(new SubNav('Stack', [new SubNavItem('Overview', 'stack', true), new SubNavItem('PHP', 'stack/php')])),
             Block::checks(new CheckList([new CheckLine('php.x', new Mark('warn', 'Warning'), 'Sentence', 'Explanation', 'PHP', 'stack/php')])),
             Block::components(new ComponentCards([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), path: 'stack/php')])),
         ));

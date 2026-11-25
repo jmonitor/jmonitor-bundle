@@ -292,8 +292,8 @@ final class EmbeddedPageTest extends WebTestCase
         foreach (['bad', 'warn', 'ok', 'unknown', 'info'] as $tone) {
             static::assertGreaterThan(0, $screen->filter('.jm-mark--' . $tone)->count(), $tone);
         }
-        static::assertStringStartsWith('/back-office/monitoring/gallery?', (string) $crawler->filter('.jm-subnav__item[aria-current="page"]')->attr('href'));
-        static::assertCount(1, $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge'));
+        static::assertStringStartsWith('/back-office/monitoring/gallery?', (string) $crawler->filter('nav.jm-subnav[aria-label="Application"] [aria-current="page"]')->attr('href'));
+        static::assertCount(1, $crawler->filter('nav.jm-subnav[aria-label="Application"] [aria-current="page"] .jm-nav__badge'));
     }
 
     public function testTheGalleryShowsASectionInEachState(): void
@@ -352,7 +352,7 @@ final class EmbeddedPageTest extends WebTestCase
         for ($i = 0; $i < 2; ++$i) {
             $crawler = $client->request('GET', '/back-office/monitoring/gallery');
             static::assertResponseIsSuccessful();
-            $seen[] = [(int) $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent, (string) $crawler->filter('.jm-node')->attr('data-jm-node')];
+            $seen[] = [(int) $crawler->filter('nav.jm-subnav[aria-label="Application"] [aria-current="page"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent, (string) $crawler->filter('.jm-node')->attr('data-jm-node')];
         }
 
         static::assertSame($seen[0][0] + 1, $seen[1][0]);

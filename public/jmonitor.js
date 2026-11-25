@@ -6,6 +6,7 @@
     var FAST_DELAY = 2000;
     var FAST_TRIES = 5;
     var PAGE_PARAMETERS = ['period', 'sort', 'dir'];
+    var ROWS = '.jm-subnav, .jm-instances__row';
     var root = document.querySelector('[data-jm-live]');
 
     revealCurrentScreen(document.querySelector('.jm-nav'));
@@ -178,6 +179,25 @@
         }
     }
 
+    function focusedRow() {
+        var active = document.activeElement;
+        var row = active && content.contains(active) ? active.closest(ROWS) : null;
+
+        return row ? { index: Array.prototype.indexOf.call(content.querySelectorAll(ROWS), row), scrollLeft: row.scrollLeft } : null;
+    }
+
+    function revealCurrentRows(kept) {
+        var rows = content.querySelectorAll(ROWS);
+
+        for (var r = 0; r < rows.length; r++) {
+            if (!rows[r].contains(document.activeElement)) {
+                reveal(rows[r], rows[r].querySelector('[aria-current]'));
+            } else if (kept && kept.index === r) {
+                rows[r].scrollLeft = kept.scrollLeft;
+            }
+        }
+    }
+
     function replaceContent(html) {
         var wraps = content.querySelectorAll('.jm-table-wrap');
         var scrollLefts = [];
@@ -185,6 +205,7 @@
             scrollLefts.push(wraps[w].scrollLeft);
         }
         var focused = focusedIdentity();
+        var row = focusedRow();
         var opened = openKeys();
         var node = currentNode();
 
@@ -196,9 +217,8 @@
             wraps[w].scrollLeft = scrollLefts[w];
         }
 
-        revealCurrentTabs(content);
-        revealCurrentInstances(content);
         restoreFocus(focused);
+        revealCurrentRows(row);
         fillSlots();
         tellNodeChange(node);
 

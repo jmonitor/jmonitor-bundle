@@ -11,8 +11,8 @@ final class SubNav
      * @param ?string          $node  the web server that answered
      */
     public function __construct(
+        public readonly string $name,
         public readonly array $items,
         public readonly ?string $node = null,
-        public readonly string $name = 'Stack',
     ) {}
 }
