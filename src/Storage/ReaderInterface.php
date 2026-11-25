@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Storage;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
-use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\Totals;
 
 interface ReaderInterface
 {
@@ -21,9 +21,12 @@ interface ReaderInterface
     public function labels(array $keys): array;
 
     /**
-     * @param non-empty-list<string> $metricTypes
+     * A type without data in the period is in neither list of the totals.
      *
-     * @return array<string, MetricValue> metric type => total over every key in the period, without the types that have none
+     * @param non-empty-list<string> $metricTypes
+     * @param list<string>           $keyed       those of $metricTypes also wanted key by key
+     *
+     * @throws \InvalidArgumentException when a type of $keyed is not in $metricTypes
      */
-    public function totals(Period $period, int $now, array $metricTypes): array;
+    public function totals(Period $period, int $now, array $metricTypes, array $keyed = []): Totals;
 }

@@ -21,12 +21,14 @@ use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Recording\Entry;
+use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
+use Jmonitor\JmonitorBundle\Storage\Read\Totals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -174,7 +176,7 @@ final class DbalReaderTest extends TestCase
             new Aggregate(Period::OneHour, $bucket, Metric::REQUEST_MEMORY, 'GET app_home', 3, 6000.0, 3000.0),
         ]);
 
-        $totals = $this->totals($connection, [Metric::REQUEST_DURATION, Metric::REQUEST_SLOW]);
+        $totals = $this->totals($connection, [Metric::REQUEST_DURATION, Metric::REQUEST_SLOW])->types;
 
         ksort($totals, \SORT_STRING);
         static::assertSame(
@@ -188,7 +190,7 @@ final class DbalReaderTest extends TestCase
     {
         $this->store($connection, [new Aggregate(Period::OneHour, Period::OneHour->bucketFor(self::NOW), Metric::REQUEST_DURATION, 'GET app_home', 1, 20.0, 20.0)]);
 
-        static::assertSame([Metric::REQUEST_DURATION], array_keys($this->totals($connection, [Metric::QUERY_SLOW, Metric::REQUEST_DURATION, 'unknown.type'])));
+        static::assertSame([Metric::REQUEST_DURATION], array_keys($this->totals($connection, [Metric::QUERY_SLOW, Metric::REQUEST_DURATION, 'unknown.type'])->types));
     }
 
     #[DataProvider('connections')]
@@ -202,7 +204,7 @@ final class DbalReaderTest extends TestCase
             new Aggregate(Period::OneDay, Period::OneDay->bucketFor(self::NOW), Metric::REQUEST_DURATION, 'GET app_home', 4, 400.0, 100.0),
         ]);
 
-        $total = $this->totals($connection, [Metric::REQUEST_DURATION], $period)[Metric::REQUEST_DURATION] ?? null;
+        $total = $this->totals($connection, [Metric::REQUEST_DURATION], period: $period)->types[Metric::REQUEST_DURATION] ?? null;
 
         static::assertNotNull($total);
         static::assertSame([2, 20.0, 10.0], [$total->count, $total->sum, $total->max]);
@@ -213,10 +215,99 @@ final class DbalReaderTest extends TestCase
     {
         $this->store($connection, [new Aggregate(Period::OneHour, Period::OneHour->bucketFor(self::NOW), Metric::REQUEST_SLOW, 'GET app_home', 1, 600.0, 600.0)]);
 
-        $total = $this->totals($connection, [Metric::REQUEST_SLOW, Metric::REQUEST_SLOW])[Metric::REQUEST_SLOW] ?? null;
+        $total = $this->totals($connection, [Metric::REQUEST_SLOW, Metric::REQUEST_SLOW])->types[Metric::REQUEST_SLOW] ?? null;
 
         static::assertNotNull($total);
         static::assertSame([1, 600.0, 600.0], [$total->count, $total->sum, $total->max]);
+    }
+
+    #[DataProvider('connections')]
+    public function testTotalsGiveTheKeysOfTheKeyedTypes(Connection $connection): void
+    {
+        $bucket = Period::OneHour->bucketFor(self::NOW);
+        $this->store($connection, [
+            new Aggregate(Period::OneHour, $bucket, Metric::CACHE_HIT, 'cache.app', 8, 0.0, 0.0),
+            new Aggregate(Period::OneHour, $bucket - 60, Metric::CACHE_HIT, 'cache.app', 2, 0.0, 0.0),
+            new Aggregate(Period::OneHour, $bucket - 3600, Metric::CACHE_HIT, 'cache.app', 50, 0.0, 0.0),
+            new Aggregate(Period::OneHour, $bucket, Metric::CACHE_HIT, 'cache.users', 3, 0.0, 0.0),
+            new Aggregate(Period::OneHour, $bucket, Metric::CACHE_MISS, 'cache.users', 9, 0.0, 0.0),
+            new Aggregate(Period::OneHour, $bucket, Metric::REQUEST_SLOW, 'GET app_home', 1, 900.0, 900.0),
+            new Aggregate(Period::OneHour, $bucket, Metric::REQUEST_SLOW, 'GET app_list', 2, 1300.0, 700.0),
+        ]);
+        $app = AggregatesTable::keyHash('cache.app');
+        $users = AggregatesTable::keyHash('cache.users');
+
+        $mixed = $this->totals($connection, [Metric::REQUEST_SLOW, Metric::CACHE_HIT, Metric::CACHE_MISS], [Metric::CACHE_HIT, Metric::CACHE_MISS]);
+
+        static::assertSame(
+            [Metric::CACHE_HIT => [13, 0.0, 0.0], Metric::CACHE_MISS => [9, 0.0, 0.0], Metric::REQUEST_SLOW => [3, 2200.0, 900.0]],
+            self::flat($mixed->types),
+        );
+        static::assertSame(
+            [Metric::CACHE_HIT => self::byKey([$app => [10, 0.0, 0.0], $users => [3, 0.0, 0.0]]), Metric::CACHE_MISS => [$users => [9, 0.0, 0.0]]],
+            self::flatKeys($mixed->keys),
+        );
+
+        $keyedOnly = $this->totals($connection, [Metric::CACHE_HIT, Metric::CACHE_MISS], [Metric::CACHE_MISS, Metric::CACHE_HIT]);
+
+        static::assertSame([Metric::CACHE_HIT => [13, 0.0, 0.0], Metric::CACHE_MISS => [9, 0.0, 0.0]], self::flat($keyedOnly->types));
+        static::assertSame(self::flatKeys($mixed->keys), self::flatKeys($keyedOnly->keys));
+    }
+
+    #[DataProvider('connections')]
+    public function testTheKeyedTotalsLeaveTheOtherKeyOutButCountItInTheType(Connection $connection): void
+    {
+        $bucket = Period::OneHour->bucketFor(self::NOW);
+        $this->store($connection, [
+            new Aggregate(Period::OneHour, $bucket, Metric::HTTP_DURATION, 'api.example.com', 4, 400.0, 150.0),
+            new Aggregate(Period::OneHour, $bucket - 60, Metric::HTTP_DURATION, 'api.example.com', 1, 50.0, 50.0),
+            new Aggregate(Period::OneHour, $bucket, Metric::HTTP_DURATION, Aggregator::OTHER, 2, 900.0, 800.0),
+            new Aggregate(Period::OneHour, $bucket, Metric::HTTP_FAILED, Aggregator::OTHER, 1, 0.0, 0.0),
+        ]);
+
+        $totals = $this->totals($connection, [Metric::HTTP_DURATION, Metric::HTTP_FAILED], [Metric::HTTP_DURATION, Metric::HTTP_FAILED]);
+
+        static::assertSame([Metric::HTTP_DURATION => [7, 1350.0, 800.0], Metric::HTTP_FAILED => [1, 0.0, 0.0]], self::flat($totals->types));
+        static::assertSame([Metric::HTTP_DURATION => [AggregatesTable::keyHash('api.example.com') => [5, 450.0, 150.0]]], self::flatKeys($totals->keys));
+    }
+
+    #[DataProvider('connections')]
+    public function testAKeyedTypeWithoutDataIsLeftOut(Connection $connection): void
+    {
+        $bucket = Period::OneHour->bucketFor(self::NOW);
+        $this->store($connection, [
+            new Aggregate(Period::OneHour, $bucket, Metric::CACHE_HIT, 'cache.app', 5, 0.0, 0.0),
+            new Aggregate(Period::OneHour, $bucket, Metric::REQUEST_SLOW, 'GET app_home', 1, 900.0, 900.0),
+            new Aggregate(Period::OneDay, Period::OneDay->bucketFor(self::NOW), Metric::CACHE_MISS, 'cache.app', 5, 0.0, 0.0),
+        ]);
+
+        $totals = $this->totals($connection, [Metric::REQUEST_SLOW, Metric::QUERY_SLOW, Metric::CACHE_HIT, Metric::CACHE_MISS], [Metric::CACHE_HIT, Metric::CACHE_MISS]);
+
+        static::assertSame([Metric::CACHE_HIT, Metric::REQUEST_SLOW], self::sortedKeys($totals->types));
+        static::assertSame([Metric::CACHE_HIT], array_keys($totals->keys));
+
+        $nothing = $this->totals($connection, [Metric::REQUEST_SLOW, Metric::CACHE_MISS], [Metric::CACHE_MISS]);
+
+        static::assertSame([Metric::REQUEST_SLOW], array_keys($nothing->types));
+        static::assertSame([], $nothing->keys);
+    }
+
+    #[DataProvider('connections')]
+    public function testTotalsIgnoreAKeyedTypeAskedTwice(Connection $connection): void
+    {
+        $this->store($connection, [new Aggregate(Period::OneHour, Period::OneHour->bucketFor(self::NOW), Metric::CACHE_HIT, 'cache.app', 5, 0.0, 0.0)]);
+
+        $totals = $this->totals($connection, [Metric::CACHE_HIT, Metric::REQUEST_SLOW, Metric::CACHE_HIT], [Metric::CACHE_HIT, Metric::CACHE_HIT]);
+
+        static::assertSame([Metric::CACHE_HIT => [5, 0.0, 0.0]], self::flat($totals->types));
+        static::assertSame([Metric::CACHE_HIT => [AggregatesTable::keyHash('cache.app') => [5, 0.0, 0.0]]], self::flatKeys($totals->keys));
+    }
+
+    public function testAKeyedTypeThatIsNotAskedIsRefused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        (new DbalReader(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true])))->totals(Period::OneHour, self::NOW, [Metric::CACHE_HIT], [Metric::CACHE_MISS]);
     }
 
     /** @return array<string, array{Connection, StatementRecorder}> */
@@ -238,12 +329,46 @@ final class DbalReaderTest extends TestCase
         static::assertCount(2, $recorder->statements);
     }
 
+    #[DataProvider('recordedConnections')]
+    public function testTotalsReadInOneStatementWithKeyedTypes(Connection $connection, StatementRecorder $recorder): void
+    {
+        $this->store($connection, [new Aggregate(Period::OneHour, Period::OneHour->bucketFor(self::NOW), Metric::CACHE_HIT, 'cache.app', 5, 0.0, 0.0)]);
+        $recorder->statements = [];
+
+        $this->totals($connection, [Metric::REQUEST_SLOW, Metric::QUERY_SLOW, Metric::CACHE_HIT, Metric::CACHE_MISS], [Metric::CACHE_HIT, Metric::CACHE_MISS]);
+        static::assertCount(1, $recorder->statements);
+        static::assertStringContainsString(' UNION ALL ', $recorder->statements[0]['sql']);
+
+        $this->totals($connection, [Metric::CACHE_HIT, Metric::CACHE_MISS], [Metric::CACHE_HIT, Metric::CACHE_MISS]);
+        static::assertCount(2, $recorder->statements);
+        static::assertStringNotContainsString('UNION', $recorder->statements[1]['sql']);
+    }
+
+    #[DataProvider('recordedConnections')]
+    public function testTotalsWithoutKeyedTypeRunTheSameStatementAsBefore(Connection $connection, StatementRecorder $recorder): void
+    {
+        $this->store($connection, [new Aggregate(Period::OneHour, Period::OneHour->bucketFor(self::NOW), Metric::REQUEST_SLOW, 'GET app_home', 1, 900.0, 900.0)]);
+        $recorder->statements = [];
+
+        $this->totals($connection, [Metric::REQUEST_SLOW, Metric::QUERY_SLOW]);
+        $this->totals($connection, [Metric::REQUEST_SLOW, Metric::QUERY_SLOW], []);
+
+        $expected = 'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max'
+            . ' FROM jmonitor_aggregates WHERE period = ? AND bucket > ? AND metric_type IN (?, ?) GROUP BY metric_type';
+        static::assertSame([$expected, $expected], array_column($recorder->statements, 'sql'));
+        static::assertSame(
+            [3600, Period::OneHour->bucketFor(self::NOW) - 3600, Metric::REQUEST_SLOW, Metric::QUERY_SLOW],
+            array_values($recorder->statements[0]['params']),
+        );
+    }
+
     #[DataProvider('connections')]
     public function testTotalsWithoutTheTableAreEmpty(Connection $connection): void
     {
         ConnectionProvider::dropTables($connection);
 
-        static::assertSame([], $this->totals($connection, [Metric::REQUEST_DURATION]));
+        static::assertEquals(new Totals(), $this->totals($connection, [Metric::REQUEST_DURATION]));
+        static::assertEquals(new Totals(), $this->totals($connection, [Metric::REQUEST_DURATION, Metric::CACHE_HIT], [Metric::CACHE_HIT]));
     }
 
     public function testTotalsOfNoTypeAreRefused(): void
@@ -255,12 +380,62 @@ final class DbalReaderTest extends TestCase
 
     /**
      * @param non-empty-list<string> $metricTypes
-     *
-     * @return array<string, MetricValue>
+     * @param list<string>           $keyed
      */
-    private function totals(Connection $connection, array $metricTypes, Period $period = Period::OneHour): array
+    private function totals(Connection $connection, array $metricTypes, array $keyed = [], Period $period = Period::OneHour): Totals
     {
-        return (new DbalReader($connection))->totals($period, self::NOW, $metricTypes);
+        return (new DbalReader($connection))->totals($period, self::NOW, $metricTypes, $keyed);
+    }
+
+    /**
+     * @param array<string, MetricValue> $values
+     *
+     * @return array<string, array{int, float, float}> sorted by metric type
+     */
+    private static function flat(array $values): array
+    {
+        ksort($values, \SORT_STRING);
+
+        return array_map(static fn(MetricValue $value): array => [$value->count, $value->sum, $value->max], $values);
+    }
+
+    /**
+     * @param array<string, array<string, MetricValue>> $keys
+     *
+     * @return array<string, array<string, array{int, float, float}>> sorted by metric type and key hash
+     */
+    private static function flatKeys(array $keys): array
+    {
+        ksort($keys, \SORT_STRING);
+
+        return array_map(self::flat(...), $keys);
+    }
+
+    /**
+     * @template T
+     *
+     * @param array<string, T> $values
+     *
+     * @return array<string, T>
+     */
+    private static function byKey(array $values): array
+    {
+        ksort($values, \SORT_STRING);
+
+        return $values;
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     *
+     * @return list<string>
+     */
+    private static function sortedKeys(array $values): array
+    {
+        $keys = array_map('strval', array_keys($values));
+        sort($keys, \SORT_STRING);
+
+        return $keys;
     }
 
     /** @param list<Aggregate> $aggregates */

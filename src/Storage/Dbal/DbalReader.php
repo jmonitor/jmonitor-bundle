@@ -14,6 +14,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
+use Jmonitor\JmonitorBundle\Storage\Read\Totals;
 
 final class DbalReader implements ReaderInterface
 {
@@ -75,7 +76,7 @@ final class DbalReader implements ReaderInterface
         return $labels;
     }
 
-    public function totals(Period $period, int $now, array $metricTypes): array
+    public function totals(Period $period, int $now, array $metricTypes, array $keyed = []): Totals
     {
         // @phpstan-ignore identical.alwaysFalse (the type is only documented)
         if ($metricTypes === []) {
@@ -83,25 +84,64 @@ final class DbalReader implements ReaderInterface
         }
 
         $metricTypes = array_values(array_unique($metricTypes));
+        $keyed = array_values(array_unique($keyed));
+
+        if (array_diff($keyed, $metricTypes) !== []) {
+            throw new \InvalidArgumentException('Only an asked metric type can be read key by key.');
+        }
+
         [$periodSeconds, $since] = self::window($period, $now);
+        $ordinary = array_values(array_diff($metricTypes, $keyed));
+
+        if ($keyed === []) {
+            $sql = self::totalsSelect('metric_type', \count($ordinary), 'metric_type');
+            $params = [$periodSeconds, $since, ...$ordinary];
+        } else {
+            $sql = self::totalsSelect('metric_type, key_hash', \count($keyed), 'metric_type, key_hash');
+            $params = [$periodSeconds, $since, ...$keyed];
+
+            if ($ordinary !== []) {
+                $sql = self::totalsSelect("metric_type, '' AS key_hash", \count($ordinary), 'metric_type') . ' UNION ALL ' . $sql;
+                $params = [$periodSeconds, $since, ...$ordinary, ...$params];
+            }
+        }
 
         try {
-            $rows = $this->connection->fetchAllAssociative(
-                'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max'
-                . ' FROM ' . AggregatesTable::NAME . ' WHERE period = ? AND bucket > ? AND metric_type IN ('
-                . implode(', ', array_fill(0, \count($metricTypes), '?')) . ') GROUP BY metric_type',
-                [$periodSeconds, $since, ...$metricTypes],
-            );
+            $rows = $this->connection->fetchAllAssociative($sql, $params);
         } catch (TableNotFoundException) {
-            return [];
+            return new Totals();
         }
 
-        $totals = [];
+        $byKey = array_flip($keyed);
+        $otherHash = AggregatesTable::keyHash(Aggregator::OTHER);
+        $types = [];
+        $keys = [];
+
         foreach ($rows as $row) {
-            $totals[(string) $row['metric_type']] = new MetricValue((int) $row['entry_count'], (float) $row['value_sum'], (float) $row['value_max']);
+            $type = (string) $row['metric_type'];
+            $value = new MetricValue((int) $row['entry_count'], (float) $row['value_sum'], (float) $row['value_max']);
+
+            if (!isset($byKey[$type])) {
+                $types[$type] = $value;
+
+                continue;
+            }
+
+            $types[$type] = self::add($types[$type] ?? null, $value);
+
+            if ((string) $row['key_hash'] !== $otherHash) {
+                $keys[$type][(string) $row['key_hash']] = $value;
+            }
         }
 
-        return $totals;
+        return new Totals($types, $keys);
+    }
+
+    private static function totalsSelect(string $columns, int $typeCount, string $groupBy): string
+    {
+        return 'SELECT ' . $columns . ', SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max'
+            . ' FROM ' . AggregatesTable::NAME . ' WHERE period = ? AND bucket > ? AND metric_type IN ('
+            . implode(', ', array_fill(0, $typeCount, '?')) . ') GROUP BY ' . $groupBy;
     }
 
     /**
@@ -197,12 +237,16 @@ final class DbalReader implements ReaderInterface
         $totals = [];
         foreach ($metrics as $values) {
             foreach ($values as $type => $value) {
-                $total = $totals[(string) $type] ?? null;
-                $totals[(string) $type] = $total === null ? $value : new MetricValue($total->count + $value->count, $total->sum + $value->sum, max($total->max, $value->max));
+                $totals[(string) $type] = self::add($totals[(string) $type] ?? null, $value);
             }
         }
 
         return $totals;
+    }
+
+    private static function add(?MetricValue $total, MetricValue $value): MetricValue
+    {
+        return $total === null ? $value : new MetricValue($total->count + $value->count, $total->sum + $value->sum, max($total->max, $value->max));
     }
 
     /** @return list<int> 60 values, oldest first */

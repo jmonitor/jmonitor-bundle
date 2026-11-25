@@ -60,6 +60,7 @@ use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\Totals;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FakeStackReader;
@@ -1107,7 +1108,7 @@ final class PageRendererTest extends TestCase
                 return [];
             }
 
-            public function totals(Period $period, int $now, array $metricTypes): array
+            public function totals(Period $period, int $now, array $metricTypes, array $keyed = []): Totals
             {
                 throw $this->failure;
             }

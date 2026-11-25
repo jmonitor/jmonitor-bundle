@@ -52,7 +52,7 @@ final class ApplicationChecks
             return new RaisedChecks([], [], $period);
         }
 
-        $totals = $reader->totals($period, $now, array_values(array_unique($metrics)));
+        $totals = $reader->totals($period, $now, array_values(array_unique($metrics)))->types;
         $raised = [];
 
         foreach ($this->checks as $id => $check) {
