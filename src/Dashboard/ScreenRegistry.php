@@ -28,6 +28,20 @@ final class ScreenRegistry
         return $available;
     }
 
+    /** @return list<Space> */
+    public function spaces(): array
+    {
+        $available = array_map(static fn(ScreenInterface $screen): Space => $screen->space(), $this->available());
+
+        return array_values(array_filter(Space::cases(), static fn(Space $space): bool => \in_array($space, $available, true)));
+    }
+
+    /** @return list<ScreenInterface> */
+    public function in(Space $space): array
+    {
+        return array_values(array_filter($this->available(), static fn(ScreenInterface $screen): bool => $screen->space() === $space));
+    }
+
     public function get(string $id): ?ScreenInterface
     {
         foreach ($this->available() as $screen) {
@@ -45,7 +59,7 @@ final class ScreenRegistry
 
         if (!$storageUsable) {
             foreach ($available as $screen) {
-                if (!$screen instanceof StorageScreenInterface) {
+                if (!$screen instanceof RecordedScreenInterface) {
                     return $screen;
                 }
             }

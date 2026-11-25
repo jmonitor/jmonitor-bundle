@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\DependencyInjection;
 
-use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
 use Jmonitor\JmonitorBundle\Recording\MessengerRecorder;
 use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
 use Jmonitor\JmonitorBundle\Stack\Collector\QueuesCollector;
@@ -40,8 +40,8 @@ final class ComponentAvailabilityPass implements CompilerPassInterface
 
         self::withoutQueues($container);
 
-        if ($container->hasDefinition(MessagesScreen::class)) {
-            $container->getDefinition(MessagesScreen::class)->replaceArgument(0, false);
+        if ($container->hasDefinition(MessagesSection::class)) {
+            $container->getDefinition(MessagesSection::class)->replaceArgument(0, false);
         }
     }
 
@@ -97,8 +97,8 @@ final class ComponentAvailabilityPass implements CompilerPassInterface
 
     private function scheduler(ContainerBuilder $container): void
     {
-        if (!$container->has('scheduler.messenger_transport_factory') && $container->hasDefinition(SchedulerScreen::class)) {
-            $container->getDefinition(SchedulerScreen::class)->replaceArgument(0, false);
+        if (!$container->has('scheduler.messenger_transport_factory') && $container->hasDefinition(TasksSection::class)) {
+            $container->getDefinition(TasksSection::class)->replaceArgument(0, false);
         }
     }
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
+use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Embed\HostUrlsInterface;
 use Jmonitor\JmonitorBundle\Embed\PageContent;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -48,15 +50,14 @@ final class PageRenderer
             }
         }
 
-        $screens = $this->screens->available();
+        $spaces = $this->spaces();
 
         return new PageContent(
             $twig->render('@Jmonitor/dashboard/page.html.twig', [
-                'page' => $page,
+                'page' => $this->withTabs($page, $root, $spaces),
                 'path' => $path,
-                'root' => $root,
-                'badges' => $this->badges($screens),
-                'screens' => $screens,
+                'spaces' => $this->entries($spaces, $root),
+                'badges' => $this->slots($spaces),
                 'periods' => Period::cases(),
                 'urls' => $urls,
                 'standalone' => $standalone,
@@ -73,14 +74,15 @@ final class PageRenderer
     public function fragment(Request $request, string $path, HostUrlsInterface $urls): Response
     {
         $twig = $this->twig();
-        [, $screen, $path] = $this->resolve($path);
+        [$root, $screen, $path] = $this->resolve($path);
         $page = $this->build($request, $screen, true);
+        $spaces = $this->spaces();
 
         return new Response($twig->render('@Jmonitor/dashboard/_screen.html.twig', [
-            'page' => $page,
+            'page' => $this->withTabs($page, $root, $spaces),
             'urls' => $urls,
             'path' => $path,
-            'badges' => $this->badges($this->screens->available()),
+            'badges' => $this->slots($spaces),
         ]), Response::HTTP_OK, self::HEADERS);
     }
 
@@ -124,7 +126,7 @@ final class PageRenderer
         return $this->twig ?? throw new NotFoundHttpException();
     }
 
-    /** @return array{ScreenInterface, ScreenInterface, string} the entry of the main navigation, the screen shown, its full path */
+    /** @return array{ScreenInterface, ScreenInterface, string} the screen of the first segment, the screen shown, its full path */
     private function resolve(string $path): array
     {
         if ($path === '') {
@@ -176,36 +178,94 @@ final class PageRenderer
         }
     }
 
+    /** @return array<string, non-empty-list<ScreenInterface>> by the value of the space */
+    private function spaces(): array
+    {
+        $spaces = [];
+
+        foreach ($this->screens->spaces() as $space) {
+            $screens = $this->screens->in($space);
+
+            if ($screens !== []) {
+                $spaces[$space->value] = $screens;
+            }
+        }
+
+        return $spaces;
+    }
+
     /**
-     * @param list<ScreenInterface> $screens
+     * @param array<string, non-empty-list<ScreenInterface>> $spaces
      *
-     * @return array<string, ?NavBadge>
+     * @return list<array{id: string, label: string, path: string, current: bool}>
      */
-    private function badges(array $screens): array
+    private function entries(array $spaces, ScreenInterface $root): array
+    {
+        $entries = [];
+
+        foreach ($spaces as $value => $screens) {
+            $space = Space::from($value);
+            $entries[] = ['id' => $value, 'label' => $space->label(), 'path' => $screens[0]->id(), 'current' => $space === $root->space()];
+        }
+
+        return $entries;
+    }
+
+    /**
+     * @param array<string, non-empty-list<ScreenInterface>> $spaces
+     *
+     * @return array<string, ?NavBadge> the badge of the only screen of a space, by the value of the space
+     */
+    private function slots(array $spaces): array
     {
         $badges = [];
 
-        foreach ($screens as $screen) {
-            if (!$screen instanceof NavBadgeScreenInterface) {
-                continue;
-            }
-
-            try {
-                $badges[$screen->id()] = $screen->navBadge();
-            } catch (\Throwable $e) {
-                $this->logger?->error(sprintf('JMonitor could not read the navigation badge of the "%s" screen: %s', $screen->id(), $e->getMessage()), ['exception' => $e]);
-                $badges[$screen->id()] = null;
+        foreach ($spaces as $space => $screens) {
+            if (\count($screens) === 1 && $screens[0] instanceof NavBadgeScreenInterface) {
+                $badges[$space] = $this->badge($screens[0]);
             }
         }
 
         return $badges;
     }
 
+    /** @param array<string, non-empty-list<ScreenInterface>> $spaces */
+    private function withTabs(Page $page, ScreenInterface $root, array $spaces): Page
+    {
+        $screens = $spaces[$root->space()->value] ?? [];
+
+        if (\count($screens) < 2) {
+            return $page;
+        }
+
+        $query = $page->period === null ? [] : ['period' => $page->period->label()];
+
+        return $page->withTabs(new SubNav($root->space()->label(), array_map(fn(ScreenInterface $screen): SubNavItem => new SubNavItem(
+            $screen->label(),
+            $screen->id(),
+            $screen->id() === $root->id(),
+            null,
+            $query,
+            $screen instanceof NavBadgeScreenInterface ? $this->badge($screen) : null,
+        ), $screens)));
+    }
+
+    private function badge(NavBadgeScreenInterface $screen): ?NavBadge
+    {
+        try {
+            return $screen->navBadge();
+        } catch (\Throwable $e) {
+            $this->logger?->error(sprintf('JMonitor could not read the navigation badge of the "%s" screen: %s', $screen->id(), $e->getMessage()), ['exception' => $e]);
+
+            return null;
+        }
+    }
+
     private function build(Request $request, ScreenInterface $screen, bool $fragment): Page
     {
         $storageFailed = false;
 
-        if ($screen instanceof StorageScreenInterface && $this->flusher !== null) {
+        if ($screen instanceof RecordedScreenInterface && $this->flusher !== null) {
             $this->flusher->flush();
             $storageFailed = $this->flusher->lastFailure() !== null;
         }

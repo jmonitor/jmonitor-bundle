@@ -112,7 +112,7 @@ final class EasyAdminProofsTest extends WebTestCase
 
         $client->request('GET', '/hello/world');
         static::assertResponseIsSuccessful();
-        foreach (['requests', 'queries', 'commands', 'cache', 'probe'] as $id) {
+        foreach (['requests', 'queries', 'background', 'cache-http', 'probe'] as $id) {
             $client->request('GET', '/admin/jmonitor/' . $id);
             static::assertResponseIsSuccessful($id);
             $client->request('GET', '/admin/jmonitor/_fragment/' . $id);

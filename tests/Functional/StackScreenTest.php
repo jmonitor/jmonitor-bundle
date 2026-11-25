@@ -69,7 +69,7 @@ final class StackScreenTest extends WebTestCase
         static::assertMatchesRegularExpression('/^Stack\b/', $entries->last()->text());
         static::assertSame($entries->last()->attr('href'), $crawler->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
         static::assertSame('/jmonitor/stack', $crawler->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
-        static::assertSame('Overview', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
+        static::assertSame('All components', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
         static::assertCount(1, $crawler->filter('form[action="/jmonitor/_action/stack"] button'));
     }
 
@@ -163,7 +163,7 @@ final class StackScreenTest extends WebTestCase
         $routes = $requests->filter('tr[data-jm-route]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-route'));
         static::assertSame([], preg_grep('/jmonitor/', $routes));
 
-        $cache = self::requestUntil($client, '/jmonitor/cache', 'tr[data-jm-pool="cache.app"]');
+        $cache = self::requestUntil($client, '/jmonitor/cache-http', 'section#jm-cache tr[data-jm-pool="cache.app"][data-jm-reads="1"]');
         static::assertCount(1, $cache->filter('tr[data-jm-pool="cache.app"]'));
         static::assertCount(0, $cache->filter('tr[data-jm-pool="jmonitor.stack.cache"]'));
         static::assertStringNotContainsString('jmonitor.stack', $cache->filter('.jm-screen')->text());
@@ -504,7 +504,7 @@ final class StackScreenTest extends WebTestCase
         static::assertSame(['Usage', 'Traffic', 'InnoDB', 'Temporary tables and locks', 'Settings', 'Database · ' . $database], $crawler->filter('.jm-gauges, .jm-facts')->each(static fn(Crawler $section): string => (string) $section->attr('aria-label')));
         static::assertCount(1, $crawler->filter('#jm-mysql-slow-queries-title, .jm-state__title:contains("No query of this database"), .jm-notice__title:contains("The slowest queries could not be read")'));
 
-        $selector = $crawler->filter('.jm-subbar + [data-jm-instances]');
+        $selector = $crawler->filter('.jm-heading + [data-jm-instances]');
         static::assertSame(['Databases'], $selector->filter('nav')->each(static fn(Crawler $row): string => (string) $row->attr('aria-label')));
         static::assertSame(['/jmonitor/stack/mysql?connection=main', '/jmonitor/stack/mysql?connection=reports'], $selector->filter('a')->each(static fn(Crawler $link): string => (string) $link->attr('href')));
         static::assertSame('reports', $selector->filter('a[aria-current="true"] .jm-instances__name')->text());

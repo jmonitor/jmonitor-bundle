@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Twig;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 
@@ -23,9 +24,9 @@ final class StylesheetTest extends TestCase
     {
         $rules = self::rules();
 
-        static::assertContains('.jm-live__switch:checked', self::selectorsIn($rules, null));
+        static::assertContains('.jm-live[data-jm-live-state="live"]', self::selectorsIn($rules, null));
         static::assertContains('.jm-cards', self::selectorsIn($rules, '@media (max-width: 720px)'));
-        static::assertContains('0%', self::selectorsIn($rules, '@keyframes jm-pulse'));
+        static::assertContains('to', self::selectorsIn($rules, '@keyframes jm-live-progress'));
     }
 
     public function testEverySelectorLivesUnderJm(): void
@@ -120,11 +121,75 @@ final class StylesheetTest extends TestCase
         }
     }
 
-    public function testForcedColorsCoverTheLiveSwitch(): void
+    public function testEveryLiveStateIsDrawnWithColoursOfBothThemes(): void
     {
-        $selectors = self::selectorsIn(self::rules(), '@media (forced-colors: active)');
+        $dark = self::theme(self::DARK);
+        $light = self::theme(self::LIGHT);
 
-        static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => str_contains($selector, '.jm-live__switch')));
+        foreach (['live', 'paused', 'failed'] as $state) {
+            $declarations = self::declarationsOf('.jm-live[data-jm-live-state="' . $state . '"]', null);
+            $properties = array_column($declarations, 0);
+
+            static::assertContains('border-color', $properties, $state);
+            static::assertContains('background', $properties, $state);
+            foreach ($declarations as [$property, $value]) {
+                preg_match_all('/var\((--jm-[a-z0-9-]+)\)/', $value, $variables);
+                foreach ($variables[1] as $variable) {
+                    static::assertArrayHasKey($variable, $dark, $state . ' ' . $property);
+                    static::assertArrayHasKey($variable, $light, $state . ' ' . $property);
+                }
+            }
+        }
+
+        static::assertContains(['background', 'transparent'], self::declarationsOf('.jm-live[data-jm-live-state="paused"]', null));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function liveStates(): iterable
+    {
+        yield 'live' => ['live'];
+        yield 'paused' => ['paused'];
+        yield 'failed' => ['failed'];
+    }
+
+    #[DataProvider('liveStates')]
+    public function testNoRuleHidesTheWordOfTheLiveButton(string $state): void
+    {
+        $chain = array_map(self::compound(...), ['div.jm', 'div.jm-header', 'div.jm-header__inner', 'div.jm-toolbar', 'button.jm-live[data-jm-live-toggle][data-jm-live-state="' . $state . '"]', 'span.jm-live__word[data-jm-live-word]']);
+        $hiding = [['display', 'none'], ['visibility', 'hidden'], ['font-size', '0'], ['font-size', '0px']];
+
+        foreach (self::rules() as $rule) {
+            if ($rule['keyframes'] || array_filter($rule['declarations'], static fn(array $declaration): bool => \in_array($declaration, $hiding, true)) === []) {
+                continue;
+            }
+
+            foreach ($rule['selectors'] as $selector) {
+                $parts = self::split((string) preg_replace('/\s*([>+~])\s*/', ' $1 ', $selector), ' ');
+                static::assertFalse(self::selectorMatches($parts, $chain), $selector . ' hides the word in ' . ($rule['at'] ?? 'every case'));
+            }
+        }
+    }
+
+    public function testTheLiveButtonKeepsItsLookUnderAHost(): void
+    {
+        $properties = array_column(self::declarationsOf('.jm-live', null), 0);
+
+        foreach (['font', 'margin', 'border', 'border-radius', 'background', 'color', 'cursor', 'appearance', 'line-height', 'text-transform', 'min-height'] as $property) {
+            static::assertContains($property, $properties);
+        }
+    }
+
+    public function testTheLiveProgressDoesNotMoveUnderReducedMotion(): void
+    {
+        static::assertContains(['display', 'none'], self::declarationsOf('.jm-live__progress', '@media (prefers-reduced-motion: reduce)'));
+        static::assertContains(['animation', 'jm-live-progress 10s linear forwards'], self::declarationsOf('.jm-live[data-jm-live-state="live"] .jm-live__progress', null));
+    }
+
+    public function testForcedColorsKeepABorderOnTheLiveButton(): void
+    {
+        static::assertContains(['border-color', 'ButtonText'], self::declarationsOf('.jm-live', '@media (forced-colors: active)'));
     }
 
     public function testForcedColorsCoverTheMarksAndTheGauges(): void
@@ -160,15 +225,15 @@ final class StylesheetTest extends TestCase
         static::assertContains(['border-color', 'CanvasText'], $declarations('.jm-nav__badge', '@media (forced-colors: active)'));
     }
 
-    public function testForcedColorsTellAFailedLiveSwitchFromAnActiveOne(): void
+    public function testForcedColorsTellAFailedLiveButtonFromAnActiveOne(): void
     {
         $rules = array_filter(self::rules(), static fn(array $rule): bool => $rule['at'] === '@media (forced-colors: active)'
             && \in_array(['border-style', 'dashed'], $rule['declarations'], true));
         $selectors = array_merge(...array_column(array_values($rules), 'selectors'));
 
-        static::assertContains('.jm-live.is-failed .jm-live__switch', $selectors);
-        static::assertNotContains('.jm-live__switch', $selectors);
-        static::assertNotContains('.jm-live__switch:checked', $selectors);
+        static::assertContains('.jm-live[data-jm-live-state="failed"]', $selectors);
+        static::assertNotContains('.jm-live', $selectors);
+        static::assertNotContains('.jm-live[data-jm-live-state="live"]', $selectors);
     }
 
     public function testAStateIsSpacedOnlyFromABlockThatFollowsIt(): void
@@ -187,6 +252,105 @@ final class StylesheetTest extends TestCase
         static::assertSame([], $margins('.jm-state'));
         static::assertSame([['margin-bottom', '20px']], $margins('.jm-state:has(+ :not(.jm-rest):not(template))'));
         static::assertContains(['margin-top', '20px'], $margins('.jm .jm-rest'));
+    }
+
+    public function testASectionReachedByItsAnchorKeepsItsTitleBelowTheStickyHeader(): void
+    {
+        $previous = 0;
+        foreach ([null, '@media (max-width: 1080px)', '@media (max-width: 720px)', '@media (max-width: 560px)'] as $at) {
+            $margins = [];
+            foreach (self::rules() as $rule) {
+                if ($rule['at'] === $at && \in_array('body.jm .jm-section', $rule['selectors'], true)) {
+                    array_push($margins, ...array_filter($rule['declarations'], static fn(array $declaration): bool => $declaration[0] === 'scroll-margin-top'));
+                }
+            }
+
+            static::assertCount(1, $margins, (string) $at);
+            static::assertMatchesRegularExpression('/^[1-9][0-9]*px$/', $margins[0][1], (string) $at);
+            static::assertGreaterThan($previous, (int) $margins[0][1], (string) $at);
+            $previous = (int) $margins[0][1];
+        }
+    }
+
+    public function testNothingInTheToolbarTakesABlockMarginFromTheHost(): void
+    {
+        static::assertContains(['margin-block', '0'], self::declarationsOf('.jm-toolbar > *', null));
+    }
+
+    public function testTheCurrentTabIsBoldAndTheOthersAreNot(): void
+    {
+        $tab = self::declarationsOf('.jm-subnav__item', null);
+
+        static::assertContains(['font-weight', '400'], $tab);
+        static::assertContains(['font-size', '14px'], $tab);
+        static::assertContains(['font-weight', '600'], self::declarationsOf('.jm-subnav__item[aria-current="page"]', null));
+        static::assertContains(['gap', '0 24px'], self::declarationsOf('.jm-subnav', null));
+    }
+
+    public function testTheTabsThatOpenAScreenSitRightUnderTheHeader(): void
+    {
+        foreach ([[null, 28], ['@media (max-width: 720px)', 20]] as [$at, $padding]) {
+            $main = array_column(self::declarationsOf('.jm-main', $at), 1, 0);
+            $top = $main['padding-top'] ?? explode(' ', $main['padding'] ?? '')[0];
+
+            static::assertSame($padding . 'px', $top, (string) $at);
+            static::assertContains(['margin-top', '-' . ($padding - 4) . 'px'], self::declarationsOf('.jm-screen > .jm-subbar:first-child', $at), (string) $at);
+        }
+    }
+
+    public function testForcedColorsUnderlineOnlyTheCurrentTab(): void
+    {
+        $at = '@media (forced-colors: active)';
+        $current = self::declarationsOf('.jm-subnav__item[aria-current="page"]', $at);
+
+        static::assertContains(['border-bottom-color', 'Canvas'], self::declarationsOf('.jm-subnav__item', $at));
+        static::assertContains(['border-bottom-color', 'CanvasText'], $current);
+        static::assertNotContains('outline', array_column($current, 0));
+    }
+
+    public function testTheWordLiveIsReadableOnItsButton(): void
+    {
+        static::assertContains(['color', 'var(--jm-ok-text)'], self::declarationsOf('.jm-live[data-jm-live-state="live"] .jm-live__word', null));
+
+        foreach ([self::DARK, self::LIGHT] as $selectors) {
+            $theme = self::theme($selectors);
+            $background = self::over(self::colour($theme['--jm-ok-bg'] ?? ''), self::colour($theme['--jm-bg'] ?? ''));
+
+            static::assertGreaterThanOrEqual(4.5, self::contrast(self::colour($theme['--jm-ok-text'] ?? ''), $background), implode(', ', $selectors));
+        }
+    }
+
+    public function testASectionStacksItsHeaderOnANarrowScreen(): void
+    {
+        $found = array_filter(self::rules(), static fn(array $rule): bool => $rule['at'] === '@media (max-width: 720px)'
+            && \in_array('.jm-section__header', $rule['selectors'], true)
+            && \in_array(['flex-direction', 'column'], $rule['declarations'], true));
+
+        static::assertNotEmpty($found);
+    }
+
+    /**
+     * @return iterable<string, array{list<string>, string}>
+     */
+    public static function navigationLinks(): iterable
+    {
+        $header = ['div.jm', 'div.jm-header', 'div.jm-header__inner'];
+        $tabs = ['div.jm', 'div.jm-main', 'div', 'div.jm-screen', 'div.jm-subbar', 'nav.jm-subnav'];
+
+        yield 'space' => [[...$header, 'nav.jm-nav', 'a.jm-nav__item'], 'var(--jm-muted)'];
+        yield 'current space' => [[...$header, 'nav.jm-nav', 'a.jm-nav__item[aria-current="page"]'], 'var(--jm-text-strong)'];
+        yield 'tab' => [[...$tabs, 'a.jm-subnav__item'], 'var(--jm-muted)'];
+        yield 'current tab' => [[...$tabs, 'a.jm-subnav__item[aria-current="page"]'], 'var(--jm-text-strong)'];
+        yield 'brand' => [[...$header, 'a.jm-brand'], 'var(--jm-text-strong)'];
+    }
+
+    /**
+     * @param list<string> $chain the element and its ancestors, outermost first
+     */
+    #[DataProvider('navigationLinks')]
+    public function testALinkOfTheNavigationIsMutedUnlessItIsCurrent(array $chain, string $colour): void
+    {
+        static::assertSame($colour, self::colourOf(array_map(self::compound(...), $chain)));
     }
 
     public function testEveryTagOfTheTemplatesHasItsBrowserDefaultsRestatedForHostPages(): void
@@ -247,6 +411,21 @@ final class StylesheetTest extends TestCase
         }
 
         return $selectors;
+    }
+
+    /**
+     * @return list<array{string, string}> the declarations of every rule that lists $selector, in $at
+     */
+    private static function declarationsOf(string $selector, ?string $at): array
+    {
+        $found = [];
+        foreach (self::rules() as $rule) {
+            if ($rule['at'] === $at && \in_array($selector, $rule['selectors'], true)) {
+                array_push($found, ...$rule['declarations']);
+            }
+        }
+
+        return $found;
     }
 
     /**
@@ -386,6 +565,168 @@ final class StylesheetTest extends TestCase
         }
 
         return $end;
+    }
+
+    /**
+     * The colour the cascade gives to the last element of the chain, outside any at-rule and any user state.
+     *
+     * @param non-empty-list<array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool}> $chain
+     */
+    private static function colourOf(array $chain): ?string
+    {
+        $winner = null;
+        $best = [-1, -1, -1];
+
+        foreach (self::rules() as $rule) {
+            $colour = null;
+            foreach ($rule['declarations'] as [$property, $value]) {
+                if ($property === 'color') {
+                    $colour = $value;
+                }
+            }
+
+            if ($rule['at'] !== null || $colour === null) {
+                continue;
+            }
+
+            foreach ($rule['selectors'] as $selector) {
+                $parts = self::split((string) preg_replace('/\s*([>+~])\s*/', ' $1 ', $selector), ' ');
+                $specificity = self::specificity($parts);
+                if ($specificity >= $best && self::selectorMatches($parts, $chain)) {
+                    $best = $specificity;
+                    $winner = $colour;
+                }
+            }
+        }
+
+        return $winner;
+    }
+
+    /**
+     * @param list<string>                                                                                                                    $parts compounds and combinators
+     * @param list<array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool}> $chain
+     */
+    private static function selectorMatches(array $parts, array $chain): bool
+    {
+        $compound = array_pop($parts);
+        $element = array_pop($chain);
+
+        if ($compound === null || $element === null || !self::compoundMatches(self::compound($compound), $element)) {
+            return false;
+        }
+
+        if ($parts === []) {
+            return true;
+        }
+
+        $combinator = end($parts);
+        if ($combinator === '>') {
+            array_pop($parts);
+
+            return self::selectorMatches($parts, $chain);
+        }
+
+        if (\in_array($combinator, ['+', '~'], true)) {
+            return false;
+        }
+
+        while ($chain !== []) {
+            if (self::selectorMatches($parts, $chain)) {
+                return true;
+            }
+            array_pop($chain);
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool} $compound
+     * @param array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool} $element
+     */
+    private static function compoundMatches(array $compound, array $element): bool
+    {
+        if ($compound['other'] || ($compound['tag'] !== null && $compound['tag'] !== '*' && $compound['tag'] !== $element['tag'])) {
+            return false;
+        }
+
+        foreach ($compound['classes'] as $class) {
+            if (!\in_array($class, $element['classes'], true)) {
+                return false;
+            }
+        }
+
+        foreach ($compound['attributes'] as $name => $value) {
+            if (!\array_key_exists($name, $element['attributes']) || ($value !== null && $element['attributes'][$name] !== $value)) {
+                return false;
+            }
+        }
+
+        foreach ($compound['where'] as $list) {
+            if (array_filter(self::split($list, ','), static fn(string $alternative): bool => self::compoundMatches(self::compound($alternative), $element)) === []) {
+                return false;
+            }
+        }
+
+        foreach ($compound['not'] as $list) {
+            if (array_filter(self::split($list, ','), static fn(string $alternative): bool => self::compoundMatches(self::compound($alternative), $element)) !== []) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array{tag: ?string, classes: list<string>, attributes: array<string, ?string>, where: list<string>, not: list<string>, other: bool} other: a pseudo-class or a pseudo-element this test does not read
+     */
+    private static function compound(string $text): array
+    {
+        $compound = ['tag' => null, 'classes' => [], 'attributes' => [], 'where' => [], 'not' => [], 'other' => false];
+
+        preg_match_all('/\G(?:(?<tag>[a-z][a-z0-9]*|\*)|\.(?<class>[a-zA-Z0-9_-]+)|\[(?<attribute>[a-z-]+)(?:="(?<value>[^"]*)")?\]|:(?<function>where|is|not|has)\((?<inner>(?:[^()]|\((?&inner)\))*)\)|(?<pseudo>::?[a-z-]+(?:\([^)]*\))?))/', $text, $matches, \PREG_SET_ORDER | \PREG_UNMATCHED_AS_NULL);
+        static::assertSame($text, implode('', array_map(static fn(array $match): string => (string) $match[0], $matches)), 'Unread selector: ' . $text);
+
+        foreach ($matches as $match) {
+            match (true) {
+                $match['tag'] !== null => $compound['tag'] = $match['tag'],
+                $match['class'] !== null => $compound['classes'][] = $match['class'],
+                $match['attribute'] !== null => $compound['attributes'][$match['attribute']] = $match['value'],
+                $match['function'] === 'not' => $compound['not'][] = (string) $match['inner'],
+                $match['function'] === 'where', $match['function'] === 'is' => $compound['where'][] = (string) $match['inner'],
+                default => $compound['other'] = true,
+            };
+        }
+
+        return $compound;
+    }
+
+    /**
+     * @param list<string> $parts compounds and combinators
+     *
+     * @return array{int, int, int}
+     */
+    private static function specificity(array $parts): array
+    {
+        $specificity = [0, 0, 0];
+
+        foreach ($parts as $part) {
+            if (\in_array($part, ['>', '+', '~'], true)) {
+                continue;
+            }
+
+            $compound = self::compound($part);
+            $specificity[2] += $compound['tag'] !== null && $compound['tag'] !== '*' ? 1 : 0;
+            $specificity[1] += \count($compound['classes']) + \count($compound['attributes']);
+            preg_match_all('/(?<!:):(?!where\(|is\(|not\(|has\()[a-z-]+/', $part, $pseudo);
+            $specificity[1] += \count($pseudo[0]);
+            foreach ($compound['not'] as $list) {
+                $inner = array_map(static fn(string $alternative): array => self::specificity([$alternative]), self::split($list, ','));
+                $specificity = array_map(static fn(int $a, int $b): int => $a + $b, $specificity, max($inner));
+            }
+        }
+
+        return $specificity;
     }
 
     /**

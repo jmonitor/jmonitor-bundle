@@ -152,8 +152,8 @@ final class ComponentScreenTest extends TestCase
 
         $blocks = $this->screen(new FakeStackReader($state), Component::Php)->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertEquals(new SubNav([
-            new SubNavItem('Overview', 'stack'),
+        self::assertEquals(new SubNav('Stack', [
+            new SubNavItem('All components', 'stack'),
             new SubNavItem('Server', 'stack/system', false, new Mark('warn', 'Warning')),
             new SubNavItem('PHP', 'stack/php', true, new Mark('warn', 'Warning')),
         ], 'web-1'), $blocks[0]->content);
@@ -161,8 +161,8 @@ final class ComponentScreenTest extends TestCase
         $this->remember(['symfony' => 'critical', 'system' => 'healthy']);
         $blocks = $this->screen(new FakeStackReader($state), Component::Php)->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertEquals(new SubNav([
-            new SubNavItem('Overview', 'stack'),
+        self::assertEquals(new SubNav('Stack', [
+            new SubNavItem('All components', 'stack'),
             new SubNavItem('Server', 'stack/system', false, new Mark('ok', 'Healthy')),
             new SubNavItem('PHP', 'stack/php', true, new Mark('warn', 'Warning')),
             new SubNavItem('Symfony', 'stack/symfony', false, new Mark('bad', 'Critical')),
@@ -173,8 +173,8 @@ final class ComponentScreenTest extends TestCase
     {
         $blocks = $this->screen(new FakeStackReader(self::stack(Snapshots::of(Component::System, ['system' => Snapshots::system()]))), Component::System)->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertEquals(new SubNav([
-            new SubNavItem('Overview', 'stack'),
+        self::assertEquals(new SubNav('Stack', [
+            new SubNavItem('All components', 'stack'),
             new SubNavItem('Server', 'stack/system', true, new Mark('ok', 'Healthy')),
         ], 'web-1'), $blocks[0]->content);
     }
@@ -186,8 +186,8 @@ final class ComponentScreenTest extends TestCase
         $blocks = $this->screen(new FakeStackReader($state), Component::Symfony)->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertSame([Block::SUBNAV, Block::NOTICE], array_map(static fn(Block $block): string => $block->type, $blocks));
-        self::assertEquals(new SubNav([
-            new SubNavItem('Overview', 'stack'),
+        self::assertEquals(new SubNav('Stack', [
+            new SubNavItem('All components', 'stack'),
             new SubNavItem('Symfony', 'stack/symfony', true, new Mark('unknown', 'Unknown')),
         ], 'web-1'), $blocks[0]->content);
         self::assertEquals(new Notice('info', 'Symfony is not part of this stack', 'No kernel was found'), $blocks[1]->content);

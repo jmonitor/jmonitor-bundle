@@ -2,13 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
+namespace Jmonitor\JmonitorBundle\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -20,7 +19,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 
-final class HttpClientScreen implements StorageScreenInterface
+final class HttpSection implements SectionInterface
 {
     private const LIMIT = 100;
     private const CLIENT_ERRORS = Metric::HTTP_STATUS_PREFIX . '4xx';
@@ -41,17 +40,17 @@ final class HttpClientScreen implements StorageScreenInterface
 
     public function id(): string
     {
-        return 'http-client';
+        return 'http';
     }
 
-    public function label(): string
+    public function title(): string
     {
-        return 'HTTP client';
+        return 'Outgoing HTTP';
     }
 
-    public function heading(): string
+    public function summary(): string
     {
-        return 'Outgoing calls made through the http_client service and its scoped clients, per host';
+        return 'Calls your code makes to other sites and APIs through the Symfony HTTP client.';
     }
 
     public function isAvailable(): bool
@@ -64,10 +63,10 @@ final class HttpClientScreen implements StorageScreenInterface
         return array_fill_keys(array_keys(self::SORTS), 'desc');
     }
 
-    public function emptyState(): array
+    public function emptyState(Period $period): array
     {
         return [
-            'title' => 'No outgoing calls recorded yet',
+            'title' => 'No outgoing call in the ' . lcfirst(Format::period($period)) . '.',
             'text' => 'Calls made through the http_client service or a scoped client show up here within a few seconds.',
         ];
     }

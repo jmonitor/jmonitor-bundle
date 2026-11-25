@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\DependencyInjection;
 
-use Jmonitor\JmonitorBundle\Dashboard\Screen\HttpClientScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\HttpSection;
 use Jmonitor\JmonitorBundle\Recording\HttpClient\CallRecorder;
 use Jmonitor\JmonitorBundle\Recording\HttpClient\RecordingHttpClient;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
@@ -21,7 +21,7 @@ final class HttpClientPass implements CompilerPassInterface
         $clients = array_keys($container->findTaggedServiceIds('http_client.client'));
 
         if ($clients === []) {
-            $container->removeDefinition(HttpClientScreen::class);
+            $container->removeDefinition(HttpSection::class);
             $container->removeDefinition(CallRecorder::class);
 
             return;

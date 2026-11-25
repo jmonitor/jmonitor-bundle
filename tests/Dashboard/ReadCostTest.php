@@ -7,15 +7,20 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Jmonitor\JmonitorBundle\Tests\Storage\Dbal\StatementRecorder;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
+use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\KernelInterface;
 
@@ -29,11 +34,15 @@ final class ReadCostTest extends KernelTestCase
         'queries' => 10,
         'exceptions' => 5,
         'users' => 5,
-        'http-client' => 5,
-        'cache' => 2,
-        'commands' => 3,
+    ];
+
+    /** @var array<string, int> section id => SQL statements read to display it once */
+    private const SECTION_BUDGET = [
         'messages' => 3,
-        'scheduler' => 3,
+        'tasks' => 3,
+        'commands' => 3,
+        'cache' => 2,
+        'http' => 5,
     ];
 
     private const QUERY_ID = 'a1b2c3d4e5f6a7b8';
@@ -82,6 +91,79 @@ final class ReadCostTest extends KernelTestCase
                 ));
             }
         }
+    }
+
+    public function testEachSectionReadsWithinItsBudget(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate(self::units()), self::NOW, self::LABELS);
+        $reader = new DbalReader($connection);
+
+        $sections = array_merge(...array_map(static fn(ComposedScreen $screen): array => $screen->sections(), self::composedScreens()));
+        $ids = array_map(static fn(SectionInterface $section): string => $section->id(), $sections);
+        static::assertSame([], array_values(array_diff(array_keys(self::SECTION_BUDGET), $ids)), 'A section with a budget is not available in the test kernel.');
+
+        foreach ($sections as $section) {
+            $budget = self::SECTION_BUDGET[$section->id()] ?? static::fail(sprintf('The "%s" section has no read budget.', $section->id()));
+
+            foreach ($section->sorts() as $sort => $direction) {
+                $recorder->statements = [];
+                $view = $section->build($reader, Period::OneHour, self::NOW, $sort, $direction);
+
+                static::assertFalse($view->isEmpty(), sprintf('The seeded database shows nothing in the "%s" section.', $section->id()));
+                static::assertLessThanOrEqual($budget, \count($recorder->statements), sprintf(
+                    "The \"%s\" section sorted by %s reads:\n%s",
+                    $section->id(),
+                    $sort,
+                    implode("\n", array_column($recorder->statements, 'sql')),
+                ));
+            }
+        }
+    }
+
+    public function testEachComposedScreenReadsWithinTheSumOfItsSections(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate(self::units()), self::NOW, self::LABELS);
+        $builder = new ScreenBuilder(new DbalReader($connection), true, new MockClock('@' . self::NOW));
+        $screens = self::composedScreens();
+
+        static::assertSame(['cache-http', 'background'], array_map(static fn(ComposedScreen $screen): string => $screen->id(), $screens));
+
+        foreach ($screens as $screen) {
+            $sections = $screen->sections();
+            $budget = array_sum(array_map(static fn(SectionInterface $section): int => self::SECTION_BUDGET[$section->id()] ?? 0, $sections));
+
+            foreach ($sections as $section) {
+                foreach ($section->sorts() as $sort => $direction) {
+                    $recorder->statements = [];
+                    $page = $builder->create($screen, Period::OneHour->label(), $section->id() . '.' . $sort, $direction);
+
+                    static::assertSame($section->id() . '.' . $sort, $page->sort);
+                    static::assertCount(\count($sections), $page->blocks, sprintf('The "%s" screen does not show each of its sections with its figures.', $screen->id()));
+                    foreach ($page->blocks as $block) {
+                        static::assertInstanceOf(Section::class, $block->content);
+                        static::assertNull($block->content->empty, sprintf('The seeded database shows nothing in the "%s" section.', $block->content->id));
+                    }
+                    static::assertLessThanOrEqual($budget, \count($recorder->statements), sprintf(
+                        "The \"%s\" screen sorted by %s.%s reads:\n%s",
+                        $screen->id(),
+                        $section->id(),
+                        $sort,
+                        implode("\n", array_column($recorder->statements, 'sql')),
+                    ));
+                }
+            }
+        }
+    }
+
+    /** @return list<ComposedScreen> */
+    private static function composedScreens(): array
+    {
+        $registry = static::getContainer()->get(ScreenRegistry::class);
+        \assert($registry instanceof ScreenRegistry);
+
+        return array_values(array_filter($registry->available(), static fn(ScreenInterface $screen): bool => $screen instanceof ComposedScreen));
     }
 
     /** @return list<Entry> units whose children feed every family a screen reads */

@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Stack\Screen;
 use Jmonitor\JmonitorBundle\Dashboard\ActionScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
 use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNav;
@@ -74,6 +75,11 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
     public function isAvailable(): bool
     {
         return true;
+    }
+
+    public function space(): Space
+    {
+        return Space::Stack;
     }
 
     public function actions(): array
@@ -240,6 +246,6 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
             }
         }
 
-        return new SubNav($items, $node);
+        return new SubNav(Space::Stack->label(), $items, $node);
     }
 }

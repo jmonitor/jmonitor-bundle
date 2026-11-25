@@ -10,9 +10,12 @@ use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\CommandsScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\CommandsSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -33,6 +36,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
+use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
@@ -46,6 +50,7 @@ use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedSchedules;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\StubBlockScreen;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\StubScreen;
+use Jmonitor\JmonitorBundle\Tests\Dashboard\StubSection;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -77,8 +82,8 @@ final class TemplatesTest extends TestCase
 
         $outputs = [
             $this->render('block/table.html.twig', ['page' => $this->page($view), 'block' => Block::table($table)]),
-            $this->render('page.html.twig', ['page' => $this->page($view), 'screens' => [new StubScreen('<b>')], 'periods' => Period::cases()]),
-            $this->render('page.html.twig', ['page' => $this->page($view), 'screens' => [new StubScreen('<b>')], 'periods' => Period::cases(), 'standalone' => true]),
+            $this->render('page.html.twig', ['page' => $this->page($view), 'spaces' => [['id' => '<b>', 'label' => '<b>', 'path' => '<b>', 'current' => true]], 'periods' => Period::cases()]),
+            $this->render('page.html.twig', ['page' => $this->page($view), 'spaces' => [['id' => '<b>', 'label' => '<b>', 'path' => '<b>', 'current' => true]], 'periods' => Period::cases(), 'standalone' => true]),
         ];
 
         foreach ($outputs as $html) {
@@ -110,7 +115,7 @@ final class TemplatesTest extends TestCase
         static::assertStringNotContainsString('"><i>', $html);
     }
 
-    public function testTheCommandsAndMessagesScreensEscapeTheirKeys(): void
+    public function testTheCommandsAndMessagesSectionsEscapeTheirKeys(): void
     {
         $hostile = new ReportRow('"><i>', self::HOSTILE_SQL, self::HOSTILE_SQL, [
             Metric::COMMAND_DURATION => new MetricValue(1, 10.0, 10.0),
@@ -119,22 +124,22 @@ final class TemplatesTest extends TestCase
         ]);
         $reader = new FixedReader(new Report([$hostile], keyCount: 1));
 
-        foreach ([new CommandsScreen(true), new MessagesScreen(true, true)] as $screen) {
-            $view = $screen->build($reader, Period::OneHour, 1800000000, (string) array_key_first($screen->sorts()), 'desc');
-            $page = new Page($screen, $this->blocks($view), Period::OneHour, (string) array_key_first($screen->sorts()), 'desc', $screen->sorts());
+        foreach ([new CommandsSection(true), new MessagesSection(true, true)] as $section) {
+            $view = $section->build($reader, Period::OneHour, 1800000000, (string) array_key_first($section->sorts()), 'desc');
+            $page = $this->sectionPage($section, $view, (string) array_key_first($section->sorts()), 'desc');
 
             foreach ([
-                $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
-                $this->render('page.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
+                $this->render('_screen.html.twig', ['page' => $page, 'path' => 'background', 'badges' => []]),
+                $this->render('page.html.twig', ['page' => $page, 'spaces' => [], 'periods' => Period::cases()]),
             ] as $html) {
-                static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html, $screen->id());
-                static::assertStringNotContainsString(self::HOSTILE_SQL, $html, $screen->id());
-                static::assertStringNotContainsString('"><i>', $html, $screen->id());
+                static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html, $section->id());
+                static::assertStringNotContainsString(self::HOSTILE_SQL, $html, $section->id());
+                static::assertStringNotContainsString('"><i>', $html, $section->id());
             }
         }
     }
 
-    public function testTheSchedulerScreenEscapesTaskLabels(): void
+    public function testTheTasksSectionEscapesTaskLabels(): void
     {
         $label = 'app:work --note="<script>alert(1)</script>"';
         $declared = new DeclaredTasks(FixedSchedules::locator([
@@ -144,14 +149,14 @@ final class TemplatesTest extends TestCase
             Metric::TASK_DURATION => new MetricValue(1, 10.0, 10.0),
             Metric::TASK_LAST_RUN => new MetricValue(1, 0.0, 1799999990.0),
         ]);
-        $screen = new SchedulerScreen(true, $declared);
-        $view = $screen->build(new FixedReader(new Report([$stored], keyCount: 1)), Period::OneHour, 1800000000, 'next', 'asc');
-        $page = new Page($screen, $this->blocks($view), Period::OneHour, 'next', 'asc', $screen->sorts());
+        $section = new TasksSection(true, $declared);
+        $view = $section->build(new FixedReader(new Report([$stored], keyCount: 1)), Period::OneHour, 1800000000, 'next', 'asc');
+        $page = $this->sectionPage($section, $view, 'next', 'asc');
 
         static::assertCount(2, $view->tables[0]->rows);
         foreach ([
-            $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
-            $this->render('page.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
+            $this->render('_screen.html.twig', ['page' => $page, 'path' => 'background', 'badges' => []]),
+            $this->render('page.html.twig', ['page' => $page, 'spaces' => [], 'periods' => Period::cases()]),
         ] as $html) {
             static::assertStringContainsString('app:work --note=&quot;&lt;script&gt;alert(1)&lt;/script&gt;&quot;', $html);
             static::assertStringNotContainsString(self::HOSTILE_SQL, $html);
@@ -210,7 +215,7 @@ final class TemplatesTest extends TestCase
     {
         $page = new Page(new StubScreen(), [], Period::SevenDays, 'name', 'asc', (new StubScreen())->sorts());
 
-        $html = $this->render('page.html.twig', ['page' => $page, 'screens' => [new StubScreen()], 'periods' => Period::cases()]);
+        $html = $this->render('page.html.twig', ['page' => $page, 'spaces' => [], 'periods' => Period::cases()]);
 
         static::assertStringContainsString('Stub heading, last 7 days.', $html);
     }
@@ -314,8 +319,8 @@ final class TemplatesTest extends TestCase
     public function testABadgeIsEscaped(): void
     {
         $page = new Page(new StubBlockScreen(), [], null, '', '', []);
-        $badges = ['probe' => new NavBadge('"><script>', 'warn', '"><script>')];
-        $context = ['page' => $page, 'path' => 'probe', 'root' => $page->screen, 'badges' => $badges, 'screens' => [$page->screen], 'periods' => Period::cases()];
+        $badges = ['stack' => new NavBadge('"><script>', 'warn', '"><script>')];
+        $context = ['page' => $page, 'path' => 'probe', 'badges' => $badges, 'spaces' => [['id' => 'stack', 'label' => 'Stack', 'path' => 'stack', 'current' => false]], 'periods' => Period::cases()];
 
         foreach (['page.html.twig', '_screen.html.twig'] as $template) {
             $html = $this->render($template, $context);
@@ -323,6 +328,66 @@ final class TemplatesTest extends TestCase
             static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--warn" title="&quot;&gt;&lt;script&gt;">&quot;&gt;&lt;script&gt;<span class="jm-visually-hidden"> — &quot;&gt;&lt;script&gt;</span></span>', $html, $template);
             static::assertStringNotContainsString('<script>', $html, $template);
         }
+    }
+
+    public function testTheToolbarOfAScreenWithoutPeriodHoldsNoParagraph(): void
+    {
+        $page = new Page(new StubBlockScreen('stack'), [], null, '', '', []);
+        $context = ['page' => $page, 'path' => 'stack', 'spaces' => [['id' => 'stack', 'label' => 'Stack', 'path' => 'stack', 'current' => true]], 'periods' => Period::cases(), 'actions' => ['refresh' => 'Refresh']];
+        $toolbar = (new Crawler($this->render('page.html.twig', $context)))->filter('.jm-toolbar');
+
+        static::assertSame('Read right now, no period', $toolbar->filter('.jm-toolbar__note')->text());
+        static::assertCount(1, $toolbar->filter('form button'));
+        static::assertCount(0, $toolbar->filter('p'));
+    }
+
+    public function testTheLiveIndicatorIsAHiddenButtonWithAStateAndAnAge(): void
+    {
+        $page = new Page(new StubBlockScreen(), [], Period::OneHour, '', '', []);
+        $context = ['page' => $page, 'path' => 'probe', 'spaces' => [['id' => 'application', 'label' => 'Application', 'path' => 'probe', 'current' => true]], 'periods' => Period::cases()];
+
+        foreach ([false, true] as $standalone) {
+            $crawler = new Crawler($this->render('page.html.twig', $context + ['standalone' => $standalone]));
+            $live = $crawler->filter('[data-jm-live-toggle]');
+
+            static::assertCount(1, $live);
+            static::assertSame('button', $live->nodeName());
+            static::assertSame('button', $live->attr('type'));
+            static::assertSame('jm-live', $live->attr('class'));
+            static::assertNotNull($live->attr('hidden'));
+            static::assertNull($live->attr('aria-pressed'));
+            static::assertSame('live', $live->attr('data-jm-live-state'));
+            static::assertSame('Live', $live->filter('[data-jm-live-word]')->text());
+            static::assertNull($live->filter('[data-jm-live-word]')->attr('aria-hidden'));
+            static::assertSame('updated just now', $live->filter('[data-jm-live-age][aria-hidden="true"]')->text());
+            static::assertCount(1, $live->filter('[data-jm-live-progress][aria-hidden="true"]'));
+            static::assertCount(1, $live->filter('.jm-live__mark[aria-hidden="true"]'));
+            $name = '';
+            foreach ($live->getNode(0)?->childNodes ?? [] as $child) {
+                $name .= $child instanceof \DOMElement && $child->getAttribute('aria-hidden') === 'true' ? ' ' : $child->textContent;
+            }
+            static::assertSame('Live', trim((string) preg_replace('/\s+/', ' ', $name)));
+            static::assertCount(0, $live->filter('input, [aria-live], [role]'));
+            static::assertNull($live->attr('aria-live'));
+            static::assertNull($live->attr('role'));
+        }
+    }
+
+    public function testATabLabelAndItsBadgeAreEscaped(): void
+    {
+        $h = self::HOSTILE;
+        $tabs = new SubNav($h, [new SubNavItem($h, 'probe', true, null, ['period' => $h], new NavBadge($h, 'warn', $h)), new SubNavItem('Other', 'other')]);
+        $page = (new Page(new StubBlockScreen(), [], null, '', '', []))->withTabs($tabs);
+
+        $html = $this->render('_screen.html.twig', ['page' => $page, 'path' => 'probe', 'badges' => []]);
+        $tab = (new Crawler($html))->filter('.jm-subnav__item')->eq(0);
+
+        static::assertSame($h, (new Crawler($html))->filter('nav.jm-subnav')->attr('aria-label'));
+        static::assertSame($h, $tab->filter('span')->eq(0)->text());
+        static::assertSame('/host/page/probe?menu=3&period=%3Cb%3E%26%22x', $tab->attr('href'));
+        static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--warn" title="&lt;b&gt;&amp;&quot;x">&lt;b&gt;&amp;&quot;x<span class="jm-visually-hidden"> — &lt;b&gt;&amp;&quot;x</span></span>', $html);
+        static::assertStringNotContainsString('<b>', $html);
+        static::assertStringNotContainsString('&"x', $html);
     }
 
     /**
@@ -333,7 +398,7 @@ final class TemplatesTest extends TestCase
         $h = self::HOSTILE;
         $mark = new Mark('warn', $h);
 
-        yield 'subnav' => [Block::subnav(new SubNav([new SubNavItem($h, $h, true, $mark), new SubNavItem($h, $h)], $h))];
+        yield 'subnav' => [Block::subnav(new SubNav($h, [new SubNavItem($h, $h, true, $mark), new SubNavItem($h, $h)], $h))];
         yield 'notice' => [Block::notice(new Notice('bad', $h, $h))];
         yield 'checks' => [Block::checks(new CheckList([new CheckLine($h, $mark, $h, $h, $h, $h, $h), new CheckLine($h, $mark, $h, $h, $h)]))];
         yield 'empty checks' => [Block::checks(new CheckList([], $h, $h))];
@@ -363,7 +428,7 @@ final class TemplatesTest extends TestCase
             $expected = '<span class="jm-mark jm-mark--' . $tone . '">Word ' . $tone . '</span>';
 
             foreach ([
-                Block::subnav(new SubNav([new SubNavItem('PHP', 'stack/php', false, $mark)])),
+                Block::subnav(new SubNav('Stack', [new SubNavItem('PHP', 'stack/php', false, $mark)])),
                 Block::checks(new CheckList([new CheckLine('php.x', $mark, 'Sentence', 'Explanation', 'PHP')])),
                 Block::components(new ComponentCards([new ComponentCard('php', 'PHP', $mark)])),
                 Block::components(new ComponentCards([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), badges: [$mark])])),
@@ -476,7 +541,7 @@ final class TemplatesTest extends TestCase
     {
         $warning = new Mark('warn', 'Warning');
         $crawler = new Crawler($this->screen(
-            Block::subnav(new SubNav([new SubNavItem('PHP', 'stack/php', false, $warning)])),
+            Block::subnav(new SubNav('Stack', [new SubNavItem('PHP', 'stack/php', false, $warning)])),
             Block::notice(new Notice('bad', 'The stack could not be read')),
             Block::checks(new CheckList([new CheckLine('php.x', $warning, 'Sentence', 'Explanation', 'PHP', 'stack/php', '12 s ago')])),
             Block::components(new ComponentCards([new ComponentCard('php', 'PHP', $warning, version: '8.2.29', badges: [new Mark('warn', 'Security fixes only')])])),
@@ -519,8 +584,8 @@ final class TemplatesTest extends TestCase
 
     public function testTheNodeIsNamedOnceAndItsChangeNoticeStartsHidden(): void
     {
-        $html = $this->screen(Block::subnav(new SubNav([new SubNavItem('Overview', 'stack', true)], 'web-1')));
-        $without = $this->screen(Block::subnav(new SubNav([new SubNavItem('Overview', 'stack', true)])));
+        $html = $this->screen(Block::subnav(new SubNav('Stack', [new SubNavItem('Overview', 'stack', true)], 'web-1')));
+        $without = $this->screen(Block::subnav(new SubNav('Stack', [new SubNavItem('Overview', 'stack', true)])));
 
         static::assertStringContainsString('<nav class="jm-subnav" aria-label="Stack">', $html);
         static::assertStringContainsString('<p class="jm-node" data-jm-node="web-1">Answered by <strong>web-1</strong><span data-jm-node-changed hidden> — another web server answered this refresh</span></p>', $html);
@@ -532,7 +597,7 @@ final class TemplatesTest extends TestCase
     public function testLinksOfABlockGoThroughTheHostUrls(): void
     {
         $crawler = new Crawler($this->screen(
-            Block::subnav(new SubNav([new SubNavItem('Overview', 'stack', true), new SubNavItem('PHP', 'stack/php')])),
+            Block::subnav(new SubNav('Stack', [new SubNavItem('Overview', 'stack', true), new SubNavItem('PHP', 'stack/php')])),
             Block::checks(new CheckList([new CheckLine('php.x', new Mark('warn', 'Warning'), 'Sentence', 'Explanation', 'PHP', 'stack/php')])),
             Block::components(new ComponentCards([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), path: 'stack/php')])),
         ));
@@ -587,6 +652,108 @@ final class TemplatesTest extends TestCase
         }
     }
 
+    public function testASectionIsNamedByItsTitleAndItsTableHasNoTitleOfItsOwn(): void
+    {
+        $table = $this->table([new Row('k1', ['name' => new Cell('a'), 'count' => new Cell('3')])]);
+        $section = new Section('commands', 'Commands', 'Runs of bin/console, by cron, a deploy or by hand.', [Block::cards([new Card('Runs', '3')]), Block::table($table)], 'count', 'desc', ['count' => 'desc', 'name' => 'asc']);
+
+        $html = $this->composed(Block::section($section));
+        $crawler = new Crawler($html);
+        $element = $crawler->filter('.jm-screen > section.jm-section');
+
+        static::assertCount(1, $element);
+        static::assertSame('jm-commands', $element->attr('id'));
+        static::assertSame('jm-section-commands-title', $element->attr('aria-labelledby'));
+        static::assertSame('Commands', $element->filter('h2#jm-section-commands-title')->text());
+        static::assertSame('Runs of bin/console, by cron, a deploy or by hand.', $element->filter('.jm-section__summary')->text());
+        static::assertSame('3', $element->filter('.jm-cards .jm-card__value')->text());
+        static::assertCount(0, $element->filter('.jm-panel h2'));
+        static::assertSame('div', $element->filter('.jm-panel')->nodeName());
+        static::assertNull($element->filter('.jm-panel')->attr('aria-labelledby'));
+        static::assertSame('jm-section-commands-title', $element->filter('.jm-table-wrap')->attr('aria-labelledby'));
+        static::assertSame('1 row', $element->filter('.jm-panel__meta')->text());
+        static::assertStringNotContainsString('Stubs', $html);
+        static::assertLessThan((int) strpos($html, 'jm-cards'), (int) strpos($html, 'jm-section__title'));
+        static::assertLessThan((int) strpos($html, 'jm-panel'), (int) strpos($html, 'jm-cards'));
+
+        $alone = new Crawler($this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]));
+
+        static::assertSame('Stubs', $alone->filter('.jm-panel h2#jm-stubs-title')->text());
+        static::assertSame('jm-stubs-title', $alone->filter('.jm-panel')->attr('aria-labelledby'));
+    }
+
+    public function testAnEmptySectionShowsNoTable(): void
+    {
+        $own = Block::notice(new Notice('info', 'No transport to count'));
+        $empty = ['title' => 'No scheduled task is declared.', 'text' => 'Tasks show up here once a schedule declares them.'];
+
+        $crawler = new Crawler($this->composed(Block::section(new Section('tasks', 'Scheduled tasks', 'What Symfony Scheduler starts by the clock.', [$own], 'count', 'desc', ['count' => 'desc'], $empty))));
+        $element = $crawler->filter('section#jm-tasks');
+
+        foreach (['table', '.jm-panel', '.jm-cards', '.jm-state'] as $selector) {
+            static::assertCount(0, $element->filter($selector), $selector);
+        }
+        static::assertCount(1, $element->filter('.jm-notice'));
+        static::assertCount(1, $element->filter('p.jm-section__empty'));
+        static::assertSame('No scheduled task is declared. Tasks show up here once a schedule declares them.', $element->filter('p.jm-section__empty')->text());
+        static::assertSame('No scheduled task is declared.', $element->filter('p.jm-section__empty > strong')->text());
+        static::assertLessThan((int) strpos($element->html(), 'jm-section__empty'), (int) strpos($element->html(), 'jm-notice'));
+
+        $html = $this->composed(Block::section(new Section('tasks', 'Scheduled tasks', '', [], empty: ['title' => 'No scheduled task is declared.', 'text' => ''])));
+
+        static::assertStringContainsString('<p class="jm-section__empty"><strong>No scheduled task is declared.</strong></p>', $html);
+        static::assertStringNotContainsString('jm-section__empty', $this->composed(Block::section(new Section('tasks', 'Scheduled tasks', '', [Block::cards([])]))));
+    }
+
+    public function testTheTextsOfASectionAreEscaped(): void
+    {
+        $table = $this->table([new Row('k1', ['name' => new Cell(self::HOSTILE)])]);
+
+        foreach ([
+            $this->composed(Block::section(new Section('commands', self::HOSTILE, self::HOSTILE, [Block::table($table)], 'count', 'desc', ['count' => 'desc']))),
+            $this->composed(Block::section(new Section('tasks', self::HOSTILE, self::HOSTILE, [], empty: ['title' => self::HOSTILE, 'text' => self::HOSTILE_SQL]))),
+        ] as $html) {
+            static::assertStringContainsString('&lt;b&gt;&amp;&quot;x', $html);
+            static::assertStringNotContainsString('<b>', $html);
+            static::assertStringNotContainsString('<script>', $html);
+        }
+    }
+
+    public function testGlobalsOfTheHostNamedLikeTheVariablesOfABlockChangeNothing(): void
+    {
+        $table = $this->table([new Row('k1', ['name' => new Cell('a'), 'count' => new Cell('3')])]);
+        $stack = Block::subnav(new SubNav('Stack', [new SubNavItem('All components', 'stack'), new SubNavItem('PHP', 'stack/php', true)]));
+        $tabs = new SubNav('Application', [new SubNavItem('Stub', 'stub', true), new SubNavItem('Other', 'other')]);
+        $screen = new Page(new StubScreen(), [Block::cards([]), Block::table($table), $stack], Period::OneHour, 'name', 'asc', (new StubScreen())->sorts());
+        $section = new Section('commands', 'Commands', 'Runs of bin/console.', [Block::table($table)], 'count', 'desc', ['count' => 'desc', 'name' => 'asc']);
+        $composed = new Page(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]), [Block::section($section)], Period::OneHour, '', '', []);
+
+        foreach (['screen' => [$screen->withTabs($tabs), 'stub'], 'composed' => [$composed, 'background']] as $kind => [$page, $path]) {
+            $context = ['page' => $page, 'path' => $path, 'badges' => []];
+            $expected = $this->render('_screen.html.twig', $context);
+
+            static::assertStringContainsString('aria-sort=', $expected, $kind);
+            foreach (['a string', new \ArrayObject(['id' => 'x', 'sort' => 'name', 'items' => []]), new \stdClass()] as $global) {
+                static::assertSame($expected, $this->render('_screen.html.twig', $context, ['section' => $global, 'subnav' => $global]), $kind);
+            }
+        }
+    }
+
+    private function composed(Block ...$blocks): string
+    {
+        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]);
+
+        return $this->render('_screen.html.twig', ['page' => new Page($screen, $blocks, Period::OneHour, '', '', []), 'path' => 'background', 'badges' => []]);
+    }
+
+    private function sectionPage(SectionInterface $section, ScreenView $view, string $sort, string $direction): Page
+    {
+        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [$section]);
+        $block = Block::section(new Section($section->id(), $section->title(), $section->summary(), $this->blocks($view), $sort, $direction, $section->sorts()));
+
+        return new Page($screen, [$block], Period::OneHour, '', '', []);
+    }
+
     private function screen(Block ...$blocks): string
     {
         return $this->render('_screen.html.twig', ['page' => new Page(new StubBlockScreen('stack'), $blocks, null, '', '', []), 'path' => 'stack', 'badges' => []]);
@@ -594,13 +761,17 @@ final class TemplatesTest extends TestCase
 
     /**
      * @param array<string, mixed> $context
+     * @param array<string, mixed> $globals
      */
-    private function render(string $template, array $context): string
+    private function render(string $template, array $context, array $globals = []): string
     {
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');
         $twig = new Environment($loader, ['autoescape' => false, 'strict_variables' => true]);
         $twig->addExtension(new JmonitorExtension());
+        foreach ($globals as $name => $value) {
+            $twig->addGlobal($name, $value);
+        }
 
         return $twig->render('@Jmonitor/dashboard/' . $template, $context + ['urls' => new FakeHostUrls(), 'standalone' => false, 'actions' => [], 'token' => null]);
     }

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\DependencyInjection;
 
-use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Recording\HttpClient\RecordingHttpClient;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
@@ -41,7 +41,7 @@ final class HttpClientPassTest extends KernelTestCase
 
         static::assertInstanceOf(RecordingHttpClient::class, static::getContainer()->get('http_client'));
         static::assertInstanceOf(RecordingHttpClient::class, static::getContainer()->get('flaky.client'));
-        static::assertContains('http-client', $this->screens());
+        static::assertContains('http', $this->sections());
     }
 
     public function testAKernelWithoutAnyClientRunsWithoutTheScreen(): void
@@ -49,7 +49,8 @@ final class HttpClientPassTest extends KernelTestCase
         $kernel = self::bootKernel(['jmonitor' => $this->recording(), 'http_client' => false]);
 
         static::assertFalse(static::getContainer()->has('http_client'));
-        static::assertNotContains('http-client', $this->screens());
+        static::assertNotContains('http', $this->sections());
+        static::assertContains('cache', $this->sections());
         static::assertSame(200, $kernel->handle(Request::create('/hello/world'))->getStatusCode());
     }
 
@@ -62,16 +63,25 @@ final class HttpClientPassTest extends KernelTestCase
             static::assertInstanceOf(HttpClientInterface::class, $client);
             static::assertNotInstanceOf(RecordingHttpClient::class, $client, $id);
         }
-        static::assertNotContains('http-client', $this->screens());
+        static::assertNotContains('http', $this->sections());
     }
 
     /** @return list<string> */
-    private function screens(): array
+    private function sections(): array
     {
         $registry = static::getContainer()->get(ScreenRegistry::class);
         \assert($registry instanceof ScreenRegistry);
 
-        return array_map(static fn(ScreenInterface $screen): string => $screen->id(), $registry->available());
+        $sections = [];
+        foreach ($registry->available() as $screen) {
+            if ($screen instanceof ComposedScreen) {
+                foreach ($screen->sections() as $section) {
+                    $sections[] = $section->id();
+                }
+            }
+        }
+
+        return $sections;
     }
 
     /**

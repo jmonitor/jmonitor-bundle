@@ -5,15 +5,24 @@
     var INTERVAL = 10000;
     var FAST_DELAY = 2000;
     var FAST_TRIES = 5;
+    var SECOND = 1000;
     var PAGE_PARAMETERS = ['period', 'sort', 'dir'];
+    var ROWS = '.jm-subnav, .jm-instances__row';
     var root = document.querySelector('[data-jm-live]');
 
     revealCurrentScreen(document.querySelector('.jm-nav'));
-    revealCurrentScreen(document.querySelector('.jm-subnav'));
+    revealCurrentTabs(document);
     revealCurrentInstances(document);
 
     function revealCurrentScreen(nav) {
         reveal(nav, nav ? nav.querySelector('[aria-current="page"]') : null);
+    }
+
+    function revealCurrentTabs(scope) {
+        var navs = scope.querySelectorAll('.jm-subnav');
+        for (var n = 0; n < navs.length; n++) {
+            revealCurrentScreen(navs[n]);
+        }
     }
 
     function revealCurrentInstances(scope) {
@@ -36,8 +45,10 @@
     var url = root.getAttribute('data-jm-fragment-url');
     var content = root.querySelector('[data-jm-content]');
     var toggle = document.querySelector('[data-jm-live-toggle]');
-    var input = toggle ? toggle.querySelector('input') : null;
     var enabled = readPreference();
+    var failed = false;
+    var receivedAt = Date.now();
+    var ageTimer = null;
     var timer = null;
     var inFlight = false;
     var fastTimer = null;
@@ -67,13 +78,71 @@
         }
     }
 
-    function markFailed(failed) {
+    function markFailed(value) {
+        failed = value;
+        render();
+    }
+
+    function age() {
+        return Math.max(0, Date.now() - receivedAt);
+    }
+
+    function duration(milliseconds) {
+        var seconds = Math.floor(milliseconds / SECOND);
+
+        if (seconds < 60) {
+            return seconds + ' s';
+        }
+
+        return seconds < 3600 ? Math.floor(seconds / 60) + ' min' : Math.floor(seconds / 3600) + ' h';
+    }
+
+    function render() {
         if (!toggle) {
             return;
         }
 
-        toggle.classList.toggle('is-failed', failed);
-        toggle.title = !failed ? '' : liveRefused ? 'Refresh stopped: turn Live on again or reload the page' : 'Last refresh failed, retrying';
+        var elapsed = age();
+        var fresh = elapsed < SECOND;
+        var state = liveRefused || (enabled && failed) ? 'failed' : enabled ? 'live' : 'paused';
+        var texts = {
+            live: ['Live', fresh ? 'updated just now' : 'updated ' + duration(elapsed) + ' ago'],
+            paused: ['Paused', fresh ? 'data from just now' : 'data from ' + duration(elapsed) + ' ago'],
+            failed: ['Not updated', 'for ' + duration(Math.max(elapsed, SECOND)) + (liveRefused ? '' : ' · retrying')],
+        };
+
+        toggle.setAttribute('data-jm-live-state', state);
+        toggle.title = state !== 'failed' ? '' : liveRefused ? 'Refresh stopped: turn Live on again or reload the page' : 'Last refresh failed, retrying';
+        writeText('[data-jm-live-word]', texts[state][0]);
+        writeText('[data-jm-live-age]', texts[state][1]);
+    }
+
+    function writeText(selector, text) {
+        var element = toggle.querySelector(selector);
+
+        if (element && element.textContent !== text) {
+            element.textContent = text;
+        }
+    }
+
+    function tickAge() {
+        window.clearTimeout(ageTimer);
+        ageTimer = null;
+        render();
+
+        if (toggle && !document.hidden && root.isConnected) {
+            ageTimer = window.setTimeout(tickAge, SECOND - age() % SECOND);
+        }
+    }
+
+    function restartProgress() {
+        var progress = toggle ? toggle.querySelector('[data-jm-live-progress]') : null;
+
+        if (progress) {
+            progress.style.animation = 'none';
+            void progress.offsetWidth;
+            progress.style.animation = '';
+        }
     }
 
     function hasSelectionInside(element) {
@@ -171,29 +240,53 @@
         }
     }
 
+    function focusedRow() {
+        var active = document.activeElement;
+        var row = active && content.contains(active) ? active.closest(ROWS) : null;
+
+        return row ? { index: Array.prototype.indexOf.call(content.querySelectorAll(ROWS), row), scrollLeft: row.scrollLeft } : null;
+    }
+
+    function revealCurrentRows(kept) {
+        var rows = content.querySelectorAll(ROWS);
+
+        for (var r = 0; r < rows.length; r++) {
+            if (!rows[r].contains(document.activeElement)) {
+                reveal(rows[r], rows[r].querySelector('[aria-current]'));
+            } else if (kept && kept.index === r) {
+                rows[r].scrollLeft = kept.scrollLeft;
+            }
+        }
+    }
+
     function replaceContent(html) {
-        var wraps = content.querySelectorAll('.jm-table-wrap');
-        var scrollLefts = [];
+        var wraps = content.querySelectorAll('.jm-table-wrap[id]');
+        var scrollLefts = {};
         for (var w = 0; w < wraps.length; w++) {
-            scrollLefts.push(wraps[w].scrollLeft);
+            scrollLefts[wraps[w].id] = wraps[w].scrollLeft;
         }
         var focused = focusedIdentity();
+        var row = focusedRow();
         var opened = openKeys();
         var node = currentNode();
 
         content.innerHTML = html;
         reopen(opened);
 
-        wraps = content.querySelectorAll('.jm-table-wrap');
-        for (w = 0; w < wraps.length && w < scrollLefts.length; w++) {
-            wraps[w].scrollLeft = scrollLefts[w];
+        wraps = content.querySelectorAll('.jm-table-wrap[id]');
+        for (w = 0; w < wraps.length; w++) {
+            if (Object.prototype.hasOwnProperty.call(scrollLefts, wraps[w].id)) {
+                wraps[w].scrollLeft = scrollLefts[wraps[w].id];
+            }
         }
 
-        revealCurrentScreen(content.querySelector('.jm-subnav'));
-        revealCurrentInstances(content);
         restoreFocus(focused);
+        revealCurrentRows(row);
         fillSlots();
         tellNodeChange(node);
+        receivedAt = Date.now();
+        tickAge();
+        restartProgress();
 
         if (!isReading()) {
             fastTries = 0;
@@ -376,12 +469,11 @@
         }
     }
 
-    if (toggle && input) {
-        input.checked = enabled;
+    if (toggle) {
         toggle.hidden = false;
 
-        input.addEventListener('change', function () {
-            enabled = input.checked;
+        toggle.addEventListener('click', function () {
+            enabled = liveRefused || !enabled;
             liveRefused = false;
             writePreference(enabled);
             markFailed(false);
@@ -399,10 +491,12 @@
             refresh();
         }
 
+        tickAge();
         scheduleFastTry(0);
     });
 
     start();
+    tickAge();
     showRestLink();
     scheduleFastTry(0);
 })();

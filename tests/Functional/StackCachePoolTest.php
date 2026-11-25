@@ -64,10 +64,10 @@ final class StackCachePoolTest extends WebTestCase
             $client->request('GET', '/stack-cached');
             static::assertResponseIsSuccessful();
         }
-        $crawler = self::requestUntil($client, '/jmonitor/cache', 'tr[data-jm-pool="cache.app"][data-jm-reads="3"]');
+        $crawler = self::requestUntil($client, '/jmonitor/cache-http', 'section#jm-cache tr[data-jm-pool="cache.app"][data-jm-reads="3"]');
 
         static::assertResponseIsSuccessful();
-        $rows = $crawler->filter('section[aria-labelledby="jm-pools-title"] tbody tr');
+        $rows = $crawler->filter('section#jm-cache tbody tr');
         static::assertSame(['cache.app'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-pool')));
         static::assertSame(['3'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-reads')));
     }

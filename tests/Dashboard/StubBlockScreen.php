@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 
 final class StubBlockScreen implements BlockScreenInterface
@@ -20,6 +21,7 @@ final class StubBlockScreen implements BlockScreenInterface
         private readonly string $id = 'probe',
         private readonly bool $available = true,
         private readonly array|\Throwable $blocks = [],
+        private readonly Space $space = Space::Application,
     ) {}
 
     public function id(): string
@@ -40,6 +42,11 @@ final class StubBlockScreen implements BlockScreenInterface
     public function isAvailable(): bool
     {
         return $this->available;
+    }
+
+    public function space(): Space
+    {
+        return $this->space;
     }
 
     public function blocks(ScreenRequest $request): array

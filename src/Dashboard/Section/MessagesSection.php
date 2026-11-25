@@ -2,17 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
+namespace Jmonitor\JmonitorBundle\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Percentile;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
-use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\BlockSourceInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
-use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -29,7 +27,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
  *
  * @phpstan-type Message array{row: ReportRow, sent: int, handled: int, avg: float, p95: float, max: float, failed: int, retried: int, sql: float, queries: float, hasSql: bool}
  */
-final class MessagesScreen implements StorageScreenInterface, BlockScreenInterface
+final class MessagesSection implements SectionInterface, BlockSourceInterface
 {
     private const LIMIT = 100;
     private const NONE = '—';
@@ -49,14 +47,14 @@ final class MessagesScreen implements StorageScreenInterface, BlockScreenInterfa
         return 'messages';
     }
 
-    public function label(): string
+    public function title(): string
     {
         return 'Messages';
     }
 
-    public function heading(): string
+    public function summary(): string
     {
-        return 'Messages sent and handled per class';
+        return 'Work your code hands to Messenger to do later.';
     }
 
     public function isAvailable(): bool
@@ -79,17 +77,17 @@ final class MessagesScreen implements StorageScreenInterface, BlockScreenInterfa
         ];
     }
 
-    public function emptyState(): array
+    public function emptyState(Period $period): array
     {
         if (!$this->recorded) {
             return [
-                'title' => 'Messages are not recorded',
+                'title' => 'Messages are not recorded.',
                 'text' => 'Recording the messages is off (jmonitor.recording.messenger). The queues are still counted.',
             ];
         }
 
         return [
-            'title' => 'No messages recorded yet',
+            'title' => 'No message was sent or handled in the ' . lcfirst(Format::period($period)) . '.',
             'text' => 'Messages sent to a transport and messages handled by a worker show up here. Messages handled synchronously are part of their request.',
         ];
     }

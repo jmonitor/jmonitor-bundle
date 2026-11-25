@@ -1,10 +1,17 @@
 {% autoescape 'html' %}
 <div class="jm-screen" data-jm-state="{{ page.state }}"{% if page.reading %} data-jm-reading{% endif %}>
-{% for block in page.blocks %}
-    {{ include('@Jmonitor/dashboard/block/' ~ (block.state.value == 'ready' ? block.type : 'state') ~ '.html.twig', {block: block}) }}
+{% if page.tabs %}
+    {{ include('@Jmonitor/dashboard/block/subnav.html.twig', {block: {content: page.tabs}}) }}
+{% endif %}
+    <div class="jm-heading">
+        <h1 class="jm-heading__title">{{ page.screen.label }}</h1>
+        <p class="jm-heading__text">{{ page.screen.heading }}{% if page.period %}, {{ page.period|jmonitor_period|lower }}{% endif %}.</p>
+    </div>
+{% for block in page.body %}
+    {{ include('@Jmonitor/dashboard/block/' ~ (block.state.value == 'ready' ? block.type : 'state') ~ '.html.twig', {block: block, section: null}) }}
 {% endfor %}
 {% if page.reading %}
-    <p class="jm-rest"><a data-jm-rest href="{{ urls.page(path ?? page.screen.id, (page.period ? {period: page.period.label, sort: page.sort, dir: page.direction} : {})|merge(page.query)|merge({rest: '1'})) }}">Load the rest</a></p>
+    <p class="jm-rest"><a data-jm-rest href="{{ urls.page(path ?? page.screen.id, (page.period ? {period: page.period.label}|merge(page.sort is same as('') ? {} : {sort: page.sort, dir: page.direction}) : {})|merge(page.query)|merge({rest: '1'})) }}">Load the rest</a></p>
 {% endif %}
 {% for id, badge in badges ?? {} %}
     <template data-jm-slot-content="nav-{{ id }}">{% if badge %}{{ include('@Jmonitor/dashboard/_badge.html.twig', {badge: badge}, with_context = false) }}{% endif %}</template>

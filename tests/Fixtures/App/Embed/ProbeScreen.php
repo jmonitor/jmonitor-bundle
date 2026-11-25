@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed;
 use Jmonitor\JmonitorBundle\Dashboard\ActionScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -37,6 +38,11 @@ final class ProbeScreen implements BlockScreenInterface, ActionScreenInterface
     public function isAvailable(): bool
     {
         return true;
+    }
+
+    public function space(): Space
+    {
+        return Space::Application;
     }
 
     public function blocks(ScreenRequest $request): array

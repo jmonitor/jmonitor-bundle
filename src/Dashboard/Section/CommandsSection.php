@@ -2,13 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
+namespace Jmonitor\JmonitorBundle\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -23,7 +22,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 /**
  * @phpstan-type Command array{row: ReportRow, runs: int, avg: float, max: float, failed: int, memory: int, last: int, sql: float, queries: float, hasSql: bool}
  */
-final class CommandsScreen implements StorageScreenInterface
+final class CommandsSection implements SectionInterface
 {
     private const LIMIT = 100;
 
@@ -34,14 +33,14 @@ final class CommandsScreen implements StorageScreenInterface
         return 'commands';
     }
 
-    public function label(): string
+    public function title(): string
     {
         return 'Commands';
     }
 
-    public function heading(): string
+    public function summary(): string
     {
-        return 'Runs, duration and failures per console command';
+        return 'Runs of bin/console, by cron, a deploy or by hand.';
     }
 
     public function isAvailable(): bool
@@ -63,10 +62,10 @@ final class CommandsScreen implements StorageScreenInterface
         ];
     }
 
-    public function emptyState(): array
+    public function emptyState(Period $period): array
     {
         return [
-            'title' => 'No commands recorded yet',
+            'title' => 'No command ran in the ' . lcfirst(Format::period($period)) . '.',
             'text' => 'Run a console command: it shows up here as soon as it ends. Internal commands such as cache:clear and messenger:consume are not recorded.',
         ];
     }

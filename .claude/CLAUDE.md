@@ -33,6 +33,22 @@ The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboar
 - A test that loads an EasyAdmin class, even through a container built with the option on, carries `#[Group('easyadmin')]`, and no test class extends or implements an EasyAdmin type. The CI runs the suite once without EasyAdmin, with `--exclude-group easyadmin`.
 - `JmonitorController` is instantiated by EasyAdmin while the routes load: it only receives the `JmonitorPage` service and a service locator, and any new dependency goes through that locator, never into its constructor. The permission is checked by `Access` on the page, on its refresh and on the actions, at request time.
 
+## Dashboard
+
+The `/jmonitor` page, its screens and their blocks:
+
+- Every screen says its space (`ScreenInterface::space()`): `Application`, `Background` or `Stack`. The header lists the spaces that have an available screen, and a space with more than one available screen gets tabs, built by `PageRenderer`.
+- The tabs and the title of a screen are in the refreshed part (`_screen.html.twig`), never in `page.html.twig`.
+- A composed screen (`ComposedScreen`) is made of sections (`SectionInterface`, in `src/Dashboard/Section/`). It is available while one of its sections is; an unavailable section does not exist for the page.
+- A section never replaces the page. A cause that touches the whole page is told once, above the sections: no connection, a failed flush, a read that throws and, as soon as one section is empty, recording off or an unusable buffer directory.
+- A read of a section that throws stops the next ones: a database that does not answer makes the page wait once.
+- The own blocks of a section (`BlockSourceInterface`) are read even without storage; one that throws only breaks its section.
+- One sort is chosen per page, named by its section (`sort=<section>.<column>`). The other sections keep their default sort, and an invalid sort chooses nothing.
+- A composed screen is a `RecordedScreenInterface`: it never opens `/jmonitor` when nothing is recorded, and `PageRenderer` flushes the buffer before it reads.
+- Every variable a block template reads is set by the bundle, by `PageRenderer` or by the `include()` of the block (`block`, and `section`, `null` outside a section), so that a Twig global of the host never stands in for one.
+- The base rule of the links is `.jm :where(a)`, so that a class set on a link keeps its colour.
+- `public/jmonitor.js` has no test suite in the repository: a change to it is checked in a browser.
+
 ## Live stack
 
 The engine that reads the server, PHP, Symfony, the web server, the databases and Redis on demand, behind a cache:
@@ -46,7 +62,7 @@ The engine that reads the server, PHP, Symfony, the web server, the databases an
 - Every collector declares a lifetime (`Lifetime`) and a cost class (`CostClass`). A collector that starts a process or calls a service outside the stack over the network is `CostClass::Slow`.
 - Detection touches no server: it only says which components exist and builds their collectors.
 - A shared value is the same for every instance of its component: its cache keys name the component, never the instance.
-- `jmonitor.stack.cache` is not declared under `framework.cache.pools`, or its reads would be counted on the Cache screen.
+- `jmonitor.stack.cache` is not declared under `framework.cache.pools`, or its reads would be counted on the Cache & HTTP screen.
 - No test calls the network or `composer`: fake fetchers and process runners stand in for them, and the test kernel turns `stack.end_of_life`, `stack.symfony.flex` and `stack.symfony.messenger` off unless a test sets `stack` itself.
 - No PHPUnit test starts the console in a process: the test kernel plays the command counting the queues (`queuesOutput`) and the web servers with their status pages (`fakeWebServer`). Only the kernel of `TestKernel::fromEnvironment()`, used by the end-to-end runs, starts the real command.
 - Its screens live in `src/Stack/Screen/`: `StackScreen` and `ComponentScreen` get the reader, the checks and the summary through a service locator, read by `StackScreenParts`, so that the reader and the checks are only built when a Stack screen is displayed.

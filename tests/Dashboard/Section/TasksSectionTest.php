@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Screen;
+namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
@@ -10,7 +10,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -29,37 +29,39 @@ use Symfony\Component\Console\Messenger\RunCommandMessage;
 use Symfony\Component\Scheduler\RecurringMessage;
 use Symfony\Component\Scheduler\Schedule;
 
-final class SchedulerScreenTest extends TestCase
+final class TasksSectionTest extends TestCase
 {
     private const NOW = 1800000000;
 
-    public function testTheScreenDeclaresItself(): void
+    public function testTheSectionDeclaresItself(): void
     {
-        $screen = new SchedulerScreen(true, new DeclaredTasks());
+        $screen = new TasksSection(true, new DeclaredTasks());
 
-        static::assertSame('scheduler', $screen->id());
-        static::assertSame('Scheduler', $screen->label());
-        static::assertSame('Scheduled tasks, their last and next run', $screen->heading());
+        static::assertSame('tasks', $screen->id());
+        static::assertSame('Scheduled tasks', $screen->title());
+        static::assertSame('What Symfony Scheduler starts by the clock.', $screen->summary());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
             ['next' => 'asc', 'task' => 'asc', 'last' => 'desc', 'runs' => 'desc', 'avg' => 'desc', 'max' => 'desc', 'failed' => 'desc'],
             $screen->sorts(),
         );
-        static::assertSame([
-            'title' => 'No scheduled tasks',
-            'text' => 'Tasks declared in a schedule show up here with their next run, and their runs once a worker consumes the schedule.',
-        ], $screen->emptyState());
+        foreach (Period::cases() as $period) {
+            static::assertSame([
+                'title' => 'No scheduled task is declared.',
+                'text' => 'Tasks declared in a schedule show up here with their next run, and their runs once a worker consumes the schedule.',
+            ], $screen->emptyState($period));
+        }
     }
 
     public function testTheScreenFollowsItsAvailability(): void
     {
-        static::assertFalse((new SchedulerScreen(false, new DeclaredTasks()))->isAvailable());
-        static::assertTrue((new SchedulerScreen(true, new DeclaredTasks()))->isAvailable());
+        static::assertFalse((new TasksSection(false, new DeclaredTasks()))->isAvailable());
+        static::assertTrue((new TasksSection(true, new DeclaredTasks()))->isAvailable());
     }
 
     public function testTheScreenReadsTheTaskFamilyOnceWithItsSeries(): void
     {
-        $screen = new SchedulerScreen(true, new DeclaredTasks());
+        $screen = new TasksSection(true, new DeclaredTasks());
 
         foreach (array_keys($screen->sorts()) as $sort) {
             $reader = new FixedReader();
@@ -199,7 +201,7 @@ final class SchedulerScreenTest extends TestCase
             'failed' => ['app:beta', 'app:alpha', 'app:gamma'],
         ];
 
-        static::assertSame(array_keys((new SchedulerScreen(true, new DeclaredTasks()))->sorts()), array_keys($ascending));
+        static::assertSame(array_keys((new TasksSection(true, new DeclaredTasks()))->sorts()), array_keys($ascending));
 
         foreach ($ascending as $sort => $expected) {
             static::assertSame($expected, $this->labels($this->build($stored, $schedules, $sort, 'asc')), $sort . ' asc');
@@ -251,7 +253,7 @@ final class SchedulerScreenTest extends TestCase
             'default' => static fn(): Schedule => throw new \RuntimeException('No schedule today'),
         ]));
 
-        $view = (new SchedulerScreen(true, $declared))->build(
+        $view = (new TasksSection(true, $declared))->build(
             new FixedReader(new Report([self::task('h1', new TaskKey('default', 'a', 'app:work', 'every 1 hour'), runs: 1, last: self::NOW - 60)], keyCount: 1)),
             Period::OneHour,
             self::NOW,
@@ -311,7 +313,7 @@ final class SchedulerScreenTest extends TestCase
             $schedules,
         )));
 
-        return (new SchedulerScreen(true, $declared))->build(
+        return (new TasksSection(true, $declared))->build(
             new FixedReader(static fn(ReportQuery $query): Report => new Report($rows, $other, \count($rows), $series)),
             $period,
             self::NOW,

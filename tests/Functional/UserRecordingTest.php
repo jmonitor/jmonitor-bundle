@@ -88,7 +88,7 @@ final class UserRecordingTest extends WebTestCase
         $crawler = self::requestUntil($client, '/jmonitor/users', 'tr[data-jm-user="user"]');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('Users', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('Users', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
         $rows = self::userRows($crawler);
         static::assertSame(['admin', 'user'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-user')));
         static::assertSame(['3', '1'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-requests')));
@@ -159,7 +159,7 @@ final class UserRecordingTest extends WebTestCase
 
         $crawler = $client->request('GET', '/jmonitor/');
         static::assertResponseIsSuccessful();
-        static::assertNotContains('Users', $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertNotContains('Users', $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()));
 
         $client->request('GET', '/jmonitor/users');
         static::assertResponseStatusCodeSame(404);

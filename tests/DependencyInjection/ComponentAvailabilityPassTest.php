@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\DependencyInjection;
 
-use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
 use Jmonitor\JmonitorBundle\DependencyInjection\ComponentAvailabilityPass;
 use Jmonitor\JmonitorBundle\Recording\MessengerRecorder;
 use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
@@ -39,44 +39,44 @@ final class ComponentAvailabilityPassTest extends TestCase
         static::assertFalse($container->hasDefinition(MessengerRecorder::class));
     }
 
-    public function testKeepsTheMessagesScreenOptionWhenMessengerIsEnabled(): void
+    public function testKeepsTheMessagesSectionOptionWhenMessengerIsEnabled(): void
     {
         $container = $this->container(['messenger.receiver_locator']);
-        $container->setDefinition(MessagesScreen::class, new Definition(MessagesScreen::class, ['%jmonitor.recording.messenger%']));
+        $container->setDefinition(MessagesSection::class, new Definition(MessagesSection::class, ['%jmonitor.recording.messenger%']));
 
         (new ComponentAvailabilityPass())->process($container);
 
-        static::assertSame('%jmonitor.recording.messenger%', $container->getDefinition(MessagesScreen::class)->getArgument(0));
+        static::assertSame('%jmonitor.recording.messenger%', $container->getDefinition(MessagesSection::class)->getArgument(0));
     }
 
-    public function testTheMessagesScreenIsUnavailableWhenMessengerIsNotEnabled(): void
+    public function testTheMessagesSectionIsUnavailableWhenMessengerIsNotEnabled(): void
     {
         $container = $this->container([]);
-        $container->setDefinition(MessagesScreen::class, new Definition(MessagesScreen::class, ['%jmonitor.recording.messenger%']));
+        $container->setDefinition(MessagesSection::class, new Definition(MessagesSection::class, ['%jmonitor.recording.messenger%']));
 
         (new ComponentAvailabilityPass())->process($container);
 
-        static::assertFalse($container->getDefinition(MessagesScreen::class)->getArgument(0));
+        static::assertFalse($container->getDefinition(MessagesSection::class)->getArgument(0));
     }
 
-    public function testKeepsTheSchedulerScreenOptionWhenTheSchedulerIsEnabled(): void
+    public function testKeepsTheTasksSectionOptionWhenTheSchedulerIsEnabled(): void
     {
         $container = $this->container(['messenger.receiver_locator', 'scheduler.messenger_transport_factory']);
-        $container->setDefinition(SchedulerScreen::class, new Definition(SchedulerScreen::class, ['%jmonitor.recording.scheduler%']));
+        $container->setDefinition(TasksSection::class, new Definition(TasksSection::class, ['%jmonitor.recording.scheduler%']));
 
         (new ComponentAvailabilityPass())->process($container);
 
-        static::assertSame('%jmonitor.recording.scheduler%', $container->getDefinition(SchedulerScreen::class)->getArgument(0));
+        static::assertSame('%jmonitor.recording.scheduler%', $container->getDefinition(TasksSection::class)->getArgument(0));
     }
 
-    public function testTheSchedulerScreenIsUnavailableWhenTheSchedulerIsNotEnabled(): void
+    public function testTheTasksSectionIsUnavailableWhenTheSchedulerIsNotEnabled(): void
     {
         $container = $this->container(['messenger.receiver_locator']);
-        $container->setDefinition(SchedulerScreen::class, new Definition(SchedulerScreen::class, ['%jmonitor.recording.scheduler%']));
+        $container->setDefinition(TasksSection::class, new Definition(TasksSection::class, ['%jmonitor.recording.scheduler%']));
 
         (new ComponentAvailabilityPass())->process($container);
 
-        static::assertFalse($container->getDefinition(SchedulerScreen::class)->getArgument(0));
+        static::assertFalse($container->getDefinition(TasksSection::class)->getArgument(0));
         static::assertTrue($container->hasDefinition(MessengerRecorder::class));
     }
 

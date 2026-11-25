@@ -15,6 +15,7 @@ final class Block
     public const GAUGES = 'gauges';
     public const FACTS = 'facts';
     public const INSTANCES = 'instances';
+    public const SECTION = 'section';
 
     private function __construct(
         public readonly string $type,
@@ -69,6 +70,13 @@ final class Block
     public static function instances(InstanceNav $nav): self
     {
         return new self(self::INSTANCES, BlockState::Ready, $nav);
+    }
+
+    public static function section(Section $section): self
+    {
+        $reading = array_filter($section->blocks, static fn(self $block): bool => $block->reading) !== [];
+
+        return new self(self::SECTION, BlockState::Ready, $section, reading: $reading);
     }
 
     public static function unavailable(string $type, BlockState $state, string $title = '', string $text = ''): self

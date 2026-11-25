@@ -1,0 +1,16 @@
+{% autoescape 'html' %}
+{% set section = block.content %}
+{% set title_id = 'jm-section-' ~ section.id ~ '-title' %}
+<section class="jm-section" id="jm-{{ section.id }}" aria-labelledby="{{ title_id }}">
+    <div class="jm-section__header">
+        <h2 class="jm-section__title" id="{{ title_id }}">{{ section.title }}</h2>
+        <p class="jm-section__summary">{{ section.summary }}</p>
+    </div>
+{% for inner in section.blocks %}
+    {{ include('@Jmonitor/dashboard/block/' ~ (inner.state.value == 'ready' ? inner.type : 'state') ~ '.html.twig', {block: inner, section: section}) }}
+{% endfor %}
+{% if section.empty is not null %}
+    <p class="jm-section__empty"><strong>{{ section.empty.title }}</strong>{% if section.empty.text is not same as('') %} {{ section.empty.text }}{% endif %}</p>
+{% endif %}
+</section>
+{% endautoescape %}

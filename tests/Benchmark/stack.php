@@ -5,11 +5,13 @@ declare(strict_types=1);
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
@@ -177,12 +179,12 @@ function stackScreen(CacheItemPoolInterface $cache, ClockInterface $clock, Kerne
 }
 
 /**
- * The Stack and Messages screens of one request, on services of their own, as the container gives them.
+ * The Stack and Background screens of one request, on services of their own, as the container gives them.
  *
  * @param list<string>                          $built  the services of the stack the screens asked for
  * @param array<string, ComponentDetectorInterface> $remote
  *
- * @return array{StackScreen, MessagesScreen} Messages counts the queues when $web is given
+ * @return array{StackScreen, ComposedScreen} Background counts the queues when $web is given
  */
 function screens(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInterface $kernel, array &$built, ?FakeUrlFetcher $endOfLife = null, ?WebStack $web = null, ?MysqlDetector $mysql = null, array $remote = []): array
 {
@@ -211,12 +213,12 @@ function screens(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInt
             Component::Symfony->value => static fn(): SymfonyDetail => new SymfonyDetail(),
             Component::Mysql->value => static fn(): MysqlDetail => new MysqlDetail(),
         ])),
-        new MessagesScreen(true, true, $web === null ? null : new QueuesBlocks($locator, $clock)),
+        new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new MessagesSection(true, true, $web === null ? null : new QueuesBlocks($locator, $clock))]),
     ];
 }
 
 /**
- * @param array{StackScreen, MessagesScreen}|StackScreen $screens
+ * @param array{StackScreen, ComposedScreen}|StackScreen $screens
  */
 function renderer(array|StackScreen $screens, Environment $twig, ClockInterface $clock, FixedReader $storage = new FixedReader()): PageRenderer
 {
@@ -512,8 +514,8 @@ $dirs[] = $dir = workDir();
 $cache = filesystemCache($dir);
 $display($cache, 'stack');
 $display($cache, 'stack', true);
-$display($cache, 'messages');
-$display($cache, 'messages', true);
+$display($cache, 'background');
+$display($cache, 'background', true);
 $cache->reset();
 $web->reset();
 $built = [];
@@ -524,7 +526,7 @@ report('with Nginx and the queues: application screen, status pages and commands
 
 $cache->reset();
 $web->reset();
-$html = $display($cache, 'messages');
+$html = $display($cache, 'background');
 report('Messages, queues in cache, cache round trips', $cache->roundTrips(), 'trips', 2, sprintf('(the badge, then the queues; %s; the design aims at 1 for the queues)', json_encode($cache->calls, JSON_THROW_ON_ERROR)), true);
 report('Messages, queues in cache, commands run', count($web->queues->calls), 'calls', 0, str_contains($html, 'data-jm-reading') ? '(still reading)' : '', true);
 
@@ -532,14 +534,14 @@ $dirs[] = $dir = workDir();
 $cache = filesystemCache($dir);
 $web->reset();
 $storage->queries = [];
-$html = $display($cache, 'messages');
+$html = $display($cache, 'background');
 $pageTrips = $cache->roundTrips();
 $pageReads = count($storage->queries);
 $pageCommands = count($web->queues->calls);
 $cache->reset();
 $storage->queries = [];
 $restMillis = millis(static function () use ($display, $cache, &$html): void {
-    $html = $display($cache, 'messages', true);
+    $html = $display($cache, 'background', true);
 });
 report('Messages, first page on an empty cache, commands run', $pageCommands, 'calls', 0, sprintf('(%d cache round trips, %d storage reads)', $pageTrips, $pageReads), true);
 report('Messages, follow-up (?rest=1), commands run', count($web->queues->calls), 'calls', 1, sprintf('(%.2f ms with Twig; %s)', $restMillis, str_contains($html, 'data-jm-reading') ? 'still reading' : 'complete'), true);

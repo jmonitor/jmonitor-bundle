@@ -12,6 +12,7 @@ use Jmonitor\JmonitorBundle\Dashboard\NavBadgeScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ParentScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
@@ -66,6 +67,11 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
         return true;
     }
 
+    public function space(): Space
+    {
+        return Space::Stack;
+    }
+
     public function actions(): array
     {
         return ['refresh' => 'Refresh'];
@@ -103,7 +109,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
 
         if ($state->error !== null) {
             return [
-                Block::subnav(new SubNav([StackScreenParts::overview(true)], $state->node)),
+                Block::subnav(new SubNav(Space::Stack->label(), [StackScreenParts::overview(true)], $state->node)),
                 Block::notice(StackScreenParts::engineFailure($state->error)),
             ];
         }
@@ -162,7 +168,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             $items[] = new SubNavItem($component->component->label(), StackScreenParts::path($component->component), false, Marks::verdict($health->componentVerdict($component->component)));
         }
 
-        return new SubNav($items, $state->node);
+        return new SubNav(Space::Stack->label(), $items, $state->node);
     }
 
     private function componentCards(StackState $state, StackHealth $health): ComponentCards

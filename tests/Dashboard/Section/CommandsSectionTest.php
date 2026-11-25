@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Screen;
+namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\CommandsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\CommandsSection;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -22,39 +22,40 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use PHPUnit\Framework\TestCase;
 
-final class CommandsScreenTest extends TestCase
+final class CommandsSectionTest extends TestCase
 {
     private const NOW = 1800000000;
 
-    public function testTheScreenDeclaresItself(): void
+    public function testTheSectionDeclaresItself(): void
     {
-        $screen = new CommandsScreen(true);
+        $screen = new CommandsSection(true);
 
         static::assertSame('commands', $screen->id());
-        static::assertSame('Commands', $screen->label());
-        static::assertSame('Runs, duration and failures per console command', $screen->heading());
+        static::assertSame('Commands', $screen->title());
+        static::assertSame('Runs of bin/console, by cron, a deploy or by hand.', $screen->summary());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
             ['last' => 'desc', 'command' => 'asc', 'runs' => 'desc', 'avg' => 'desc', 'max' => 'desc', 'failed' => 'desc', 'memory' => 'desc', 'sql' => 'desc'],
             $screen->sorts(),
         );
         static::assertSame([
-            'title' => 'No commands recorded yet',
+            'title' => 'No command ran in the last hour.',
             'text' => 'Run a console command: it shows up here as soon as it ends. Internal commands such as cache:clear and messenger:consume are not recorded.',
-        ], $screen->emptyState());
+        ], $screen->emptyState(Period::OneHour));
+        static::assertSame('No command ran in the last 7 days.', $screen->emptyState(Period::SevenDays)['title']);
     }
 
     public function testTheScreenFollowsItsAvailability(): void
     {
-        static::assertFalse((new CommandsScreen(false))->isAvailable());
-        static::assertTrue((new CommandsScreen(true))->isAvailable());
+        static::assertFalse((new CommandsSection(false))->isAvailable());
+        static::assertTrue((new CommandsSection(true))->isAvailable());
     }
 
     public function testTheScreenReadsTheCommandFamilyOnceWithItsSeries(): void
     {
-        foreach (array_keys((new CommandsScreen(true))->sorts()) as $sort) {
+        foreach (array_keys((new CommandsSection(true))->sorts()) as $sort) {
             $reader = new FixedReader();
-            (new CommandsScreen(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
+            (new CommandsSection(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
@@ -106,11 +107,11 @@ final class CommandsScreenTest extends TestCase
 
     public function testTheLastRunComesFirstByDefault(): void
     {
-        $view = (new CommandsScreen(true))->build($this->reader([
+        $view = (new CommandsSection(true))->build($this->reader([
             self::command('h1', 'app:old', lastRun: self::NOW - 3600),
             self::command('h2', 'app:recent', lastRun: self::NOW - 10),
             self::command('h3', 'app:middle', lastRun: self::NOW - 600),
-        ]), Period::OneHour, self::NOW, array_key_first((new CommandsScreen(true))->sorts()), 'desc');
+        ]), Period::OneHour, self::NOW, array_key_first((new CommandsSection(true))->sorts()), 'desc');
 
         static::assertSame(['app:recent', 'app:middle', 'app:old'], $this->names($view));
     }
@@ -133,7 +134,7 @@ final class CommandsScreenTest extends TestCase
             'sql' => ['app:c', 'app:a', 'app:b'],
         ];
 
-        static::assertSame(array_keys((new CommandsScreen(true))->sorts()), array_keys($descending));
+        static::assertSame(array_keys((new CommandsSection(true))->sorts()), array_keys($descending));
 
         foreach ($descending as $sort => $expected) {
             static::assertSame($expected, $this->names($this->build($rows, $sort, 'desc')), $sort . ' desc');
@@ -209,7 +210,7 @@ final class CommandsScreenTest extends TestCase
      */
     private function build(array $rows, string $sort = 'last', string $direction = 'desc', ?ReportRow $other = null, Period $period = Period::OneHour, array $series = []): ScreenView
     {
-        return (new CommandsScreen(true))->build($this->reader($rows, $other, $series), $period, self::NOW, $sort, $direction);
+        return (new CommandsSection(true))->build($this->reader($rows, $other, $series), $period, self::NOW, $sort, $direction);
     }
 
     /**

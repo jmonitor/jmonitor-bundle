@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Screen;
+namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
@@ -11,7 +11,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Percentile;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\BlockSourceInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -29,33 +29,34 @@ use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
-final class MessagesScreenTest extends TestCase
+final class MessagesSectionTest extends TestCase
 {
     private const NOW = 1800000000;
     private const HISTOGRAM = ['10' => 10, '25' => 6, '100' => 4];
 
-    public function testTheScreenDeclaresItself(): void
+    public function testTheSectionDeclaresItself(): void
     {
-        $screen = new MessagesScreen(true, true);
+        $screen = new MessagesSection(true, true);
 
         static::assertSame('messages', $screen->id());
-        static::assertSame('Messages', $screen->label());
-        static::assertSame('Messages sent and handled per class', $screen->heading());
+        static::assertSame('Messages', $screen->title());
+        static::assertSame('Work your code hands to Messenger to do later.', $screen->summary());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
             ['handled' => 'desc', 'message' => 'asc', 'sent' => 'desc', 'avg' => 'desc', 'p95' => 'desc', 'max' => 'desc', 'failed' => 'desc', 'retried' => 'desc', 'sql' => 'desc'],
             $screen->sorts(),
         );
         static::assertSame([
-            'title' => 'No messages recorded yet',
+            'title' => 'No message was sent or handled in the last hour.',
             'text' => 'Messages sent to a transport and messages handled by a worker show up here. Messages handled synchronously are part of their request.',
-        ], $screen->emptyState());
+        ], $screen->emptyState(Period::OneHour));
+        static::assertSame('No message was sent or handled in the last 7 days.', $screen->emptyState(Period::SevenDays)['title']);
     }
 
     public function testTheScreenFollowsItsAvailability(): void
     {
-        static::assertFalse((new MessagesScreen(false, true))->isAvailable());
-        static::assertTrue((new MessagesScreen(true, true))->isAvailable());
+        static::assertFalse((new MessagesSection(false, true))->isAvailable());
+        static::assertTrue((new MessagesSection(true, true))->isAvailable());
     }
 
     /**
@@ -77,24 +78,25 @@ final class MessagesScreenTest extends TestCase
     #[DataProvider('presence')]
     public function testItIsThereWhenMessengerIsAndSomethingIsShown(bool $messenger, bool $recorded, bool $counted, bool $available): void
     {
-        static::assertSame($available, (new MessagesScreen($messenger, $recorded, $counted ? self::queues() : null))->isAvailable());
+        static::assertSame($available, (new MessagesSection($messenger, $recorded, $counted ? self::queues() : null))->isAvailable());
     }
 
     public function testWithoutRecordingItReadsNoStorageAndSaysSo(): void
     {
         $reader = new FixedReader();
-        $screen = new MessagesScreen(true, false, self::queues());
+        $screen = new MessagesSection(true, false, self::queues());
 
         $view = $screen->build($reader, Period::OneHour, self::NOW, 'handled', 'desc');
 
         static::assertSame([], $reader->queries);
         static::assertTrue($view->isEmpty());
-        static::assertSame([
-            'title' => 'Messages are not recorded',
-            'text' => 'Recording the messages is off (jmonitor.recording.messenger). The queues are still counted.',
-        ], $screen->emptyState());
-        static::assertSame('Messages sent and handled per class', $screen->heading());
-        static::assertSame(array_keys((new MessagesScreen(true, true))->sorts()), array_keys($screen->sorts()));
+        foreach (Period::cases() as $period) {
+            static::assertSame([
+                'title' => 'Messages are not recorded.',
+                'text' => 'Recording the messages is off (jmonitor.recording.messenger). The queues are still counted.',
+            ], $screen->emptyState($period));
+        }
+        static::assertSame(array_keys((new MessagesSection(true, true))->sorts()), array_keys($screen->sorts()));
     }
 
     public function testItsBlocksAreThoseOfItsSource(): void
@@ -103,16 +105,16 @@ final class MessagesScreenTest extends TestCase
         $notice = Block::notice(new Notice('info', 'No transport to count'));
         $queues = self::queues($notice);
 
-        static::assertSame([$notice], (new MessagesScreen(true, true, $queues))->blocks($request));
+        static::assertSame([$notice], (new MessagesSection(true, true, $queues))->blocks($request));
         static::assertSame([$request], $queues->requests);
-        static::assertSame([], (new MessagesScreen(true, true))->blocks($request));
+        static::assertSame([], (new MessagesSection(true, true))->blocks($request));
     }
 
     public function testTheScreenReadsTheMessageFamilyOnceWithItsSeries(): void
     {
-        foreach (array_keys((new MessagesScreen(true, true))->sorts()) as $sort) {
+        foreach (array_keys((new MessagesSection(true, true))->sorts()) as $sort) {
             $reader = new FixedReader();
-            (new MessagesScreen(true, true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
+            (new MessagesSection(true, true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
@@ -188,7 +190,7 @@ final class MessagesScreenTest extends TestCase
             'sql' => ['App\A', 'App\C', 'App\B'],
         ];
 
-        static::assertSame(array_keys((new MessagesScreen(true, true))->sorts()), array_keys($descending));
+        static::assertSame(array_keys((new MessagesSection(true, true))->sorts()), array_keys($descending));
 
         foreach ($descending as $sort => $expected) {
             static::assertSame($expected, $this->names($this->build($rows, $sort, 'desc')), $sort . ' desc');
@@ -263,7 +265,7 @@ final class MessagesScreenTest extends TestCase
      */
     private function build(array $rows, string $sort = 'handled', string $direction = 'desc', ?ReportRow $other = null, Period $period = Period::OneHour, array $series = []): ScreenView
     {
-        return (new MessagesScreen(true, true))->build(
+        return (new MessagesSection(true, true))->build(
             new FixedReader(static fn(ReportQuery $query): Report => new Report($rows, $other, \count($rows), $series)),
             $period,
             self::NOW,

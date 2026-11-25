@@ -69,7 +69,7 @@ captures_round() {
     done
     hit /boom 500
     hit /boom 500
-    expect_page /jmonitor/cache 'data-jm-pool="cache.app" data-jm-reads="3"' "round $1: the Cache screen did not list 3 reads of cache.app"
+    expect_page /jmonitor/cache-http 'data-jm-pool="cache.app" data-jm-reads="3"' "round $1: the Cache & HTTP screen did not list 3 reads of cache.app"
     expect_page /jmonitor/exceptions 'data-jm-exception="RuntimeException" data-jm-count="2"' "round $1: the Exceptions screen did not list 2 RuntimeException"
 }
 
@@ -375,10 +375,10 @@ for _ in $(seq 1 30); do
 done
 [ "$readable" = 1 ] || fail "the PostgreSQL cards were not read again within 30 s of a refresh, once the frozen server answered again: $postgresql"
 
-hit /jmonitor/messages 200
+hit /jmonitor/background 200
 counted=0
 for _ in $(seq 1 30); do
-    page="$(curl -sf "$BASE/jmonitor/messages?rest=1")" || fail "GET /jmonitor/messages?rest=1 did not return 2xx"
+    page="$(curl -sf "$BASE/jmonitor/background?rest=1")" || fail "GET /jmonitor/background?rest=1 did not return 2xx"
     queues="$(printf '%s\n' "$page" | tr '\n' ' ' | sed -n 's|.*aria-label="Queues"\(.*\)|\1|p' | sed 's|</section>.*||')"
     if printf '%s\n' "$queues" | grep -Eq '<dt class="jm-fact__label">counted</dt> *<dd class="jm-fact__value"> *<span>3</span>'; then
         counted=1
@@ -386,8 +386,8 @@ for _ in $(seq 1 30); do
     fi
     sleep 1
 done
-[ "$counted" = 1 ] || fail 'the Messages screen did not count 3 messages in the "counted" transport within 30 s'
-printf '%s\n' "$queues" | grep -Eq '<dt class="jm-fact__label">hanging</dt> *<dd class="jm-fact__value"> *<span>Uncountable</span> *</dd> *<dd class="jm-fact__hint">did not answer in time</dd>' || fail "the \"hanging\" transport of the Messages screen is not Uncountable for not answering in time: $queues"
+[ "$counted" = 1 ] || fail 'the Background screen did not count 3 messages in the "counted" transport within 30 s'
+printf '%s\n' "$queues" | grep -Eq '<dt class="jm-fact__label">hanging</dt> *<dd class="jm-fact__value"> *<span>Uncountable</span> *</dd> *<dd class="jm-fact__hint">did not answer in time</dd>' || fail "the \"hanging\" transport of the Background screen is not Uncountable for not answering in time: $queues"
 sleep 10
 processes="$($COMPOSE exec -T app sh -c 'for f in /proc/[0-9]*/cmdline; do tr "\000" " " < "$f" 2>/dev/null; echo; done')" || fail "the processes of the container could not be listed"
 printf '%s\n' "$processes" | grep -q 'frankenphp' || fail "the process list of the container does not show FrankenPHP: $processes"
@@ -399,8 +399,8 @@ sessions="$(mysql_sessions)"
 
 sleep 2
 hit /teapot 418
-expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"[^>]*data-jm-requests="2"' 'the Requests screen did not list 2 "GET app_teapot" after the Stack and Messages screens'
-printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the Stack and Messages screens'
+expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"[^>]*data-jm-requests="2"' 'the Requests screen did not list 2 "GET app_teapot" after the Stack and Background screens'
+printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Requests screen does not count 30 requests for "GET app_hello" after the Stack and Background screens'
 if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen"
 fi
@@ -408,9 +408,9 @@ if printf '%s\n' "$page" | grep -q '(unmatched)'; then
     fail "the Requests screen lists a request that matched no route"
 fi
 $COMPOSE exec -T app php tests/Fixtures/App/bin/console app:work || fail "app:work failed"
-expect_page /jmonitor/commands 'data-jm-command="app:work"' 'the Commands screen did not list app:work, run after the queues were counted'
+expect_page /jmonitor/background 'data-jm-command="app:work"' 'the Background screen did not list app:work, run after the queues were counted'
 if printf '%s\n' "$page" | grep -q 'jmonitor:stack:queues'; then
-    fail "the Commands screen lists jmonitor:stack:queues"
+    fail "the Background screen lists jmonitor:stack:queues"
 fi
 
 for _ in 1 2 3; do
@@ -458,7 +458,13 @@ done
 captures_round 2
 
 $COMPOSE exec -T app php tests/Fixtures/App/bin/console app:work || fail "app:work failed"
-expect_page /jmonitor/commands 'data-jm-command="app:work" data-jm-runs="1"' 'the Commands screen did not list 1 run of app:work'
+expect_page /jmonitor/background 'data-jm-command="app:work" data-jm-runs="1"' 'the Background screen did not list 1 run of app:work'
+hit '/dispatch?count=1' 200
+expect_page /jmonitor/background 'data-jm-message="[^"]*\\Ping"[^>]*data-jm-sent="1"' 'the Background screen did not list 1 sent Ping message'
+hit /admin/jmonitor/background 200 "$ADMIN"
+for path in /jmonitor/messages /jmonitor/cache /admin/jmonitor/messages; do
+    hit "$path" 404 "$ADMIN"
+done
 
 hit /hello/host
 expect_page /back-office/monitoring/requests 'data-jm-route="GET app_hello"' 'the embedded Requests screen did not list "GET app_hello"' "$ADMIN"
@@ -467,7 +473,7 @@ status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" -H "Origin: $BASE" 
 [ "$status" = 303 ] || fail "POST /back-office/monitoring-action/probe answered $status instead of 303"
 expect_page /back-office/monitoring/probe 'data-jm-probe-runs="1"' 'the embedded Probe screen did not count 1 run' "$ADMIN"
 
-for path in /back-office/monitoring/ /back-office/monitoring/requests /back-office/monitoring/queries /back-office/monitoring/cache /back-office/monitoring/probe /back-office/monitoring-fragment/ '/back-office/monitoring-fragment/requests?menu=3&period=1h' /back-office/monitoring-fragment/queries /back-office/monitoring-fragment/cache /back-office/monitoring-fragment/probe; do
+for path in /back-office/monitoring/ /back-office/monitoring/requests /back-office/monitoring/queries /back-office/monitoring/cache-http /back-office/monitoring/background /back-office/monitoring/probe /back-office/monitoring-fragment/ '/back-office/monitoring-fragment/requests?menu=3&period=1h' /back-office/monitoring-fragment/queries /back-office/monitoring-fragment/cache-http /back-office/monitoring-fragment/background /back-office/monitoring-fragment/probe; do
     hit "$path" 200 "$ADMIN"
 done
 hit /teapot 418
@@ -500,5 +506,8 @@ expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests sc
 if printf '%s\n' "$page" | grep -q '(unmatched)'; then
     fail "the Requests screen lists the probe of an address of the application"
 fi
+if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
+    fail "the Requests screen lists a request to a JMonitor screen"
+fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"

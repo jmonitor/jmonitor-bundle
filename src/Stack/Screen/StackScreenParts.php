@@ -46,7 +46,7 @@ final class StackScreenParts
 
     public static function overview(bool $current): SubNavItem
     {
-        return new SubNavItem('Overview', self::path(), $current);
+        return new SubNavItem('All components', self::path(), $current);
     }
 
     public static function engineFailure(string $error): Notice
