@@ -77,7 +77,46 @@ final class HttpClientRecordingTest extends WebTestCase
         $row = self::hostRows($crawler);
         static::assertSame(['flaky.example.com'], $row->each(static fn(Crawler $row): ?string => $row->attr('data-jm-host')));
         static::assertSame(['1'], $row->each(static fn(Crawler $row): ?string => $row->attr('data-jm-calls')));
-        static::assertSame('0', trim($row->filter('td')->eq(5)->text()));
+        static::assertSame('', trim($row->filter('td.jm-col-problems')->text()));
+    }
+
+    public function testACallWithoutAnswerIsCriticalOnCacheAndHttp(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/call');
+        static::assertResponseIsSuccessful();
+        for ($i = 0; $i < 2; ++$i) {
+            $client->request('GET', '/call-down');
+            static::assertResponseIsSuccessful();
+            static::assertSame('No answer', $client->getResponse()->getContent());
+        }
+        self::requestUntil($client, '/jmonitor/cache-http', 'section#jm-http tr[data-jm-host="api.example.com:8443"][data-jm-calls="1"]');
+        $crawler = self::requestUntil($client, '/jmonitor/cache-http', 'section#jm-http tr[data-jm-host="down.example.com"][data-jm-calls="2"]');
+
+        static::assertSame('3 outgoing calls in the last hour.', $crawler->filter('h1.jm-lead__title')->text());
+        static::assertSame('2 calls got no answer.', $crawler->filter('.jm-lead__detail')->text());
+        $check = $crawler->filter('[data-jm-check="http.failures"]');
+        static::assertCount(1, $check);
+        static::assertSame(['http.failures'], $crawler->filter('[data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        static::assertSame('bad', $check->attr('data-jm-severity'));
+        static::assertSame('2 calls without an answer · down.example.com did not answer 2 times.', $check->filter('.jm-check__sentence')->text());
+        static::assertSame('Critical', $check->filter('.jm-check__mark')->text());
+        static::assertCount(0, $check->filter('.jm-check__where'));
+
+        $hosts = self::hostRows($crawler)->each(static fn(Crawler $row): ?string => $row->attr('data-jm-host'));
+        sort($hosts);
+        static::assertSame(['api.example.com:8443', 'down.example.com'], $hosts);
+        static::assertSame(['2 no answer'], $crawler->filter('section#jm-http tr[data-jm-host="down.example.com"] .jm-tag--bad')->each(static fn(Crawler $tag): string => $tag->text()));
+        static::assertSame('', trim($crawler->filter('section#jm-http tr[data-jm-host="api.example.com:8443"] td.jm-col-problems')->text()));
+        $noAnswer = $crawler->filter('section#jm-http .jm-card')->eq(3);
+        static::assertSame(['No answer', '2'], [$noAnswer->filter('.jm-card__label')->text(), $noAnswer->filter('.jm-card__value')->text()]);
+        static::assertStringContainsString('jm-card--bad', (string) $noAnswer->attr('class'));
+
+        $badge = $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge');
+        static::assertCount(1, $badge);
+        static::assertSame('1 critical in the last hour', $badge->attr('title'));
+        static::assertStringContainsString('jm-nav__badge--bad', (string) $badge->attr('class'));
     }
 
     public function testAHostileHostIsShownEscaped(): void

@@ -581,7 +581,9 @@ final class TestKernel extends Kernel
         $routes->add('app_hostile_query', '/hostile-query')->controller([DemoController::class, 'hostileQuery']);
         $routes->add('app_call', '/call')->controller([DemoController::class, 'call']);
         $routes->add('app_call_flaky', '/call-flaky')->controller([DemoController::class, 'callFlaky']);
+        $routes->add('app_call_down', '/call-down')->controller([DemoController::class, 'callDown']);
         $routes->add('app_cached', '/cached')->controller([DemoController::class, 'cached']);
+        $routes->add('app_cache_misses', '/cache-misses')->controller([DemoController::class, 'cacheMisses']);
         $routes->add('app_stack_cached', '/stack-cached')->controller([DemoController::class, 'stackCached']);
         $routes->add('app_dispatch', '/dispatch')->controller([DemoController::class, 'dispatch']);
         $routes->import('@JmonitorBundle/config/routes.php')->prefix('/jmonitor');

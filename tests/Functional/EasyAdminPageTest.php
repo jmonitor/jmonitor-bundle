@@ -225,6 +225,27 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertSame('1 critical in the last hour', $crawler->filter('.jm .jm-subnav__item[aria-current="page"] .jm-nav__badge')->attr('title'));
     }
 
+    public function testTheCacheAndHttpScreenReadsFromTheSentenceToTheGuideUnderEasyAdmin(): void
+    {
+        $client = $this->client();
+
+        $client->request('GET', '/call');
+        static::assertResponseIsSuccessful();
+        $client->request('GET', '/call-down');
+        static::assertResponseIsSuccessful();
+        self::requestUntil($client, '/admin/jmonitor/cache-http', 'tr[data-jm-host="api.example.com:8443"][data-jm-calls="1"]');
+        $crawler = self::requestUntil($client, '/admin/jmonitor/cache-http', 'tr[data-jm-host="down.example.com"][data-jm-calls="1"]');
+
+        static::assertCount(1, $crawler->filter('h1'));
+        static::assertSame('2 outgoing calls in the last hour.', $crawler->filter('.jm h1.jm-lead__title')->text());
+        static::assertSame('1 call got no answer.', $crawler->filter('.jm .jm-lead__detail')->text());
+        static::assertSame('Worth a look', $crawler->filter('.jm section.jm-checks')->attr('aria-label'));
+        static::assertSame(['http.failures'], $crawler->filter('.jm [data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        static::assertSame('How to read this screen', $crawler->filter('.jm .jm-guide__title')->text());
+        static::assertSame(['/admin/jmonitor/requests?period=1h'], $crawler->filter('.jm .jm-guide a')->each(static fn(Crawler $link): string => (string) $link->attr('href')));
+        static::assertSame('1 critical in the last hour', $crawler->filter('.jm .jm-subnav__item[aria-current="page"] .jm-nav__badge')->attr('title'));
+    }
+
     public function testTheFragmentIsRelayedAsIs(): void
     {
         $client = $this->client();

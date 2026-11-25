@@ -684,6 +684,68 @@ final class DashboardTest extends WebTestCase
         static::assertSame('Cache & HTTP', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
     }
 
+    public function testCacheAndHttpReadsFromTheSentenceToTheGuide(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        for ($i = 0; $i < 3; ++$i) {
+            $client->request('GET', '/cached');
+            static::assertResponseIsSuccessful();
+        }
+        for ($i = 0; $i < 2; ++$i) {
+            $client->request('GET', '/call');
+            static::assertResponseIsSuccessful();
+        }
+        self::requestUntil($client, '/jmonitor/cache-http', 'section#jm-cache tr[data-jm-pool="cache.app"][data-jm-reads="3"]');
+        $crawler = self::requestUntil($client, '/jmonitor/cache-http', 'section#jm-http tr[data-jm-host="api.example.com:8443"][data-jm-calls="2"]');
+
+        static::assertSame(
+            ['jm-lead', 'jm-checks', 'jm-section', 'jm-section', 'jm-guide'],
+            $crawler->filter('.jm-screen > section')->each(static fn(Crawler $block): string => explode(' ', (string) $block->attr('class'))[0]),
+        );
+        static::assertCount(1, $crawler->filter('h1'));
+        static::assertCount(0, $crawler->filter('.jm-heading'));
+        static::assertSame('3 cache reads (67 % found) and 2 outgoing calls in the last hour.', $crawler->filter('h1.jm-lead__title')->text());
+        static::assertCount(0, $crawler->filter('.jm-lead__detail'));
+        static::assertSame('Worth a look', $crawler->filter('section.jm-checks')->attr('aria-label'));
+        static::assertSame('Nothing to flag', $crawler->filter('.jm-checks__empty-title')->text());
+        static::assertSame('No pool with a low hit rate, no call without an answer, no error response in the last hour.', $crawler->filter('.jm-checks__empty-text')->text());
+        static::assertSame(['Reads', 'Hit rate', 'Writes', 'Deletes'], $crawler->filter('section#jm-cache .jm-card__label')->each(static fn(Crawler $label): string => $label->text()));
+        static::assertSame(['Calls', 'Time in calls', 'Error responses', 'No answer'], $crawler->filter('section#jm-http .jm-card__label')->each(static fn(Crawler $label): string => $label->text()));
+        static::assertSame('To 1 host.', $crawler->filter('section#jm-http .jm-card__hint')->first()->text());
+        static::assertSame(
+            ['Pool', 'Reads', 'Hit rate', 'Misses', 'Writes', 'Deletes', 'Problems'],
+            $crawler->filter('section#jm-cache thead th')->each(static fn(Crawler $th): string => trim(($th->filter('span')->count() > 0 ? $th->filter('span')->first() : $th)->text())),
+        );
+        static::assertSame(
+            ['Host', 'Calls', 'Total time', 'Avg', 'Max', 'Problems'],
+            $crawler->filter('section#jm-http thead th')->each(static fn(Crawler $th): string => trim(($th->filter('span')->count() > 0 ? $th->filter('span')->first() : $th)->text())),
+        );
+        static::assertSame('1 host, the most expensive first', $crawler->filter('section#jm-http .jm-panel__meta')->text());
+        static::assertSame('A host appears here the first time your code calls it.', $crawler->filter('section#jm-http .jm-panel__footnote')->text());
+        static::assertSame('67 %', $crawler->filter('section#jm-cache tr[data-jm-pool="cache.app"] .jm-bar__value')->text());
+        static::assertCount(1, $crawler->filter('section#jm-http tr[data-jm-host="api.example.com:8443"] .jm-bar'));
+        static::assertCount(0, $crawler->filter('.jm-section .jm-lead, .jm-section .jm-checks, .jm-section .jm-guide, .jm-tag'));
+        static::assertSame('How to read this screen', $crawler->filter('.jm-guide__title')->text());
+        static::assertSame(
+            ['Hit rate.', 'Time in outgoing calls.', 'Three kinds of problem.'],
+            $crawler->filter('.jm-guide li strong')->each(static fn(Crawler $term): string => $term->text()),
+        );
+        static::assertSame(['/jmonitor/requests?period=1h'], $crawler->filter('.jm-guide a')->each(static fn(Crawler $link): string => (string) $link->attr('href')));
+        static::assertCount(0, $crawler->filter('.jm-subnav .jm-nav__badge'));
+
+        foreach (['cache.hits', 'http.4xx', 'http.5xx', 'http.failed'] as $removed) {
+            $old = $client->request('GET', '/jmonitor/cache-http', ['sort' => $removed, 'dir' => 'asc']);
+
+            static::assertResponseIsSuccessful($removed);
+            static::assertSame(
+                [['Reads', 'descending'], ['Total time', 'descending']],
+                $old->filter('th.is-sorted')->each(static fn(Crawler $th): array => [$th->filter('.jm-sort span')->first()->text(), (string) $th->attr('aria-sort')]),
+                $removed,
+            );
+        }
+    }
+
     public function testTheFormerAddressesAreNotFound(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording(), 'scheduler' => true]);

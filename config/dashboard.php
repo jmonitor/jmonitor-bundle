@@ -174,10 +174,10 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->tag('jmonitor.screen', ['priority' => 80]);
 
     $services->set(CacheSection::class)
-        ->args([param('jmonitor.recording.cache')]);
+        ->args([param('jmonitor.recording.cache'), service(ApplicationChecks::class)]);
 
     $services->set(HttpSection::class)
-        ->args([param('jmonitor.recording.http_client')]);
+        ->args([param('jmonitor.recording.http_client'), service(ApplicationChecks::class)]);
 
     $services->set('jmonitor.screen.background', ComposedScreen::class)
         ->args([
