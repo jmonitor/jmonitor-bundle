@@ -400,6 +400,21 @@ final class RequestsScreenTest extends TestCase
         static::assertTrue($view->raised->has('queries.repeated'));
     }
 
+    public function testRepeatsBeyondThoseReadStillBringTheCheckOfQueries(): void
+    {
+        $command = $this->repeat(Entry::TYPE_COMMAND, 'app:import');
+        $grouped = new ReportRow(md5(Aggregator::OTHER), Aggregator::OTHER, null, $command->metrics);
+
+        foreach ([$this->reader([$this->route('GET app_list')], nPlusOne: [$command], unreadRepeats: 1), $this->reader([$this->route('GET app_list')], nPlusOne: [$command], otherRepeats: $grouped)] as $reader) {
+            $view = $this->screen()->build($reader, Period::OneHour, self::NOW, 'total', 'desc');
+
+            static::assertSame([], $this->table($view)->rows[0]->cells['problems']->tags);
+            static::assertNotNull($view->checks);
+            static::assertSame(['queries.repeated'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
+            static::assertCount(2, $reader->queries);
+        }
+    }
+
     public function testARepeatInACommandNamedLikeARouteDoesNotTagTheRoute(): void
     {
         $view = $this->build([$this->route('GET app_list')], nPlusOne: [$this->repeat(Entry::TYPE_COMMAND, 'GET app_list')]);
@@ -653,10 +668,10 @@ final class RequestsScreenTest extends TestCase
      * @param list<int>                   $series
      * @param ?array<string, MetricValue> $totals     derived from the rows when null
      */
-    private function reader(array $rows, ?ReportRow $other = null, array $nPlusOne = [], array $series = [], ?array $totals = null): FixedReader
+    private function reader(array $rows, ?ReportRow $other = null, array $nPlusOne = [], array $series = [], ?array $totals = null, int $unreadRepeats = 0, ?ReportRow $otherRepeats = null): FixedReader
     {
         $requests = new Report($rows, $other, \count($rows), $series === [] ? array_fill(0, 60, 0) : $series);
-        $repeats = new Report($nPlusOne, keyCount: \count($nPlusOne));
+        $repeats = new Report($nPlusOne, $otherRepeats, \count($nPlusOne) + $unreadRepeats);
 
         if ($totals === null) {
             $totals = [];

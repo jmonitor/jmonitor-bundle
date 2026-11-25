@@ -124,7 +124,9 @@ final class RequestsScreen implements StorageScreenInterface
         $ids = [self::SERVER_ERRORS, self::SLOW];
         $reports = [self::SERVER_ERRORS => $report, self::SLOW => $report];
 
-        if ($repeats !== null && array_filter($routes, static fn(array $route): bool => $route['nPlusOne']) !== []) {
+        $unread = $repeats !== null && ($repeats->other !== null || $repeats->keyCount > \count($repeats->rows));
+
+        if ($repeats !== null && ($unread || array_filter($routes, static fn(array $route): bool => $route['nPlusOne']) !== [])) {
             $ids[] = self::REPEATED;
             $reports[self::REPEATED] = $repeats;
         }

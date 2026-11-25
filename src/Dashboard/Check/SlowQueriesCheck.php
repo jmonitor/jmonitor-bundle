@@ -59,6 +59,10 @@ final class SlowQueriesCheck implements CheckInterface
                 Culprit::times($culprit->count(Metric::QUERY_SLOW)),
                 Format::duration($culprit->max(Metric::QUERY_DURATION)),
             );
+
+            if ($culprit->label === null) {
+                $sentence .= ' Its text is not stored.';
+            }
         }
 
         return new Finding(

@@ -403,7 +403,7 @@ The Requests and Queries screens read from top to bottom: a sentence that sums u
 | `queries.slow` | Warning | Queries | a query execution that took the threshold or more | `recording.sql.slow_threshold` |
 | `queries.repeated` | Warning | Queries | the same `SELECT` run the threshold number of times or more within one request, command, message or task (N+1) | `recording.sql.n_plus_one_threshold` |
 
-A check is raised as soon as one occurrence is recorded in the period shown. When it can, it names the route or query that counts the most occurrences, or, for `queries.repeated`, the route, command, message or task where a repeated query costs the most time. There is no option to silence one: `stack.ignore_checks` only applies to the checks of the Stack screen. `queries.repeated` also shows on Requests, with a link to Queries, when one of the routes listed there repeats a query.
+A check is raised as soon as one occurrence is recorded in the period shown. When it can, it names the route or query that counts the most occurrences, or, for `queries.repeated`, the route, command, message or task where a repeated query costs the most time. There is no option to silence one: `stack.ignore_checks` only applies to the checks of the Stack screen. `queries.repeated` also shows on Requests, with a link to Queries, when one of the routes listed there repeats a query, or when more queries are repeated than the 100 the screen reads.
 
 The `Requests` and `Queries` tabs carry a badge while one of their checks is raised: the number of checks and the highest severity, such as `1 warning` or `2 critical`, detailed when you hover it.
 

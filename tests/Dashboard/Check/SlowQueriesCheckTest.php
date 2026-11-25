@@ -66,11 +66,11 @@ final class SlowQueriesCheckTest extends TestCase
         static::assertSame('Run it with EXPLAIN and look at the indexes of the tables in its WHERE and ORDER BY.', $finding->action);
     }
 
-    public function testACulpritWithoutItsTextHasNoCode(): void
+    public function testACulpritWithoutItsTextSaysSoAndHasNoCode(): void
     {
         $finding = (new SlowQueriesCheck(100))->finding(new Report([self::row(null, 2)]), [Metric::QUERY_SLOW => new MetricValue(2, 0.0, 0.0)], Period::OneHour);
 
-        static::assertSame('The one slow most often took 100 ms or more 2 times, 850 ms at worst.', $finding->sentence);
+        static::assertSame('The one slow most often took 100 ms or more 2 times, 850 ms at worst. Its text is not stored.', $finding->sentence);
         static::assertNull($finding->code);
     }
 
