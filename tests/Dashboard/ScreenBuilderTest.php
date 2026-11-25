@@ -655,10 +655,6 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame($raised, $page->raised);
         static::assertSame($raised, $page->withTabs(new SubNav('Application', []))->raised);
         static::assertNull($this->builder()->create($this->screen(rows: 1), null, null, null)->raised);
-
-        $composed = self::composed(new StubSection('commands', static fn(): ScreenView => new ScreenView([], [$table], raised: $raised)));
-
-        static::assertSame($raised, $this->builder()->create($composed, null, null, null)->raised);
     }
 
     public function testTheChecksAreReadForAPageWithAPeriodAndATabThatHasACheck(): void
@@ -673,7 +669,7 @@ final class ScreenBuilderTest extends TestCase
         static::assertTrue($builder->raisedChecks($page, ['exceptions', 'requests'])?->has('requests.server_errors'));
         static::assertSame([[Period::SixHours, 1800000000, [self::SERVER_ERRORS]]], $reader->totalRequests);
 
-        static::assertNull($builder->raisedChecks($page, ['requests'], true));
+        static::assertNull($builder->raisedChecks($builder->create($this->screen(rows: 1), '6h', null, null, storageFailed: true), ['requests']));
         static::assertNull($builder->raisedChecks($builder->create(new StubScreen(view: static fn(): ScreenView => throw new \RuntimeException('Gone')), null, null, null), ['requests']));
         static::assertNull($builder->raisedChecks($builder->create(new StubBlockScreen('probe'), null, null, null), ['requests']));
         static::assertCount(1, $reader->totalRequests);

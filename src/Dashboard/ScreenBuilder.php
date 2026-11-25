@@ -72,13 +72,13 @@ final class ScreenBuilder
     }
 
     /** @param list<string> $tabs the ids of the screens whose tab is shown with the page */
-    public function raisedChecks(Page $page, array $tabs, bool $storageFailed = false): ?RaisedChecks
+    public function raisedChecks(Page $page, array $tabs): ?RaisedChecks
     {
         if ($page->period === null || $this->reader === null || array_intersect($tabs, $this->checks->screens()) === []) {
             return null;
         }
 
-        if ($storageFailed || $page->hasState(BlockState::StorageError)) {
+        if ($page->hasState(BlockState::StorageError)) {
             return null;
         }
 
@@ -163,13 +163,11 @@ final class ScreenBuilder
         }
 
         $blocks = $cause === null ? [] : [Block::unavailable(Block::TABLE, $cause)];
-        $raised = null;
 
         foreach ($parts as $i => [$section, $own, $sectionSort, $sectionDirection]) {
             $view = $views[$i] ?? null;
             $content = $own;
             $empty = null;
-            $raised ??= $view?->raised;
 
             if ($view !== null && !$view->isEmpty()) {
                 $content = [...$own, ...self::figures($view)];
@@ -190,7 +188,6 @@ final class ScreenBuilder
             $chosen[2] ?? '',
             [],
             $request->instance === null ? [] : [ScreenRequest::INSTANCE => $request->instance],
-            raised: $raised,
         );
     }
 

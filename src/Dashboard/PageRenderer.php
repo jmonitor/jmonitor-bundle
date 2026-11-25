@@ -37,7 +37,7 @@ final class PageRenderer
     {
         $twig = $this->twig();
         [$root, $screen, $path] = $this->resolve($path);
-        [$page, $storageFailed] = $this->build($request, $screen, self::query($request, 'rest') === '1');
+        $page = $this->build($request, $screen, self::query($request, 'rest') === '1');
         $actions = $this->actions($screen, $path) ?? [];
         $token = null;
 
@@ -54,7 +54,7 @@ final class PageRenderer
 
         return new PageContent(
             $twig->render('@Jmonitor/dashboard/page.html.twig', [
-                'page' => $this->withTabs($page, $root, $spaces, $storageFailed),
+                'page' => $this->withTabs($page, $root, $spaces),
                 'path' => $path,
                 'spaces' => $this->entries($spaces, $root),
                 'badges' => $this->slots($spaces),
@@ -76,11 +76,11 @@ final class PageRenderer
     {
         $twig = $this->twig();
         [$root, $screen, $path] = $this->resolve($path);
-        [$page, $storageFailed] = $this->build($request, $screen, true);
+        $page = $this->build($request, $screen, true);
         $spaces = $this->spaces();
 
         return new Response($twig->render('@Jmonitor/dashboard/_screen.html.twig', [
-            'page' => $this->withTabs($page, $root, $spaces, $storageFailed),
+            'page' => $this->withTabs($page, $root, $spaces),
             'urls' => $urls,
             'path' => $path,
             'badges' => $this->slots($spaces),
@@ -238,7 +238,7 @@ final class PageRenderer
     }
 
     /** @param array<string, non-empty-list<ScreenInterface>> $spaces */
-    private function withTabs(Page $page, ScreenInterface $root, array $spaces, bool $storageFailed): Page
+    private function withTabs(Page $page, ScreenInterface $root, array $spaces): Page
     {
         $screens = $spaces[$root->space()->value] ?? [];
 
@@ -247,7 +247,7 @@ final class PageRenderer
         }
 
         $query = $page->period === null ? [] : ['period' => $page->period->label()];
-        $raised = $page->raised ?? $this->builder->raisedChecks($page, array_map(static fn(ScreenInterface $screen): string => $screen->id(), $screens), $storageFailed);
+        $raised = $page->raised ?? $this->builder->raisedChecks($page, array_map(static fn(ScreenInterface $screen): string => $screen->id(), $screens));
 
         return $page->withTabs(new SubNav($root->space()->label(), array_map(fn(ScreenInterface $screen): SubNavItem => new SubNavItem(
             $screen->label(),
@@ -270,8 +270,7 @@ final class PageRenderer
         }
     }
 
-    /** @return array{Page, bool} the page, and whether flushing the buffer failed */
-    private function build(Request $request, ScreenInterface $screen, bool $fragment): array
+    private function build(Request $request, ScreenInterface $screen, bool $fragment): Page
     {
         $storageFailed = false;
 
@@ -280,7 +279,7 @@ final class PageRenderer
             $storageFailed = $this->flusher->lastFailure() !== null;
         }
 
-        return [$this->builder->create(
+        return $this->builder->create(
             $screen,
             self::query($request, 'period'),
             self::query($request, 'sort'),
@@ -288,7 +287,7 @@ final class PageRenderer
             $storageFailed,
             $fragment,
             self::nonEmpty(self::query($request, ScreenRequest::INSTANCE)),
-        ), $storageFailed];
+        );
     }
 
     private static function query(Request $request, string $name): ?string
