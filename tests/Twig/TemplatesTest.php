@@ -674,6 +674,26 @@ final class TemplatesTest extends TestCase
         }
     }
 
+    public function testGlobalsOfTheHostNamedLikeTheVariablesOfABlockChangeNothing(): void
+    {
+        $table = $this->table([new Row('k1', ['name' => new Cell('a'), 'count' => new Cell('3')])]);
+        $stack = Block::subnav(new SubNav('Stack', [new SubNavItem('All components', 'stack'), new SubNavItem('PHP', 'stack/php', true)]));
+        $tabs = new SubNav('Application', [new SubNavItem('Stub', 'stub', true), new SubNavItem('Other', 'other')]);
+        $screen = new Page(new StubScreen(), [Block::cards([]), Block::table($table), $stack], Period::OneHour, 'name', 'asc', (new StubScreen())->sorts());
+        $section = new Section('commands', 'Commands', 'Runs of bin/console.', [Block::table($table)], 'count', 'desc', ['count' => 'desc', 'name' => 'asc']);
+        $composed = new Page(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]), [Block::section($section)], Period::OneHour, '', '', []);
+
+        foreach (['screen' => [$screen->withTabs($tabs), 'stub'], 'composed' => [$composed, 'background']] as $kind => [$page, $path]) {
+            $context = ['page' => $page, 'path' => $path, 'badges' => []];
+            $expected = $this->render('_screen.html.twig', $context);
+
+            static::assertStringContainsString('aria-sort=', $expected, $kind);
+            foreach (['a string', new \ArrayObject(['id' => 'x', 'sort' => 'name', 'items' => []]), new \stdClass()] as $global) {
+                static::assertSame($expected, $this->render('_screen.html.twig', $context, ['section' => $global, 'subnav' => $global]), $kind);
+            }
+        }
+    }
+
     private function composed(Block ...$blocks): string
     {
         $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]);
@@ -688,13 +708,17 @@ final class TemplatesTest extends TestCase
 
     /**
      * @param array<string, mixed> $context
+     * @param array<string, mixed> $globals
      */
-    private function render(string $template, array $context): string
+    private function render(string $template, array $context, array $globals = []): string
     {
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');
         $twig = new Environment($loader, ['autoescape' => false, 'strict_variables' => true]);
         $twig->addExtension(new JmonitorExtension());
+        foreach ($globals as $name => $value) {
+            $twig->addGlobal($name, $value);
+        }
 
         return $twig->render('@Jmonitor/dashboard/' . $template, $context + ['urls' => new FakeHostUrls(), 'standalone' => false, 'actions' => [], 'token' => null]);
     }

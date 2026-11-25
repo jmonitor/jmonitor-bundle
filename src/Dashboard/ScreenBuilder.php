@@ -127,12 +127,13 @@ final class ScreenBuilder
                 } catch (\Throwable $e) {
                     $this->logger?->error('JMonitor could not read its data: ' . $e->getMessage(), ['exception' => $e]);
                     $cause = BlockState::StorageError;
+                    $views = [];
 
                     break;
                 }
             }
 
-            if ($cause === null && array_filter($views, static fn(ScreenView $view): bool => !$view->isEmpty()) === []) {
+            if ($cause === null && array_filter($views, static fn(ScreenView $view): bool => $view->isEmpty()) !== []) {
                 $cause = $this->emptyCause();
             }
         }
@@ -140,15 +141,19 @@ final class ScreenBuilder
         $blocks = $cause === null ? [] : [Block::unavailable(Block::TABLE, $cause)];
 
         foreach ($parts as $i => [$section, $own, $sectionSort, $sectionDirection]) {
-            if ($cause !== null && $own === []) {
+            $view = $views[$i] ?? null;
+            $content = $own;
+            $empty = null;
+
+            if ($view !== null && !$view->isEmpty()) {
+                $content = [...$own, ...self::figures($view)];
+            } elseif ($view !== null && $cause === null) {
+                $empty = $section->emptyState($period);
+            } elseif ($own === []) {
                 continue;
             }
 
-            $view = $cause === null ? $views[$i] : null;
-            $empty = $view?->isEmpty() === true ? $section->emptyState($period) : null;
-            $figures = $view === null || $empty !== null ? [] : self::figures($view);
-
-            $blocks[] = Block::section(new Section($section->id(), $section->title(), $section->summary(), [...$own, ...$figures], $sectionSort, $sectionDirection, $section->sorts(), $empty));
+            $blocks[] = Block::section(new Section($section->id(), $section->title(), $section->summary(), $content, $sectionSort, $sectionDirection, $section->sorts(), $empty));
         }
 
         return new Page(

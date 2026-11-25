@@ -342,6 +342,8 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame([$notice], self::sectionOf($page, 'quiet')->blocks);
         static::assertNotNull(self::sectionOf($page, 'quiet')->empty);
         static::assertEquals([new ScreenRequest(1800000000, true, 'reports')], $full->requests);
+        static::assertSame(['connection' => 'reports'], $page->query);
+        static::assertSame([], $this->builder()->create(self::composed($full), null, null, null)->query);
     }
 
     public function testWithoutAConnectionTheStateIsToldOnceAndOwnBlocksStay(): void
@@ -396,6 +398,28 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame(['error JMonitor could not read its data: Storage is down'], $logger->messages);
     }
 
+    public function testAReadThatThrowsTakesTheFiguresOfTheSectionsAlreadyRead(): void
+    {
+        $reads = 0;
+        $reader = new FixedReader(static function () use (&$reads): Report {
+            if (++$reads === 2) {
+                throw new \RuntimeException('Storage is down');
+            }
+
+            return new Report();
+        });
+        $notice = Block::notice(new Notice('info', 'Own'));
+        $first = new StubSourceSection($this->section('first', rows: 1), [$notice]);
+
+        $page = (new ScreenBuilder($reader, true, new MockClock('@1800000000'), logger: $this->logger()))->create(self::composed($first, $this->section('second', rows: 1), $this->section('third', rows: 1)), null, null, null);
+
+        static::assertCount(1, $first->section->builds);
+        static::assertCount(2, $reader->queries);
+        static::assertSame(['table storage_error', 'section first'], self::shape($page));
+        static::assertSame([$notice], self::sectionOf($page, 'first')->blocks);
+        static::assertNull(self::sectionOf($page, 'first')->empty);
+    }
+
     public function testRecordingOffIsToldOnceWhenEverySectionIsEmpty(): void
     {
         $notice = Block::notice(new Notice('info', 'Own'));
@@ -420,17 +444,56 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame(['table buffer_unavailable', 'section own'], self::shape($page));
         static::assertSame([$notice], self::sectionOf($page, 'own')->blocks);
         static::assertSame(['table recording_disabled', 'section own'], self::shape($this->builder(recordingEnabled: false, bufferDirectory: $unusable)->create($screen, null, null, null)));
-        static::assertSame(['section first', 'section full'], self::shape($this->builder(bufferDirectory: $unusable)->create(self::composed($this->section('first', rows: 0), $this->section('full', rows: 1)), null, null, null)));
+    }
+
+    public function testRecordingOffSaysNothingWhenEverySectionHoldsFigures(): void
+    {
+        $page = $this->builder(recordingEnabled: false)->create(self::composed($this->section('first', rows: 1), $this->section('last', rows: 2)), null, null, null);
+
+        static::assertSame(['section first', 'section last'], self::shape($page));
+        static::assertSame('ready', $page->state());
+        static::assertSame([Block::CARDS, Block::TABLE], self::types(self::sectionOf($page, 'last')->blocks));
     }
 
     public function testRecordingOffStillShowsWhatThePeriodHolds(): void
     {
-        $page = $this->builder(recordingEnabled: false)->create(self::composed($this->section('full', rows: 1), $this->section('quiet', rows: 0)), null, null, null);
+        $notice = Block::notice(new Notice('info', 'Own'));
 
-        static::assertSame(['section full', 'section quiet'], self::shape($page));
-        static::assertSame('ready', $page->state());
+        $page = $this->builder(recordingEnabled: false)->create(self::composed($this->section('full', rows: 1), $this->section('quiet', rows: 0), new StubSourceSection($this->section('own', rows: 0), [$notice])), null, null, null);
+
+        static::assertSame(['table recording_disabled', 'section full', 'section own'], self::shape($page));
         static::assertSame([Block::CARDS, Block::TABLE], self::types(self::sectionOf($page, 'full')->blocks));
-        static::assertNotNull(self::sectionOf($page, 'quiet')->empty);
+        static::assertNull(self::sectionOf($page, 'full')->empty);
+        static::assertSame([$notice], self::sectionOf($page, 'own')->blocks);
+        static::assertNull(self::sectionOf($page, 'own')->empty);
+    }
+
+    public function testAnUnusableBufferDirectorySaysNothingWhenEverySectionHoldsFigures(): void
+    {
+        $file = $this->path();
+        touch($file);
+
+        $page = $this->builder(bufferDirectory: new BufferDirectory($file, 'test'))->create(self::composed($this->section('first', rows: 1), $this->section('last', rows: 2)), null, null, null);
+
+        static::assertSame(['section first', 'section last'], self::shape($page));
+        static::assertSame('ready', $page->state());
+    }
+
+    public function testAnUnusableBufferDirectoryStillShowsWhatThePeriodHolds(): void
+    {
+        $file = $this->path();
+        touch($file);
+        $unusable = new BufferDirectory($file, 'test');
+        $notice = Block::notice(new Notice('info', 'Own'));
+        $screen = self::composed($this->section('full', rows: 1), $this->section('quiet', rows: 0), new StubSourceSection($this->section('own', rows: 0), [$notice]));
+
+        $page = $this->builder(bufferDirectory: $unusable)->create($screen, null, null, null);
+
+        static::assertSame(['table buffer_unavailable', 'section full', 'section own'], self::shape($page));
+        static::assertSame([Block::CARDS, Block::TABLE], self::types(self::sectionOf($page, 'full')->blocks));
+        static::assertSame([$notice], self::sectionOf($page, 'own')->blocks);
+        static::assertNull(self::sectionOf($page, 'own')->empty);
+        static::assertSame(['table recording_disabled', 'section full', 'section own'], self::shape($this->builder(recordingEnabled: false, bufferDirectory: $unusable)->create($screen, null, null, null)));
     }
 
     public function testTheChosenSortOnlySortsItsSection(): void

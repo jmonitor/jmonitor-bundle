@@ -1,5 +1,5 @@
 {% autoescape 'html' %}
-{% set subnav = subnav ?? block.content %}
+{% set subnav = block.content %}
 <div class="jm-subbar">
     <nav class="jm-subnav" aria-label="{{ subnav.name }}">
         {% for item in subnav.items %}
