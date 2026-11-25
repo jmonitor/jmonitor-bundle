@@ -16,6 +16,8 @@ final class Block
     public const FACTS = 'facts';
     public const INSTANCES = 'instances';
     public const SECTION = 'section';
+    public const LEAD = 'lead';
+    public const GUIDE = 'guide';
 
     private function __construct(
         public readonly string $type,
@@ -70,6 +72,16 @@ final class Block
     public static function instances(InstanceNav $nav): self
     {
         return new self(self::INSTANCES, BlockState::Ready, $nav);
+    }
+
+    public static function lead(Lead $lead): self
+    {
+        return new self(self::LEAD, BlockState::Ready, $lead);
+    }
+
+    public static function guide(Guide $guide): self
+    {
+        return new self(self::GUIDE, BlockState::Ready, $guide);
     }
 
     public static function section(Section $section): self

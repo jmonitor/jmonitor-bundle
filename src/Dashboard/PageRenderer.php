@@ -63,6 +63,7 @@ final class PageRenderer
                 'standalone' => $standalone,
                 'actions' => $actions,
                 'token' => $token,
+                'screens' => $this->availableIds(),
             ]),
             'JMonitor — ' . $page->screen->label(),
             $this->assets->stylesheets($request),
@@ -83,6 +84,7 @@ final class PageRenderer
             'urls' => $urls,
             'path' => $path,
             'badges' => $this->slots($spaces),
+            'screens' => $this->availableIds(),
         ]), Response::HTTP_OK, self::HEADERS);
     }
 
@@ -176,6 +178,12 @@ final class PageRenderer
 
             return null;
         }
+    }
+
+    /** @return list<string> */
+    private function availableIds(): array
+    {
+        return array_map(static fn(ScreenInterface $screen): string => $screen->id(), $this->screens->available());
     }
 
     /** @return array<string, non-empty-list<ScreenInterface>> by the value of the space */

@@ -22,7 +22,13 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
+use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
+use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
+use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
@@ -969,6 +975,103 @@ final class PageRendererTest extends TestCase
         static::assertStringContainsString('Read right now, no period', $toolbar->text());
         static::assertCount(0, $toolbar->filter('.jm-segmented'));
         static::assertStringNotContainsString('Read right now', $renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html);
+    }
+
+    public function testALeadIsTheOnlyHeadingOfThePage(): void
+    {
+        $lead = new StubScreen(view: static fn(): ScreenView => new ScreenView([], [
+            new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])]),
+        ], new Lead('42 requests in the last hour', 'None ended in an error.', [1, 3, 2], 'requests per minute', '1 hour ago')));
+
+        foreach ([[$lead], [$lead, new StubScreen('queries')]] as $screens) {
+            $renderer = $this->renderer($screens);
+
+            foreach ([
+                'page' => $renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html,
+                'fragment' => (string) $renderer->fragment(Request::create('/'), 'stub', new FakeHostUrls())->getContent(),
+            ] as $kind => $html) {
+                $crawler = new Crawler($html);
+
+                static::assertCount(1, $crawler->filter('h1'), $kind);
+                static::assertSame('42 requests in the last hour', $crawler->filter('.jm-screen > section.jm-lead > h1')->text(), $kind);
+                static::assertSame('None ended in an error.', $crawler->filter('.jm-lead > h1 + p')->text(), $kind);
+                static::assertSame(['1 hour ago', 'requests per minute', 'now'], $crawler->filter('.jm-lead [aria-hidden="true"] > span')->each(static fn(Crawler $span): string => $span->text()), $kind);
+                static::assertCount(1, $crawler->filter('.jm-lead svg.jm-sparkline'), $kind);
+                static::assertCount(0, $crawler->filter('.jm-heading'), $kind);
+                static::assertSame(\count($screens) > 1 ? 1 : 0, $crawler->filter('.jm-screen > .jm-subbar + section.jm-lead')->count(), $kind);
+            }
+        }
+    }
+
+    public function testWithoutALeadTheHeadingIsTheOneOfToday(): void
+    {
+        $renderer = $this->renderer();
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/'), 'stub', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            $crawler = new Crawler($html);
+
+            static::assertCount(1, $crawler->filter('h1'), $kind);
+            static::assertSame('Stub', $crawler->filter('.jm-screen > .jm-heading > h1.jm-heading__title')->text(), $kind);
+            static::assertCount(0, $crawler->filter('.jm-lead'), $kind);
+        }
+    }
+
+    public function testALinkToAnUnavailableScreenIsNotRendered(): void
+    {
+        $view = static fn(): ScreenView => new ScreenView([], [
+            new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])]),
+        ], new Lead('Sentence'), new CheckList([
+            new CheckLine('queries.repeated', new Mark('warn', 'Warning'), 'One query ran 12 times', 'Why.', 'GET app_home', 'queries', action: 'What.'),
+            new CheckLine('requests.slow', new Mark('warn', 'Warning'), 'One route is slow', 'Why.', 'GET app_slow', 'stub', action: 'What.'),
+        ], title: 'Worth a look'), new Guide([
+            new GuideItem('Repeated', 'queries are listed apart.', ['See the queries' => 'queries', 'See the routes' => 'stub']),
+            new GuideItem('Stack', 'reads the server.', ['Open the stack' => 'stack/php']),
+        ]));
+
+        foreach ([[false, false], [true, true]] as [$queries, $stack]) {
+            $renderer = $this->renderer([new StubScreen(view: $view), new StubScreen('queries', $queries), new StubBlockScreen('stack', $stack, space: Space::Stack)]);
+
+            foreach ([
+                'page' => $renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html,
+                'fragment' => (string) $renderer->fragment(Request::create('/'), 'stub', new FakeHostUrls())->getContent(),
+            ] as $kind => $html) {
+                $crawler = new Crawler($html);
+                $repeated = $crawler->filter('[data-jm-check="queries.repeated"] .jm-check__where');
+
+                static::assertSame('GET app_home', $repeated->text(), $kind);
+                static::assertSame($queries ? 1 : 0, $repeated->filter('a')->count(), $kind);
+                static::assertSame(['/host/page/stub?menu=3'], $crawler->filter('[data-jm-check="requests.slow"] .jm-check__where a')->each(static fn(Crawler $a): string => (string) $a->attr('href')), $kind);
+                static::assertSame(
+                    [...($queries ? ['See the queries'] : []), 'See the routes', ...($stack ? ['Open the stack'] : [])],
+                    $crawler->filter('.jm-guide a')->each(static fn(Crawler $a): string => $a->text()),
+                    $kind,
+                );
+                static::assertSame($queries, str_contains($crawler->filter('.jm-guide')->text(), 'See the queries'), $kind);
+                static::assertStringStartsWith('Repeated queries are listed apart.', $crawler->filter('.jm-guide li')->eq(0)->text(), $kind);
+            }
+        }
+    }
+
+    public function testALinkOfACheckKeepsThePeriod(): void
+    {
+        $renderer = $this->renderer([new StubScreen(view: static fn(): ScreenView => new ScreenView([], [
+            new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])]),
+        ], null, new CheckList([
+            new CheckLine('requests.slow', new Mark('warn', 'Warning'), 'One route is slow', 'Why.', 'GET app_slow', 'stub', null, ['period' => '6h'], action: 'What.'),
+        ]), new Guide([new GuideItem('Slow', 'routes take long.', ['See the routes' => 'stub'])])))]);
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/', parameters: ['period' => '6h']), 'stub', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/', parameters: ['period' => '6h']), 'stub', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            $crawler = new Crawler($html);
+
+            static::assertSame('/host/page/stub?menu=3&period=6h', $crawler->filter('[data-jm-check="requests.slow"] .jm-check__where a')->attr('href'), $kind);
+            static::assertSame('/host/page/stub?menu=3&period=6h', $crawler->filter('.jm-guide a')->attr('href'), $kind);
+        }
     }
 
     public function testAComposedScreenFlushesBeforeItReads(): void

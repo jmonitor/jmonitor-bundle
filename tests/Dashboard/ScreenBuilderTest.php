@@ -17,8 +17,12 @@ use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
+use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
+use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
@@ -255,6 +259,53 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame('mixed', $page->state());
         static::assertSame(Period::SixHours, $page->period);
         static::assertSame(['count', 'desc'], [$page->sort, $page->direction]);
+    }
+
+    public function testTheBlocksOfAScreenFollowTheReadingOrder(): void
+    {
+        $lead = new Lead('Sentence');
+        $checks = new CheckList([]);
+        $guide = new Guide([new GuideItem('Term', 'Text')]);
+        $card = new Card('Hits', '12');
+        $first = $this->table(rows: 1);
+        $second = $this->table(rows: 0);
+        $view = static fn(ScreenView $view): StubScreen => new StubScreen(view: static fn(ReaderInterface $reader): ScreenView => $view);
+
+        $page = $this->builder()->create($view(new ScreenView([$card], [$first, $second], $lead, $checks, $guide)), null, null, null);
+
+        static::assertSame([Block::LEAD, Block::CHECKS, Block::CARDS, Block::TABLE, Block::TABLE, Block::GUIDE], self::types($page->blocks));
+        static::assertSame([$lead, $checks, [$card], $first, $second, $guide], array_map(static fn(Block $block): mixed => $block->content, $page->blocks));
+        static::assertSame([Block::LEAD, Block::TABLE, Block::GUIDE], self::types($this->builder()->create($view(new ScreenView([], [$first], $lead, guide: $guide)), null, null, null)->blocks), 'A lead takes the place of an empty list of cards.');
+        static::assertSame([Block::CHECKS, Block::CARDS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$first], checks: $checks)), null, null, null)->blocks), 'Without a lead, an empty list of cards keeps its block.');
+        static::assertSame([Block::CARDS, Block::TABLE, Block::GUIDE], self::types($this->builder()->create($view(new ScreenView([$card], [$first], guide: $guide)), null, null, null)->blocks));
+    }
+
+    public function testAnEmptyScreenShowsItsStateWithoutLeadNorGuide(): void
+    {
+        $screen = new StubScreen(view: fn(ReaderInterface $reader): ScreenView => new ScreenView([new Card('Hits', '0')], [$this->table(rows: 0)], new Lead('Sentence'), new CheckList([]), new Guide([new GuideItem('Term', 'Text')])));
+
+        $page = $this->builder()->create($screen, null, null, null);
+
+        static::assertCount(1, $page->blocks);
+        static::assertSame([Block::TABLE, BlockState::Empty, 'Nothing yet'], [$page->blocks[0]->type, $page->blocks[0]->state, $page->blocks[0]->title]);
+        static::assertSame([Block::TABLE], self::types($this->builder(recordingEnabled: false)->create($screen, null, null, null)->blocks));
+    }
+
+    public function testASectionKeepsItsBlocksOfToday(): void
+    {
+        $lead = new Lead('Sentence');
+        $guide = new Guide([new GuideItem('Term', 'Text')]);
+        $guided = new StubSection('guided', fn(): ScreenView => new ScreenView([], [$this->table(rows: 1)], $lead, null, $guide));
+        $quietGuided = new StubSection('quiet', fn(): ScreenView => new ScreenView([], [$this->table(rows: 0)], $lead, null, $guide));
+        $notice = Block::notice(new Notice('info', 'Own'));
+
+        $page = $this->builder()->create(self::composed($this->section('plain', rows: 1), new StubSourceSection($guided, [$notice]), $quietGuided, $this->section('bare', rows: 0)), null, null, null);
+
+        static::assertSame([Block::CARDS, Block::TABLE], self::types(self::sectionOf($page, 'plain')->blocks));
+        static::assertSame([Block::NOTICE, Block::LEAD, Block::TABLE, Block::GUIDE], self::types(self::sectionOf($page, 'guided')->blocks));
+        static::assertSame([], self::sectionOf($page, 'quiet')->blocks);
+        static::assertNotNull(self::sectionOf($page, 'quiet')->empty);
+        static::assertSame([], self::sectionOf($page, 'bare')->blocks);
     }
 
     public function testTheScreenRequestSaysWhenItIsAFollowUp(): void

@@ -13,6 +13,9 @@ final class ScreenView
     public function __construct(
         public readonly array $cards = [],
         public readonly array $tables = [],
+        public readonly ?Lead $lead = null,
+        public readonly ?CheckList $checks = null,
+        public readonly ?Guide $guide = null,
     ) {}
 
     public function isEmpty(): bool

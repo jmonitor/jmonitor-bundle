@@ -385,6 +385,68 @@ final class StylesheetTest extends TestCase
         }
     }
 
+    public function testTheBlocksOfAGuidedReadingAreStyledUnderJm(): void
+    {
+        $selectors = [];
+        foreach (self::rules() as $rule) {
+            array_push($selectors, ...$rule['selectors']);
+        }
+
+        foreach (['.jm-lead', '.jm-lead__title', '.jm-lead__detail', '.jm-lead__axis', '.jm-guide', '.jm-guide__title', '.jm-guide__list', '.jm-check__code', '.jm-check__advice', '.jm-checks--warn', '.jm-checks--bad', '.jm-bar', '.jm-bar__fill', '.jm-bar__value', '.jm-split', '.jm-split__text', '.jm-split__part--php', '.jm-split__part--sql', '.jm-split__part--http', '.jm-tag', '.jm-tag--warn', '.jm-tag--bad', '.jm-legend', '.jm-legend__swatch--php', '.jm-panel__footnote'] as $class) {
+            static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => preg_match('/' . preg_quote($class, '/') . '(?![a-z0-9_-])/', $selector) === 1), $class);
+        }
+    }
+
+    public function testThePartsOfASplitHaveTheirColourInBothThemes(): void
+    {
+        $dark = self::theme(self::DARK);
+        $light = self::theme(self::LIGHT);
+
+        static::assertSame(['#6e94ff', '#17e3dc', '#d6c2ff'], [$dark['--jm-part-php'] ?? null, $dark['--jm-part-sql'] ?? null, $dark['--jm-part-http'] ?? null]);
+
+        $surface = self::colour($light['--jm-surface'] ?? '');
+        $parts = [];
+        foreach (['php', 'sql', 'http'] as $part) {
+            $parts[$part] = self::colour($light['--jm-part-' . $part] ?? '');
+            static::assertSame(1.0, $parts[$part][3], $part);
+            static::assertGreaterThanOrEqual(3.0, self::contrast($parts[$part], $surface), $part);
+        }
+        foreach ([['php', 'sql'], ['php', 'http'], ['sql', 'http']] as [$a, $b]) {
+            static::assertGreaterThanOrEqual(1.4, self::contrast($parts[$a], $parts[$b]), $a . ' and ' . $b . ' differ by their lightness');
+        }
+    }
+
+    public function testForcedColorsKeepTheOutlineOfTheNewCells(): void
+    {
+        $at = '@media (forced-colors: active)';
+
+        static::assertContains(['border', '1px solid CanvasText'], self::declarationsOf('.jm-bar svg', $at));
+        static::assertContains(['border', '1px solid CanvasText'], self::declarationsOf('.jm-split svg', $at));
+        static::assertContains(['stroke', 'Canvas'], self::declarationsOf('.jm-split__part', $at));
+        static::assertContains(['border-color', 'CanvasText'], self::declarationsOf('.jm-tag', $at));
+    }
+
+    public function testANarrowScreenStacksTheAdviceOfACheckAndTheItemsOfTheGuide(): void
+    {
+        foreach (['.jm-check__advice', '.jm-guide__list'] as $selector) {
+            static::assertContains(['flex-direction', 'column'], self::declarationsOf($selector, '@media (max-width: 720px)'), $selector);
+        }
+    }
+
+    public function testTheWordsOfASplitStayInTheScrollingBoxOfItsTable(): void
+    {
+        static::assertContains(['position', 'relative'], self::declarationsOf('.jm-split', null));
+    }
+
+    public function testACodeOfACheckScrollsInItsOwnBox(): void
+    {
+        $code = self::declarationsOf('.jm-check__code', null);
+
+        static::assertContains(['overflow-x', 'auto'], $code);
+        static::assertContains(['white-space', 'pre'], $code);
+        static::assertContains(['margin', '8px 0 0'], $code);
+    }
+
     private static function withoutHostAncestor(string $selector): string
     {
         foreach (self::HOST_ANCESTORS as $ancestor) {

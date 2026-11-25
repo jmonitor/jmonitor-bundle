@@ -22,9 +22,12 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Fact;
 use Jmonitor\JmonitorBundle\Dashboard\View\Facts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauge;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
+use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
+use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavRow;
+use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
@@ -32,11 +35,13 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Symfony\Contracts\Service\ResetInterface;
 
 /**
- * Every block of the live stack in every state, then a section in each of its states. Each request moves
+ * Every block of the live stack in every state, the blocks that guide the reading of a screen, then a section in each
+ * of its states. Each request moves
  * a counter kept in a file: the badge shows it, and its tone and the web server named by the second
  * navigation alternate with its parity.
  */
@@ -146,6 +151,29 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 new Fact('async', '1,234'),
                 new Fact('failed', 'Uncountable', hint: 'An exception occurred in the driver: SQLSTATE[HY000] [2002] Connection refused while counting the messages waiting in doctrine://default?queue_name=failed'),
             ], "Messages waiting in each transport, counted 12\u{00A0}s ago")),
+            Block::lead(new Lead('1,284 requests in the last hour, 3 of them ended in a server error', 'The busiest minute served 64 requests.', [12, 18, 15, 22, 40, 64, 31, 20, 18, 25, 19, 16], 'requests per minute', '1 hour ago')),
+            Block::lead(new Lead('Nothing ran slower than 100 ms', self::LONG)),
+            Block::checks(new CheckList([
+                new CheckLine('queries.slow', $critical, 'One query took 1.4 s on average', 'A slow query holds its request for as long as it runs, and every request that runs it waits as long.', 'GET app_checkout', 'gallery', title: 'Slow query', action: 'Look at its plan with EXPLAIN, then add the index it misses or read fewer rows.', code: 'SELECT o.id, o.total, c.email FROM orders o INNER JOIN customers c ON c.id = o.customer_id WHERE o.created_at > ? AND c.country = ? ORDER BY o.created_at DESC'),
+                new CheckLine('queries.repeated', $warning, 'One query ran 48 times in a single request', self::LONG, '', title: 'Repeated query', action: 'Load the related rows in one query, with a join or a WHERE … IN.'),
+            ], title: 'Worth a look')),
+            Block::checks(new CheckList([], 'Nothing to flag', 'No problem was seen in the last hour.', 'Worth a look')),
+            Block::table(new Table('gallery-routes', 'Routes', [
+                new Column('route', 'Route', false),
+                new Column('total', 'Total time'),
+                new Column('split', 'Time split', false),
+                new Column('problems', 'Problems', false),
+            ], [
+                new Row('checkout', ['route' => Cell::route('GET app_checkout'), 'total' => Cell::bar('1.8 s', 1.0), 'split' => Cell::split(['php' => 77.0, 'sql' => 10.0, 'http' => 57.0], '77 · 10 · 57 ms'), 'problems' => Cell::tags([new Tag('N+1', 'warn'), new Tag('3 × 5xx', 'bad')])]),
+                new Row('login', ['route' => Cell::route('POST app_login'), 'total' => Cell::bar('640 ms', 0.36), 'split' => Cell::split(['php' => 120.0, 'sql' => 0.0, 'http' => 0.0], 'PHP only'), 'problems' => Cell::tags([])]),
+                new Row('search', ['route' => Cell::route('GET app_search_with_a_route_name_long_enough_to_wrap'), 'total' => Cell::bar('12 ms', 0.007), 'split' => Cell::split(['php' => 3.0, 'sql' => 40.0, 'http' => 0.0], '3 · 40 ms, a text long enough to be cut'), 'problems' => Cell::tags([new Tag('slow', 'warn')])]),
+                new Row('other', ['route' => new Cell('Other routes'), 'total' => Cell::bar('90 ms', 0.05), 'split' => Cell::split(['php' => 0.0, 'sql' => 0.0, 'http' => 0.0], '—'), 'problems' => Cell::tags([])], muted: true),
+            ], 12, 'route', partsLegend: true, footnote: 'Averages per request. The PHP part is what is left once SQL and outgoing HTTP calls are taken away.')),
+            Block::guide(new Guide([
+                new GuideItem('Total time', 'adds up the time of every request of the route: a route called often can weigh more than a slow one.'),
+                new GuideItem('Time split', 'shows where an average request spends its time: your PHP code, SQL queries, outgoing HTTP calls.', ['See the gallery' => 'gallery', 'See a missing screen' => 'missing']),
+                new GuideItem('Problems', self::LONG),
+            ])),
             Block::section(new Section('full', 'A section with figures', 'Cards and a table, sorted within the section.', [
                 Block::cards([new Card('Runs', '1,284', 'in the last hour', series: [3, 5, 4, 8, 6]), new Card('Failed', '3', tone: 'bad'), new Card('Slowest', '4.2 s'), new Card('Commands', '12')]),
                 Block::table(new Table('gallery-full', 'Commands', [

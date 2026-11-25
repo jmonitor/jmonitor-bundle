@@ -219,7 +219,27 @@ final class ScreenBuilder
     /** @return list<Block> */
     private static function figures(ScreenView $view): array
     {
-        return [Block::cards($view->cards), ...array_map(Block::table(...), $view->tables)];
+        $blocks = [];
+
+        if ($view->lead !== null) {
+            $blocks[] = Block::lead($view->lead);
+        }
+
+        if ($view->checks !== null) {
+            $blocks[] = Block::checks($view->checks);
+        }
+
+        if ($view->cards !== [] || $view->lead === null) {
+            $blocks[] = Block::cards($view->cards);
+        }
+
+        array_push($blocks, ...array_map(Block::table(...), $view->tables));
+
+        if ($view->guide !== null) {
+            $blocks[] = Block::guide($view->guide);
+        }
+
+        return $blocks;
     }
 
     private function emptyCause(): ?BlockState

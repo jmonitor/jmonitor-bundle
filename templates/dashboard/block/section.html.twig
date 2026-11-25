@@ -7,7 +7,7 @@
         <p class="jm-section__summary">{{ section.summary }}</p>
     </div>
 {% for inner in section.blocks %}
-    {{ include('@Jmonitor/dashboard/block/' ~ (inner.state.value == 'ready' ? inner.type : 'state') ~ '.html.twig', {block: inner, section: section}) }}
+    {{ include('@Jmonitor/dashboard/block/' ~ (inner.state.value == 'ready' ? inner.type : 'state') ~ '.html.twig', {block: inner, section: section, page_title: false}) }}
 {% endfor %}
 {% if section.empty is not null %}
     <p class="jm-section__empty"><strong>{{ section.empty.title }}</strong>{% if section.empty.text is not same as('') %} {{ section.empty.text }}{% endif %}</p>

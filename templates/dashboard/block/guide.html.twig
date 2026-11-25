@@ -1,0 +1,15 @@
+{% autoescape 'html' %}
+{% set guide_view = block.content %}
+<section class="jm-guide" aria-label="How to read this screen">
+    <h2 class="jm-guide__title">How to read this screen</h2>
+    <ul class="jm-guide__list">
+        {% for item in guide_view.items %}
+            <li class="jm-guide__item"><strong>{{ item.term }}</strong> {{ item.text }}
+                {%- for label, link in item.links -%}
+                    {%- if (link|split('/')|first) in screens %} <a href="{{ urls.page(link, page.period ? {period: page.period.label} : {}) }}">{{ label }}</a>{% endif -%}
+                {%- endfor -%}
+            </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endautoescape %}
