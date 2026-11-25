@@ -1039,7 +1039,7 @@ body.jm .jm-section {
 }
 
 .jm-table tbody .jm-row--nested > * {
-    background: var(--jm-surface-hover);
+    background: var(--jm-surface-strong);
 }
 
 .jm-table tbody .jm-row--nested > :first-child {
@@ -2025,7 +2025,8 @@ body.jm .jm-section {
     border-radius: var(--jm-radius);
 }
 
-.jm-panel + .jm-guide {
+.jm-panel + .jm-guide,
+.jm-section + .jm-guide {
     margin-top: 20px;
 }
 
@@ -2105,6 +2106,12 @@ body.jm .jm-section {
 }
 
 @media (min-width: 721px) and (max-width: 1080px) {
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(-n + 2):last-child),
+    .jm-section > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(-n + 2):last-child) {
+        grid-template-columns: none;
+        grid-auto-flow: column;
+    }
+
     .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child),
     .jm-section > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child) {
         grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -2311,7 +2318,7 @@ body.jm .jm-section {
 }
 
 @media (max-width: 400px) {
-    .jm-screen > .jm-cards:has(> .jm-card .jm-card__link) {
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card > .jm-card__label > .jm-card__link) {
         grid-template-columns: minmax(0, 1fr);
     }
 

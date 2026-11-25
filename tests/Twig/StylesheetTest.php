@@ -496,18 +496,35 @@ final class StylesheetTest extends TestCase
         }
     }
 
+    public function testOneOrTwoCardsFillTheirRowBetweenTheBreakpoints(): void
+    {
+        $at = '@media (min-width: 721px) and (max-width: 1080px)';
+
+        foreach (['.jm-screen', '.jm-section'] as $parent) {
+            static::assertSame([['grid-template-columns', 'none'], ['grid-auto-flow', 'column']], self::declarationsOf($parent . ' > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(-n + 2):last-child)', $at), $parent);
+        }
+        static::assertContains(['grid-auto-columns', 'minmax(0, 1fr)'], self::declarationsOf('.jm-screen > .jm-cards:not(:has(> .jm-card--wide))', null));
+    }
+
+    public function testTheGuideIsSpacedFromTheSectionAboveItLikeTwoSections(): void
+    {
+        static::assertSame([['margin-top', '20px']], self::declarationsOf('.jm-section + .jm-section', null));
+        static::assertSame([['margin-top', '20px']], self::declarationsOf('.jm-section + .jm-guide', null));
+    }
+
     public function testAnAnchorCardKeepsTheColourOfItsLabelAndIsUnderlinedOnHoverAndFocus(): void
     {
         static::assertSame([['color', 'inherit'], ['text-decoration', 'none']], self::declarationsOf('.jm-card__link', null));
         foreach (['.jm-card__link:hover', '.jm-card__link:focus-visible'] as $selector) {
             static::assertSame([['color', 'inherit'], ['text-decoration', 'underline']], self::declarationsOf($selector, null), $selector);
         }
-        static::assertSame([['grid-template-columns', 'minmax(0, 1fr)']], self::declarationsOf('.jm-screen > .jm-cards:has(> .jm-card .jm-card__link)', '@media (max-width: 400px)'));
+        static::assertSame([['grid-template-columns', 'minmax(0, 1fr)']], self::declarationsOf('.jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card > .jm-card__label > .jm-card__link)', '@media (max-width: 400px)'));
     }
 
     public function testANestedRowIsIndentedOnAFainterBackground(): void
     {
-        static::assertSame([['background', 'var(--jm-surface-hover)']], self::declarationsOf('.jm-table tbody .jm-row--nested > *', null));
+        static::assertSame([['background', 'var(--jm-surface-strong)']], self::declarationsOf('.jm-table tbody .jm-row--nested > *', null));
+        static::assertSame([['background', 'var(--jm-surface-hover)']], self::declarationsOf('.jm-table tbody tr:hover > *', null), 'A hovered nested row changes its background.');
         static::assertSame([['padding-left', '38px']], self::declarationsOf('.jm-table tbody .jm-row--nested > :first-child', null));
     }
 

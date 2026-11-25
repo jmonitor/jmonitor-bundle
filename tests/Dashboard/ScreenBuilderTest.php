@@ -708,6 +708,7 @@ final class ScreenBuilderTest extends TestCase
         yield 'one part' => [['42 messages handled'], '42 messages handled in the last 6 hours.'];
         yield 'two parts' => [['1,668 cache reads (96 % found)', '13 outgoing calls'], '1,668 cache reads (96 % found) and 13 outgoing calls in the last 6 hours.'];
         yield 'three parts' => [['42 messages handled', '12 scheduled runs', '3 command runs'], '42 messages handled, 12 scheduled runs and 3 command runs in the last 6 hours.'];
+        yield 'four parts' => [['42 messages handled', '12 scheduled runs', '3 command runs', '9 cache reads'], '42 messages handled, 12 scheduled runs, 3 command runs and 9 cache reads in the last 6 hours.'];
         yield 'a part that starts in lower case' => [['one run'], 'One run in the last 6 hours.'];
     }
 
@@ -915,11 +916,24 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame($page->raised, $page->withTabs(new SubNav('Application', []))->raised);
     }
 
-    public function testATotalsReadThatThrowsStopsTheSections(): void
+    /**
+     * @return iterable<string, array{\Throwable}>
+     */
+    public static function readFailures(): iterable
+    {
+        yield 'exception' => [new \RuntimeException('Storage is down')];
+        yield 'error' => [new \TypeError('Storage is down')];
+    }
+
+    #[DataProvider('readFailures')]
+    public function testATotalsReadThatThrowsStopsTheSections(\Throwable $failure): void
     {
         $reader = new FixedReader(totals: []);
-        $failing = new class ($reader) implements ReaderInterface {
-            public function __construct(public readonly FixedReader $reader) {}
+        $failing = new class ($reader, $failure) implements ReaderInterface {
+            public function __construct(
+                public readonly FixedReader $reader,
+                private readonly \Throwable $failure,
+            ) {}
 
             public function read(ReportQuery $query): Report
             {
@@ -933,7 +947,7 @@ final class ScreenBuilderTest extends TestCase
 
             public function totals(Period $period, int $now, array $metricTypes, array $keyed = []): Totals
             {
-                throw new \RuntimeException('Storage is down');
+                throw $this->failure;
             }
         };
         $logger = $this->logger();
@@ -952,16 +966,40 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame(['error JMonitor could not read its data: Storage is down'], $logger->messages);
     }
 
-    public function testASectionReadThatThrowsLeavesThePageWithoutRaisedChecks(): void
+    #[DataProvider('readFailures')]
+    public function testASectionReadThatThrowsLeavesThePageWithoutRaisedChecks(\Throwable $failure): void
     {
-        $reader = new FixedReader(static fn(): Report => throw new \RuntimeException('Storage is down'), totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
-        $builder = new ScreenBuilder($reader, true, new MockClock('@1800000000'), logger: $this->logger(), checks: new ApplicationChecks([new ServerErrorsCheck()]));
+        $reader = new FixedReader(static fn(): Report => throw $failure, totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $logger = $this->logger();
+        $second = $this->briefed('second', new Brief('1', '1 second'));
+        $builder = new ScreenBuilder($reader, true, new MockClock('@1800000000'), logger: $logger, checks: new ApplicationChecks([new ServerErrorsCheck()]));
 
-        $page = $builder->create(self::composed($this->briefed('first', new Brief('1', '1 first'))), null, null, null);
+        $page = $builder->create(self::composed($this->briefed('first', new Brief('1', '1 first')), $second), null, null, null);
 
         static::assertCount(1, $reader->totalRequests);
+        static::assertCount(1, $reader->queries);
+        static::assertSame([], $second->builds);
         static::assertSame(['table storage_error'], self::shape($page));
         static::assertNull($page->raised);
+        static::assertSame(['error JMonitor could not read its data: Storage is down'], $logger->messages);
+    }
+
+    public function testASectionShownWithoutBriefBringsNeitherCheckNorGuide(): void
+    {
+        $unbriefed = new StubSection('unbriefed', fn(): ScreenView => new ScreenView([new Card('Runs', '3')], [$this->table(rows: 1)]), checks: new CheckList([self::line('unbriefed.bad', 'bad')], emptyText: 'no unbriefed problem'), guide: new Guide([new GuideItem('Unbriefed', 'Text')]));
+
+        foreach ([
+            'with a line' => new CheckList([self::line('cache.low_hit_rate', 'warn')], emptyText: 'no pool with a low hit rate'),
+            'without line' => new CheckList([], emptyText: 'no pool with a low hit rate'),
+        ] as $case => $checks) {
+            $page = $this->builder()->create(self::composed($unbriefed, $this->briefed('cache', new Brief('9', '9 reads'), $checks)), null, null, null);
+            $list = $page->blocks[1]->content;
+
+            static::assertSame(['lead ready', 'checks ready', 'section unbriefed', 'section cache'], self::shape($page), $case);
+            static::assertInstanceOf(CheckList::class, $list);
+            static::assertSame(array_map(static fn(CheckLine $line): string => $line->id, $checks->lines), array_map(static fn(CheckLine $line): string => $line->id, $list->lines), $case);
+            static::assertSame('No pool with a low hit rate in the last hour.', $list->emptyText, $case);
+        }
     }
 
     public function testWithoutReaderOrAfterAFailedFlushTheTotalsAreNotRead(): void
