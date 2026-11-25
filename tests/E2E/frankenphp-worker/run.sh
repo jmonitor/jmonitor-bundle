@@ -459,6 +459,12 @@ captures_round 2
 
 $COMPOSE exec -T app php tests/Fixtures/App/bin/console app:work || fail "app:work failed"
 expect_page /jmonitor/background 'data-jm-command="app:work" data-jm-runs="1"' 'the Background screen did not list 1 run of app:work'
+hit '/dispatch?count=1' 200
+expect_page /jmonitor/background 'data-jm-message="[^"]*\\Ping"[^>]*data-jm-sent="1"' 'the Background screen did not list 1 sent Ping message'
+hit /admin/jmonitor/background 200 "$ADMIN"
+for path in /jmonitor/messages /jmonitor/cache /admin/jmonitor/messages; do
+    hit "$path" 404 "$ADMIN"
+done
 
 hit /hello/host
 expect_page /back-office/monitoring/requests 'data-jm-route="GET app_hello"' 'the embedded Requests screen did not list "GET app_hello"' "$ADMIN"
@@ -467,7 +473,7 @@ status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" -H "Origin: $BASE" 
 [ "$status" = 303 ] || fail "POST /back-office/monitoring-action/probe answered $status instead of 303"
 expect_page /back-office/monitoring/probe 'data-jm-probe-runs="1"' 'the embedded Probe screen did not count 1 run' "$ADMIN"
 
-for path in /back-office/monitoring/ /back-office/monitoring/requests /back-office/monitoring/queries /back-office/monitoring/cache /back-office/monitoring/probe /back-office/monitoring-fragment/ '/back-office/monitoring-fragment/requests?menu=3&period=1h' /back-office/monitoring-fragment/queries /back-office/monitoring-fragment/cache /back-office/monitoring-fragment/probe; do
+for path in /back-office/monitoring/ /back-office/monitoring/requests /back-office/monitoring/queries /back-office/monitoring/cache-http /back-office/monitoring/background /back-office/monitoring/probe /back-office/monitoring-fragment/ '/back-office/monitoring-fragment/requests?menu=3&period=1h' /back-office/monitoring-fragment/queries /back-office/monitoring-fragment/cache-http /back-office/monitoring-fragment/background /back-office/monitoring-fragment/probe; do
     hit "$path" 200 "$ADMIN"
 done
 hit /teapot 418
@@ -500,5 +506,8 @@ expect_page /jmonitor/requests 'data-jm-route="GET app_teapot"' 'the Requests sc
 if printf '%s\n' "$page" | grep -q '(unmatched)'; then
     fail "the Requests screen lists the probe of an address of the application"
 fi
+if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
+    fail "the Requests screen lists a request to a JMonitor screen"
+fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions and a console command; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"

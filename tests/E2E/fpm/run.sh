@@ -97,6 +97,8 @@ expect_page /jmonitor/exceptions 'data-jm-exception="RuntimeException" data-jm-c
 
 $COMPOSE exec -T -u www-data php php tests/Fixtures/App/bin/console app:work || fail "app:work failed as the PHP-FPM pool user"
 expect_page /jmonitor/background 'data-jm-command="app:work" data-jm-runs="1"' 'the Background screen did not list 1 run of app:work'
+curl -sf -o /dev/null "$BASE/dispatch?count=1" || fail "GET /dispatch did not return 2xx"
+expect_page /jmonitor/background 'data-jm-message="[^"]*\\Ping"[^>]*data-jm-sent="1"' 'the Background screen did not list 1 sent Ping message'
 
 expect_page /back-office/monitoring/requests 'data-jm-route="GET app_hello"' 'the embedded Requests screen did not list "GET app_hello"' "$ADMIN"
 
@@ -104,7 +106,7 @@ status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" -H "Origin: $BASE" 
 [ "$status" = 303 ] || fail "POST /back-office/monitoring-action/probe answered $status instead of 303"
 expect_page /back-office/monitoring/probe 'data-jm-probe-runs="1"' 'the embedded Probe screen did not count 1 run' "$ADMIN"
 
-for path in /back-office/monitoring/ /back-office/monitoring/requests /back-office/monitoring/queries /back-office/monitoring/cache /back-office/monitoring/probe /back-office/monitoring-fragment/ '/back-office/monitoring-fragment/requests?menu=3&period=1h' /back-office/monitoring-fragment/queries /back-office/monitoring-fragment/cache /back-office/monitoring-fragment/probe; do
+for path in /back-office/monitoring/ /back-office/monitoring/requests /back-office/monitoring/queries /back-office/monitoring/cache-http /back-office/monitoring/background /back-office/monitoring/probe /back-office/monitoring-fragment/ '/back-office/monitoring-fragment/requests?menu=3&period=1h' /back-office/monitoring-fragment/queries /back-office/monitoring-fragment/cache-http /back-office/monitoring-fragment/background /back-office/monitoring-fragment/probe; do
     curl -sf -o /dev/null -u "$ADMIN" "$BASE$path" || fail "GET $path did not return 2xx"
 done
 status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/teapot")"
@@ -188,6 +190,13 @@ status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/stack answered $status instead of 200"
 [ "$(cards_of "$admin")" = 'php symfony system ' ] || fail "the Stack screen inside EasyAdmin shows the cards: $(cards_of "$admin")"
 
+status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" "$BASE/admin/jmonitor/background")"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor/background answered $status instead of 200"
+for path in /jmonitor/messages /jmonitor/cache /admin/jmonitor/messages; do
+    status="$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN" "$BASE$path")"
+    [ "$status" = 404 ] || fail "GET $path answered $status instead of 404"
+done
+
 status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/jmonitor/background")"
 [ "$status" = 200 ] || fail "GET /jmonitor/background answered $status instead of 200"
 counted=0
@@ -226,4 +235,4 @@ if printf '%s\n' "$commands" | grep -q 'jmonitor:stack:queues'; then
     fail "the Background screen lists jmonitor:stack:queues"
 fi
 
-echo "OK: 30 requests, an N+1, cache reads, exceptions and a console command recorded under PHP-FPM; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"
+echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"
