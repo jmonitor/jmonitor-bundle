@@ -73,7 +73,7 @@ final class EasyAdminPageTest extends WebTestCase
             $crawler = $client->request('GET', '/admin/jmonitor/' . $id);
 
             static::assertResponseIsSuccessful($id);
-            static::assertMatchesRegularExpression('#^/admin/jmonitor/' . $id . '(\?|$)#', (string) $crawler->filter('.jm .jm-nav__item[aria-current="page"]')->attr('href'), $id);
+            static::assertMatchesRegularExpression('#^/admin/jmonitor/' . $id . '(\?|$)#', (string) $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->attr('href'), $id);
 
             $urls = self::urlsOf($crawler->filter('.jm'));
             static::assertNotEmpty($urls, $id);
@@ -90,7 +90,7 @@ final class EasyAdminPageTest extends WebTestCase
         $crawler = $client->request('GET', '/admin/jmonitor');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('Requests', $crawler->filter('.jm .jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('Requests', $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->text());
     }
 
     public function testThePageSitsInTheFrameOfEasyAdmin(): void

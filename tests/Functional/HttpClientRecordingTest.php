@@ -49,7 +49,7 @@ final class HttpClientRecordingTest extends WebTestCase
         $crawler = self::requestUntil($client, '/jmonitor/http-client', 'tr[data-jm-host="api.example.com:8443"][data-jm-calls="2"]');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('HTTP client', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('HTTP client', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
         $rows = self::hostRows($crawler);
         static::assertSame(['api.example.com:8443'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-host')));
         static::assertSame(['2'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-calls')));

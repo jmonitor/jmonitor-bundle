@@ -50,7 +50,7 @@ final class CacheRecordingTest extends WebTestCase
         $crawler = self::requestUntil($client, '/jmonitor/cache', 'tr[data-jm-pool="cache.app"][data-jm-reads="3"]');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('Cache', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('Cache', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
         $rows = $crawler->filter('section[aria-labelledby="jm-pools-title"] tbody tr');
         static::assertSame(['cache.app'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-pool')));
         static::assertSame(['3'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-reads')));

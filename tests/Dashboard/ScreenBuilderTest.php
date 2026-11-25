@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
@@ -213,6 +214,11 @@ final class ScreenBuilderTest extends TestCase
             public function isAvailable(): bool
             {
                 return true;
+            }
+
+            public function space(): Space
+            {
+                return Space::Application;
             }
 
             public function sorts(): array

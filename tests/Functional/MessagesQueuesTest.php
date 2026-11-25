@@ -86,7 +86,7 @@ final class MessagesQueuesTest extends WebTestCase
         self::countTheQueues($client);
         $crawler = self::requestUntil($client, '/jmonitor/messages', 'tr[data-jm-message]');
 
-        $blocks = $crawler->filter('.jm-screen')->children(':not(template)')->each(static fn(Crawler $block): string => (string) $block->attr('class'));
+        $blocks = $crawler->filter('.jm-screen > .jm-heading ~ :not(template)')->each(static fn(Crawler $block): string => (string) $block->attr('class'));
         self::assertSame(['jm-panel jm-facts', 'jm-cards'], \array_slice($blocks, 0, 2));
         self::assertSame('Queues', $crawler->filter('.jm-screen > .jm-facts .jm-panel__title')->text());
         self::assertCount(1, $crawler->filter('tr[data-jm-message]'));
@@ -102,7 +102,7 @@ final class MessagesQueuesTest extends WebTestCase
         self::assertResponseStatusCodeSame(200);
         self::assertSame('No storage configured', $crawler->filter('.jm-state__title')->text());
         self::assertSame([['async', '12'], ['batch', 'Uncountable']], self::facts($crawler));
-        self::assertContains('Messages', $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+        self::assertContains('Messages', $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()));
 
         $home = $client->request('GET', '/jmonitor/');
         self::assertResponseIsSuccessful();
@@ -133,7 +133,7 @@ final class MessagesQueuesTest extends WebTestCase
         self::assertSame('Recording the messages is off (jmonitor.recording.messenger). The queues are still counted.', $crawler->filter('.jm-state__text')->text());
         self::assertSame([['async', '12'], ['batch', 'Uncountable']], self::facts($crawler));
         self::assertCount(0, $crawler->filter('.jm-cards'));
-        self::assertSame('Messages', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        self::assertSame('Messages', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
     }
 
     public function testWithNeitherRecordingNorCountingThereIsNoMessagesScreen(): void
@@ -145,7 +145,7 @@ final class MessagesQueuesTest extends WebTestCase
 
         $crawler = $client->request('GET', '/jmonitor/');
         self::assertResponseIsSuccessful();
-        self::assertNotContains('Messages', $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+        self::assertNotContains('Messages', $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()));
     }
 
     public function testTheStackOffRemovesTheQueues(): void

@@ -51,7 +51,7 @@ final class ExceptionRecordingTest extends WebTestCase
         $crawler = self::requestUntil($client, '/jmonitor/exceptions', 'tr[data-jm-exception="RuntimeException"][data-jm-count="3"]');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('Exceptions', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('Exceptions', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
         static::assertCount(1, self::exceptionRows($crawler));
         static::assertSame('3', self::exceptionRows($crawler)->attr('data-jm-count'));
         static::assertStringNotContainsString('NotFoundHttpException', (string) $client->getResponse()->getContent());

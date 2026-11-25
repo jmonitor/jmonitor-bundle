@@ -1,6 +1,13 @@
 {% autoescape 'html' %}
 <div class="jm-screen" data-jm-state="{{ page.state }}"{% if page.reading %} data-jm-reading{% endif %}>
-{% for block in page.blocks %}
+{% if page.tabs %}
+    {{ include('@Jmonitor/dashboard/block/subnav.html.twig', {subnav: page.tabs}) }}
+{% endif %}
+    <div class="jm-heading">
+        <h1 class="jm-heading__title">{{ page.screen.label }}</h1>
+        <p class="jm-heading__text">{{ page.screen.heading }}{% if page.period %}, {{ page.period|jmonitor_period|lower }}{% endif %}.</p>
+    </div>
+{% for block in page.body %}
     {{ include('@Jmonitor/dashboard/block/' ~ (block.state.value == 'ready' ? block.type : 'state') ~ '.html.twig', {block: block}) }}
 {% endfor %}
 {% if page.reading %}

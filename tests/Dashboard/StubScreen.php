@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
@@ -21,6 +22,7 @@ final class StubScreen implements StorageScreenInterface
         private readonly string $id = 'stub',
         private readonly bool $available = true,
         private readonly ?\Closure $view = null,
+        private readonly Space $space = Space::Application,
     ) {}
 
     public function id(): string
@@ -41,6 +43,11 @@ final class StubScreen implements StorageScreenInterface
     public function isAvailable(): bool
     {
         return $this->available;
+    }
+
+    public function space(): Space
+    {
+        return $this->space;
     }
 
     public function sorts(): array

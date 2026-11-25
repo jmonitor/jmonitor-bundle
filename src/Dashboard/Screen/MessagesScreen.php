@@ -12,6 +12,7 @@ use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\BlockSourceInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -62,6 +63,11 @@ final class MessagesScreen implements StorageScreenInterface, BlockScreenInterfa
     public function isAvailable(): bool
     {
         return $this->messenger && ($this->recorded || $this->queues !== null);
+    }
+
+    public function space(): Space
+    {
+        return Space::Application;
     }
 
     public function sorts(): array

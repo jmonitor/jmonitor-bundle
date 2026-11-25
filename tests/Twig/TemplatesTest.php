@@ -77,8 +77,8 @@ final class TemplatesTest extends TestCase
 
         $outputs = [
             $this->render('block/table.html.twig', ['page' => $this->page($view), 'block' => Block::table($table)]),
-            $this->render('page.html.twig', ['page' => $this->page($view), 'screens' => [new StubScreen('<b>')], 'periods' => Period::cases()]),
-            $this->render('page.html.twig', ['page' => $this->page($view), 'screens' => [new StubScreen('<b>')], 'periods' => Period::cases(), 'standalone' => true]),
+            $this->render('page.html.twig', ['page' => $this->page($view), 'spaces' => [['id' => '<b>', 'label' => '<b>', 'path' => '<b>', 'current' => true]], 'periods' => Period::cases()]),
+            $this->render('page.html.twig', ['page' => $this->page($view), 'spaces' => [['id' => '<b>', 'label' => '<b>', 'path' => '<b>', 'current' => true]], 'periods' => Period::cases(), 'standalone' => true]),
         ];
 
         foreach ($outputs as $html) {
@@ -125,7 +125,7 @@ final class TemplatesTest extends TestCase
 
             foreach ([
                 $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
-                $this->render('page.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
+                $this->render('page.html.twig', ['page' => $page, 'spaces' => [], 'periods' => Period::cases()]),
             ] as $html) {
                 static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html, $screen->id());
                 static::assertStringNotContainsString(self::HOSTILE_SQL, $html, $screen->id());
@@ -151,7 +151,7 @@ final class TemplatesTest extends TestCase
         static::assertCount(2, $view->tables[0]->rows);
         foreach ([
             $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
-            $this->render('page.html.twig', ['page' => $page, 'screens' => [$screen], 'periods' => Period::cases()]),
+            $this->render('page.html.twig', ['page' => $page, 'spaces' => [], 'periods' => Period::cases()]),
         ] as $html) {
             static::assertStringContainsString('app:work --note=&quot;&lt;script&gt;alert(1)&lt;/script&gt;&quot;', $html);
             static::assertStringNotContainsString(self::HOSTILE_SQL, $html);
@@ -210,7 +210,7 @@ final class TemplatesTest extends TestCase
     {
         $page = new Page(new StubScreen(), [], Period::SevenDays, 'name', 'asc', (new StubScreen())->sorts());
 
-        $html = $this->render('page.html.twig', ['page' => $page, 'screens' => [new StubScreen()], 'periods' => Period::cases()]);
+        $html = $this->render('page.html.twig', ['page' => $page, 'spaces' => [], 'periods' => Period::cases()]);
 
         static::assertStringContainsString('Stub heading, last 7 days.', $html);
     }
@@ -314,8 +314,8 @@ final class TemplatesTest extends TestCase
     public function testABadgeIsEscaped(): void
     {
         $page = new Page(new StubBlockScreen(), [], null, '', '', []);
-        $badges = ['probe' => new NavBadge('"><script>', 'warn', '"><script>')];
-        $context = ['page' => $page, 'path' => 'probe', 'root' => $page->screen, 'badges' => $badges, 'screens' => [$page->screen], 'periods' => Period::cases()];
+        $badges = ['stack' => new NavBadge('"><script>', 'warn', '"><script>')];
+        $context = ['page' => $page, 'path' => 'probe', 'badges' => $badges, 'spaces' => [['id' => 'stack', 'label' => 'Stack', 'path' => 'stack', 'current' => false]], 'periods' => Period::cases()];
 
         foreach (['page.html.twig', '_screen.html.twig'] as $template) {
             $html = $this->render($template, $context);
@@ -323,6 +323,23 @@ final class TemplatesTest extends TestCase
             static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--warn" title="&quot;&gt;&lt;script&gt;">&quot;&gt;&lt;script&gt;<span class="jm-visually-hidden"> — &quot;&gt;&lt;script&gt;</span></span>', $html, $template);
             static::assertStringNotContainsString('<script>', $html, $template);
         }
+    }
+
+    public function testATabLabelAndItsBadgeAreEscaped(): void
+    {
+        $h = self::HOSTILE;
+        $tabs = new SubNav([new SubNavItem($h, 'probe', true, null, ['period' => $h], new NavBadge($h, 'warn', $h)), new SubNavItem('Other', 'other')], name: $h);
+        $page = (new Page(new StubBlockScreen(), [], null, '', '', []))->withTabs($tabs);
+
+        $html = $this->render('_screen.html.twig', ['page' => $page, 'path' => 'probe', 'badges' => []]);
+        $tab = (new Crawler($html))->filter('.jm-subnav__item')->eq(0);
+
+        static::assertSame($h, (new Crawler($html))->filter('nav.jm-subnav')->attr('aria-label'));
+        static::assertSame($h, $tab->filter('span')->eq(0)->text());
+        static::assertSame('/host/page/probe?menu=3&period=%3Cb%3E%26%22x', $tab->attr('href'));
+        static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--warn" title="&lt;b&gt;&amp;&quot;x">&lt;b&gt;&amp;&quot;x<span class="jm-visually-hidden"> — &lt;b&gt;&amp;&quot;x</span></span>', $html);
+        static::assertStringNotContainsString('<b>', $html);
+        static::assertStringNotContainsString('&"x', $html);
     }
 
     /**

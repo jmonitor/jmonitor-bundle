@@ -78,7 +78,7 @@ final class StackScreenTest extends TestCase
         self::assertSame([Block::SUBNAV, Block::CHECKS, Block::COMPONENTS], array_map(static fn(Block $block): string => $block->type, $blocks));
 
         self::assertEquals(new SubNav([
-            new SubNavItem('Overview', 'stack', true),
+            new SubNavItem('All components', 'stack', true),
             new SubNavItem('Server', 'stack/system', false, new Mark('warn', 'Warning')),
             new SubNavItem('PHP', 'stack/php', false, new Mark('ok', 'Healthy')),
             new SubNavItem('Symfony', 'stack/symfony', false, new Mark('bad', 'Critical')),
@@ -156,7 +156,7 @@ final class StackScreenTest extends TestCase
         $blocks = $this->screen(new FakeStackReader($off))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertSame([Block::SUBNAV, Block::NOTICE], array_map(static fn(Block $block): string => $block->type, $blocks));
-        self::assertEquals(new SubNav([new SubNavItem('Overview', 'stack', true)], 'web-1'), $blocks[0]->content);
+        self::assertEquals(new SubNav([new SubNavItem('All components', 'stack', true)], 'web-1'), $blocks[0]->content);
         self::assertEquals($notice, $blocks[1]->content);
 
         $notFound = new StackState('web-1', Snapshots::NOW, CacheState::Working, [], ['symfony' => 'No kernel']);
@@ -363,7 +363,7 @@ final class StackScreenTest extends TestCase
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertEquals(new SubNav([
-            new SubNavItem('Overview', 'stack', true),
+            new SubNavItem('All components', 'stack', true),
             new SubNavItem('MySQL', 'stack/mysql', false, new Mark('ok', 'Healthy')),
         ], 'web-1'), $blocks[0]->content);
         $cards = $blocks[2]->content;
@@ -513,7 +513,7 @@ final class StackScreenTest extends TestCase
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertSame([Block::SUBNAV, Block::NOTICE], array_map(static fn(Block $block): string => $block->type, $blocks));
-        self::assertEquals(new SubNav([new SubNavItem('Overview', 'stack', true)], 'web-1'), $blocks[0]->content);
+        self::assertEquals(new SubNav([new SubNavItem('All components', 'stack', true)], 'web-1'), $blocks[0]->content);
         self::assertEquals(new Notice('bad', 'The stack could not be read', 'Cannot reach redis://cache:6379: Connection refused'), $blocks[1]->content);
         self::assertSame([], $this->pool->calls, 'nothing is remembered');
     }

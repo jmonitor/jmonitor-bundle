@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
+use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 
 final class Page
 {
@@ -22,7 +23,30 @@ final class Page
         public readonly string $direction,
         public readonly array $sorts,
         public readonly array $query = [],
+        private readonly ?SubNav $givenTabs = null,
     ) {}
+
+    public function tabs(): ?SubNav
+    {
+        if ($this->givenTabs !== null) {
+            return $this->givenTabs;
+        }
+
+        $first = $this->blocks[0] ?? null;
+
+        return $first?->type === Block::SUBNAV && $first->content instanceof SubNav ? $first->content : null;
+    }
+
+    /** @return list<Block> */
+    public function body(): array
+    {
+        return $this->givenTabs === null && $this->tabs() !== null ? \array_slice($this->blocks, 1) : $this->blocks;
+    }
+
+    public function withTabs(SubNav $tabs): self
+    {
+        return new self($this->screen, $this->blocks, $this->period, $this->sort, $this->direction, $this->sorts, $this->query, $tabs);
+    }
 
     public function state(): string
     {

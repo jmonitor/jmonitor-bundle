@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -48,6 +49,11 @@ final class CacheScreen implements StorageScreenInterface
     public function isAvailable(): bool
     {
         return $this->available;
+    }
+
+    public function space(): Space
+    {
+        return Space::Application;
     }
 
     public function sorts(): array

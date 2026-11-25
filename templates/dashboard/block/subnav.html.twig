@@ -1,10 +1,10 @@
 {% autoescape 'html' %}
-{% set subnav = block.content %}
+{% set subnav = subnav ?? block.content %}
 <div class="jm-subbar">
-    <nav class="jm-subnav" aria-label="Stack">
+    <nav class="jm-subnav" aria-label="{{ subnav.name }}">
         {% for item in subnav.items %}
-            <a class="jm-subnav__item" href="{{ urls.page(item.path) }}"{% if item.current %} aria-current="page"{% endif %}>
-                <span>{{ item.label }}</span>{% if item.mark %} {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: item.mark}, with_context = false) }}{% endif %}
+            <a class="jm-subnav__item" href="{{ urls.page(item.path, item.query) }}"{% if item.current %} aria-current="page"{% endif %}>
+                <span>{{ item.label }}</span>{% if item.mark %} {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: item.mark}, with_context = false) }}{% endif %}{% if item.badge %} {{ include('@Jmonitor/dashboard/_badge.html.twig', {badge: item.badge}, with_context = false) }}{% endif %}
             </a>
         {% endfor %}
     </nav>

@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadgeScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
@@ -58,6 +59,11 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
     public function isAvailable(): bool
     {
         return true;
+    }
+
+    public function space(): Space
+    {
+        return Space::Application;
     }
 
     public function navBadge(): NavBadge

@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ParentScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 
 final class StubParentScreen implements ParentScreenInterface, BlockScreenInterface, ActionScreenInterface
@@ -30,6 +31,7 @@ final class StubParentScreen implements ParentScreenInterface, BlockScreenInterf
         private readonly array $blocks = [],
         private readonly array|\Throwable $actions = [],
         private readonly bool $available = true,
+        private readonly Space $space = Space::Application,
     ) {}
 
     public function id(): string
@@ -50,6 +52,11 @@ final class StubParentScreen implements ParentScreenInterface, BlockScreenInterf
     public function isAvailable(): bool
     {
         return $this->available;
+    }
+
+    public function space(): Space
+    {
+        return $this->space;
     }
 
     public function child(string $id): ?ScreenInterface

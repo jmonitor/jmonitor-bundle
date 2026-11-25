@@ -12,6 +12,7 @@ use Jmonitor\JmonitorBundle\Dashboard\NavBadgeScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ParentScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
@@ -64,6 +65,11 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
     public function isAvailable(): bool
     {
         return true;
+    }
+
+    public function space(): Space
+    {
+        return Space::Stack;
     }
 
     public function actions(): array

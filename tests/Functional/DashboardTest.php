@@ -297,7 +297,7 @@ final class DashboardTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertSame($default, (string) $client->getResponse()->getContent());
-        static::assertSame('Requests', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('Requests', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
         static::assertStringContainsString('jmonitor.css?v=', $default);
         static::assertSame('/jmonitor/_fragment/requests', $crawler->filter('[data-jm-fragment-url]')->attr('data-jm-fragment-url'));
 
@@ -341,6 +341,7 @@ final class DashboardTest extends WebTestCase
         static::assertSame('ascending', $crawler->filter('th.is-sorted')->attr('aria-sort'));
         static::assertSame('/jmonitor/requests?period=24h&sort=sql&dir=asc', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
         static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-nav__item')->attr('href'));
+        static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-subnav__item')->attr('href'));
         static::assertSame('—', trim($crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(5)->text()));
     }
 
@@ -357,8 +358,8 @@ final class DashboardTest extends WebTestCase
         $query = $crawler->filter('tr[data-jm-query][data-jm-executions="12"]');
         static::assertCount(1, $query);
         static::assertStringContainsString('demo_items', $query->text());
-        static::assertStringContainsString('Queries', $crawler->filter('.jm-nav')->text());
-        static::assertSame('Queries', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertStringContainsString('Queries', $crawler->filter('.jm-subnav')->text());
+        static::assertSame('Queries', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
     }
 
     public function testSortingOnSlowQueriesWhenNoneIsSlowStillListsTheQueries(): void
@@ -404,7 +405,7 @@ final class DashboardTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertSame('ready', $crawler->filter('.jm-screen')->attr('data-jm-state'));
-        static::assertSame('Queries', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('Queries', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
         static::assertStringContainsString('demo_items', $crawler->filter('tr[data-jm-query][data-jm-executions="3"]')->text());
     }
 
@@ -416,7 +417,7 @@ final class DashboardTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertSame('recording_disabled', $crawler->filter('.jm-screen')->attr('data-jm-state'));
-        static::assertStringContainsString('Queries', $crawler->filter('.jm-nav')->text());
+        static::assertStringContainsString('Queries', $crawler->filter('.jm-subnav')->text());
     }
 
     /**
@@ -439,13 +440,34 @@ final class DashboardTest extends WebTestCase
 
         $crawler = $client->request('GET', '/jmonitor/');
         static::assertResponseIsSuccessful();
-        static::assertStringNotContainsString('Queries', $crawler->filter('.jm-nav')->text());
+        static::assertStringNotContainsString('Queries', $crawler->filter('.jm-nav, .jm-subnav')->text());
 
         $client->request('GET', '/jmonitor/queries');
         static::assertResponseStatusCodeSame(404);
 
         $client->request('GET', '/jmonitor/_fragment/queries');
         static::assertResponseStatusCodeSame(404);
+    }
+
+    public function testTheNavigationHasTwoLevels(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $crawler = $client->request('GET', '/jmonitor/');
+
+        static::assertSame(['Application', 'Stack'], $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame('Application', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame(['/jmonitor/requests?period=1h', '/jmonitor/stack?period=1h'], $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => (string) $item->attr('href')));
+        static::assertSame('/jmonitor/', $crawler->filter('a.jm-brand')->attr('href'));
+
+        $fragment = $client->request('GET', '/jmonitor/_fragment/queries?period=6h');
+        $tabs = $fragment->filter('nav.jm-subnav[aria-label="Application"] .jm-subnav__item');
+
+        static::assertSame(['Requests', 'Queries', 'Commands', 'HTTP client', 'Cache', 'Exceptions'], $tabs->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame('Queries', $fragment->filter('.jm-subnav__item[aria-current="page"]')->text());
+        static::assertSame('/jmonitor/requests?period=6h', $tabs->attr('href'));
+        static::assertSame('Queries', $fragment->filter('.jm-heading h1')->text());
+        static::assertCount(0, $fragment->filter('.jm-nav'));
     }
 
     public function testTheNavigationListsTheScreensInOrder(): void
@@ -455,8 +477,8 @@ final class DashboardTest extends WebTestCase
         $crawler = $client->request('GET', '/jmonitor/');
 
         static::assertSame(
-            ['Requests', 'Queries', 'Commands', 'HTTP client', 'Cache', 'Exceptions', 'Stack'],
-            $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()),
+            ['Requests', 'Queries', 'Commands', 'HTTP client', 'Cache', 'Exceptions'],
+            $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()),
         );
     }
 
@@ -472,7 +494,7 @@ final class DashboardTest extends WebTestCase
         static::assertResponseIsSuccessful();
         static::assertSame('1', $crawler->filter('tr[data-jm-command="app:work"]')->attr('data-jm-runs'));
         static::assertStringContainsString('app:work', $crawler->filter('tr[data-jm-command="app:work"]')->text());
-        static::assertSame('Commands', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('Commands', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
     }
 
     public function testTheCommandsScreenIsAbsentWithoutCommandRecording(): void
@@ -480,7 +502,7 @@ final class DashboardTest extends WebTestCase
         $client = static::createClient(['jmonitor' => ['recording' => ['commands' => ['enabled' => false]] + $this->recording()['recording']]]);
 
         $crawler = $client->request('GET', '/jmonitor/');
-        static::assertNotContains('Commands', $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertNotContains('Commands', $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()));
 
         $client->request('GET', '/jmonitor/commands');
         static::assertResponseStatusCodeSame(404);
@@ -505,26 +527,26 @@ final class DashboardTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertSame(
-            ['Requests', 'Queries', 'Commands', 'Messages', 'HTTP client', 'Cache', 'Exceptions', 'Stack'],
-            $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()),
+            ['Requests', 'Queries', 'Commands', 'Messages', 'HTTP client', 'Cache', 'Exceptions'],
+            $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()),
         );
-        static::assertSame('Messages', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('Messages', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
     }
 
     public function testTheNavigationIsTheSameWithTheQueuesCounted(): void
     {
         $counting = ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => true]]];
         $client = static::createClient(['jmonitor' => $this->recording() + $counting, 'messenger' => true]);
-        $expected = ['Requests', 'Queries', 'Commands', 'Messages', 'HTTP client', 'Cache', 'Exceptions', 'Stack'];
+        $expected = ['Requests', 'Queries', 'Commands', 'Messages', 'HTTP client', 'Cache', 'Exceptions'];
 
         $home = $client->request('GET', '/jmonitor/');
         static::assertResponseIsSuccessful();
-        static::assertSame($expected, $home->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
-        static::assertSame('Requests', $home->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame($expected, $home->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame('Requests', $home->filter('.jm-subnav__item[aria-current="page"]')->text());
 
         $messages = $client->request('GET', '/jmonitor/messages');
         static::assertResponseIsSuccessful();
-        static::assertSame($expected, $messages->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame($expected, $messages->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()));
     }
 
     public function testTheMessagesScreenIsAbsentWithoutMessageRecording(): void
@@ -543,10 +565,10 @@ final class DashboardTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertSame(
-            ['Requests', 'Queries', 'Commands', 'Messages', 'Scheduler', 'HTTP client', 'Cache', 'Exceptions', 'Stack'],
-            $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()),
+            ['Requests', 'Queries', 'Commands', 'Messages', 'Scheduler', 'HTTP client', 'Cache', 'Exceptions'],
+            $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()),
         );
-        static::assertSame('Scheduler', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('Scheduler', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
         static::assertSame(
             ['app:work --times=2', '@' . PurgeTask::class . '::purge', Ping::class, 'app:work'],
             $crawler->filter('tr[data-jm-task]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-task')),
@@ -597,7 +619,7 @@ final class DashboardTest extends WebTestCase
         $client = static::createClient(['jmonitor' => $this->recording(), 'messenger' => true]);
 
         $crawler = $client->request('GET', '/jmonitor/');
-        static::assertNotContains('Scheduler', $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertNotContains('Scheduler', $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()));
 
         $client->request('GET', '/jmonitor/scheduler');
         static::assertResponseStatusCodeSame(404);

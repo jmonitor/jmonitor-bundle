@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 use Jmonitor\JmonitorBundle\Dashboard\ActionScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 
 final class StubActionScreen implements BlockScreenInterface, ActionScreenInterface
 {
@@ -20,6 +21,7 @@ final class StubActionScreen implements BlockScreenInterface, ActionScreenInterf
         private readonly string $id = 'stub',
         private readonly array $actions = ['ping' => 'Ping'],
         private readonly ?\Throwable $failure = null,
+        private readonly Space $space = Space::Application,
     ) {}
 
     public function id(): string
@@ -40,6 +42,11 @@ final class StubActionScreen implements BlockScreenInterface, ActionScreenInterf
     public function isAvailable(): bool
     {
         return true;
+    }
+
+    public function space(): Space
+    {
+        return $this->space;
     }
 
     public function blocks(ScreenRequest $request): array

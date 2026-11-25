@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use PHPUnit\Framework\TestCase;
 
 final class ScreenRegistryTest extends TestCase
@@ -49,5 +50,34 @@ final class ScreenRegistryTest extends TestCase
         $registry = new ScreenRegistry([new StubScreen('requests'), new StubScreen('queries')]);
 
         static::assertSame('requests', $registry->default(false)->id());
+    }
+
+    public function testSpacesAreThoseWithAnAvailableScreenInTheirOrder(): void
+    {
+        $registry = new ScreenRegistry([
+            new StubBlockScreen('stack', space: Space::Stack),
+            new StubScreen('hidden', available: false, space: Space::Background),
+            new StubScreen('requests'),
+            new StubScreen('queries'),
+        ]);
+
+        static::assertSame([Space::Application, Space::Stack], $registry->spaces());
+        static::assertSame([], (new ScreenRegistry([new StubScreen('requests', available: false)]))->spaces());
+    }
+
+    public function testTheScreensOfASpaceKeepTheOrderOfTheRegistry(): void
+    {
+        $registry = new ScreenRegistry([
+            new StubScreen('requests'),
+            new StubBlockScreen('stack', space: Space::Stack),
+            new StubScreen('hidden', available: false),
+            new StubScreen('queries'),
+            new StubScreen('cache'),
+        ]);
+        $ids = static fn(Space $space): array => array_map(static fn(ScreenInterface $screen): string => $screen->id(), $registry->in($space));
+
+        static::assertSame(['requests', 'queries', 'cache'], $ids(Space::Application));
+        static::assertSame(['stack'], $ids(Space::Stack));
+        static::assertSame([], $ids(Space::Background));
     }
 }

@@ -13,5 +13,6 @@ final class SubNav
     public function __construct(
         public readonly array $items,
         public readonly ?string $node = null,
+        public readonly string $name = 'Stack',
     ) {}
 }

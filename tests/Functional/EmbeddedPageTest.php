@@ -48,7 +48,7 @@ final class EmbeddedPageTest extends WebTestCase
             $crawler = $client->request('GET', '/back-office/monitoring/' . $id);
 
             static::assertResponseIsSuccessful($id);
-            static::assertStringStartsWith('/back-office/monitoring/' . $id . '?', (string) $crawler->filter('.jm .jm-nav__item[aria-current="page"]')->attr('href'), $id);
+            static::assertStringStartsWith('/back-office/monitoring/' . $id . '?', (string) $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->attr('href'), $id);
 
             $urls = [
                 ...$crawler->filter('.jm [href]')->each(static fn(Crawler $node): string => (string) $node->attr('href')),
@@ -273,7 +273,7 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertResponseIsSuccessful();
         $screen = $crawler->filter('.jm-screen');
         static::assertSame('mixed', $screen->attr('data-jm-state'));
-        static::assertSame(['jm-cards', 'jm-state jm-state--info'], $screen->children(':not(template)')->each(static fn(Crawler $block): string => (string) $block->attr('class')));
+        static::assertSame(['jm-cards', 'jm-state jm-state--info'], $screen->filter('.jm-screen > .jm-heading ~ :not(template)')->each(static fn(Crawler $block): string => (string) $block->attr('class')));
         static::assertSame('Runs', $screen->filter('.jm-cards .jm-card__label')->text());
         static::assertSame('Nothing probed yet', $screen->filter('.jm-state .jm-state__title')->text());
     }
@@ -292,8 +292,8 @@ final class EmbeddedPageTest extends WebTestCase
         foreach (['bad', 'warn', 'ok', 'unknown', 'info'] as $tone) {
             static::assertGreaterThan(0, $screen->filter('.jm-mark--' . $tone)->count(), $tone);
         }
-        static::assertStringStartsWith('/back-office/monitoring/gallery?', (string) $crawler->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
-        static::assertCount(1, $crawler->filter('.jm-nav__item[aria-current="page"] [data-jm-slot="nav-gallery"] .jm-nav__badge'));
+        static::assertStringStartsWith('/back-office/monitoring/gallery?', (string) $crawler->filter('.jm-subnav__item[aria-current="page"]')->attr('href'));
+        static::assertCount(1, $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge'));
     }
 
     public function testTheGalleryShowsTheSelectorOfAConnection(): void
@@ -334,7 +334,7 @@ final class EmbeddedPageTest extends WebTestCase
         for ($i = 0; $i < 2; ++$i) {
             $crawler = $client->request('GET', '/back-office/monitoring/gallery');
             static::assertResponseIsSuccessful();
-            $seen[] = [(int) $crawler->filter('[data-jm-slot="nav-gallery"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent, (string) $crawler->filter('.jm-node')->attr('data-jm-node')];
+            $seen[] = [(int) $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent, (string) $crawler->filter('.jm-node')->attr('data-jm-node')];
         }
 
         static::assertSame($seen[0][0] + 1, $seen[1][0]);
@@ -383,7 +383,7 @@ final class EmbeddedPageTest extends WebTestCase
         $crawler = $client->request('GET', '/back-office/monitoring/');
 
         static::assertResponseIsSuccessful();
-        static::assertSame($screen, $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame($screen, $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
     }
 
     /**

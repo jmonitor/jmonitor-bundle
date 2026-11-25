@@ -425,7 +425,8 @@ final class DisplayCostTest extends TestCase
         $html = $this->renderer(new ThrowingCachePool(), $logger)->page(Request::create('/'), 'requests', new FakeHostUrls())->html;
 
         $crawler = new Crawler($html);
-        self::assertSame('Requests', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        self::assertSame('Application', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        self::assertSame('Requests', $crawler->filter('h1')->text());
         self::assertSame('<span data-jm-slot="nav-stack"></span>', $crawler->filter('[data-jm-slot="nav-stack"]')->outerHtml());
         self::assertSame(['warning The summary of the live stack could not be read: Connection refused'], $logger->messages);
     }

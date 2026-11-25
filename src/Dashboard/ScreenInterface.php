@@ -15,4 +15,6 @@ interface ScreenInterface
     public function heading(): string;
 
     public function isAvailable(): bool;
+
+    public function space(): Space;
 }

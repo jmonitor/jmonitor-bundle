@@ -9,11 +9,18 @@
     var root = document.querySelector('[data-jm-live]');
 
     revealCurrentScreen(document.querySelector('.jm-nav'));
-    revealCurrentScreen(document.querySelector('.jm-subnav'));
+    revealCurrentTabs(document);
     revealCurrentInstances(document);
 
     function revealCurrentScreen(nav) {
         reveal(nav, nav ? nav.querySelector('[aria-current="page"]') : null);
+    }
+
+    function revealCurrentTabs(scope) {
+        var navs = scope.querySelectorAll('.jm-subnav');
+        for (var n = 0; n < navs.length; n++) {
+            revealCurrentScreen(navs[n]);
+        }
     }
 
     function revealCurrentInstances(scope) {
@@ -189,7 +196,7 @@
             wraps[w].scrollLeft = scrollLefts[w];
         }
 
-        revealCurrentScreen(content.querySelector('.jm-subnav'));
+        revealCurrentTabs(content);
         revealCurrentInstances(content);
         restoreFocus(focused);
         fillSlots();
