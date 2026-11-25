@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
+use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 
@@ -16,13 +18,18 @@ final class FixedReader implements ReaderInterface
     /** @var list<list<string>> */
     public array $labelRequests = [];
 
+    /** @var list<array{Period, int, list<string>}> */
+    public array $totalRequests = [];
+
     /**
      * @param Report|\Closure(ReportQuery): Report $report
      * @param array<string, string>                $labels key => label
+     * @param array<string, MetricValue>           $totals metric type => total
      */
     public function __construct(
         private readonly Report|\Closure $report = new Report(),
         private readonly array $labels = [],
+        private readonly array $totals = [],
     ) {}
 
     public function read(ReportQuery $query): Report
@@ -37,5 +44,12 @@ final class FixedReader implements ReaderInterface
         $this->labelRequests[] = $keys;
 
         return array_intersect_key($this->labels, array_flip($keys));
+    }
+
+    public function totals(Period $period, int $now, array $metricTypes): array
+    {
+        $this->totalRequests[] = [$period, $now, $metricTypes];
+
+        return array_intersect_key($this->totals, array_flip($metricTypes));
     }
 }
