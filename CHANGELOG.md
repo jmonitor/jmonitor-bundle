@@ -13,16 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` Queries screen: SQL queries run through Doctrine DBAL with their executions, time and slow count, and the queries repeated within one request (N+1).
 - Requests screen: SQL time and number of queries per request.
 - `recording.sql` option: turns SQL recording off or changes its slow query and N+1 thresholds.
-- `/jmonitor` HTTP client screen: outgoing calls of the `http_client` service and scoped clients, per host.
-- `/jmonitor` Cache screen: hits, misses, writes and deletes per cache pool.
+- `/jmonitor` Cache & HTTP tab: outgoing calls of the `http_client` service and scoped clients, per host.
+- `/jmonitor` Cache & HTTP tab: hits, misses, writes and deletes per cache pool.
 - `/jmonitor` Exceptions screen: the exceptions behind 5xx responses, per class and per route.
 - `/jmonitor` Users screen: requests, time and errors per signed-in user.
 - Requests screen: `HTTP out` column with the time spent in outgoing HTTP calls.
 - `recording.exceptions`, `recording.users`, `recording.http_client` and `recording.cache` options: each turns its recording off.
 - The `/jmonitor` page says when its buffer directory is unusable.
-- `/jmonitor` Commands screen: runs, duration, failures, peak memory and SQL time per console command.
-- `/jmonitor` Messages screen: messages sent and handled per class, with duration, failures and retries.
-- `/jmonitor` Scheduler screen: scheduled tasks with their trigger, next run, last run and failures.
+- `/jmonitor` Background screen: runs, duration, failures, peak memory and SQL time per console command.
+- `/jmonitor` Background screen: messages sent and handled per class, with duration, failures and retries.
+- `/jmonitor` Background screen: scheduled tasks with their trigger, next run, last run and failures.
 - Exceptions screen: exceptions thrown by console commands and message handlers.
 - `recording.commands`, `recording.messenger` and `recording.scheduler` options: each turns its recording off, and `recording.commands.ignore` lists commands that are not recorded.
 - `JmonitorPage` service: shows the `/jmonitor` screens inside another page, with the routes, frame and access control of that page.
@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `stack` option: turns the live stack, one of its components or one of its two outgoing calls off, and silences a check with `ignore_checks`.
 - The `/jmonitor` page opens on the Stack screen when nothing is recorded.
 - `/jmonitor` Stack screen: FrankenPHP, Apache and Nginx read live from their status page, with what to check and a detail each.
-- `/jmonitor` Messages screen: the messages waiting in each Messenger transport, shown even without storage or recording.
+- `/jmonitor` Background screen: the messages waiting in each Messenger transport, shown even without storage or recording.
 - `stack` options `frankenphp`, `apache`, `nginx` and `symfony.messenger`: turn a web server or the queue count off, or set the address of a status page.
 - `/jmonitor` Stack screen: the MySQL and MariaDB servers of the Doctrine connections read live, one card per server, with what to check and a detail per connection.
 - `stack` options `mysql` and `exclude_connections`: choose the Doctrine connections the Stack screen reads.
@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` Stack screen: the PostgreSQL databases of the Doctrine connections read live, one card per connection, with what to check and a detail.
 - `/jmonitor` Stack screen: the Redis and Valkey servers of the application read live, found in `stack.redis.connections`, the cache, the sessions or `REDIS_URL`.
 - `stack` options `postgresql` and `redis`.
+- `/jmonitor` navigation: three entries, Application, Background and Stack, with tabs under the header.
+- Live indicator: says how old the figures are, and when a refresh failed.
 
 ### Changed
 - Requires PHP 8.2.
