@@ -39,16 +39,20 @@ final class EmbeddedPageTest extends WebTestCase
         self::$varDirs = [];
     }
 
-    public function testTheNineScreensShowUnderTheRoutesOfTheHost(): void
+    public function testTheScreensShowUnderTheRoutesOfTheHost(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording(), 'messenger' => true, 'scheduler' => true, 'security' => true]);
         $client->setServerParameters(self::ADMIN);
 
-        foreach (['requests', 'queries', 'commands', 'messages', 'scheduler', 'http-client', 'cache', 'exceptions', 'users'] as $id) {
+        foreach (['requests', 'queries', 'cache-http', 'exceptions', 'users', 'background'] as $id) {
             $crawler = $client->request('GET', '/back-office/monitoring/' . $id);
 
             static::assertResponseIsSuccessful($id);
-            static::assertStringStartsWith('/back-office/monitoring/' . $id . '?', (string) $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->attr('href'), $id);
+            $current = $crawler->filter('.jm .jm-subnav__item[aria-current="page"]');
+            if ($current->count() === 0) {
+                $current = $crawler->filter('.jm .jm-nav__item[aria-current="page"]');
+            }
+            static::assertStringStartsWith('/back-office/monitoring/' . $id . '?', (string) $current->attr('href'), $id);
 
             $urls = [
                 ...$crawler->filter('.jm [href]')->each(static fn(Crawler $node): string => (string) $node->attr('href')),
@@ -129,7 +133,7 @@ final class EmbeddedPageTest extends WebTestCase
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
-        foreach (['requests', 'queries', 'commands', 'cache', 'probe'] as $id) {
+        foreach (['requests', 'queries', 'background', 'cache-http', 'probe'] as $id) {
             $client->request('GET', '/back-office/monitoring/' . $id);
             static::assertResponseIsSuccessful();
             $client->request('GET', '/back-office/monitoring-fragment/' . $id);

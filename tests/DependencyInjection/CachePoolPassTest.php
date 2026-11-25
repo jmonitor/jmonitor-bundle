@@ -6,7 +6,7 @@ namespace Jmonitor\JmonitorBundle\Tests\DependencyInjection;
 
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\BufferInterface;
-use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\DependencyInjection\CachePoolPass;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Recording\Cache\RecordingAdapter;
@@ -73,7 +73,7 @@ final class CachePoolPassTest extends KernelTestCase
         foreach (['taggable', 'appPlainTaggable', 'appTagged'] as $property) {
             static::assertInstanceOf(RecordingTagAwareAdapter::class, $pools->{$property}, $property);
         }
-        static::assertContains('cache', $this->screens());
+        static::assertContains('cache', $this->sections());
     }
 
     public function testTheWrapperOffersEveryInterfaceOfItsPool(): void
@@ -210,7 +210,7 @@ final class CachePoolPassTest extends KernelTestCase
         foreach (['cache', 'items', 'taggable', 'appPlain', 'appTagged', 'appTaggedUntagged', 'appDerived'] as $property) {
             static::assertNotInstanceOf(RecordingAdapter::class, $pools->{$property}, $property);
         }
-        static::assertNotContains('cache', $this->screens());
+        static::assertNotContains('cache', $this->sections());
     }
 
     public function testTheCacheCommandsStillReachTheWrappedPools(): void
@@ -276,12 +276,21 @@ final class CachePoolPassTest extends KernelTestCase
     }
 
     /** @return list<string> */
-    private function screens(): array
+    private function sections(): array
     {
         $registry = static::getContainer()->get(ScreenRegistry::class);
         \assert($registry instanceof ScreenRegistry);
 
-        return array_map(static fn(ScreenInterface $screen): string => $screen->id(), $registry->available());
+        $sections = [];
+        foreach ($registry->available() as $screen) {
+            if ($screen instanceof ComposedScreen) {
+                foreach ($screen->sections() as $section) {
+                    $sections[] = $section->id();
+                }
+            }
+        }
+
+        return $sections;
     }
 
     /**

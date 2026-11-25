@@ -2,14 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
+namespace Jmonitor\JmonitorBundle\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
-use Jmonitor\JmonitorBundle\Dashboard\Space;
-use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -21,7 +19,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 
-final class CacheScreen implements StorageScreenInterface
+final class CacheSection implements SectionInterface
 {
     private const LIMIT = 100;
     private const OTHER_POOLS = 'Other pools';
@@ -36,14 +34,14 @@ final class CacheScreen implements StorageScreenInterface
         return 'cache';
     }
 
-    public function label(): string
+    public function title(): string
     {
         return 'Cache';
     }
 
-    public function heading(): string
+    public function summary(): string
     {
-        return 'Reads and writes per cache pool';
+        return 'What your code keeps aside to avoid computing or fetching it again.';
     }
 
     public function isAvailable(): bool
@@ -51,20 +49,15 @@ final class CacheScreen implements StorageScreenInterface
         return $this->available;
     }
 
-    public function space(): Space
-    {
-        return Space::Application;
-    }
-
     public function sorts(): array
     {
         return ['reads' => 'desc', 'pool' => 'asc', 'hits' => 'desc', 'misses' => 'desc', 'rate' => 'desc', 'writes' => 'desc', 'deletes' => 'desc'];
     }
 
-    public function emptyState(): array
+    public function emptyState(Period $period): array
     {
         return [
-            'title' => 'No cache activity recorded yet',
+            'title' => 'No cache read or write in the ' . lcfirst(Format::period($period)) . '.',
             'text' => 'Reads and writes on cache.app and on the pools your application declares show up here within a few seconds.',
         ];
     }

@@ -13,13 +13,14 @@ use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\CacheScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\HttpClientScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
-use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Section\CacheSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\HttpSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
+use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -457,7 +458,7 @@ function purgeMillis(Connection $connection, int $now): array
 /**
  * @return array{float, int} median milliseconds of the builds of the screen on its default sort, rows shown
  */
-function displayMillis(Connection $connection, int $now, ScreenInterface $screen): array
+function displayMillis(Connection $connection, int $now, StorageScreenInterface|SectionInterface $screen): array
 {
     $reader = new DbalReader($connection);
     $sorts = $screen->sorts();
@@ -636,7 +637,7 @@ if (isset($bases['mysql'])) {
 
 foreach ($bases as $name => $connection) {
     $stored = fillPeriods($connection, $now, DISPLAYED);
-    foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpClientScreen(true), new CacheScreen(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
+    foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpSection(true), new CacheSection(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
         [$milliseconds, $rows] = displayMillis($connection, $now, $screen);
         report(sprintf('display, %s, loaded database (%s)', $screen->id(), $name), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
     }

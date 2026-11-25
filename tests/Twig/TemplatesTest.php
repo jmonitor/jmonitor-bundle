@@ -11,9 +11,10 @@ use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\CommandsScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\CommandsSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
@@ -114,7 +115,7 @@ final class TemplatesTest extends TestCase
         static::assertStringNotContainsString('"><i>', $html);
     }
 
-    public function testTheCommandsAndMessagesScreensEscapeTheirKeys(): void
+    public function testTheCommandsAndMessagesSectionsEscapeTheirKeys(): void
     {
         $hostile = new ReportRow('"><i>', self::HOSTILE_SQL, self::HOSTILE_SQL, [
             Metric::COMMAND_DURATION => new MetricValue(1, 10.0, 10.0),
@@ -123,22 +124,22 @@ final class TemplatesTest extends TestCase
         ]);
         $reader = new FixedReader(new Report([$hostile], keyCount: 1));
 
-        foreach ([new CommandsScreen(true), new MessagesScreen(true, true)] as $screen) {
-            $view = $screen->build($reader, Period::OneHour, 1800000000, (string) array_key_first($screen->sorts()), 'desc');
-            $page = new Page($screen, $this->blocks($view), Period::OneHour, (string) array_key_first($screen->sorts()), 'desc', $screen->sorts());
+        foreach ([new CommandsSection(true), new MessagesSection(true, true)] as $section) {
+            $view = $section->build($reader, Period::OneHour, 1800000000, (string) array_key_first($section->sorts()), 'desc');
+            $page = $this->sectionPage($section, $view, (string) array_key_first($section->sorts()), 'desc');
 
             foreach ([
-                $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
+                $this->render('_screen.html.twig', ['page' => $page, 'path' => 'background', 'badges' => []]),
                 $this->render('page.html.twig', ['page' => $page, 'spaces' => [], 'periods' => Period::cases()]),
             ] as $html) {
-                static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html, $screen->id());
-                static::assertStringNotContainsString(self::HOSTILE_SQL, $html, $screen->id());
-                static::assertStringNotContainsString('"><i>', $html, $screen->id());
+                static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html, $section->id());
+                static::assertStringNotContainsString(self::HOSTILE_SQL, $html, $section->id());
+                static::assertStringNotContainsString('"><i>', $html, $section->id());
             }
         }
     }
 
-    public function testTheSchedulerScreenEscapesTaskLabels(): void
+    public function testTheTasksSectionEscapesTaskLabels(): void
     {
         $label = 'app:work --note="<script>alert(1)</script>"';
         $declared = new DeclaredTasks(FixedSchedules::locator([
@@ -148,13 +149,13 @@ final class TemplatesTest extends TestCase
             Metric::TASK_DURATION => new MetricValue(1, 10.0, 10.0),
             Metric::TASK_LAST_RUN => new MetricValue(1, 0.0, 1799999990.0),
         ]);
-        $screen = new SchedulerScreen(true, $declared);
-        $view = $screen->build(new FixedReader(new Report([$stored], keyCount: 1)), Period::OneHour, 1800000000, 'next', 'asc');
-        $page = new Page($screen, $this->blocks($view), Period::OneHour, 'next', 'asc', $screen->sorts());
+        $section = new TasksSection(true, $declared);
+        $view = $section->build(new FixedReader(new Report([$stored], keyCount: 1)), Period::OneHour, 1800000000, 'next', 'asc');
+        $page = $this->sectionPage($section, $view, 'next', 'asc');
 
         static::assertCount(2, $view->tables[0]->rows);
         foreach ([
-            $this->render('block/table.html.twig', ['page' => $page, 'block' => Block::table($view->tables[0])]),
+            $this->render('_screen.html.twig', ['page' => $page, 'path' => 'background', 'badges' => []]),
             $this->render('page.html.twig', ['page' => $page, 'spaces' => [], 'periods' => Period::cases()]),
         ] as $html) {
             static::assertStringContainsString('app:work --note=&quot;&lt;script&gt;alert(1)&lt;/script&gt;&quot;', $html);
@@ -699,6 +700,14 @@ final class TemplatesTest extends TestCase
         $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]);
 
         return $this->render('_screen.html.twig', ['page' => new Page($screen, $blocks, Period::OneHour, '', '', []), 'path' => 'background', 'badges' => []]);
+    }
+
+    private function sectionPage(SectionInterface $section, ScreenView $view, string $sort, string $direction): Page
+    {
+        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [$section]);
+        $block = Block::section(new Section($section->id(), $section->title(), $section->summary(), $this->blocks($view), $sort, $direction, $section->sorts()));
+
+        return new Page($screen, [$block], Period::OneHour, '', '', []);
     }
 
     private function screen(Block ...$blocks): string

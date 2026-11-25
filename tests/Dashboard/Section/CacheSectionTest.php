@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Screen;
+namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\CacheScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\CacheSection;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -21,38 +21,39 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use PHPUnit\Framework\TestCase;
 
-final class CacheScreenTest extends TestCase
+final class CacheSectionTest extends TestCase
 {
     private const NOW = 1800000000;
 
-    public function testTheScreenDeclaresItself(): void
+    public function testTheSectionDeclaresItself(): void
     {
-        $screen = new CacheScreen(true);
+        $screen = new CacheSection(true);
 
         static::assertSame('cache', $screen->id());
-        static::assertSame('Cache', $screen->label());
-        static::assertSame('Reads and writes per cache pool', $screen->heading());
+        static::assertSame('Cache', $screen->title());
+        static::assertSame('What your code keeps aside to avoid computing or fetching it again.', $screen->summary());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
             ['reads' => 'desc', 'pool' => 'asc', 'hits' => 'desc', 'misses' => 'desc', 'rate' => 'desc', 'writes' => 'desc', 'deletes' => 'desc'],
             $screen->sorts(),
         );
         static::assertSame([
-            'title' => 'No cache activity recorded yet',
+            'title' => 'No cache read or write in the last hour.',
             'text' => 'Reads and writes on cache.app and on the pools your application declares show up here within a few seconds.',
-        ], $screen->emptyState());
+        ], $screen->emptyState(Period::OneHour));
+        static::assertSame('No cache read or write in the last 6 hours.', $screen->emptyState(Period::SixHours)['title']);
     }
 
     public function testTheScreenIsUnavailableWithoutTheCapture(): void
     {
-        static::assertFalse((new CacheScreen(false))->isAvailable());
+        static::assertFalse((new CacheSection(false))->isAvailable());
     }
 
     public function testTheScreenReadsTheWholeFamilyOnce(): void
     {
-        foreach (array_keys((new CacheScreen(true))->sorts()) as $sort) {
+        foreach (array_keys((new CacheSection(true))->sorts()) as $sort) {
             $reader = new FixedReader();
-            (new CacheScreen(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
+            (new CacheSection(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
@@ -133,7 +134,7 @@ final class CacheScreenTest extends TestCase
 
         foreach ($expected as $order => $pools) {
             [$sort, $direction] = explode(' ', $order);
-            $view = (new CacheScreen(true))->build($this->reader($rows), Period::OneHour, self::NOW, $sort, $direction);
+            $view = (new CacheSection(true))->build($this->reader($rows), Period::OneHour, self::NOW, $sort, $direction);
 
             static::assertSame($pools, array_map(static fn(Row $row): string => $row->cells['pool']->text, $view->tables[0]->rows), $order);
         }
@@ -189,7 +190,7 @@ final class CacheScreenTest extends TestCase
      */
     private function build(array $rows, ?ReportRow $other = null, Period $period = Period::OneHour): ScreenView
     {
-        return (new CacheScreen(true))->build($this->reader($rows, $other), $period, self::NOW, 'reads', 'desc');
+        return (new CacheSection(true))->build($this->reader($rows, $other), $period, self::NOW, 'reads', 'desc');
     }
 
     /**

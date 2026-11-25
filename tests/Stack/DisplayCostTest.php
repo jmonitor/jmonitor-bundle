@@ -7,10 +7,12 @@ namespace Jmonitor\JmonitorBundle\Tests\Stack;
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
@@ -264,7 +266,7 @@ final class DisplayCostTest extends TestCase
         $html = '';
 
         for ($i = 0; $i < self::DISPLAYS; ++$i) {
-            $html = (string) $this->renderer($cache, null, $runner)->fragment(Request::create('/'), 'messages', new FakeHostUrls())->getContent();
+            $html = (string) $this->renderer($cache, null, $runner)->fragment(Request::create('/'), 'background', new FakeHostUrls())->getContent();
             $this->clock->sleep(self::BETWEEN_QUEUE_DISPLAYS);
         }
 
@@ -280,7 +282,7 @@ final class DisplayCostTest extends TestCase
         $html = '';
 
         for ($i = 0; $i < self::DISPLAYS; ++$i) {
-            $html = $this->renderer($cache, null, $runner)->page(Request::create('/'), 'messages', new FakeHostUrls())->html;
+            $html = $this->renderer($cache, null, $runner)->page(Request::create('/'), 'background', new FakeHostUrls())->html;
             $this->clock->sleep(self::BETWEEN_DISPLAYS);
         }
 
@@ -297,7 +299,7 @@ final class DisplayCostTest extends TestCase
         $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
 
         for ($i = 0; $i < self::DISPLAYS; ++$i) {
-            $this->renderer($pool(), null, $runner)->fragment(Request::create('/'), 'messages', new FakeHostUrls());
+            $this->renderer($pool(), null, $runner)->fragment(Request::create('/'), 'background', new FakeHostUrls());
             $this->clock->sleep(self::BETWEEN_DISPLAYS);
         }
 
@@ -308,11 +310,11 @@ final class DisplayCostTest extends TestCase
     {
         $cache = new CountingCachePool();
         $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
-        $this->renderer($cache, null, $runner)->page(Request::create('/'), 'messages', new FakeHostUrls());
-        $this->renderer($cache, null, $runner)->fragment(Request::create('/'), 'messages', new FakeHostUrls());
+        $this->renderer($cache, null, $runner)->page(Request::create('/'), 'background', new FakeHostUrls());
+        $this->renderer($cache, null, $runner)->fragment(Request::create('/'), 'background', new FakeHostUrls());
         $cache->reset();
 
-        $html = $this->renderer($cache, null, $runner)->page(Request::create('/'), 'messages', new FakeHostUrls())->html;
+        $html = $this->renderer($cache, null, $runner)->page(Request::create('/'), 'background', new FakeHostUrls())->html;
 
         self::assertCount(1, $runner->calls);
         self::assertSame('12', (new Crawler($html))->filter('.jm-facts .jm-fact__value')->text());
@@ -323,8 +325,8 @@ final class DisplayCostTest extends TestCase
     {
         $cache = new CountingCachePool();
         $runner = (new FakeProcessRunner())->answer(null, self::QUEUES);
-        $this->renderer($cache, null, $runner)->page(Request::create('/'), 'messages', new FakeHostUrls());
-        $this->renderer($cache, null, $runner)->fragment(Request::create('/'), 'messages', new FakeHostUrls());
+        $this->renderer($cache, null, $runner)->page(Request::create('/'), 'background', new FakeHostUrls());
+        $this->renderer($cache, null, $runner)->fragment(Request::create('/'), 'background', new FakeHostUrls());
         $cache->reset();
         $this->built = [];
 
@@ -881,7 +883,7 @@ final class DisplayCostTest extends TestCase
 
     /**
      * The page of one request: the Requests and Stack screens on a reader, checks and summary of their own,
-     * which share the collectors and the cache of the test, and the Messages screen when the queues are counted.
+     * which share the collectors and the cache of the test, and the Background screen when the queues are counted.
      */
     private function renderer(CacheItemPoolInterface $cache, ?LoggerInterface $logger = null, ?FakeProcessRunner $queues = null): PageRenderer
     {
@@ -898,7 +900,7 @@ final class DisplayCostTest extends TestCase
             return $service;
         }, $services));
         $screen = new StackScreen($locator, new CardBuilder($this->clock), $this->clock, new ServiceLocator([]));
-        $screens = [new RequestsScreen(), ...($queues === null ? [] : [new MessagesScreen(true, true, new QueuesBlocks($locator, $this->clock))]), $screen];
+        $screens = [new RequestsScreen(), ...($queues === null ? [] : [new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new MessagesSection(true, true, new QueuesBlocks($locator, $this->clock))])]), $screen];
 
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');

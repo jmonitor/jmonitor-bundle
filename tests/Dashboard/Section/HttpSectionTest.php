@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Screen;
+namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\HttpClientScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\HttpSection;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
@@ -20,31 +20,32 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use PHPUnit\Framework\TestCase;
 
-final class HttpClientScreenTest extends TestCase
+final class HttpSectionTest extends TestCase
 {
     private const NOW = 1800000000;
 
-    public function testTheScreenDeclaresItself(): void
+    public function testTheSectionDeclaresItself(): void
     {
-        $screen = new HttpClientScreen(true);
+        $screen = new HttpSection(true);
 
-        static::assertSame('http-client', $screen->id());
-        static::assertSame('HTTP client', $screen->label());
-        static::assertSame('Outgoing calls made through the http_client service and its scoped clients, per host', $screen->heading());
+        static::assertSame('http', $screen->id());
+        static::assertSame('Outgoing HTTP', $screen->title());
+        static::assertSame('Calls your code makes to other sites and APIs through the Symfony HTTP client.', $screen->summary());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
             ['total' => 'desc', 'calls' => 'desc', 'avg' => 'desc', 'max' => 'desc', '4xx' => 'desc', '5xx' => 'desc', 'failed' => 'desc'],
             $screen->sorts(),
         );
         static::assertSame(
-            ['title' => 'No outgoing calls recorded yet', 'text' => 'Calls made through the http_client service or a scoped client show up here within a few seconds.'],
-            $screen->emptyState(),
+            ['title' => 'No outgoing call in the last hour.', 'text' => 'Calls made through the http_client service or a scoped client show up here within a few seconds.'],
+            $screen->emptyState(Period::OneHour),
         );
+        static::assertSame('No outgoing call in the last 24 hours.', $screen->emptyState(Period::OneDay)['title']);
     }
 
     public function testTheScreenIsUnavailableWithoutTheCapture(): void
     {
-        static::assertFalse((new HttpClientScreen(false))->isAvailable());
+        static::assertFalse((new HttpSection(false))->isAvailable());
     }
 
     public function testEverySortIsComputedByTheDatabase(): void
@@ -59,12 +60,12 @@ final class HttpClientScreenTest extends TestCase
             'failed' => [Metric::HTTP_FAILED, 'count'],
         ];
 
-        static::assertSame(array_keys((new HttpClientScreen(true))->sorts()), array_keys($sorts));
+        static::assertSame(array_keys((new HttpSection(true))->sorts()), array_keys($sorts));
 
         foreach ($sorts as $sort => [$metric, $field]) {
             foreach (['desc' => true, 'asc' => false] as $direction => $descending) {
                 $reader = new FixedReader();
-                (new HttpClientScreen(true))->build($reader, Period::SixHours, self::NOW, (string) $sort, $direction);
+                (new HttpSection(true))->build($reader, Period::SixHours, self::NOW, (string) $sort, $direction);
 
                 static::assertCount(1, $reader->queries);
                 $query = $reader->queries[0];
@@ -81,7 +82,7 @@ final class HttpClientScreenTest extends TestCase
         }
 
         $reader = new FixedReader();
-        (new HttpClientScreen(true))->build($reader, Period::OneHour, self::NOW, 'unknown', 'desc');
+        (new HttpSection(true))->build($reader, Period::OneHour, self::NOW, 'unknown', 'desc');
         static::assertSame([Metric::HTTP_DURATION, 'sum'], [$reader->queries[0]->sortMetric, $reader->queries[0]->sortField]);
     }
 
@@ -195,7 +196,7 @@ final class HttpClientScreenTest extends TestCase
         );
         $reader = new FixedReader(new Report($rows, $other, $keyCount ?? \count($rows), $series, $all === [] ? [] : $totals));
 
-        return (new HttpClientScreen(true))->build($reader, $period, self::NOW, 'total', 'desc');
+        return (new HttpSection(true))->build($reader, $period, self::NOW, 'total', 'desc');
     }
 
     /** @return array<string, MetricValue> */

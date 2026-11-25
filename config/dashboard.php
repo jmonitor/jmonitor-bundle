@@ -10,17 +10,19 @@ use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\CacheScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\CommandsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\HttpClientScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\MessagesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
-use Jmonitor\JmonitorBundle\Dashboard\Screen\SchedulerScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Dashboard\Section\CacheSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\CommandsSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\HttpSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
@@ -111,13 +113,34 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ])
         ->tag('jmonitor.screen', ['priority' => 90]);
 
-    $services->set(CommandsScreen::class)
-        ->args([param('jmonitor.recording.commands.enabled')])
+    $services->set('jmonitor.screen.cache_http', ComposedScreen::class)
+        ->args([
+            'cache-http',
+            'Cache & HTTP',
+            'What your code waits for besides the database',
+            Space::Application,
+            [service(CacheSection::class), service(HttpSection::class)->ignoreOnInvalid()],
+        ])
         ->tag('jmonitor.screen', ['priority' => 80]);
 
-    $services->set(MessagesScreen::class)
-        ->args([true, param('jmonitor.recording.messenger'), service(QueuesBlocks::class)->nullOnInvalid()])
+    $services->set(CacheSection::class)
+        ->args([param('jmonitor.recording.cache')]);
+
+    $services->set(HttpSection::class)
+        ->args([param('jmonitor.recording.http_client')]);
+
+    $services->set('jmonitor.screen.background', ComposedScreen::class)
+        ->args([
+            'background',
+            'Background',
+            'Everything your application does without a visitor waiting for the answer',
+            Space::Background,
+            [service(MessagesSection::class), service(TasksSection::class), service(CommandsSection::class)],
+        ])
         ->tag('jmonitor.screen', ['priority' => 70]);
+
+    $services->set(MessagesSection::class)
+        ->args([true, param('jmonitor.recording.messenger'), service(QueuesBlocks::class)->nullOnInvalid()]);
 
     $declaredTasks = $services->set(DeclaredTasks::class)
         ->args([
@@ -129,17 +152,11 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         $declaredTasks->tag('monolog.logger', ['channel' => 'jmonitor']);
     }
 
-    $services->set(SchedulerScreen::class)
-        ->args([param('jmonitor.recording.scheduler'), service(DeclaredTasks::class)])
-        ->tag('jmonitor.screen', ['priority' => 60]);
+    $services->set(TasksSection::class)
+        ->args([param('jmonitor.recording.scheduler'), service(DeclaredTasks::class)]);
 
-    $services->set(HttpClientScreen::class)
-        ->args([param('jmonitor.recording.http_client')])
-        ->tag('jmonitor.screen', ['priority' => 50]);
-
-    $services->set(CacheScreen::class)
-        ->args([param('jmonitor.recording.cache')])
-        ->tag('jmonitor.screen', ['priority' => 40]);
+    $services->set(CommandsSection::class)
+        ->args([param('jmonitor.recording.commands.enabled')]);
 
     $services->set(ExceptionsScreen::class)
         ->args([param('jmonitor.recording.exceptions')])

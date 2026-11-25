@@ -65,21 +65,49 @@ final class EasyAdminPageTest extends WebTestCase
         self::$varDirs = [];
     }
 
-    public function testTheNineScreensShowInsideTheBackOffice(): void
+    public function testTheScreensShowInsideTheBackOffice(): void
     {
         $client = $this->client(['messenger' => true, 'scheduler' => true]);
 
-        foreach (['requests', 'queries', 'commands', 'messages', 'scheduler', 'http-client', 'cache', 'exceptions', 'users'] as $id) {
+        foreach (['requests', 'queries', 'cache-http', 'exceptions', 'users', 'background'] as $id) {
             $crawler = $client->request('GET', '/admin/jmonitor/' . $id);
 
             static::assertResponseIsSuccessful($id);
-            static::assertMatchesRegularExpression('#^/admin/jmonitor/' . $id . '(\?|$)#', (string) $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->attr('href'), $id);
+            $current = $crawler->filter('.jm .jm-subnav__item[aria-current="page"]');
+            if ($current->count() === 0) {
+                $current = $crawler->filter('.jm .jm-nav__item[aria-current="page"]');
+            }
+            static::assertMatchesRegularExpression('#^/admin/jmonitor/' . $id . '(\?|$)#', (string) $current->attr('href'), $id);
 
             $urls = self::urlsOf($crawler->filter('.jm'));
             static::assertNotEmpty($urls, $id);
             foreach ($urls as $url) {
                 static::assertStringStartsWith('/admin/jmonitor', $url, $id);
             }
+        }
+    }
+
+    public function testTheComposedScreensShowTheirSectionsInsideTheBackOffice(): void
+    {
+        $client = $this->client(['messenger' => true, 'scheduler' => true]);
+
+        foreach (['background' => ['messages', 'tasks', 'commands'], 'cache-http' => ['cache', 'http']] as $id => $sections) {
+            $crawler = $client->request('GET', '/admin/jmonitor/' . $id);
+
+            static::assertResponseIsSuccessful($id);
+            static::assertCount(1, $crawler->filter('body.ea'), $id);
+            static::assertSame($sections, $crawler->filter('.jm .jm-screen > section.jm-section')->each(static fn(Crawler $section): string => (string) $section->attr('id')), $id);
+        }
+
+        foreach (['commands', 'messages', 'scheduler', 'http-client', 'cache'] as $address) {
+            $client->request('GET', '/admin/jmonitor/' . $address);
+            static::assertResponseStatusCodeSame(404, $address);
+
+            $client->request('GET', '/admin/jmonitor/_fragment/' . $address);
+            static::assertResponseStatusCodeSame(404, '_fragment/' . $address);
+
+            $client->request('POST', '/admin/jmonitor/_action/' . $address, ['action' => 'refresh'], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
+            static::assertResponseStatusCodeSame(404, '_action/' . $address);
         }
     }
 
@@ -245,20 +273,20 @@ final class EasyAdminPageTest extends WebTestCase
             'queuesOutput' => '{"transports":["async"]}' . "\n" . '{"name":"async","count":12}' . "\n",
         ]);
 
-        $crawler = $client->request('GET', '/admin/jmonitor/messages');
+        $crawler = $client->request('GET', '/admin/jmonitor/background');
 
         static::assertResponseIsSuccessful();
         static::assertCount(1, $crawler->filter('body.ea'));
-        static::assertCount(1, $crawler->filter('.jm .jm-screen > .jm-state[data-jm-reading]'));
+        static::assertCount(1, $crawler->filter('.jm .jm-screen > section#messages > .jm-state[data-jm-reading]'));
         $rest = (string) $crawler->filter('.jm a[data-jm-rest]')->attr('href');
-        static::assertStringStartsWith('/admin/jmonitor/messages?', $rest);
+        static::assertStringStartsWith('/admin/jmonitor/background?', $rest);
         static::assertStringContainsString('period=1h', $rest);
 
-        $client->request('GET', '/admin/jmonitor/_fragment/messages');
+        $client->request('GET', '/admin/jmonitor/_fragment/background');
         static::assertResponseIsSuccessful();
-        $crawler = $client->request('GET', '/admin/jmonitor/messages');
+        $crawler = $client->request('GET', '/admin/jmonitor/background');
 
-        static::assertSame('Queues', $crawler->filter('.jm .jm-screen > .jm-facts .jm-panel__title')->text());
+        static::assertSame('Queues', $crawler->filter('.jm .jm-screen > section#messages > .jm-facts .jm-panel__title')->text());
         static::assertSame('12', $crawler->filter('.jm .jm-facts .jm-fact__value')->text());
         foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
             static::assertStringStartsWith('/admin/jmonitor', $url);

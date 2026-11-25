@@ -163,7 +163,7 @@ final class StackScreenTest extends WebTestCase
         $routes = $requests->filter('tr[data-jm-route]')->each(static fn(Crawler $row): string => (string) $row->attr('data-jm-route'));
         static::assertSame([], preg_grep('/jmonitor/', $routes));
 
-        $cache = self::requestUntil($client, '/jmonitor/cache', 'tr[data-jm-pool="cache.app"]');
+        $cache = self::requestUntil($client, '/jmonitor/cache-http', 'section#cache tr[data-jm-pool="cache.app"][data-jm-reads="1"]');
         static::assertCount(1, $cache->filter('tr[data-jm-pool="cache.app"]'));
         static::assertCount(0, $cache->filter('tr[data-jm-pool="jmonitor.stack.cache"]'));
         static::assertStringNotContainsString('jmonitor.stack', $cache->filter('.jm-screen')->text());
