@@ -44,9 +44,9 @@ final class ReadCostTest extends KernelTestCase
 
     /** @var array<string, int> section id => SQL statements read to display it once */
     private const SECTION_BUDGET = [
-        'messages' => 3,
-        'tasks' => 3,
-        'commands' => 3,
+        'messages' => 2,
+        'tasks' => 2,
+        'commands' => 2,
         'cache' => 2,
         'http' => 4,
     ];
@@ -54,7 +54,7 @@ final class ReadCostTest extends KernelTestCase
     /** @var array<string, list<string>> composed screen id => the types of its blocks, in order */
     private const COMPOSED_BLOCKS = [
         'cache-http' => [Block::LEAD, Block::CHECKS, Block::SECTION, Block::SECTION, Block::GUIDE],
-        'background' => [Block::SECTION, Block::SECTION, Block::SECTION],
+        'background' => [Block::LEAD, Block::CHECKS, Block::CARDS, Block::SECTION, Block::SECTION, Block::SECTION, Block::GUIDE],
     ];
 
     private const QUERY_ID = 'a1b2c3d4e5f6a7b8';
@@ -252,6 +252,46 @@ final class ReadCostTest extends KernelTestCase
         }
 
         static::assertSame(['cache' => self::SECTION_BUDGET['cache'], 'http' => self::SECTION_BUDGET['http']], $sections);
+    }
+
+    public function testTheBudgetOfBackgroundIsMeasuredWithItsThreeChecks(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $startedAt = (float) (self::NOW - 30);
+        $units = [
+            ...self::units(),
+            new Entry(Entry::TYPE_COMMAND, 'app:fail', $startedAt, 10.0, ['exit' => 1, 'memory' => 2048]),
+            new Entry(Entry::TYPE_MESSAGE, 'App\\Message\\Resize', $startedAt, 5.0, ['memory' => 2048, 'failed' => 1]),
+        ];
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($units), self::NOW, self::LABELS);
+        $builder = new ScreenBuilder(new DbalReader($connection), true, new MockClock('@' . self::NOW), checks: self::checks());
+        $registry = static::getContainer()->get(ScreenRegistry::class);
+        \assert($registry instanceof ScreenRegistry);
+        $screen = $registry->get('background');
+        \assert($screen instanceof ComposedScreen);
+        $reads = [];
+
+        foreach (['messages.handled', 'tasks.next', 'commands.last'] as $sort) {
+            $recorder->statements = [];
+            $page = $builder->create($screen, Period::OneHour->label(), $sort, 'desc');
+
+            $checks = $page->blocks[1]->content;
+            static::assertInstanceOf(CheckList::class, $checks);
+            static::assertSame(['messages.failed', 'tasks.failed', 'commands.failed'], array_map(static fn(CheckLine $line): string => $line->id, $checks->lines), $sort);
+            $reads[$sort] = \count($recorder->statements);
+        }
+
+        static::assertSame(['messages.handled' => 7, 'tasks.next' => 7, 'commands.last' => 7], $reads);
+
+        $raised = self::checks()->raised(new DbalReader($connection), Period::OneHour, self::NOW);
+        $sections = [];
+        foreach ($screen->sections() as $section) {
+            $recorder->statements = [];
+            $section->build(new DbalReader($connection), Period::OneHour, self::NOW, (string) array_key_first($section->sorts()), 'desc', $raised);
+            $sections[$section->id()] = \count($recorder->statements);
+        }
+
+        static::assertSame(['messages' => 2, 'tasks' => 2, 'commands' => 2], $sections);
     }
 
     private static function checks(): ApplicationChecks

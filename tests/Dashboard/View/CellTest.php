@@ -102,6 +102,26 @@ final class CellTest extends TestCase
         static::assertSame([], Cell::split(['php' => 0.0, 'sql' => 0.0, 'http' => 0.0], '')->segments());
     }
 
+    public function testAnAverageSplitLeavesTheRestToPhpAndNamesItsLargestOutsidePart(): void
+    {
+        $both = Cell::averageSplit(50.0, 10.0, 1.5, 30.0);
+        static::assertSame(['HTTP out 30 ms · 1.5 queries', ['php' => 10.0, 'sql' => 10.0, 'http' => 30.0]], [$both->text, $both->parts]);
+        static::assertSame('PHP 10 ms, SQL 10 ms, HTTP out 30 ms, 1.5 queries', $both->data['spoken']);
+
+        $sql = Cell::averageSplit(50.0, 20.0, 12.0, 5.0);
+        static::assertSame(['SQL 20 ms · 12 queries', ['php' => 25.0, 'sql' => 20.0, 'http' => 5.0]], [$sql->text, $sql->parts]);
+
+        $longer = Cell::averageSplit(40.0, 30.0, 2.0, 20.0);
+        static::assertSame(['SQL 30 ms · 2.0 queries', ['php' => 0.0, 'sql' => 30.0, 'http' => 20.0]], [$longer->text, $longer->parts]);
+
+        $httpOnly = Cell::averageSplit(40.0, null, 0.0, 15.0);
+        static::assertSame(['HTTP out 15 ms', ['php' => 25.0, 'sql' => 0.0, 'http' => 15.0]], [$httpOnly->text, $httpOnly->parts]);
+        static::assertSame('PHP 25 ms, SQL 0 ms, HTTP out 15 ms', $httpOnly->data['spoken']);
+
+        $php = Cell::averageSplit(40.0, null, 0.0, null);
+        static::assertSame(['PHP only', ['php' => 40.0, 'sql' => 0.0, 'http' => 0.0]], [$php->text, $php->parts]);
+    }
+
     public function testTagsKeepTheirOrder(): void
     {
         $tags = [new Tag('N+1', 'warn'), new Tag('5xx', 'bad')];

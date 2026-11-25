@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Twig;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
@@ -175,7 +176,7 @@ final class TemplatesTest extends TestCase
         ]);
         $reader = new FixedReader(new Report([$hostile], keyCount: 1));
 
-        foreach ([new CommandsSection(true), new MessagesSection(true, true)] as $section) {
+        foreach ([new CommandsSection(true, new ApplicationChecks([])), new MessagesSection(true, true, null, new ApplicationChecks([]))] as $section) {
             $view = $section->build($reader, Period::OneHour, 1800000000, (string) array_key_first($section->sorts()), 'desc', new RaisedChecks([], [], Period::OneHour));
             $page = $this->sectionPage($section, $view, (string) array_key_first($section->sorts()), 'desc');
 
@@ -200,7 +201,7 @@ final class TemplatesTest extends TestCase
             Metric::TASK_DURATION => new MetricValue(1, 10.0, 10.0),
             Metric::TASK_LAST_RUN => new MetricValue(1, 0.0, 1799999990.0),
         ]);
-        $section = new TasksSection(true, $declared);
+        $section = new TasksSection(true, $declared, new ApplicationChecks([]));
         $view = $section->build(new FixedReader(new Report([$stored], keyCount: 1)), Period::OneHour, 1800000000, 'next', 'asc', new RaisedChecks([], [], Period::OneHour));
         $page = $this->sectionPage($section, $view, 'next', 'asc');
 

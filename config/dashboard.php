@@ -186,11 +186,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             'Everything your application does without a visitor waiting for the answer',
             Space::Background,
             [service(MessagesSection::class), service(TasksSection::class), service(CommandsSection::class)],
+            true,
         ])
         ->tag('jmonitor.screen', ['priority' => 70]);
 
     $services->set(MessagesSection::class)
-        ->args([true, param('jmonitor.recording.messenger'), service(QueuesBlocks::class)->nullOnInvalid()]);
+        ->args([true, param('jmonitor.recording.messenger'), service(QueuesBlocks::class)->nullOnInvalid(), service(ApplicationChecks::class)]);
 
     $declaredTasks = $services->set(DeclaredTasks::class)
         ->args([
@@ -203,10 +204,10 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     }
 
     $services->set(TasksSection::class)
-        ->args([param('jmonitor.recording.scheduler'), service(DeclaredTasks::class)]);
+        ->args([param('jmonitor.recording.scheduler'), service(DeclaredTasks::class), service(ApplicationChecks::class)]);
 
     $services->set(CommandsSection::class)
-        ->args([param('jmonitor.recording.commands.enabled')]);
+        ->args([param('jmonitor.recording.commands.enabled'), service(ApplicationChecks::class)]);
 
     $services->set(ExceptionsScreen::class)
         ->args([param('jmonitor.recording.exceptions')])

@@ -103,9 +103,25 @@ final class MessagesQueuesTest extends WebTestCase
         $crawler = self::requestUntil($client, '/jmonitor/background', 'section#jm-messages tr[data-jm-message][data-jm-sent="1"]');
 
         $blocks = $crawler->filter('section#jm-messages > .jm-section__header ~ *')->each(static fn(Crawler $block): string => (string) $block->attr('class'));
-        self::assertSame(['jm-panel jm-facts', 'jm-cards', 'jm-panel'], $blocks);
+        self::assertSame(['jm-panel jm-facts', 'jm-panel'], $blocks);
         self::assertSame('Queues', $crawler->filter('section#jm-messages > .jm-facts .jm-panel__title')->text());
         self::assertCount(1, $crawler->filter('section#jm-messages tr[data-jm-message]'));
+        self::assertSame('1 message sent in the last hour.', $crawler->filter('h1.jm-lead__title')->text());
+        self::assertContains('Queues.', $crawler->filter('.jm-guide li strong')->each(static fn(Crawler $term): string => $term->text()));
+    }
+
+    public function testTheQueuesBlockIsTheSameWithOrWithoutRecordedMessages(): void
+    {
+        $client = $this->client();
+
+        self::countTheQueues($client);
+        $before = $client->request('GET', '/jmonitor/background')->filter('section#jm-messages > .jm-facts .jm-facts__list')->outerHtml();
+        $client->request('GET', '/dispatch', ['count' => '1']);
+        self::assertResponseIsSuccessful();
+        $crawler = self::requestUntil($client, '/jmonitor/background', 'section#jm-messages tr[data-jm-message][data-jm-sent="1"]');
+
+        self::assertSame('jm-panel jm-facts', $crawler->filter('section#jm-messages > .jm-section__header + *')->attr('class'));
+        self::assertSame($before, $crawler->filter('section#jm-messages > .jm-facts .jm-facts__list')->outerHtml());
     }
 
     public function testMessagesWithoutStorageStillShowsTheQueues(): void

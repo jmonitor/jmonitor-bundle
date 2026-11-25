@@ -324,45 +324,13 @@ final class RequestsScreen implements StorageScreenInterface
             'avg' => new Cell(Format::duration($route['avg'])),
             'p95' => new Cell(Format::duration($route['p95']), $route['slow'] * 20 > $route['requests'] ? 'warn' : null),
             'max' => new Cell(Format::duration($route['max']), $route['slow'] > 0 ? 'warn' : null),
-            'split' => Cell::split(
-                ['php' => max(0.0, $route['avg'] - $route['sql'] - $route['http']), 'sql' => $route['sql'], 'http' => $route['http']],
-                self::splitText($route),
-                self::queries($route) ?? '',
-            ),
+            'split' => Cell::averageSplit($route['avg'], $route['hasSql'] ? $route['sql'] : null, $route['queries'], $route['hasHttp'] ? $route['http'] : null),
             'problems' => Cell::tags(self::tags($route)),
             'memory' => new Cell(Format::bytes($route['memory'])),
         ], [
             'data-jm-route' => $route['row']->key,
             'data-jm-requests' => (string) $route['requests'],
         ], $other);
-    }
-
-    /** @param Route $route */
-    private static function splitText(array $route): string
-    {
-        if (!$route['hasSql'] && !$route['hasHttp']) {
-            return 'PHP only';
-        }
-
-        $text = $route['hasSql'] && $route['sql'] >= $route['http']
-            ? 'SQL ' . Format::duration($route['sql'])
-            : 'HTTP out ' . Format::duration($route['http']);
-
-        $queries = self::queries($route);
-
-        return $queries === null ? $text : $text . ' · ' . $queries;
-    }
-
-    /** @param Route $route */
-    private static function queries(array $route): ?string
-    {
-        if (!$route['hasSql']) {
-            return null;
-        }
-
-        $queries = round($route['queries'], 1);
-
-        return Format::number($queries, $queries < 10 ? 1 : 0) . ' queries';
     }
 
     /**

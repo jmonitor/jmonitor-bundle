@@ -80,6 +80,37 @@ final class Cell
         return new self($text, kind: 'split', data: ['spoken' => $note === '' ? $spoken : $spoken . ', ' . $note], parts: $kept);
     }
 
+    /**
+     * The split of an average run between PHP, SQL and outgoing HTTP, PHP being what SQL and HTTP leave.
+     *
+     * @param float  $average in ms
+     * @param ?float $sql     the SQL time of an average run in ms, null when no query was recorded
+     * @param float  $queries the queries of an average run
+     * @param ?float $http    the outgoing HTTP time of an average run in ms, null when no call was recorded
+     */
+    public static function averageSplit(float $average, ?float $sql, float $queries, ?float $http): self
+    {
+        $queriesText = null;
+
+        if ($sql !== null) {
+            $rounded = round($queries, 1);
+            $queriesText = Format::number($rounded, $rounded < 10 ? 1 : 0) . ' queries';
+        }
+
+        if ($sql === null && $http === null) {
+            $text = 'PHP only';
+        } else {
+            $text = $sql !== null && $sql >= ($http ?? 0.0) ? 'SQL ' . Format::duration($sql) : 'HTTP out ' . Format::duration($http ?? 0.0);
+            $text = $queriesText === null ? $text : $text . ' · ' . $queriesText;
+        }
+
+        return self::split(
+            ['php' => max(0.0, $average - ($sql ?? 0.0) - ($http ?? 0.0)), 'sql' => $sql ?? 0.0, 'http' => $http ?? 0.0],
+            $text,
+            $queriesText ?? '',
+        );
+    }
+
     /** @param list<Tag> $tags */
     public static function tags(array $tags): self
     {

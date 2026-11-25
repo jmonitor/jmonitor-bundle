@@ -9,22 +9,26 @@ use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedTasksCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
-use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
+use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedSchedules;
-use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Messenger\RunCommandMessage;
 use Symfony\Component\Scheduler\RecurringMessage;
@@ -36,14 +40,14 @@ final class TasksSectionTest extends TestCase
 
     public function testTheSectionDeclaresItself(): void
     {
-        $screen = new TasksSection(true, new DeclaredTasks());
+        $screen = self::section(new DeclaredTasks());
 
         static::assertSame('tasks', $screen->id());
         static::assertSame('Scheduled tasks', $screen->title());
         static::assertSame('What Symfony Scheduler starts by the clock.', $screen->summary());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
-            ['next' => 'asc', 'task' => 'asc', 'last' => 'desc', 'runs' => 'desc', 'avg' => 'desc', 'max' => 'desc', 'failed' => 'desc'],
+            ['next' => 'asc', 'task' => 'asc', 'last' => 'desc', 'runs' => 'desc', 'avg' => 'desc', 'problems' => 'desc'],
             $screen->sorts(),
         );
         foreach (Period::cases() as $period) {
@@ -56,22 +60,23 @@ final class TasksSectionTest extends TestCase
 
     public function testTheScreenFollowsItsAvailability(): void
     {
-        static::assertFalse((new TasksSection(false, new DeclaredTasks()))->isAvailable());
-        static::assertTrue((new TasksSection(true, new DeclaredTasks()))->isAvailable());
+        static::assertFalse((new TasksSection(false, new DeclaredTasks(), self::checks()))->isAvailable());
+        static::assertTrue((new TasksSection(true, new DeclaredTasks(), self::checks()))->isAvailable());
     }
 
-    public function testTheScreenReadsTheTaskFamilyOnceWithItsSeries(): void
+    public function testTheScreenReadsTheTaskFamilyOnceWithoutASeries(): void
     {
-        $screen = new TasksSection(true, new DeclaredTasks());
+        $screen = self::section(new DeclaredTasks());
 
         foreach (array_keys($screen->sorts()) as $sort) {
             $reader = new FixedReader();
-            $screen->build($reader, Period::SixHours, self::NOW, $sort, 'asc', new RaisedChecks([], [], Period::OneHour));
+            $screen->build($reader, Period::SixHours, self::NOW, $sort, 'asc', self::raised());
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
-            static::assertSame([Family::Task, Period::SixHours, self::NOW, Metric::TASK_DURATION], [$query->family, $query->period, $query->now, $query->seriesMetric]);
+            static::assertSame([Family::Task, Period::SixHours, self::NOW, null], [$query->family, $query->period, $query->now, $query->seriesMetric]);
             static::assertSame([], $reader->labelRequests);
+            static::assertSame([], $reader->totalRequests);
         }
     }
 
@@ -87,17 +92,16 @@ final class TasksSectionTest extends TestCase
         static::assertSame('tasks', $table->id);
         static::assertSame('Tasks', $table->title);
         static::assertSame('task', $table->noun);
+        static::assertFalse($table->partsLegend);
         static::assertSame(
             [
                 ['task', 'Task', false, 'task'],
                 ['schedule', 'Schedule', false, null],
-                ['trigger', 'Trigger', false, null],
                 ['next', 'Next run', true, 'next'],
                 ['last', 'Last run', true, 'last'],
                 ['runs', 'Runs', true, 'runs'],
                 ['avg', 'Avg', true, 'avg'],
-                ['max', 'Max', true, 'max'],
-                ['failed', 'Failed', true, 'failed'],
+                ['problems', 'Problems', false, 'problems'],
             ],
             array_map(static fn(Column $column): array => [$column->id, $column->label, $column->numeric, $column->sort], $table->columns),
         );
@@ -105,12 +109,14 @@ final class TasksSectionTest extends TestCase
         static::assertFalse($row->muted);
         static::assertSame(['data-jm-task' => 'app:work', 'data-jm-runs' => '0'], $row->attributes);
         static::assertSame(
-            ['task' => 'app:work', 'schedule' => 'default', 'trigger' => 'every 1 hour', 'next' => 'in 50 min', 'last' => '—', 'runs' => '0', 'avg' => '—', 'max' => '—', 'failed' => '0'],
+            ['task' => 'app:work', 'schedule' => 'every 1 hour', 'next' => 'in 50 min', 'last' => '—', 'runs' => '0', 'avg' => '—', 'problems' => ''],
             self::texts($row),
         );
         static::assertSame('code', $row->cells['task']->kind);
-        static::assertSame(['zero', 'zero', 'zero', 'zero', 'zero'], array_map(static fn(string $id): ?string => $row->cells[$id]->tone, ['last', 'runs', 'avg', 'max', 'failed']));
+        static::assertSame(['zero', 'zero', 'zero'], array_map(static fn(string $id): ?string => $row->cells[$id]->tone, ['last', 'runs', 'avg']));
         static::assertNull($row->cells['next']->tone);
+        static::assertNull($row->cells['schedule']->tone);
+        static::assertSame([], self::tags($row));
     }
 
     public function testATaskThatRanButIsNoLongerDeclared(): void
@@ -121,12 +127,19 @@ final class TasksSectionTest extends TestCase
 
         static::assertSame(['data-jm-task' => 'app:old', 'data-jm-runs' => '4'], $row->attributes);
         static::assertSame(
-            ['task' => 'app:old', 'schedule' => 'default', 'trigger' => 'every 1 day', 'next' => '—', 'last' => '10 min ago', 'runs' => '4', 'avg' => '50 ms', 'max' => '90 ms', 'failed' => '0'],
+            ['task' => 'app:old', 'schedule' => 'every 1 day', 'next' => '—', 'last' => '10 min ago', 'runs' => '4', 'avg' => '50 ms', 'problems' => ''],
             self::texts($row),
         );
         static::assertSame('zero', $row->cells['next']->tone);
         static::assertNull($row->cells['last']->tone);
         static::assertNull($row->cells['runs']->tone);
+    }
+
+    public function testAScheduleThatIsNotKnownIsADash(): void
+    {
+        $row = $this->table($this->build([self::task('h1', null, runs: 2, last: self::NOW - 60, storedKey: 'app:unparsed')]))->rows[0];
+
+        static::assertSame(['app:unparsed', '—', 'zero'], [$row->cells['task']->text, $row->cells['schedule']->text, $row->cells['schedule']->tone]);
     }
 
     public function testADeclaredTaskAndItsRunsShareOneRowEvenWhenTheirLabelsDiffer(): void
@@ -139,7 +152,7 @@ final class TasksSectionTest extends TestCase
         static::assertCount(1, $rows);
         static::assertSame(['data-jm-task' => 'app:work', 'data-jm-runs' => '2'], $rows[0]->attributes);
         static::assertSame(
-            ['task' => 'app:work', 'schedule' => 'default', 'trigger' => 'every 1 hour', 'next' => 'in 50 min', 'last' => '2 min ago', 'runs' => '2', 'avg' => '15 ms', 'max' => '20 ms', 'failed' => '0'],
+            ['task' => 'app:work', 'schedule' => 'every 1 hour', 'next' => 'in 50 min', 'last' => '2 min ago', 'runs' => '2', 'avg' => '15 ms', 'problems' => ''],
             self::texts($rows[0]),
         );
     }
@@ -152,7 +165,8 @@ final class TasksSectionTest extends TestCase
             self::task('h1', new TaskKey('reports', $work->getId(), 'app:work', 'every 1 hour'), runs: 1, last: self::NOW - 60),
         ], ['default' => [$work]]))->rows;
 
-        static::assertSame(['default', 'reports'], array_map(static fn(Row $row): string => $row->cells['schedule']->text, $rows));
+        static::assertSame([['app:work', '0'], ['app:work', '1']], array_map(static fn(Row $row): array => [$row->cells['task']->text, $row->attributes['data-jm-runs']], $rows));
+        static::assertNotSame($rows[0]->key, $rows[1]->key);
     }
 
     public function testALastRunThatFailedSaysSo(): void
@@ -165,8 +179,8 @@ final class TasksSectionTest extends TestCase
         static::assertSame(['app:failing', 'app:recovered'], array_map(static fn(Row $row): string => $row->cells['task']->text, $rows));
         static::assertSame(['5 min ago · failed', 'bad'], [$rows[0]->cells['last']->text, $rows[0]->cells['last']->tone]);
         static::assertSame(['1 min ago', null], [$rows[1]->cells['last']->text, $rows[1]->cells['last']->tone]);
-        static::assertSame(['1', 'bad'], [$rows[0]->cells['failed']->text, $rows[0]->cells['failed']->tone]);
-        static::assertSame(['2', 'bad'], [$rows[1]->cells['failed']->text, $rows[1]->cells['failed']->tone]);
+        static::assertSame([['1 failed', 'bad']], self::tags($rows[0]));
+        static::assertSame([['2 failed', 'bad']], self::tags($rows[1]));
     }
 
     public function testTheDefaultSortPutsTheNextRunFirstAndTasksWithoutOneLast(): void
@@ -198,11 +212,10 @@ final class TasksSectionTest extends TestCase
             'last' => ['app:beta', 'app:alpha', 'app:gamma'],
             'runs' => ['app:beta', 'app:gamma', 'app:alpha'],
             'avg' => ['app:beta', 'app:alpha', 'app:gamma'],
-            'max' => ['app:beta', 'app:alpha', 'app:gamma'],
-            'failed' => ['app:beta', 'app:alpha', 'app:gamma'],
+            'problems' => ['app:beta', 'app:alpha', 'app:gamma'],
         ];
 
-        static::assertSame(array_keys((new TasksSection(true, new DeclaredTasks()))->sorts()), array_keys($ascending));
+        static::assertSame(array_keys(self::section(new DeclaredTasks())->sorts()), array_keys($ascending));
 
         foreach ($ascending as $sort => $expected) {
             static::assertSame($expected, $this->labels($this->build($stored, $schedules, $sort, 'asc')), $sort . ' asc');
@@ -210,12 +223,23 @@ final class TasksSectionTest extends TestCase
         }
     }
 
-    public function testOtherTasksComeLastMuted(): void
+    public function testARemovedSortFallsBackToTheDefault(): void
+    {
+        $alpha = RecurringMessage::every('1 hour', new RunCommandMessage('app:alpha'), '@' . (self::NOW - 600));
+        $beta = RecurringMessage::every('1 minute', new RunCommandMessage('app:beta'), '@' . (self::NOW - 30));
+        $stored = [self::task('h1', new TaskKey('default', $alpha->getId(), 'app:alpha', 'every 1 hour'), runs: 3, maxMs: 900.0, failed: 3, lastFailed: self::NOW - 60)];
+
+        foreach (['max', 'failed', 'unknown'] as $sort) {
+            static::assertSame(['app:beta', 'app:alpha'], $this->labels($this->build($stored, ['default' => [$alpha, $beta]], $sort, 'asc')), $sort);
+        }
+    }
+
+    public function testOtherTasksComeLastMutedWithTheirCells(): void
     {
         $work = RecurringMessage::every('1 hour', new RunCommandMessage('app:work'), '@' . self::NOW);
-        $other = self::task('ho', null, runs: 9, totalMs: 90.0, maxMs: 20.0, last: self::NOW - 30);
+        $other = self::task('ho', null, runs: 9, totalMs: 90.0, maxMs: 20.0, last: self::NOW - 30, failed: 2, lastFailed: self::NOW - 30);
 
-        foreach ([['next', 'asc'], ['next', 'desc'], ['task', 'asc'], ['runs', 'desc']] as [$sort, $direction]) {
+        foreach ([['next', 'asc'], ['next', 'desc'], ['task', 'asc'], ['runs', 'desc'], ['problems', 'desc']] as [$sort, $direction]) {
             $table = $this->table($this->build([
                 self::task('h1', new TaskKey('default', 'a', 'app:a', 'every 1 day'), runs: 1, last: self::NOW - 60),
             ], ['default' => [$work]], $sort, $direction, $other));
@@ -226,10 +250,11 @@ final class TasksSectionTest extends TestCase
             static::assertSame('ho', $last->key);
             static::assertSame(['data-jm-task' => Aggregator::OTHER, 'data-jm-runs' => '9'], $last->attributes);
             static::assertSame(
-                ['task' => 'Other tasks', 'schedule' => '—', 'trigger' => '—', 'next' => '—', 'last' => '30 s ago', 'runs' => '9', 'avg' => '10 ms', 'max' => '20 ms', 'failed' => '0'],
+                ['task' => 'Other tasks', 'schedule' => '—', 'next' => '—', 'last' => '30 s ago · failed', 'runs' => '9', 'avg' => '10 ms', 'problems' => ''],
                 self::texts($last),
             );
             static::assertSame('text', $last->cells['task']->kind);
+            static::assertSame([['2 failed', 'bad']], self::tags($last));
         }
     }
 
@@ -254,75 +279,170 @@ final class TasksSectionTest extends TestCase
             'default' => static fn(): Schedule => throw new \RuntimeException('No schedule today'),
         ]));
 
-        $view = (new TasksSection(true, $declared))->build(
+        $view = self::section($declared)->build(
             new FixedReader(new Report([self::task('h1', new TaskKey('default', 'a', 'app:work', 'every 1 hour'), runs: 1, last: self::NOW - 60)], keyCount: 1)),
             Period::OneHour,
             self::NOW,
             'next',
             'asc',
-            new RaisedChecks([], [], Period::OneHour),
+            self::raised(),
         );
 
         static::assertSame(['app:work'], $this->labels($view));
-        static::assertSame('Tasks', $view->cards[1]->label);
-        static::assertSame('0', $view->cards[1]->value);
+        static::assertNotNull($view->brief);
+        static::assertSame('run', $view->brief->figures);
     }
 
-    public function testTheCards(): void
+    public function testNoCardIsRenderedInTheSection(): void
     {
         $hourly = RecurringMessage::every('1 hour', new RunCommandMessage('app:hourly'), '@' . (self::NOW - 600));
-        $minutely = RecurringMessage::every('1 minute', new Ping(), '@' . (self::NOW - 30));
 
         $view = $this->build([
             self::task('h1', new TaskKey('default', $hourly->getId(), 'app:hourly', 'every 1 hour'), runs: 4, last: self::NOW - 600, failed: 1, lastFailed: self::NOW - 600),
-        ], ['default' => [$hourly], 'reports' => [$minutely]], other: self::task('ho', null, runs: 3, failed: 2, last: self::NOW - 30), period: Period::SixHours, series: [2, 0, 1]);
+        ], ['default' => [$hourly]]);
 
-        static::assertSame(['Runs', 'Tasks', 'Failed runs', 'Next run'], array_map(static fn(Card $card): string => $card->label, $view->cards));
-        static::assertSame(['7', '2', '3', 'in 30 s'], array_map(static fn(Card $card): string => $card->value, $view->cards));
-        static::assertSame(['Last 6 hours', 'Declared in a schedule', 'Ended with an exception', Ping::class], array_map(static fn(Card $card): string => $card->hint, $view->cards));
-        static::assertSame([2, 0, 1], $view->cards[0]->series);
-        static::assertSame([true, false, false, false], array_map(static fn(Card $card): bool => $card->wide, $view->cards));
-        static::assertSame([null, null, 'bad', null], array_map(static fn(Card $card): ?string => $card->tone, $view->cards));
+        static::assertSame([], $view->cards);
+        static::assertNull($view->lead);
     }
 
-    public function testCardsWithoutDeclaredTasks(): void
+    /**
+     * @return iterable<string, array{list<ReportRow>, array<string, list<RecurringMessage>>, ?ReportRow, list<string|null>}>
+     */
+    public static function briefs(): iterable
     {
-        $view = $this->build([self::task('h1', new TaskKey('default', 'a', 'app:work', 'every 1 hour'), runs: 1, last: self::NOW - 60)]);
+        $declared = static fn(int $count): array => ['default' => array_map(
+            static fn(int $i): RecurringMessage => RecurringMessage::every('1 hour', new RunCommandMessage('app:t' . $i), '@' . self::NOW),
+            range(1, $count),
+        )];
+        $ran = static fn(string $hash, int $runs, int $failed = 0): ReportRow => self::task($hash, new TaskKey('default', $hash, 'app:' . $hash, 'every 1 day'), runs: $runs, last: self::NOW - 60, failed: $failed, lastFailed: self::NOW - 60);
 
-        static::assertSame(['1', '0', '0', '—'], array_map(static fn(Card $card): string => $card->value, $view->cards));
-        static::assertSame('No upcoming run', $view->cards[3]->hint);
-        static::assertSame([null, null, null, null], array_map(static fn(Card $card): ?string => $card->tone, $view->cards));
+        yield 'runs of declared tasks' => [[$ran('a', 7), $ran('b', 5)], $declared(6), null, ['12', '12 scheduled runs', 'runs of 6 declared tasks', '', null]];
+        yield 'one run of one declared task' => [[$ran('a', 1)], $declared(1), null, ['1', '1 scheduled run', 'run of 1 declared task', '', null]];
+        yield 'runs without a declared task' => [[$ran('a', 3)], [], null, ['3', '3 scheduled runs', 'runs', '', null]];
+        yield 'one run without a declared task' => [[$ran('a', 1)], [], null, ['1', '1 scheduled run', 'run', '', null]];
+        yield 'one failed run' => [[$ran('a', 4, 1)], $declared(2), null, ['4', '4 scheduled runs', 'runs of 2 declared tasks, 1 failed', '1 scheduled run failed.', 'bad']];
+        yield 'the other tasks counted' => [
+            [$ran('a', 1000, 2)],
+            [],
+            self::task('ho', null, runs: 234, last: self::NOW - 30, failed: 1, lastFailed: self::NOW - 30),
+            ['1,234', '1,234 scheduled runs', 'runs, 3 failed', '3 scheduled runs failed.', 'bad'],
+        ];
+    }
+
+    /**
+     * @param list<ReportRow>                        $rows
+     * @param array<string, list<RecurringMessage>> $schedules
+     * @param list<string|null>                     $expected
+     */
+    #[DataProvider('briefs')]
+    public function testTheBrief(array $rows, array $schedules, ?ReportRow $other, array $expected): void
+    {
+        $brief = $this->build($rows, $schedules, other: $other)->brief;
+
+        static::assertNotNull($brief);
+        static::assertSame($expected, [$brief->count, $brief->clause, $brief->figures, $brief->standout, $brief->tone]);
+    }
+
+    public function testATaskWithoutRunInThePeriodBringsNoBrief(): void
+    {
+        $work = RecurringMessage::every('1 hour', new RunCommandMessage('app:work'), '@' . self::NOW);
+
+        $view = $this->build([], ['default' => [$work]]);
+
+        static::assertFalse($view->isEmpty());
+        static::assertNull($view->brief);
+        static::assertSame(['app:work'], $this->labels($view));
+    }
+
+    public function testTheCheckLineIsReadInTheReportOfTheSection(): void
+    {
+        $reader = $this->reader([
+            self::task('h1', new TaskKey('default', 'a', 'app:import', 'every 1 hour'), runs: 4, last: self::NOW - 60, failed: 3, lastFailed: self::NOW - 60),
+            self::task('h2', new TaskKey('default', 'b', 'app:purge', 'every 1 day'), runs: 1, last: self::NOW - 60, failed: 1, lastFailed: self::NOW - 60),
+        ]);
+        $check = new FailedTasksCheck();
+        $raised = new RaisedChecks([$check->id() => $check], [Metric::TASK_FAILED => new MetricValue(4, 0.0, (float) (self::NOW - 60))], Period::OneHour);
+
+        $view = self::section(new DeclaredTasks())->build($reader, Period::OneHour, self::NOW, 'next', 'asc', $raised);
+
+        static::assertNotNull($view->checks);
+        static::assertSame('no failed scheduled run', $view->checks->emptyText);
+        static::assertSame(
+            [['tasks.failed', 'bad', '4 scheduled runs failed', 'app:import failed 3 times. 1 other task failed too.', '', null]],
+            array_map(static fn(CheckLine $line): array => [$line->id, $line->mark->tone, $line->title, $line->sentence, $line->where, $line->path], $view->checks->lines),
+        );
+        static::assertCount(1, $reader->queries);
+        static::assertSame([], $reader->totalRequests);
+    }
+
+    public function testWithoutRaisedCheckThereIsNoLine(): void
+    {
+        $view = $this->build([self::task('h1', new TaskKey('default', 'a', 'app:import', 'every 1 hour'), runs: 1, last: self::NOW - 60, failed: 1)]);
+
+        static::assertNotNull($view->checks);
+        static::assertSame([], $view->checks->lines);
+        static::assertSame('no failed scheduled run', $view->checks->emptyText);
+    }
+
+    public function testTheGuide(): void
+    {
+        $guide = $this->build([self::task('h1', new TaskKey('default', 'a', 'app:import', 'every 1 hour'), runs: 1, last: self::NOW - 60)])->guide;
+
+        static::assertNotNull($guide);
+        static::assertSame(
+            [['A task with 0 run.', 'Normal for a daily task seen over one hour. Switch the period to 24h or 7d: if it still shows no run, no worker consumes the schedule.', []]],
+            array_map(static fn(GuideItem $item): array => [$item->term, $item->text, $item->links], $guide->items),
+        );
     }
 
     public function testTheScreenIsEmptyOnlyWithoutDeclaredNorStoredTasks(): void
     {
         $work = RecurringMessage::every('1 hour', new RunCommandMessage('app:work'), '@' . self::NOW);
 
-        static::assertTrue($this->build([])->isEmpty());
+        $empty = $this->build([]);
+        static::assertTrue($empty->isEmpty());
+        static::assertNull($empty->brief);
+        static::assertNull($empty->checks);
+        static::assertNull($empty->guide);
         static::assertFalse($this->build([], ['default' => [$work]])->isEmpty());
         static::assertFalse($this->build([], other: self::task('ho', null, runs: 1, last: self::NOW - 60))->isEmpty());
+    }
+
+    private static function section(DeclaredTasks $declared): TasksSection
+    {
+        return new TasksSection(true, $declared, self::checks());
+    }
+
+    private static function checks(): ApplicationChecks
+    {
+        return new ApplicationChecks([new FailedTasksCheck()]);
+    }
+
+    private static function raised(): RaisedChecks
+    {
+        return new RaisedChecks([], [], Period::OneHour);
     }
 
     /**
      * @param list<ReportRow>                        $rows
      * @param array<string, list<RecurringMessage>> $schedules
-     * @param list<int>                              $series
      */
-    private function build(array $rows, array $schedules = [], string $sort = 'next', string $direction = 'asc', ?ReportRow $other = null, Period $period = Period::OneHour, array $series = []): ScreenView
+    private function build(array $rows, array $schedules = [], string $sort = 'next', string $direction = 'asc', ?ReportRow $other = null): ScreenView
     {
         $declared = new DeclaredTasks(FixedSchedules::locator(array_map(
             static fn(array $messages): \Closure => static fn(): Schedule => (new Schedule())->add(...$messages),
             $schedules,
         )));
 
-        return (new TasksSection(true, $declared))->build(
-            new FixedReader(static fn(ReportQuery $query): Report => new Report($rows, $other, \count($rows), $series)),
-            $period,
-            self::NOW,
-            $sort,
-            $direction,
-            new RaisedChecks([], [], Period::OneHour),
-        );
+        return self::section($declared)->build($this->reader($rows, $other), Period::OneHour, self::NOW, $sort, $direction, self::raised());
+    }
+
+    /**
+     * @param list<ReportRow> $rows
+     */
+    private function reader(array $rows, ?ReportRow $other = null): FixedReader
+    {
+        return new FixedReader(static fn(ReportQuery $query): Report => new Report($rows, $other, \count($rows)));
     }
 
     private function table(ScreenView $view): Table
@@ -342,6 +462,12 @@ final class TasksSectionTest extends TestCase
         return array_map(static fn(Cell $cell): string => $cell->text, $row->cells);
     }
 
+    /** @return list<array{string, string}> */
+    private static function tags(Row $row): array
+    {
+        return array_map(static fn(Tag $tag): array => [$tag->text, $tag->tone], $row->cells['problems']->tags);
+    }
+
     private static function task(
         string $hash,
         ?TaskKey $key,
@@ -351,6 +477,7 @@ final class TasksSectionTest extends TestCase
         int $last = 0,
         int $failed = 0,
         int $lastFailed = 0,
+        ?string $storedKey = null,
     ): ReportRow {
         $metrics = [
             Metric::TASK_DURATION => new MetricValue($runs, $totalMs, $maxMs),
@@ -359,8 +486,7 @@ final class TasksSectionTest extends TestCase
         if ($failed > 0) {
             $metrics[Metric::TASK_FAILED] = new MetricValue($failed, 0.0, (float) $lastFailed);
         }
-        $storedKey = $key?->toString() ?? Aggregator::OTHER;
 
-        return new ReportRow($hash, $storedKey, null, $metrics);
+        return new ReportRow($hash, $storedKey ?? $key?->toString() ?? Aggregator::OTHER, null, $metrics);
     }
 }
