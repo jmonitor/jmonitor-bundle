@@ -40,7 +40,7 @@
                     </ul>
                 </nav>
             {% else %}
-                <p class="jm-toolbar__note">Read right now, no period</p>
+                <span class="jm-toolbar__note">Read right now, no period</span>
             {% endif %}
             {% for name, label in actions %}
                 <form method="post" action="{{ urls.action(path) }}">

@@ -330,6 +330,17 @@ final class TemplatesTest extends TestCase
         }
     }
 
+    public function testTheToolbarOfAScreenWithoutPeriodHoldsNoParagraph(): void
+    {
+        $page = new Page(new StubBlockScreen('stack'), [], null, '', '', []);
+        $context = ['page' => $page, 'path' => 'stack', 'spaces' => [['id' => 'stack', 'label' => 'Stack', 'path' => 'stack', 'current' => true]], 'periods' => Period::cases(), 'actions' => ['refresh' => 'Refresh']];
+        $toolbar = (new Crawler($this->render('page.html.twig', $context)))->filter('.jm-toolbar');
+
+        static::assertSame('Read right now, no period', $toolbar->filter('.jm-toolbar__note')->text());
+        static::assertCount(1, $toolbar->filter('form button'));
+        static::assertCount(0, $toolbar->filter('p'));
+    }
+
     public function testTheLiveIndicatorIsAHiddenButtonWithAStateAndAnAge(): void
     {
         $page = new Page(new StubBlockScreen(), [], Period::OneHour, '', '', []);

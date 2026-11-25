@@ -316,6 +316,10 @@ body.jm .jm-header {
     margin-left: auto;
 }
 
+.jm-toolbar > * {
+    margin-block: 0;
+}
+
 .jm-period {
     display: flex;
     align-items: center;
@@ -438,6 +442,10 @@ body.jm .jm-header {
 .jm-live[data-jm-live-state="live"] .jm-live__mark {
     border-radius: 50%;
     background: var(--jm-ok);
+}
+
+.jm-live[data-jm-live-state="live"] .jm-live__word {
+    color: var(--jm-ok-text);
 }
 
 .jm-live[data-jm-live-state="live"] .jm-live__progress {
@@ -1145,8 +1153,12 @@ body.jm .jm-section {
 .jm-subnav {
     display: flex;
     flex-wrap: wrap;
-    gap: 0 22px;
+    gap: 0 24px;
     min-width: 0;
+}
+
+.jm-screen > .jm-subbar:first-child {
+    margin-top: -24px;
 }
 
 .jm-subnav__item {
@@ -1157,8 +1169,8 @@ body.jm .jm-section {
     padding: 8px 0 9px;
     border-bottom: 2px solid transparent;
     color: var(--jm-muted);
-    font-size: 13.5px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 400;
     text-decoration: none;
     white-space: nowrap;
 }
@@ -1170,6 +1182,7 @@ body.jm .jm-section {
 .jm-subnav__item[aria-current="page"] {
     border-bottom-color: var(--jm-primary);
     color: var(--jm-text-strong);
+    font-weight: 600;
 }
 
 .jm-instances {
@@ -1771,6 +1784,10 @@ body.jm .jm-section {
         border-bottom: 0;
     }
 
+    .jm-screen > .jm-subbar:first-child {
+        margin-top: -16px;
+    }
+
     .jm-subnav {
         flex: none;
         flex-wrap: nowrap;
@@ -1834,6 +1851,12 @@ body.jm .jm-section {
 
     .jm-fact__hint {
         grid-column: 1;
+    }
+}
+
+@media (max-width: 560px) {
+    body.jm .jm-section {
+        scroll-margin-top: 204px;
     }
 }
 
@@ -1904,9 +1927,16 @@ body.jm .jm-section {
         background: Highlight;
     }
 
-    .jm-subnav__item[aria-current="page"],
     .jm-instances__item[aria-current="true"] {
         outline: 1px solid CanvasText;
+    }
+
+    .jm-subnav__item {
+        border-bottom-color: Canvas;
+    }
+
+    .jm-subnav__item[aria-current="page"] {
+        border-bottom-color: CanvasText;
     }
 
     .jm-mark,
