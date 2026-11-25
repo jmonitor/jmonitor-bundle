@@ -228,11 +228,13 @@ final class DbalReaderTest extends TestCase
         $this->store($connection, [
             new Aggregate(Period::OneHour, $bucket, Metric::CACHE_HIT, 'cache.app', 8, 0.0, 0.0),
             new Aggregate(Period::OneHour, $bucket - 60, Metric::CACHE_HIT, 'cache.app', 2, 0.0, 0.0),
+            new Aggregate(Period::OneHour, $bucket - 3540, Metric::CACHE_HIT, 'cache.app', 4, 0.0, 0.0),
             new Aggregate(Period::OneHour, $bucket - 3600, Metric::CACHE_HIT, 'cache.app', 50, 0.0, 0.0),
             new Aggregate(Period::OneHour, $bucket, Metric::CACHE_HIT, 'cache.users', 3, 0.0, 0.0),
             new Aggregate(Period::OneHour, $bucket, Metric::CACHE_MISS, 'cache.users', 9, 0.0, 0.0),
             new Aggregate(Period::OneHour, $bucket, Metric::REQUEST_SLOW, 'GET app_home', 1, 900.0, 900.0),
             new Aggregate(Period::OneHour, $bucket, Metric::REQUEST_SLOW, 'GET app_list', 2, 1300.0, 700.0),
+            new Aggregate(Period::OneHour, $bucket - 3600, Metric::REQUEST_SLOW, 'GET app_list', 7, 9100.0, 1500.0),
         ]);
         $app = AggregatesTable::keyHash('cache.app');
         $users = AggregatesTable::keyHash('cache.users');
@@ -240,17 +242,17 @@ final class DbalReaderTest extends TestCase
         $mixed = $this->totals($connection, [Metric::REQUEST_SLOW, Metric::CACHE_HIT, Metric::CACHE_MISS], [Metric::CACHE_HIT, Metric::CACHE_MISS]);
 
         static::assertSame(
-            [Metric::CACHE_HIT => [13, 0.0, 0.0], Metric::CACHE_MISS => [9, 0.0, 0.0], Metric::REQUEST_SLOW => [3, 2200.0, 900.0]],
+            [Metric::CACHE_HIT => [17, 0.0, 0.0], Metric::CACHE_MISS => [9, 0.0, 0.0], Metric::REQUEST_SLOW => [3, 2200.0, 900.0]],
             self::flat($mixed->types),
         );
         static::assertSame(
-            [Metric::CACHE_HIT => self::byKey([$app => [10, 0.0, 0.0], $users => [3, 0.0, 0.0]]), Metric::CACHE_MISS => [$users => [9, 0.0, 0.0]]],
+            [Metric::CACHE_HIT => self::byKey([$app => [14, 0.0, 0.0], $users => [3, 0.0, 0.0]]), Metric::CACHE_MISS => [$users => [9, 0.0, 0.0]]],
             self::flatKeys($mixed->keys),
         );
 
         $keyedOnly = $this->totals($connection, [Metric::CACHE_HIT, Metric::CACHE_MISS], [Metric::CACHE_MISS, Metric::CACHE_HIT]);
 
-        static::assertSame([Metric::CACHE_HIT => [13, 0.0, 0.0], Metric::CACHE_MISS => [9, 0.0, 0.0]], self::flat($keyedOnly->types));
+        static::assertSame([Metric::CACHE_HIT => [17, 0.0, 0.0], Metric::CACHE_MISS => [9, 0.0, 0.0]], self::flat($keyedOnly->types));
         static::assertSame(self::flatKeys($mixed->keys), self::flatKeys($keyedOnly->keys));
     }
 
