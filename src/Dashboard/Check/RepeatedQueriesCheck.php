@@ -50,7 +50,7 @@ final class RepeatedQueriesCheck implements CheckInterface
 
     public function finding(Report $report, array $totals, Period $period): Finding
     {
-        $count = \count($report->rows) + max(0, $report->keyCount - \count($report->rows));
+        $count = self::count($report);
         $sentence = 'Queries repeated ' . $this->threshold . ' times or more inside one request in the ' . strtolower(Format::period($period)) . '.';
 
         foreach ($report->rows as $row) {
@@ -89,6 +89,12 @@ final class RepeatedQueriesCheck implements CheckInterface
             'Load the related rows in one query: a join in the first query, or one WHERE id IN (…) for the whole list.',
             $this->screen(),
         );
+    }
+
+    /** the repeated queries of a report read by query(), those beyond its lines included and the (other) key left out */
+    public static function count(Report $report): int
+    {
+        return \count($report->rows) + max(0, $report->keyCount - \count($report->rows));
     }
 
     private static function entryPoint(EntryPointKey $key): string

@@ -459,17 +459,22 @@ final class DashboardTest extends WebTestCase
         static::assertSame('Queries', $crawler->filter('.jm-subnav__item[aria-current="page"] > span:first-child')->text());
     }
 
-    public function testSortingOnSlowQueriesWhenNoneIsSlowStillListsTheQueries(): void
+    public function testSortingOnProblemsWhenNoneIsSlowStillListsTheQueries(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
         $client->request('GET', '/n-plus-one');
         static::assertResponseIsSuccessful();
-        $crawler = self::requestUntil($client, '/jmonitor/queries?sort=slow', 'tr[data-jm-query][data-jm-executions="12"]');
+        $crawler = self::requestUntil($client, '/jmonitor/queries?sort=problems', 'tr[data-jm-query][data-jm-executions="12"]');
 
         static::assertSame('ready', $crawler->filter('.jm-screen')->attr('data-jm-state'));
         static::assertStringContainsString('demo_items', $crawler->filter('tr[data-jm-query][data-jm-executions="12"]')->text());
-        static::assertStringStartsWith('Slow', trim($crawler->filter('th.is-sorted')->text()));
+        static::assertStringStartsWith('Problems', trim($crawler->filter('th.is-sorted')->text()));
+
+        $crawler = $client->request('GET', '/jmonitor/queries?sort=slow');
+        static::assertResponseIsSuccessful();
+        static::assertStringStartsWith('Total time', trim($crawler->filter('th.is-sorted')->text()));
+        static::assertSame('descending', $crawler->filter('th.is-sorted')->attr('aria-sort'));
     }
 
     public function testAHostileQueryTextIsShownEscaped(): void

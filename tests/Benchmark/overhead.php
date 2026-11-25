@@ -695,7 +695,8 @@ if (isset($bases['mysql'])) {
 
 foreach ($bases as $name => $connection) {
     $stored = fillPeriods($connection, $now, DISPLAYED);
-    foreach ([new RequestsScreen(new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(1000), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]), 1000), new QueriesScreen(true, 100, 10), new HttpSection(true), new CacheSection(true), new MessagesSection(true, true), new TasksSection(true, new DeclaredTasks()), new CommandsSection(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
+    $checks = new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(1000), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]);
+    foreach ([new RequestsScreen($checks, 1000), new QueriesScreen(true, $checks, 100, 10), new HttpSection(true), new CacheSection(true), new MessagesSection(true, true), new TasksSection(true, new DeclaredTasks()), new CommandsSection(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
         [$milliseconds, $rows] = displayMillis($connection, $now, $screen);
         report(sprintf('display, %s, loaded database (%s)', $screen->id(), $name), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
     }

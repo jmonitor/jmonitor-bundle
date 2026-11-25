@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
@@ -33,7 +34,7 @@ final class ReadCostTest extends KernelTestCase
     /** @var array<string, int> screen id => SQL statements read to display it once, the flush aside */
     private const BUDGET = [
         'requests' => 8,
-        'queries' => 10,
+        'queries' => 15,
         'exceptions' => 5,
         'users' => 5,
     ];
@@ -49,9 +50,11 @@ final class ReadCostTest extends KernelTestCase
 
     private const QUERY_ID = 'a1b2c3d4e5f6a7b8';
     private const REPEATED_QUERY_ID = 'b2c3d4e5f6a7b8c9';
+    private const SLOW_QUERY_ID = 'c3d4e5f6a7b8c9d0';
     private const LABELS = [
         self::QUERY_ID => 'SELECT * FROM demo_items',
         self::REPEATED_QUERY_ID => 'SELECT * FROM demo_items WHERE id = ?',
+        self::SLOW_QUERY_ID => 'SELECT * FROM demo_orders WHERE customer = ?',
     ];
 
     /** @var list<string> */
@@ -110,6 +113,33 @@ final class ReadCostTest extends KernelTestCase
         static::assertNotNull($view->checks);
         static::assertSame(['queries.repeated'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
         static::assertCount(self::BUDGET['requests'], $recorder->statements);
+    }
+
+    public function testTheBudgetOfQueriesIsMeasuredWithASlowAndARepeatedQuery(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate(self::units()), self::NOW, self::LABELS);
+        $registry = static::getContainer()->get(ScreenRegistry::class);
+        \assert($registry instanceof ScreenRegistry);
+        $screen = $registry->get('queries');
+        \assert($screen instanceof QueriesScreen);
+        $reads = [];
+
+        foreach (['total', 'count', 'avg', 'max', 'problems'] as $sort) {
+            foreach (['desc', 'asc'] as $direction) {
+                $recorder->statements = [];
+                $view = $screen->build(new DbalReader($connection), Period::OneHour, self::NOW, $sort, $direction);
+
+                static::assertNotNull($view->checks);
+                static::assertSame(['queries.slow', 'queries.repeated'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
+                $reads[$sort . ' ' . $direction] = \count($recorder->statements);
+            }
+        }
+
+        static::assertSame(
+            ['total desc' => 15, 'total asc' => 15, 'count desc' => 15, 'count asc' => 15, 'avg desc' => 15, 'avg asc' => 15, 'max desc' => 15, 'max asc' => 15, 'problems desc' => 11, 'problems asc' => 15],
+            $reads,
+        );
     }
 
     public function testEachSectionReadsWithinItsBudget(): void
@@ -194,6 +224,7 @@ final class ReadCostTest extends KernelTestCase
             new Entry(Entry::TYPE_REQUEST, 'GET app_list', $startedAt, 40.0, ['status' => 200, 'memory' => 2048, 'sql_n' => 13, 'sql_ms' => 3.0, 'http_n' => 2, 'http_ms' => 30.0], [
                 new Entry(Entry::TYPE_QUERY, self::QUERY_ID, $startedAt, 1.0, ['n' => 1, 'm' => 1.0]),
                 new Entry(Entry::TYPE_QUERY, self::REPEATED_QUERY_ID, $startedAt, 2.0, ['n' => 12, 'm' => 0.5]),
+                new Entry(Entry::TYPE_QUERY, self::SLOW_QUERY_ID, $startedAt, 150.0, ['n' => 1, 'm' => 150.0, 'sl' => 1]),
                 new Entry(Entry::TYPE_NPLUS1, self::REPEATED_QUERY_ID, $startedAt, 2.0, ['n' => 12]),
                 new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $startedAt, 0.0, ['n' => 1]),
                 new Entry(Entry::TYPE_USER, 'admin', $startedAt, 0.0, ['n' => 1]),

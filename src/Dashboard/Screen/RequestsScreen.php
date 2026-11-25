@@ -267,12 +267,7 @@ final class RequestsScreen implements StorageScreenInterface
             $detail .= ' The most expensive route takes ' . Format::percent(max(array_map(static fn(array $route): float => $route['total'], $routes)) / $totals['total']) . ' of the total time.';
         }
 
-        return new Lead($sentence, $detail, $series, 'requests', match ($period) {
-            Period::OneHour => '1 h ago',
-            Period::SixHours => '6 h ago',
-            Period::OneDay => '24 h ago',
-            Period::SevenDays => '7 d ago',
-        });
+        return new Lead($sentence, $detail, $series, 'requests', Format::periodStart($period));
     }
 
     private static function guide(): Guide

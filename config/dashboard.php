@@ -133,6 +133,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(QueriesScreen::class)
         ->args([
             $builder->getParameter('jmonitor.recording.sql.enabled') !== false,
+            service(ApplicationChecks::class),
             param('jmonitor.recording.sql.slow_threshold'),
             param('jmonitor.recording.sql.n_plus_one_threshold'),
         ])
