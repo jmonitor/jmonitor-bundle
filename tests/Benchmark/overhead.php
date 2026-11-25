@@ -11,15 +11,23 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
+use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\Section\CacheSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\CommandsSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\HttpSection;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Flush\FlushLock;
@@ -75,6 +83,8 @@ const TYPICAL = [30, 50, 1_000, 10, 20, 5, 3];
 const LOADED = [150, 200, 10_000, 20, 200, 50, 20];
 /** routes, distinct queries, couples of a route and a repeated query, users, called hosts, cache pools, exception classes, in each bucket of every period */
 const DISPLAYED = [150, 200, 100, 200, 50, 20, 20];
+/** commands, message classes, scheduled tasks, in each bucket of every period */
+const DISPLAYED_BACKGROUND = [100, 100, 100];
 const DISPLAY_RUNS = 5;
 /** Seconds after which five one-minute buckets have left the one-hour window, and no bucket of the other periods theirs. */
 const PURGE_DELAY = 420;
@@ -132,6 +142,11 @@ function sqlTexts(int $count): array
 function poolName(int $index): string
 {
     return $index === 0 ? 'cache.app' : 'app.pool_' . $index;
+}
+
+function messageClass(int $index): string
+{
+    return 'App\\Message\\Message' . $index;
 }
 
 function exceptionClass(int $index): string
@@ -392,6 +407,7 @@ function fillPeriods(Connection $connection, int $now, array $dataSet): int
             $children[] = new Entry(Entry::TYPE_USER, 'user' . (($minute * $routes + $route) % $users) . '@example.com', $startedAt, 0.0, ['n' => 1]);
             $children[] = new Entry(Entry::TYPE_HTTP, 'api' . (($minute + $route) % $hosts) . '.example.com', $startedAt, 24.0, ['n' => 2, 'm' => 15.0] + ($route % 40 === 0 ? ['c5' => 1] : []));
             $children[] = new Entry(Entry::TYPE_CACHE, poolName($route % $pools), $startedAt, 0.0, ['n' => 3, 'h' => 2, 'mi' => 1, 'w' => 1]);
+            $children[] = new Entry(Entry::TYPE_SENT, messageClass($route % DISPLAYED_BACKGROUND[1]), $startedAt, 0.0, ['n' => 1]);
             $failed = $route % 10 === 0;
             if ($failed) {
                 $children[] = new Entry(Entry::TYPE_EXCEPTION, exceptionClass(($minute + $route) % $classes), $startedAt, 0.0, ['n' => 1]);
@@ -404,6 +420,16 @@ function fillPeriods(Connection $connection, int $now, array $dataSet): int
                 'http_n' => 2,
                 'http_ms' => 24.0,
             ], $children);
+        }
+        [$commands, $messages, $tasks] = DISPLAYED_BACKGROUND;
+        for ($i = 0; $i < $commands; ++$i) {
+            $units[] = new Entry(Entry::TYPE_COMMAND, 'app:command-' . $i, $startedAt, 50.0 + ($minute * 13 + $i) % 900, ['exit' => $i % 10 === 0 ? 1 : 0, 'memory' => 4_194_304]);
+        }
+        for ($i = 0; $i < $messages; ++$i) {
+            $units[] = new Entry(Entry::TYPE_MESSAGE, messageClass($i), $startedAt, 8.0 + ($minute * 7 + $i) % 300, ['memory' => 4_194_304] + ($i % 10 === 0 ? ['failed' => 1] : []));
+        }
+        for ($i = 0; $i < $tasks; ++$i) {
+            $units[] = new Entry(Entry::TYPE_TASK, (new TaskKey('default', 'task-' . $i, 'app:task-' . $i, 'every minute'))->toString(), $startedAt, 20.0 + ($minute * 11 + $i) % 600, $i % 10 === 0 ? ['failed' => 1] : []);
         }
     }
 
@@ -473,6 +499,33 @@ function displayMillis(Connection $connection, int $now, StorageScreenInterface|
         $rows = array_sum(array_map(static fn(Table $table): int => \count($table->rows), $view->tables));
     }
     sort($timings);
+
+    return [$timings[intdiv(DISPLAY_RUNS, 2)], $rows];
+}
+
+/**
+ * @return array{float, int} median milliseconds of the builds of the whole screen on its default sorts, rows shown
+ */
+function composedDisplayMillis(Connection $connection, int $now, ComposedScreen $screen): array
+{
+    $reader = new DbalReader($connection);
+    $builder = new ScreenBuilder($reader, true, new MockClock('@' . $now));
+
+    $timings = [];
+    for ($run = 0; $run < DISPLAY_RUNS; ++$run) {
+        $start = hrtime(true);
+        $builder->create($screen, Period::OneHour->label(), null, null);
+        $timings[] = (hrtime(true) - $start) / 1_000_000;
+    }
+    sort($timings);
+
+    $rows = 0;
+    foreach ($screen->sections() as $section) {
+        $sorts = $section->sorts();
+        $sort = (string) array_key_first($sorts);
+        $view = $section->build($reader, Period::OneHour, $now, $sort, $sorts[$sort]);
+        $rows += array_sum(array_map(static fn(Table $table): int => \count($table->rows), $view->tables));
+    }
 
     return [$timings[intdiv(DISPLAY_RUNS, 2)], $rows];
 }
@@ -637,9 +690,16 @@ if (isset($bases['mysql'])) {
 
 foreach ($bases as $name => $connection) {
     $stored = fillPeriods($connection, $now, DISPLAYED);
-    foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpSection(true), new CacheSection(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
+    foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpSection(true), new CacheSection(true), new MessagesSection(true, true), new TasksSection(true, new DeclaredTasks()), new CommandsSection(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
         [$milliseconds, $rows] = displayMillis($connection, $now, $screen);
         report(sprintf('display, %s, loaded database (%s)', $screen->id(), $name), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
+    }
+    foreach ([
+        new ComposedScreen('cache-http', 'Cache & HTTP', '', Space::Application, [new CacheSection(true), new HttpSection(true)]),
+        new ComposedScreen('background', 'Background', '', Space::Background, [new MessagesSection(true, true), new TasksSection(true, new DeclaredTasks()), new CommandsSection(true)]),
+    ] as $screen) {
+        [$milliseconds, $rows] = composedDisplayMillis($connection, $now, $screen);
+        report(sprintf('display, %s screen, loaded database (%s)', $screen->id(), $name), $milliseconds, 'ms', 100 * \count($screen->sections()), sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
     }
     [$milliseconds, $deleted] = purgeMillis($connection, $now);
     report(sprintf('purge, five one-minute buckets, loaded database (%s)', $name), $milliseconds, 'ms', null, sprintf('(%d of %d rows deleted)', $deleted, $stored));
