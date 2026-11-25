@@ -63,6 +63,12 @@ final class ServerErrorsCheckTest extends TestCase
             '4 server errors',
             'GET app_list answered with a 5xx status 2 times. 1 other route did too.',
         ];
+        yield 'a tie keeps the smallest key in first place' => [
+            [self::row('GET app_list', 2), self::row('POST app_save', 2)],
+            4,
+            '4 server errors',
+            'GET app_list answered with a 5xx status 2 times. 1 other route did too.',
+        ];
         yield 'thousands' => [[self::row('GET app_list', 1234)], 1234, '1,234 server errors', 'GET app_list answered with a 5xx status 1,234 times.'];
     }
 

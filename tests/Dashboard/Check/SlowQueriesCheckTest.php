@@ -48,6 +48,7 @@ final class SlowQueriesCheckTest extends TestCase
     {
         yield 'once' => [1, 1, '1 slow query', 'The one slow most often took 100 ms or more once, 850 ms at worst.'];
         yield 'several times' => [4, 9, '9 slow queries', 'The one slow most often took 100 ms or more 4 times, 850 ms at worst.'];
+        yield 'thousands' => [1234, 2345, '2,345 slow queries', 'The one slow most often took 100 ms or more 1,234 times, 850 ms at worst.'];
     }
 
     #[DataProvider('culprits')]

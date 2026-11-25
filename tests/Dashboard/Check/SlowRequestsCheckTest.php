@@ -62,6 +62,13 @@ final class SlowRequestsCheckTest extends TestCase
             '4 slow requests',
             'GET app_a took 500 ms or more 2 times, 700 ms at worst. 1 other route did too.',
         ];
+        yield 'a tie keeps the smallest key in first place' => [
+            [self::row('GET app_a', 2, 700.0), self::row('GET app_z', 2, 600.0)],
+            4,
+            '4 slow requests',
+            'GET app_a took 500 ms or more 2 times, 700 ms at worst. 1 other route did too.',
+        ];
+        yield 'thousands' => [[self::row('GET app_list', 1234, 2400.0)], 1234, '1,234 slow requests', 'GET app_list took 500 ms or more 1,234 times, 2.4 s at worst.'];
     }
 
     /**

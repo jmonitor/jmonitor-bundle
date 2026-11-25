@@ -61,7 +61,7 @@ final class RepeatedQueriesCheck implements CheckInterface
             }
 
             $calls = $row->count(Metric::NPLUS1_CALLS);
-            $average = $calls === 0 ? 0.0 : $row->sum(Metric::NPLUS1_CALLS) / $calls;
+            $average = round($calls === 0 ? 0.0 : $row->sum(Metric::NPLUS1_CALLS) / $calls, 1);
             $sentence = sprintf(
                 '%s runs the same query %s times on average, %s at worst.',
                 self::entryPoint($key),

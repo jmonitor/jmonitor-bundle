@@ -1080,10 +1080,23 @@ final class PageRendererTest extends TestCase
         static::assertSame([], $reader->totalRequests);
     }
 
-    public function testATotalsReadThatThrowsLeavesThePageWithoutBadge(): void
+    /**
+     * @return iterable<string, array{\Throwable}>
+     */
+    public static function totalsFailures(): iterable
+    {
+        yield 'exception' => [new \RuntimeException('Connection lost')];
+        yield 'error' => [new \TypeError('Connection lost')];
+    }
+
+    #[DataProvider('totalsFailures')]
+    public function testATotalsReadThatThrowsLeavesThePageWithoutBadge(\Throwable $failure): void
     {
         $logger = $this->logger();
-        $reader = new class implements ReaderInterface {
+        $reader = new class ($failure) implements ReaderInterface {
+            public function __construct(private readonly \Throwable $failure) {}
+
+
             public function read(ReportQuery $query): Report
             {
                 return new Report();
@@ -1096,7 +1109,7 @@ final class PageRendererTest extends TestCase
 
             public function totals(Period $period, int $now, array $metricTypes): array
             {
-                throw new \RuntimeException('Connection lost');
+                throw $this->failure;
             }
         };
         $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), self::tableScreen('exceptions')], reader: $reader, logger: $logger, checks: self::checks());
@@ -1113,6 +1126,69 @@ final class PageRendererTest extends TestCase
         }
 
         static::assertSame(array_fill(0, 2, 'error JMonitor could not read the checks of the application: Connection lost'), $logger->messages);
+    }
+
+    public function testAComposedScreenOfTheApplicationReadsTheTotalsOnce(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::NPLUS1_CALLS => new MetricValue(1, 0.0, 0.0)]);
+        $composed = new ComposedScreen('cache-http', 'Cache & HTTP', 'What your code waits for', Space::Application, [self::sectionWithATable('cache'), self::sectionWithATable('http')]);
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), $composed], reader: $reader, checks: self::checks());
+        $request = Request::create('/', parameters: ['period' => '24h']);
+
+        foreach ([
+            'page' => $renderer->page($request, 'cache-http', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment($request, 'cache-http', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            static::assertSame(
+                ['1 critical in the last 24 hours', '1 warning in the last 24 hours'],
+                (new Crawler($html))->filter('.jm-subnav__item .jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')),
+                $kind,
+            );
+        }
+
+        static::assertSame([Period::OneDay, Period::OneDay], array_column($reader->totalRequests, 0));
+    }
+
+    public function testTheBadgesAreReadWhileRecordingIsOffOrTheBufferIsUnusable(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0)]);
+        $screens = [
+            self::tableScreen('requests'),
+            self::tableScreen('queries'),
+            new StubScreen('exceptions'),
+            new ComposedScreen('cache-http', 'Cache & HTTP', 'What your code waits for', Space::Application, [new StubSection('cache')]),
+        ];
+
+        foreach ([
+            'recording_disabled' => $this->renderer($screens, reader: $reader, checks: self::checks(), recording: false),
+            'buffer_unavailable' => $this->renderer($screens, reader: $reader, checks: self::checks(), bufferDirectory: new BufferDirectory(__FILE__, 'app')),
+        ] as $state => $renderer) {
+            foreach (['exceptions', 'cache-http'] as $path) {
+                $reader->totalRequests = [];
+                $html = $renderer->page(Request::create('/'), $path, new FakeHostUrls())->html;
+
+                static::assertStringContainsString('data-jm-state="' . $state . '"', $html, $state . ' ' . $path);
+                static::assertCount(1, $reader->totalRequests, $state . ' ' . $path);
+                static::assertSame(['1 critical in the last hour'], (new Crawler($html))->filter('.jm-subnav__item .jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')), $state . ' ' . $path);
+            }
+        }
+    }
+
+    public function testAnEmptyViewThatCarriesItsRaisedChecksIsNotReadAgain(): void
+    {
+        $checks = self::checks();
+
+        foreach (['empty' => true, 'recording_disabled' => false] as $state => $recording) {
+            $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0)]);
+            $requests = new StubScreen('requests', view: static fn(ReaderInterface $reader): ScreenView => new ScreenView(raised: $checks->raised($reader, Period::OneHour, 1800000000)));
+            $renderer = $this->renderer([$requests, self::tableScreen('queries')], reader: $reader, checks: $checks, recording: $recording);
+
+            $html = $renderer->page(Request::create('/'), 'requests', new FakeHostUrls())->html;
+
+            static::assertStringContainsString('data-jm-state="' . $state . '"', $html, $state);
+            static::assertCount(1, $reader->totalRequests, $state);
+            static::assertSame(['1 critical in the last hour'], (new Crawler($html))->filter('.jm-subnav__item .jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')), $state);
+        }
     }
 
     public function testTheBrandLeadsToTheHomeOfThePage(): void
@@ -1372,7 +1448,7 @@ final class PageRendererTest extends TestCase
     /**
      * @param list<ScreenInterface>|null $screens
      */
-    private function renderer(?array $screens = null, ?Flusher $flusher = null, ?ReaderInterface $reader = new FixedReader(), ?ActionGuard $guard = null, ?LoggerInterface $logger = null, ?ApplicationChecks $checks = null): PageRenderer
+    private function renderer(?array $screens = null, ?Flusher $flusher = null, ?ReaderInterface $reader = new FixedReader(), ?ActionGuard $guard = null, ?LoggerInterface $logger = null, ?ApplicationChecks $checks = null, bool $recording = true, ?BufferDirectory $bufferDirectory = null): PageRenderer
     {
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');
@@ -1381,7 +1457,7 @@ final class PageRendererTest extends TestCase
 
         return new PageRenderer(
             new ScreenRegistry($screens ?? [$this->screenWithATable()]),
-            new ScreenBuilder($reader, true, new MockClock('@1800000000'), null, $logger, $checks ?? new ApplicationChecks([])),
+            new ScreenBuilder($reader, $recording, new MockClock('@1800000000'), $bufferDirectory, $logger, $checks ?? new ApplicationChecks([])),
             $flusher,
             $twig,
             new Assets(),

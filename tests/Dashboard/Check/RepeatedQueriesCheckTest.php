@@ -81,6 +81,12 @@ final class RepeatedQueriesCheckTest extends TestCase
         yield 'one' => [[$first], 1, 'Repeated query (N+1)', 'GET app_list runs the same query 25 times on average, 40 at worst.'];
         yield 'two' => [[$first, $second], 2, '2 repeated queries (N+1)', 'GET app_list runs the same query 25 times on average, 40 at worst. 1 more is listed on Queries.'];
         yield 'more keys than lines' => [[$first, $second], 7, '7 repeated queries (N+1)', 'GET app_list runs the same query 25 times on average, 40 at worst. 6 more are listed on Queries.'];
+        yield 'thousands' => [
+            [self::row(Entry::TYPE_REQUEST, 'GET app_list', 3000.0, 2, 1500.0)],
+            1235,
+            '1,235 repeated queries (N+1)',
+            'GET app_list runs the same query 1,500 times on average, 1,500 at worst. 1,234 more are listed on Queries.',
+        ];
     }
 
     /**
@@ -93,6 +99,24 @@ final class RepeatedQueriesCheckTest extends TestCase
 
         static::assertSame($title, $finding->title);
         static::assertSame($sentence, $finding->sentence);
+    }
+
+    /**
+     * @return iterable<string, array{float, string}>
+     */
+    public static function averages(): iterable
+    {
+        yield 'under ten, one decimal' => [99.4, '9.9'];
+        yield 'rounded up to ten, no decimal' => [99.6, '10'];
+        yield 'ten and more, no decimal' => [125.0, '13'];
+    }
+
+    #[DataProvider('averages')]
+    public function testTheAverageTakesOneDecimalWhenItIsRoundedUnderTen(float $calls, string $average): void
+    {
+        $finding = (new RepeatedQueriesCheck(10))->finding(new Report([self::row(Entry::TYPE_REQUEST, 'GET app_list', $calls, 10, 20.0)], keyCount: 1), self::totals(), Period::OneHour);
+
+        static::assertSame('GET app_list runs the same query ' . $average . ' times on average, 20 at worst.', $finding->sentence);
     }
 
     public function testTheCulpritIsTheFirstLineWhoseKeyReads(): void
