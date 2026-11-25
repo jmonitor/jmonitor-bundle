@@ -7,6 +7,10 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard\Check;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\CacheHitRateCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedMessagesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\HttpErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\HttpFailuresCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
@@ -53,6 +57,36 @@ final class RaisedChecksTest extends TestCase
 
         static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('requests'));
         static::assertEquals(new NavBadge('1 warning', 'warn', '1 warning in the last hour'), $raised->badge('queries'));
+    }
+
+    public function testTheBadgeOfCacheAndHttpCountsItsThreeChecks(): void
+    {
+        $checks = new ApplicationChecks([
+            new ServerErrorsCheck(),
+            new HttpFailuresCheck(),
+            new HttpErrorsCheck(),
+            new CacheHitRateCheck(),
+            new FailedMessagesCheck(),
+        ]);
+        $totals = array_fill_keys([self::SERVER_ERRORS, Metric::HTTP_FAILED, Metric::HTTP_STATUS_PREFIX . '4xx', Metric::CACHE_HIT, Metric::CACHE_MISS, Metric::MESSAGE_FAILED], new MetricValue(1, 0.0, 0.0));
+        $keys = [Metric::CACHE_MISS => [md5('cache.app') => new MetricValue(20, 0.0, 0.0)]];
+
+        $raised = $checks->raised(new FixedReader(totals: $totals, keyTotals: $keys), Period::OneHour, self::NOW);
+
+        static::assertEquals(new NavBadge('3 critical', 'bad', '1 critical, 2 warnings in the last hour'), $raised->badge('cache-http'));
+        static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('requests'));
+        static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('background'));
+    }
+
+    public function testTheBadgeOfCacheAndHttpLeavesOutAPoolThatIsNotLow(): void
+    {
+        $checks = new ApplicationChecks([new HttpErrorsCheck(), new CacheHitRateCheck()]);
+        $totals = array_fill_keys([Metric::HTTP_STATUS_PREFIX . '5xx', Metric::CACHE_MISS], new MetricValue(19, 0.0, 0.0));
+        $keys = [Metric::CACHE_MISS => [md5('cache.app') => new MetricValue(19, 0.0, 0.0)]];
+
+        $raised = $checks->raised(new FixedReader(totals: $totals, keyTotals: $keys), Period::SixHours, self::NOW);
+
+        static::assertEquals(new NavBadge('1 warning', 'warn', '1 warning in the last 6 hours'), $raised->badge('cache-http'));
     }
 
     public function testTheTotalsOfARaisedCheckAreThoseOfItsMetrics(): void

@@ -8,6 +8,12 @@ use Jmonitor\JmonitorBundle\Controller\StandaloneUrls;
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\CacheHitRateCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedCommandsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedMessagesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedTasksCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\HttpErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\HttpFailuresCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
@@ -121,6 +127,24 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
 
     $services->set(RepeatedQueriesCheck::class)
         ->args([param('jmonitor.recording.sql.n_plus_one_threshold')])
+        ->tag('jmonitor.check');
+
+    $services->set(HttpFailuresCheck::class)
+        ->tag('jmonitor.check');
+
+    $services->set(HttpErrorsCheck::class)
+        ->tag('jmonitor.check');
+
+    $services->set(CacheHitRateCheck::class)
+        ->tag('jmonitor.check');
+
+    $services->set(FailedMessagesCheck::class)
+        ->tag('jmonitor.check');
+
+    $services->set(FailedTasksCheck::class)
+        ->tag('jmonitor.check');
+
+    $services->set(FailedCommandsCheck::class)
         ->tag('jmonitor.check');
 
     $services->set(ScreenRegistry::class)

@@ -63,7 +63,7 @@ final class SlowRequestsCheck implements CheckInterface
             );
 
             if ($culprit->others > 0) {
-                $sentence .= ' ' . Culprit::otherRoutes($culprit->others) . ' did too.';
+                $sentence .= ' ' . Culprit::others($culprit->others, 'other route', 'other routes') . ' did too.';
             }
         }
 

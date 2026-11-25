@@ -12,6 +12,10 @@ use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\CacheHitRateCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedMessagesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\HttpErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\HttpFailuresCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
@@ -1148,6 +1152,47 @@ final class PageRendererTest extends TestCase
         }
 
         static::assertSame([Period::OneDay, Period::OneDay], array_column($reader->totalRequests, 0));
+    }
+
+    public function testTheCacheAndHttpTabCarriesTheBadgeOfItsChecks(): void
+    {
+        $checks = new ApplicationChecks([
+            new ServerErrorsCheck(),
+            new SlowRequestsCheck(500),
+            new SlowQueriesCheck(100),
+            new RepeatedQueriesCheck(10),
+            new HttpFailuresCheck(),
+            new HttpErrorsCheck(),
+            new CacheHitRateCheck(),
+            new FailedMessagesCheck(),
+        ]);
+        $reader = new FixedReader(
+            totals: array_fill_keys([Metric::HTTP_FAILED, Metric::HTTP_STATUS_PREFIX . '5xx', Metric::CACHE_HIT, Metric::CACHE_MISS, Metric::MESSAGE_FAILED], new MetricValue(2, 0.0, 0.0)),
+            keyTotals: [Metric::CACHE_MISS => [md5('cache.app') => new MetricValue(20, 0.0, 0.0)]],
+        );
+        $composed = new ComposedScreen('cache-http', 'Cache & HTTP', 'What your code waits for', Space::Application, [self::sectionWithATable('cache'), self::sectionWithATable('http')]);
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), $composed, self::composed(self::sectionWithATable('messages'))], reader: $reader, checks: $checks);
+
+        foreach (['requests', 'cache-http'] as $path) {
+            foreach ([
+                'page' => $renderer->page(Request::create('/'), $path, new FakeHostUrls())->html,
+                'fragment' => (string) $renderer->fragment(Request::create('/'), $path, new FakeHostUrls())->getContent(),
+            ] as $kind => $html) {
+                $tabs = (new Crawler($html))->filter('.jm-subnav__item');
+
+                static::assertCount(3, $tabs, $path . ' ' . $kind);
+                static::assertCount(0, $tabs->eq(0)->filter('.jm-nav__badge'), $path . ' ' . $kind);
+                static::assertCount(0, $tabs->eq(1)->filter('.jm-nav__badge'), $path . ' ' . $kind);
+                static::assertSame(
+                    '<span class="jm-nav__badge jm-nav__badge--bad" title="1 critical, 2 warnings in the last hour">3 critical<span class="jm-visually-hidden"> — 1 critical, 2 warnings in the last hour</span></span>',
+                    $tabs->eq(2)->filter('.jm-nav__badge')->outerHtml(),
+                    $path . ' ' . $kind,
+                );
+            }
+        }
+
+        static::assertCount(4, $reader->totalRequests);
+        static::assertSame(array_fill(0, 4, [Metric::CACHE_HIT, Metric::CACHE_MISS]), $reader->keyedRequests);
     }
 
     public function testTheBadgesAreReadWhileRecordingIsOffOrTheBufferIsUnusable(): void

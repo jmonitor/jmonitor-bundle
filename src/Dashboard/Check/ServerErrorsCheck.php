@@ -56,7 +56,7 @@ final class ServerErrorsCheck implements CheckInterface
             $sentence = $culprit->row->key . ' answered with a 5xx status ' . Culprit::times($culprit->count) . '.';
 
             if ($culprit->others > 0) {
-                $sentence .= ' ' . Culprit::otherRoutes($culprit->others) . ' did too.';
+                $sentence .= ' ' . Culprit::others($culprit->others, 'other route', 'other routes') . ' did too.';
             }
         }
 
