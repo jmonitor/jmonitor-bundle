@@ -6,6 +6,8 @@ namespace Jmonitor\JmonitorBundle\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
+use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
+use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 
 final class Page
@@ -50,13 +52,39 @@ final class Page
 
     public function state(): string
     {
-        $states = array_unique(array_map(static fn(Block $block): string => $block->state->value, $this->blocks));
+        $states = array_unique(self::states($this->blocks));
 
         return match (\count($states)) {
             0 => 'ready',
             1 => reset($states),
             default => 'mixed',
         };
+    }
+
+    /**
+     * @param list<Block> $blocks
+     *
+     * @return list<string>
+     */
+    private static function states(array $blocks): array
+    {
+        $states = [];
+
+        foreach ($blocks as $block) {
+            if (!$block->content instanceof Section) {
+                $states[] = $block->state->value;
+
+                continue;
+            }
+
+            $states = [...$states, ...self::states($block->content->blocks)];
+
+            if ($block->content->empty !== null) {
+                $states[] = BlockState::Empty->value;
+            }
+        }
+
+        return $states;
     }
 
     public function isReading(): bool

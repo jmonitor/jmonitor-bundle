@@ -321,7 +321,7 @@ final class ScreenBuilderTest extends TestCase
         $page = $this->builder()->create(self::composed($this->section('first', rows: 1), $this->section('quiet', rows: 0), $this->section('last', rows: 1)), '6h', null, null);
 
         static::assertSame(['section first', 'section quiet', 'section last'], self::shape($page));
-        static::assertSame('ready', $page->state());
+        static::assertSame('mixed', $page->state());
         $quiet = self::sectionOf($page, 'quiet');
         static::assertSame([], $quiet->blocks);
         static::assertSame(['title' => 'No quiet in 6h.', 'text' => 'Help about quiet.'], $quiet->empty);

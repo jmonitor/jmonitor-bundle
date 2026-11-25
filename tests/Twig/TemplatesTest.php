@@ -668,7 +668,8 @@ final class TemplatesTest extends TestCase
         static::assertSame('Runs of bin/console, by cron, a deploy or by hand.', $element->filter('.jm-section__summary')->text());
         static::assertSame('3', $element->filter('.jm-cards .jm-card__value')->text());
         static::assertCount(0, $element->filter('.jm-panel h2'));
-        static::assertSame('jm-section-commands-title', $element->filter('.jm-panel')->attr('aria-labelledby'));
+        static::assertSame('div', $element->filter('.jm-panel')->nodeName());
+        static::assertNull($element->filter('.jm-panel')->attr('aria-labelledby'));
         static::assertSame('jm-section-commands-title', $element->filter('.jm-table-wrap')->attr('aria-labelledby'));
         static::assertSame('1 row', $element->filter('.jm-panel__meta')->text());
         static::assertStringNotContainsString('Stubs', $html);
