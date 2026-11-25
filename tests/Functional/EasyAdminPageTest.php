@@ -91,7 +91,7 @@ final class EasyAdminPageTest extends WebTestCase
     {
         $client = $this->client(['messenger' => true, 'scheduler' => true]);
 
-        foreach (['background' => ['messages', 'tasks', 'commands'], 'cache-http' => ['cache', 'http']] as $id => $sections) {
+        foreach (['background' => ['jm-messages', 'jm-tasks', 'jm-commands'], 'cache-http' => ['jm-cache', 'jm-http']] as $id => $sections) {
             $crawler = $client->request('GET', '/admin/jmonitor/' . $id);
 
             static::assertResponseIsSuccessful($id);
@@ -277,7 +277,7 @@ final class EasyAdminPageTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertCount(1, $crawler->filter('body.ea'));
-        static::assertCount(1, $crawler->filter('.jm .jm-screen > section#messages > .jm-state[data-jm-reading]'));
+        static::assertCount(1, $crawler->filter('.jm .jm-screen > section#jm-messages > .jm-state[data-jm-reading]'));
         $rest = (string) $crawler->filter('.jm a[data-jm-rest]')->attr('href');
         static::assertStringStartsWith('/admin/jmonitor/background?', $rest);
         static::assertStringContainsString('period=1h', $rest);
@@ -286,7 +286,7 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertResponseIsSuccessful();
         $crawler = $client->request('GET', '/admin/jmonitor/background');
 
-        static::assertSame('Queues', $crawler->filter('.jm .jm-screen > section#messages > .jm-facts .jm-panel__title')->text());
+        static::assertSame('Queues', $crawler->filter('.jm .jm-screen > section#jm-messages > .jm-facts .jm-panel__title')->text());
         static::assertSame('12', $crawler->filter('.jm .jm-facts .jm-fact__value')->text());
         foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
             static::assertStringStartsWith('/admin/jmonitor', $url);

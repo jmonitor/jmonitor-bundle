@@ -10,7 +10,7 @@ use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 
 interface SectionInterface
 {
-    /** @return non-empty-string matching [a-z][a-z-]*, also the anchor of the section */
+    /** @return non-empty-string matching [a-z][a-z-]* */
     public function id(): string;
 
     public function title(): string;

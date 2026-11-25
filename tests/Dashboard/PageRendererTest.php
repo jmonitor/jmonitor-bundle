@@ -993,8 +993,8 @@ final class PageRendererTest extends TestCase
     public function testASortLinkOfASectionNamesItAndEndsWithItsAnchor(): void
     {
         $renderer = $this->renderer([self::composed(self::sectionWithATable('tasks'), self::sectionWithATable('commands'))]);
-        $links = static fn(Crawler $crawler, string $section): array => $crawler->filter('section#' . $section . ' a.jm-sort')->each(static fn(Crawler $link): string => (string) $link->attr('href'));
-        $sorted = static fn(Crawler $crawler, string $section): array => [$crawler->filter('section#' . $section . ' th[aria-sort]')->text(), $crawler->filter('section#' . $section . ' th[aria-sort]')->attr('aria-sort')];
+        $links = static fn(Crawler $crawler, string $section): array => $crawler->filter('section#jm-' . $section . ' a.jm-sort')->each(static fn(Crawler $link): string => (string) $link->attr('href'));
+        $sorted = static fn(Crawler $crawler, string $section): array => [$crawler->filter('section#jm-' . $section . ' th[aria-sort]')->text(), $crawler->filter('section#jm-' . $section . ' th[aria-sort]')->attr('aria-sort')];
 
         foreach ([
             'page' => $renderer->page(Request::create('/', parameters: ['period' => '6h']), 'background', new FakeHostUrls())->html,
@@ -1002,8 +1002,8 @@ final class PageRendererTest extends TestCase
         ] as $kind => $html) {
             $crawler = new Crawler($html);
 
-            static::assertSame(['/host/page/background?menu=3&period=6h&sort=tasks.name&dir=asc#tasks', '/host/page/background?menu=3&period=6h&sort=tasks.runs&dir=asc#tasks'], $links($crawler, 'tasks'), $kind);
-            static::assertSame(['/host/page/background?menu=3&period=6h&sort=commands.name&dir=asc#commands', '/host/page/background?menu=3&period=6h&sort=commands.runs&dir=asc#commands'], $links($crawler, 'commands'), $kind);
+            static::assertSame(['/host/page/background?menu=3&period=6h&sort=tasks.name&dir=asc#jm-tasks', '/host/page/background?menu=3&period=6h&sort=tasks.runs&dir=asc#jm-tasks'], $links($crawler, 'tasks'), $kind);
+            static::assertSame(['/host/page/background?menu=3&period=6h&sort=commands.name&dir=asc#jm-commands', '/host/page/background?menu=3&period=6h&sort=commands.runs&dir=asc#jm-commands'], $links($crawler, 'commands'), $kind);
             static::assertSame(['Runs ↓', 'descending'], $sorted($crawler, 'commands'), $kind);
         }
 
@@ -1013,9 +1013,9 @@ final class PageRendererTest extends TestCase
         ] as $kind => $html) {
             $crawler = new Crawler($html);
 
-            static::assertSame(['/host/page/background?menu=3&period=6h&sort=commands.name&dir=desc#commands', '/host/page/background?menu=3&period=6h&sort=commands.runs&dir=desc#commands'], $links($crawler, 'commands'), $kind);
+            static::assertSame(['/host/page/background?menu=3&period=6h&sort=commands.name&dir=desc#jm-commands', '/host/page/background?menu=3&period=6h&sort=commands.runs&dir=desc#jm-commands'], $links($crawler, 'commands'), $kind);
             static::assertSame(['Name ↑', 'ascending'], $sorted($crawler, 'commands'), $kind);
-            static::assertSame(['/host/page/background?menu=3&period=6h&sort=tasks.name&dir=asc#tasks', '/host/page/background?menu=3&period=6h&sort=tasks.runs&dir=asc#tasks'], $links($crawler, 'tasks'), $kind);
+            static::assertSame(['/host/page/background?menu=3&period=6h&sort=tasks.name&dir=asc#jm-tasks', '/host/page/background?menu=3&period=6h&sort=tasks.runs&dir=asc#jm-tasks'], $links($crawler, 'tasks'), $kind);
             static::assertSame(['Runs ↓', 'descending'], $sorted($crawler, 'tasks'), $kind);
         }
     }
@@ -1079,7 +1079,7 @@ final class PageRendererTest extends TestCase
         foreach ([['sort' => ['commands.name']], ['sort' => 'commands.', 'dir' => ['asc']], ['sort' => 'commands.name.x'], ['sort' => 'commands.handled', 'dir' => 'asc']] as $parameters) {
             $crawler = new Crawler($renderer->page(Request::create('/', parameters: $parameters), 'background', new FakeHostUrls())->html);
 
-            static::assertSame('Runs ↓', $crawler->filter('section#commands th[aria-sort]')->text());
+            static::assertSame('Runs ↓', $crawler->filter('section#jm-commands th[aria-sort]')->text());
             static::assertSame('/host/page/background?menu=3&period=24h', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
         }
     }

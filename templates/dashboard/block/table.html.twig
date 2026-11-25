@@ -22,7 +22,7 @@
                             {% if active %}aria-sort="{{ direction == 'asc' ? 'ascending' : 'descending' }}"{% endif %}>
                             {% if column.sort is not null %}
                                 <a class="jm-sort" href="{{ section
-                                    ? urls.page(path ?? page.screen.id, (page.period ? {period: page.period.label} : {})|merge({sort: section.id ~ '.' ~ column.sort, dir: section.directionFor(column.sort)})) ~ '#' ~ section.id
+                                    ? urls.page(path ?? page.screen.id, (page.period ? {period: page.period.label} : {})|merge({sort: section.id ~ '.' ~ column.sort, dir: section.directionFor(column.sort)})) ~ '#jm-' ~ section.id
                                     : urls.page(path ?? page.screen.id, page.period ? {period: page.period.label, sort: column.sort, dir: page.directionFor(column.sort)} : {}) }}">
                                     <span>{{ column.label }}</span>
                                     <span class="jm-sort__icon" aria-hidden="true">{{ active ? (direction == 'asc' ? '↑' : '↓') : '↕' }}</span>

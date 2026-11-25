@@ -258,14 +258,14 @@ The header of the page has three entries, `Application`, `Background` and `Stack
   - **Requests** (`/jmonitor/`, or `/jmonitor/requests` when nothing is recorded and the page opens on Stack): requests, response times (average, p95, max), SQL time and number of queries, time spent in outgoing HTTP calls (`HTTP out`), slow requests, 5xx errors and peak memory, per route.
   - **Queries** (`/jmonitor/queries`): executions, total, average and maximum time and slow executions per SQL query, and the queries repeated within one request, command, message or task (N+1).
   - **Cache & HTTP** (`/jmonitor/cache-http`), in two sections:
-    - `Cache` (`#cache`): hits, misses, hit rate, writes and deletes, per cache pool.
-    - `Outgoing HTTP` (`#http`): calls, total, average and maximum time, 4xx and 5xx responses and network failures, per called host.
+    - `Cache` (`#jm-cache`): hits, misses, hit rate, writes and deletes, per cache pool.
+    - `Outgoing HTTP` (`#jm-http`): calls, total, average and maximum time, 4xx and 5xx responses and network failures, per called host.
   - **Exceptions** (`/jmonitor/exceptions`): count and last occurrence per exception class, and per class and route, command, message or task.
   - **Users** (`/jmonitor/users`): requests, total and average time, slow requests and 5xx errors, per signed-in user.
 - **Background** (`/jmonitor/background`), in three sections:
-  - `Messages` (`#messages`): the messages waiting in each transport, counted live (see [The queues of the Background screen](#the-queues-of-the-background-screen)), then messages sent and handled, handling time (average, p95, max), failures, retries and SQL time, per message class.
-  - `Scheduled tasks` (`#tasks`): the scheduled tasks with their schedule, trigger, next run, last run, runs, average and maximum duration and failures.
-  - `Commands` (`#commands`): runs, average and maximum duration, failures (non-zero exit code), peak memory, last run and SQL time, per console command.
+  - `Messages` (`#jm-messages`): the messages waiting in each transport, counted live (see [The queues of the Background screen](#the-queues-of-the-background-screen)), then messages sent and handled, handling time (average, p95, max), failures, retries and SQL time, per message class.
+  - `Scheduled tasks` (`#jm-tasks`): the scheduled tasks with their schedule, trigger, next run, last run, runs, average and maximum duration and failures.
+  - `Commands` (`#jm-commands`): runs, average and maximum duration, failures (non-zero exit code), peak memory, last run and SQL time, per console command.
 - **Stack** (`/jmonitor/stack`): the server, PHP, Symfony, the web server (FrankenPHP, Apache or Nginx), the MySQL, MariaDB and PostgreSQL databases of your Doctrine connections and your Redis or Valkey servers, read live rather than recorded, with what to check; see [The live stack](#the-live-stack).
 
 A tab or a section only appears when its component is installed and its recording option is on: Outgoing HTTP needs the `http_client` service of the framework, Users needs the SecurityBundle, Messages needs `symfony/messenger` and Scheduled tasks needs `symfony/scheduler`, each enabled in the framework configuration. Messages also appears when its recording is off, as long as the queues are counted. A screen left without any section disappears, and its address answers 404: without Messenger, the Scheduler and the recording of commands, there is no `Background` entry.

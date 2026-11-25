@@ -46,7 +46,7 @@ final class HttpClientRecordingTest extends WebTestCase
             $client->request('GET', '/call');
             static::assertResponseIsSuccessful();
         }
-        $crawler = self::requestUntil($client, '/jmonitor/cache-http', 'section#http tr[data-jm-host="api.example.com:8443"][data-jm-calls="2"]');
+        $crawler = self::requestUntil($client, '/jmonitor/cache-http', 'section#jm-http tr[data-jm-host="api.example.com:8443"][data-jm-calls="2"]');
 
         static::assertResponseIsSuccessful();
         static::assertSame('Cache & HTTP', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
@@ -71,7 +71,7 @@ final class HttpClientRecordingTest extends WebTestCase
 
         $client->request('GET', '/call-flaky');
         static::assertResponseIsSuccessful();
-        $crawler = self::requestUntil($client, '/jmonitor/cache-http', 'section#http tr[data-jm-host="flaky.example.com"][data-jm-calls="1"]');
+        $crawler = self::requestUntil($client, '/jmonitor/cache-http', 'section#jm-http tr[data-jm-host="flaky.example.com"][data-jm-calls="1"]');
 
         $row = self::hostRows($crawler);
         static::assertSame(['flaky.example.com'], $row->each(static fn(Crawler $row): ?string => $row->attr('data-jm-host')));
@@ -94,7 +94,7 @@ final class HttpClientRecordingTest extends WebTestCase
         $html = (string) $client->getResponse()->getContent();
 
         static::assertResponseIsSuccessful();
-        static::assertSame('<script>alert(1)</script>', $crawler->filter('section#http tr[data-jm-host] th')->text());
+        static::assertSame('<script>alert(1)</script>', $crawler->filter('section#jm-http tr[data-jm-host] th')->text());
         static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html);
         static::assertStringNotContainsString('<script>alert(1)', $html);
     }
@@ -120,6 +120,6 @@ final class HttpClientRecordingTest extends WebTestCase
 
     private static function hostRows(Crawler $crawler): Crawler
     {
-        return $crawler->filter('section#http tbody tr');
+        return $crawler->filter('section#jm-http tbody tr');
     }
 }

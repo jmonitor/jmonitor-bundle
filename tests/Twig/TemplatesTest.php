@@ -662,7 +662,7 @@ final class TemplatesTest extends TestCase
         $element = $crawler->filter('.jm-screen > section.jm-section');
 
         static::assertCount(1, $element);
-        static::assertSame('commands', $element->attr('id'));
+        static::assertSame('jm-commands', $element->attr('id'));
         static::assertSame('jm-section-commands-title', $element->attr('aria-labelledby'));
         static::assertSame('Commands', $element->filter('h2#jm-section-commands-title')->text());
         static::assertSame('Runs of bin/console, by cron, a deploy or by hand.', $element->filter('.jm-section__summary')->text());
@@ -688,7 +688,7 @@ final class TemplatesTest extends TestCase
         $empty = ['title' => 'No scheduled task is declared.', 'text' => 'Tasks show up here once a schedule declares them.'];
 
         $crawler = new Crawler($this->composed(Block::section(new Section('tasks', 'Scheduled tasks', 'What Symfony Scheduler starts by the clock.', [$own], 'count', 'desc', ['count' => 'desc'], $empty))));
-        $element = $crawler->filter('section#tasks');
+        $element = $crawler->filter('section#jm-tasks');
 
         foreach (['table', '.jm-panel', '.jm-cards', '.jm-state'] as $selector) {
             static::assertCount(0, $element->filter($selector), $selector);

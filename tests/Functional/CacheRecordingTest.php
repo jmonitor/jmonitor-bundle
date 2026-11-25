@@ -47,11 +47,11 @@ final class CacheRecordingTest extends WebTestCase
             static::assertResponseIsSuccessful();
             static::assertSame('Computed once', $client->getResponse()->getContent());
         }
-        $crawler = self::requestUntil($client, '/jmonitor/cache-http', 'section#cache tr[data-jm-pool="cache.app"][data-jm-reads="3"]');
+        $crawler = self::requestUntil($client, '/jmonitor/cache-http', 'section#jm-cache tr[data-jm-pool="cache.app"][data-jm-reads="3"]');
 
         static::assertResponseIsSuccessful();
         static::assertSame('Cache & HTTP', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
-        $rows = $crawler->filter('section#cache tbody tr');
+        $rows = $crawler->filter('section#jm-cache tbody tr');
         static::assertSame(['cache.app'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-pool')));
         static::assertSame(['3'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-reads')));
         static::assertSame(
@@ -75,7 +75,7 @@ final class CacheRecordingTest extends WebTestCase
         $html = (string) $client->getResponse()->getContent();
 
         static::assertResponseIsSuccessful();
-        static::assertSame('<script>alert(1)</script>', $crawler->filter('section#cache tr[data-jm-pool] th')->text());
+        static::assertSame('<script>alert(1)</script>', $crawler->filter('section#jm-cache tr[data-jm-pool] th')->text());
         static::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html);
         static::assertStringNotContainsString('<script>alert(1)', $html);
     }
