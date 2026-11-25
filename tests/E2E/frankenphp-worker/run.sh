@@ -279,6 +279,11 @@ printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requ
 if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen after the stopped MySQL server"
 fi
+printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">31 requests in the last hour, ' || fail "the Requests screen does not sum up 31 requests in its lead after the stopped MySQL server"
+printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-title">Nothing to flag<' || fail 'the Requests screen does not say "Nothing to flag" without a server error, a slow request or a repeated query'
+if printf '%s\n' "$page" | grep -q 'data-jm-check='; then
+    fail "the Requests screen flags a check without a server error, a slow request or a repeated query"
+fi
 
 $COMPOSE up --detach --wait mysql >/dev/null 2>&1 || fail "the MySQL server could not be started again"
 status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' --data 'action=refresh' "$BASE/jmonitor/_action/stack")"
@@ -427,9 +432,20 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 [ "$repeated" = 1 ] || fail 'the Queries screen did not list the N+1 of "GET app_n_plus_one" within 30 s'
+expect_page /jmonitor/queries 'class="jm-heading__title jm-lead__title">40 SQL queries in the last hour, ' 'the Queries screen did not sum up 40 SQL queries in its lead'
+printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Queries screen does not flag the repeated query"
+printf '%s\n' "$page" | grep -q '<strong>Repeated query (N+1)</strong> · GET app_n_plus_one runs the same query 12 times on average, 12 at worst.' || fail "the Queries screen does not name GET app_n_plus_one as the route that repeats a query 12 times"
 
 # The first round runs in a worker that has already served the requests above, the second in a new one.
 captures_round 1
+expect_page /jmonitor/requests 'class="jm-heading__title jm-lead__title">40 requests in the last hour, ' 'the Requests screen did not sum up 40 requests in its lead'
+printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "the Requests screen does not flag the server errors"
+printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "the Requests screen does not name GET app_boom as the route that answered 2 server errors"
+printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Requests screen does not flag the query that GET app_n_plus_one repeats"
+admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/requests")" || fail "GET /admin/jmonitor/requests failed"
+status="$(printf '%s\n' "$admin" | tail -n 1)"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor/requests answered $status instead of 200"
+printf '%s\n' "$admin" | grep -q 'class="jm-heading__title jm-lead__title">40 requests in the last hour, ' || fail "the Requests screen inside EasyAdmin does not sum up 40 requests in its lead"
 
 # The Redis server is also the one of cache.app, so of the cache of the Stack screen.
 $COMPOSE stop redis >/dev/null 2>&1 || fail "the Redis server could not be stopped"
@@ -510,4 +526,4 @@ if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; the Requests and Queries screens sum up the period, have nothing to flag, then flag the server errors and the repeated query, also inside EasyAdmin; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
