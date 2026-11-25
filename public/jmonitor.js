@@ -108,11 +108,10 @@
         var texts = {
             live: ['Live', fresh ? 'updated just now' : 'updated ' + duration(elapsed) + ' ago'],
             paused: ['Paused', fresh ? 'data from just now' : 'data from ' + duration(elapsed) + ' ago'],
-            failed: ['Not updated', 'for ' + duration(elapsed) + (liveRefused ? '' : ' · retrying')],
+            failed: ['Not updated', 'for ' + duration(Math.max(elapsed, SECOND)) + (liveRefused ? '' : ' · retrying')],
         };
 
         toggle.setAttribute('data-jm-live-state', state);
-        toggle.setAttribute('aria-pressed', enabled && !liveRefused ? 'true' : 'false');
         toggle.title = state !== 'failed' ? '' : liveRefused ? 'Refresh stopped: turn Live on again or reload the page' : 'Last refresh failed, retrying';
         writeText('[data-jm-live-word]', texts[state][0]);
         writeText('[data-jm-live-age]', texts[state][1]);
@@ -285,6 +284,7 @@
         tellNodeChange(node);
         receivedAt = Date.now();
         tickAge();
+        restartProgress();
 
         if (!isReading()) {
             fastTries = 0;
@@ -456,11 +456,7 @@
         stop();
 
         if (enabled && !liveRefused && !document.hidden) {
-            timer = window.setInterval(function () {
-                restartProgress();
-                refresh();
-            }, INTERVAL);
-            restartProgress();
+            timer = window.setInterval(refresh, INTERVAL);
         }
     }
 

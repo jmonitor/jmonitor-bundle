@@ -144,6 +144,34 @@ final class StylesheetTest extends TestCase
         static::assertContains(['background', 'transparent'], self::declarationsOf('.jm-live[data-jm-live-state="paused"]', null));
     }
 
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function liveStates(): iterable
+    {
+        yield 'live' => ['live'];
+        yield 'paused' => ['paused'];
+        yield 'failed' => ['failed'];
+    }
+
+    #[DataProvider('liveStates')]
+    public function testNoRuleHidesTheWordOfTheLiveButton(string $state): void
+    {
+        $chain = array_map(self::compound(...), ['div.jm', 'div.jm-header', 'div.jm-header__inner', 'div.jm-toolbar', 'button.jm-live[data-jm-live-toggle][data-jm-live-state="' . $state . '"]', 'span.jm-live__word[data-jm-live-word]']);
+        $hiding = [['display', 'none'], ['visibility', 'hidden'], ['font-size', '0'], ['font-size', '0px']];
+
+        foreach (self::rules() as $rule) {
+            if ($rule['keyframes'] || array_filter($rule['declarations'], static fn(array $declaration): bool => \in_array($declaration, $hiding, true)) === []) {
+                continue;
+            }
+
+            foreach ($rule['selectors'] as $selector) {
+                $parts = self::split((string) preg_replace('/\s*([>+~])\s*/', ' $1 ', $selector), ' ');
+                static::assertFalse(self::selectorMatches($parts, $chain), $selector . ' hides the word in ' . ($rule['at'] ?? 'every case'));
+            }
+        }
+    }
+
     public function testTheLiveButtonKeepsItsLookUnderAHost(): void
     {
         $properties = array_column(self::declarationsOf('.jm-live', null), 0);

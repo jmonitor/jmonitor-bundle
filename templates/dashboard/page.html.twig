@@ -54,11 +54,11 @@
                     <button type="submit" class="jm-button">{{ label }}</button>
                 </form>
             {% endfor %}
-            <button type="button" class="jm-live" data-jm-live-toggle aria-pressed="true" data-jm-live-state="live" hidden>
+            <button type="button" class="jm-live" data-jm-live-toggle data-jm-live-state="live" hidden>
                 <span class="jm-live__mark" aria-hidden="true"></span>
                 <span class="jm-live__word" data-jm-live-word>Live</span>
                 <span class="jm-live__separator" aria-hidden="true">·</span>
-                <span class="jm-live__age" data-jm-live-age>updated just now</span>
+                <span class="jm-live__age" data-jm-live-age aria-hidden="true">updated just now</span>
                 <span class="jm-live__progress" data-jm-live-progress aria-hidden="true"></span>
             </button>
         </div>
