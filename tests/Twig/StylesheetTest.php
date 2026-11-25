@@ -397,23 +397,33 @@ final class StylesheetTest extends TestCase
         }
     }
 
-    public function testThePartsOfASplitHaveTheirColourInBothThemes(): void
+    /**
+     * @return iterable<string, array{list<string>, float}>
+     */
+    public static function themes(): iterable
     {
-        $dark = self::theme(self::DARK);
-        $light = self::theme(self::LIGHT);
+        yield 'dark' => [self::DARK, 2.5];
+        yield 'light' => [self::LIGHT, 1.5];
+    }
 
-        static::assertSame(['#6e94ff', '#17e3dc', '#d6c2ff'], [$dark['--jm-part-php'] ?? null, $dark['--jm-part-sql'] ?? null, $dark['--jm-part-http'] ?? null]);
-
-        $surface = self::colour($light['--jm-surface'] ?? '');
+    /**
+     * @param list<string> $selectors
+     */
+    #[DataProvider('themes')]
+    public function testThePartsOfASplitAreToldApartByTheirLightness(array $selectors, float $sqlAndHttp): void
+    {
+        $theme = self::theme($selectors);
+        $background = self::over(self::colour($theme['--jm-surface'] ?? ''), self::over(self::colour($theme['--jm-bg'] ?? ''), [255.0, 255.0, 255.0, 1.0]));
         $parts = [];
+
         foreach (['php', 'sql', 'http'] as $part) {
-            $parts[$part] = self::colour($light['--jm-part-' . $part] ?? '');
+            $parts[$part] = self::colour($theme['--jm-part-' . $part] ?? '');
             static::assertSame(1.0, $parts[$part][3], $part);
-            static::assertGreaterThanOrEqual(3.0, self::contrast($parts[$part], $surface), $part);
+            static::assertGreaterThanOrEqual(3.0, self::contrast($parts[$part], $background), $part . ' on the table');
         }
-        foreach ([['php', 'sql'], ['php', 'http'], ['sql', 'http']] as [$a, $b]) {
-            static::assertGreaterThanOrEqual(1.4, self::contrast($parts[$a], $parts[$b]), $a . ' and ' . $b . ' differ by their lightness');
-        }
+
+        static::assertGreaterThanOrEqual(1.5, self::contrast($parts['php'], $parts['sql']), 'PHP and SQL');
+        static::assertGreaterThanOrEqual($sqlAndHttp, self::contrast($parts['sql'], $parts['http']), 'SQL and HTTP');
     }
 
     public function testForcedColorsKeepTheOutlineOfTheNewCells(): void
@@ -475,9 +485,49 @@ final class StylesheetTest extends TestCase
     {
         static::assertSame([['padding-left', '10px']], self::declarationsOf('.jm-table:has(.jm-split) :is(th, td):not(:first-child)', null));
         static::assertSame([['padding-right', '10px']], self::declarationsOf('.jm-table:has(.jm-split) :is(th, td):not(:last-child)', null));
-        static::assertSame([['min-width', '220px']], self::declarationsOf('.jm-table:has(.jm-split) .jm-col-route', null));
+        static::assertSame([['min-width', '220px'], ['white-space', 'nowrap']], self::declarationsOf('.jm-table:has(.jm-split) .jm-col-route', null));
         static::assertContains(['padding', '10px 12px'], self::declarationsOf('.jm-table td', null));
         static::assertContains(['min-width', '280px'], self::declarationsOf('.jm-col-route', null));
+    }
+
+    public function testARouteOfTheRoutesTableStaysOnOneLine(): void
+    {
+        $route = self::declarationsOf('.jm-table:has(.jm-split) .jm-route', null);
+
+        foreach ([['display', 'inline-block'], ['overflow', 'hidden'], ['text-overflow', 'ellipsis'], ['overflow-wrap', 'normal']] as $declaration) {
+            static::assertContains($declaration, $route);
+        }
+        static::assertContains(['white-space', 'nowrap'], self::declarationsOf('.jm-table:has(.jm-split) td:has(> .jm-tag)', null));
+    }
+
+    public function testTheTextOfASplitGetsMoreRoomOnAWideScreen(): void
+    {
+        static::assertContains(['max-width', '160px'], self::declarationsOf('.jm-split__text', null));
+        static::assertSame([['max-width', '200px']], self::declarationsOf('.jm-split__text', '@media (min-width: 1440px)'));
+    }
+
+    public function testTheAdviceOfAGuidedCheckSpansTheWidthOfItsPlace(): void
+    {
+        static::assertSame([['display', 'contents']], self::declarationsOf('.jm-check--guided .jm-check__body', null));
+        static::assertSame([['grid-row', '1'], ['grid-column', '3']], self::declarationsOf('.jm-check--guided .jm-check__where', null));
+        static::assertSame([['grid-column', '2 / -1']], self::declarationsOf('.jm-check--guided .jm-check__advice', null));
+        static::assertSame([['grid-column', '1 / -1']], self::declarationsOf('.jm-check--guided .jm-check__advice', '@media (max-width: 720px)'));
+    }
+
+    public function testFiveCardsFillTwoRowsBetweenTheBreakpoints(): void
+    {
+        $five = '.jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child)';
+        $at = '@media (min-width: 721px) and (max-width: 1080px)';
+
+        static::assertSame([['grid-template-columns', 'repeat(6, minmax(0, 1fr))']], self::declarationsOf($five, $at));
+        static::assertSame([['grid-column', 'span 2']], self::declarationsOf($five . ' > .jm-card', $at));
+        static::assertSame([['grid-column', 'span 3']], self::declarationsOf($five . ' > .jm-card:nth-child(n + 4)', $at));
+    }
+
+    public function testTheQueryColumnBesideABarIsNarrower(): void
+    {
+        static::assertSame([['min-width', '320px']], self::declarationsOf('.jm-table:has(.jm-bar) .jm-col-query', null));
+        static::assertSame([['min-width', '280px']], self::declarationsOf('.jm-table:has(.jm-bar) .jm-col-query', '@media (max-width: 720px)'));
     }
 
     public function testTheWordsOfASplitStayInTheScrollingBoxOfItsTable(): void

@@ -31,11 +31,14 @@ final class Cell
         public readonly array $tags = [],
     ) {}
 
-    public static function route(string $methodAndName): self
+    /**
+     * @param bool $titled whether the name is repeated as its title, for a column that cuts it
+     */
+    public static function route(string $methodAndName, bool $titled = false): self
     {
         [$method, $name] = array_pad(explode(' ', $methodAndName, 2), 2, '');
 
-        return new self($name, kind: 'route', data: ['method' => $method]);
+        return new self($name, kind: 'route', data: ['method' => $method] + ($titled ? ['title' => $name] : []));
     }
 
     public static function entryPoint(string $unitType, string $unitKey): self
@@ -61,8 +64,9 @@ final class Cell
 
     /**
      * @param array{php: float, sql: float, http: float} $parts in ms
+     * @param string                                     $note  read after the three parts
      */
-    public static function split(array $parts, string $text): self
+    public static function split(array $parts, string $text, string $note = ''): self
     {
         $kept = [];
 
@@ -73,7 +77,7 @@ final class Cell
 
         $spoken = implode(', ', array_map(static fn(string $part, string $name): string => $name . ' ' . ($kept[$part] > 0 ? Format::duration($kept[$part]) : '0 ms'), array_keys(self::PARTS), self::PARTS));
 
-        return new self($text, kind: 'split', data: ['spoken' => $spoken], parts: $kept);
+        return new self($text, kind: 'split', data: ['spoken' => $note === '' ? $spoken : $spoken . ', ' . $note], parts: $kept);
     }
 
     /** @param list<Tag> $tags */

@@ -62,6 +62,18 @@ final class CellTest extends TestCase
         }
     }
 
+    public function testARouteCanRepeatItsNameAsItsTitle(): void
+    {
+        static::assertSame(['method' => 'GET', 'title' => 'app_home'], Cell::route('GET app_home', true)->data);
+        static::assertSame(['method' => 'GET'], Cell::route('GET app_home')->data);
+    }
+
+    public function testANoteOfASplitIsReadAfterItsThreeParts(): void
+    {
+        static::assertSame('PHP 1 ms, SQL 1 ms, HTTP out 0 ms, 13 queries', Cell::split(['php' => 1.0, 'sql' => 1.0, 'http' => 0.0], 'SQL 1 ms · 13 queries', '13 queries')->data['spoken']);
+        static::assertSame('PHP 1 ms, SQL 0 ms, HTTP out 0 ms', Cell::split(['php' => 1.0, 'sql' => 0.0, 'http' => 0.0], 'PHP only')->data['spoken']);
+    }
+
     public function testASplitKeepsItsThreePartsInOrderAndDrawsThemSideBySide(): void
     {
         $cell = Cell::split(['http' => 57.0, 'php' => 77.0, 'sql' => 10.0], '77 · 10 · 57');

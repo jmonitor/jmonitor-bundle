@@ -294,7 +294,7 @@ final class RequestsScreen implements StorageScreenInterface
 
         return [
             'row' => $row,
-            'cell' => Cell::route($row->key),
+            'cell' => Cell::route($row->key, true),
             'requests' => $requests,
             'total' => $total,
             'avg' => $total / $requests,
@@ -325,6 +325,7 @@ final class RequestsScreen implements StorageScreenInterface
             'split' => Cell::split(
                 ['php' => max(0.0, $route['avg'] - $route['sql'] - $route['http']), 'sql' => $route['sql'], 'http' => $route['http']],
                 self::splitText($route),
+                self::queries($route) ?? '',
             ),
             'problems' => Cell::tags(self::tags($route)),
             'memory' => new Cell(Format::bytes($route['memory'])),
@@ -345,12 +346,21 @@ final class RequestsScreen implements StorageScreenInterface
             ? 'SQL ' . Format::duration($route['sql'])
             : 'HTTP out ' . Format::duration($route['http']);
 
-        if ($route['hasSql']) {
-            $queries = round($route['queries'], 1);
-            $text .= ' · ' . Format::number($queries, $queries < 10 ? 1 : 0) . ' queries';
+        $queries = self::queries($route);
+
+        return $queries === null ? $text : $text . ' · ' . $queries;
+    }
+
+    /** @param Route $route */
+    private static function queries(array $route): ?string
+    {
+        if (!$route['hasSql']) {
+            return null;
         }
 
-        return $text;
+        $queries = round($route['queries'], 1);
+
+        return Format::number($queries, $queries < 10 ? 1 : 0) . ' queries';
     }
 
     /**

@@ -179,7 +179,7 @@ final class RequestsScreenTest extends TestCase
             array_map(static fn(Cell $cell): string => $cell->text, $row->cells),
         );
         static::assertSame('route', $row->cells['route']->kind);
-        static::assertSame(['method' => 'GET'], $row->cells['route']->data);
+        static::assertSame(['method' => 'GET', 'title' => 'app_a'], $row->cells['route']->data);
         static::assertSame('bar', $row->cells['total']->kind);
         static::assertSame('split', $row->cells['split']->kind);
         static::assertSame('tags', $row->cells['problems']->kind);
@@ -210,8 +210,8 @@ final class RequestsScreenTest extends TestCase
         $row = $this->table($this->build([$this->route('GET (unmatched)'), $this->route('OTHER app_hello')]))->rows;
 
         static::assertSame('(unmatched)', $row[0]->cells['route']->text);
-        static::assertSame(['method' => 'GET'], $row[0]->cells['route']->data);
-        static::assertSame(['method' => 'OTHER'], $row[1]->cells['route']->data);
+        static::assertSame(['method' => 'GET', 'title' => '(unmatched)'], $row[0]->cells['route']->data);
+        static::assertSame(['method' => 'OTHER', 'title' => 'app_hello'], $row[1]->cells['route']->data);
     }
 
     public function testTheFootnoteNamesTheRequestsThatMatchedNoRoute(): void
@@ -284,6 +284,15 @@ final class RequestsScreenTest extends TestCase
 
         static::assertSame($text, $split->text);
         static::assertSame($parts, $split->parts);
+    }
+
+    public function testTheNumberOfQueriesIsReadAfterTheParts(): void
+    {
+        $rows = $this->table($this->build([self::splitRoute(4, 400.0, 4, 68.0, 48.0, 2, 20.0, key: 'GET app_sql'), self::splitRoute(3, 90.0, key: 'GET app_php')]))->rows;
+
+        static::assertSame('PHP 78 ms, SQL 17 ms, HTTP out 5 ms, 12 queries', $rows[0]->cells['split']->data['spoken']);
+        static::assertSame('PHP 30 ms, SQL 0 ms, HTTP out 0 ms', $rows[1]->cells['split']->data['spoken']);
+        static::assertSame(['method' => 'GET', 'title' => 'app_sql'], $rows[0]->cells['route']->data);
     }
 
     public function testTheNumberOfQueriesChoosesItsDecimalsOnceRounded(): void

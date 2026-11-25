@@ -849,6 +849,21 @@ final class TemplatesTest extends TestCase
         static::assertSame(['To check', 'To check'], [$default->filter('section.jm-checks')->attr('aria-label'), $default->filter('.jm-checks h2')->text()]);
     }
 
+    public function testASplitReadsItsNoteAndTitlesItsShortText(): void
+    {
+        $cell = (new Crawler($this->cells(new Column('split', 'Time split', false), Cell::split(['php' => 1.0, 'sql' => 1.0, 'http' => 0.0], 'SQL 1 ms · 13 queries', '13 queries'))))->filter('td.jm-col-split');
+
+        static::assertSame('PHP 1 ms, SQL 1 ms, HTTP out 0 ms, 13 queries', $cell->filter('.jm-visually-hidden')->text());
+        static::assertSame('SQL 1 ms · 13 queries', $cell->filter('.jm-split__text[aria-hidden="true"]')->attr('title'));
+    }
+
+    public function testATitledRouteRepeatsItsName(): void
+    {
+        $crawler = new Crawler($this->cells(new Column('route', 'Route', false), Cell::route('GET app_report_export', true), Cell::route('GET app_home')));
+
+        static::assertSame(['app_report_export', null], $crawler->filter('td.jm-col-route code.jm-route')->each(static fn(Crawler $code): ?string => $code->attr('title')));
+    }
+
     public function testASplitCellSaysItsThreePartsInWords(): void
     {
         $cell = (new Crawler($this->cells(new Column('split', 'Time split', false), Cell::split(['php' => 77.0, 'sql' => 10.0, 'http' => 57.0], '77 · 10 · 57'))))->filter('td.jm-col-split');

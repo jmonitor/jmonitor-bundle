@@ -54,7 +54,7 @@
                                 {%- elseif cell.kind == 'route' -%}
                                     {% set method = (cell.data.method ?? '')|lower %}
                                     <span class="jm-method jm-method--{{ method in ['get', 'post', 'put', 'patch', 'delete'] ? method : 'other' }}">{{ cell.data.method ?? '' }}</span>
-                                    <code class="jm-route{{ cell.text == '(unmatched)' ? ' jm-route--unmatched' }}">{{ cell.text }}</code>
+                                    <code class="jm-route{{ cell.text == '(unmatched)' ? ' jm-route--unmatched' }}"{% if cell.data.title is defined %} title="{{ cell.data.title }}"{% endif %}>{{ cell.text }}</code>
                                 {%- elseif cell.kind == 'sql' -%}
                                     {% if cell.text|length > 120 %}
                                         <details class="jm-sql" data-jm-key="{{ row.key }}"><summary><code>{{ cell.text|slice(0, 120) }}</code></summary><pre><code>{{ cell.text }}</code></pre></details>
@@ -73,7 +73,7 @@
                                                 {%- endfor -%}
                                             </svg>
                                         {%- endif -%}
-                                        <span class="jm-split__text" aria-hidden="true">{{ cell.text }}</span><span class="jm-visually-hidden">{{ cell.data.spoken }}</span></span>
+                                        <span class="jm-split__text" aria-hidden="true" title="{{ cell.text }}">{{ cell.text }}</span><span class="jm-visually-hidden">{{ cell.data.spoken }}</span></span>
                                 {%- elseif cell.kind == 'tags' -%}
                                     {%- for chip in cell.tags -%}
                                         {{ loop.first ? '' : ' ' }}<span class="jm-tag jm-tag--{{ chip.tone }}">{{ chip.text }}</span>
