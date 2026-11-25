@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
@@ -27,8 +30,10 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
+use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -38,6 +43,8 @@ use Symfony\Component\Filesystem\Filesystem;
 
 final class ScreenBuilderTest extends TestCase
 {
+    private const SERVER_ERRORS = Metric::REQUEST_STATUS_PREFIX . '5xx';
+
     /** @var list<string> */
     private array $paths = [];
 
@@ -636,6 +643,47 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame([false, true], array_map(static fn(Block $block): bool => $block->reading, $page->blocks));
         static::assertTrue($this->builder(null)->create($screen, null, null, null)->isReading());
         static::assertFalse($this->builder()->create(self::composed($this->section('first', rows: 1), $this->section('quiet', rows: 0)), null, null, null)->isReading());
+    }
+
+    public function testTheRaisedChecksOfAViewGoToThePageAndStayWithItsTabs(): void
+    {
+        $raised = (new ApplicationChecks([new ServerErrorsCheck()]))->raised(new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]), Period::OneHour, 1800000000);
+        $table = $this->table(1);
+
+        $page = $this->builder()->create(new StubScreen(view: static fn(): ScreenView => new ScreenView([], [$table], raised: $raised)), null, null, null);
+
+        static::assertSame($raised, $page->raised);
+        static::assertSame($raised, $page->withTabs(new SubNav('Application', []))->raised);
+        static::assertNull($this->builder()->create($this->screen(rows: 1), null, null, null)->raised);
+
+        $composed = self::composed(new StubSection('commands', static fn(): ScreenView => new ScreenView([], [$table], raised: $raised)));
+
+        static::assertSame($raised, $this->builder()->create($composed, null, null, null)->raised);
+    }
+
+    public function testTheChecksAreReadForAPageWithAPeriodAndATabThatHasACheck(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $builder = new ScreenBuilder($reader, true, new MockClock('@1800000000'), null, null, new ApplicationChecks([new ServerErrorsCheck()]));
+        $page = $builder->create($this->screen(rows: 1), '6h', null, null);
+
+        static::assertNull($builder->raisedChecks($page, ['queries', 'exceptions']));
+        static::assertSame([], $reader->totalRequests);
+
+        static::assertTrue($builder->raisedChecks($page, ['exceptions', 'requests'])?->has('requests.server_errors'));
+        static::assertSame([[Period::SixHours, 1800000000, [self::SERVER_ERRORS]]], $reader->totalRequests);
+
+        static::assertNull($builder->raisedChecks($page, ['requests'], true));
+        static::assertNull($builder->raisedChecks($builder->create(new StubScreen(view: static fn(): ScreenView => throw new \RuntimeException('Gone')), null, null, null), ['requests']));
+        static::assertNull($builder->raisedChecks($builder->create(new StubBlockScreen('probe'), null, null, null), ['requests']));
+        static::assertCount(1, $reader->totalRequests);
+    }
+
+    public function testTheChecksAreNotReadWithoutReader(): void
+    {
+        $builder = new ScreenBuilder(null, true, new MockClock('@1800000000'), null, null, new ApplicationChecks([new ServerErrorsCheck()]));
+
+        static::assertNull($builder->raisedChecks($builder->create($this->screen(rows: 1), null, null, null), ['requests']));
     }
 
     private static function composed(SectionInterface ...$sections): ComposedScreen

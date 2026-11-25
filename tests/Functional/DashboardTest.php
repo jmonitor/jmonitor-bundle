@@ -358,8 +358,8 @@ final class DashboardTest extends WebTestCase
         $query = $crawler->filter('tr[data-jm-query][data-jm-executions="12"]');
         static::assertCount(1, $query);
         static::assertStringContainsString('demo_items', $query->text());
-        static::assertContains('Queries', $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()));
-        static::assertSame('Queries', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
+        static::assertContains('Queries', $crawler->filter('.jm-subnav__item > span:first-child')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame('Queries', $crawler->filter('.jm-subnav__item[aria-current="page"] > span:first-child')->text());
     }
 
     public function testSortingOnSlowQueriesWhenNoneIsSlowStillListsTheQueries(): void

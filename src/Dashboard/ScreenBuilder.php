@@ -6,6 +6,8 @@ namespace Jmonitor\JmonitorBundle\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
@@ -24,6 +26,7 @@ final class ScreenBuilder
         private readonly ClockInterface $clock,
         private readonly ?BufferDirectory $bufferDirectory = null,
         private readonly ?LoggerInterface $logger = null,
+        private readonly ApplicationChecks $checks = new ApplicationChecks([]),
     ) {}
 
     public function create(ScreenInterface $screen, ?string $period, ?string $sort, ?string $direction, bool $storageFailed = false, bool $fragment = false, ?string $instance = null): Page
@@ -36,6 +39,7 @@ final class ScreenBuilder
 
         $blocks = [];
         $sorts = [];
+        $raised = null;
 
         if ($screen instanceof StorageScreenInterface) {
             $period = Period::fromLabel($period ?? '') ?? Period::OneHour;
@@ -48,7 +52,7 @@ final class ScreenBuilder
                 $direction = $sorts[$sort];
             }
 
-            $blocks = $this->storageBlocks($screen, $period, $now, $sort, $direction, $storageFailed);
+            [$blocks, $raised] = $this->storageBlocks($screen, $period, $now, $sort, $direction, $storageFailed);
         } else {
             $period = null;
             $sort = '';
@@ -59,7 +63,7 @@ final class ScreenBuilder
             $blocks = [...$this->screenBlocks($screen, new ScreenRequest($now, $fragment, $instance)), ...$blocks];
         }
 
-        return new Page($screen, $blocks, $period, $sort, $direction, $sorts, $instance === null ? [] : [ScreenRequest::INSTANCE => $instance]);
+        return new Page($screen, $blocks, $period, $sort, $direction, $sorts, $instance === null ? [] : [ScreenRequest::INSTANCE => $instance], raised: $raised);
     }
 
     public function storageUsable(): bool
@@ -67,15 +71,35 @@ final class ScreenBuilder
         return $this->reader !== null && $this->recordingEnabled;
     }
 
-    /** @return list<Block> */
+    /** @param list<string> $tabs the ids of the screens whose tab is shown with the page */
+    public function raisedChecks(Page $page, array $tabs, bool $storageFailed = false): ?RaisedChecks
+    {
+        if ($page->period === null || $this->reader === null || array_intersect($tabs, $this->checks->screens()) === []) {
+            return null;
+        }
+
+        if ($storageFailed || $page->hasState(BlockState::StorageError)) {
+            return null;
+        }
+
+        try {
+            return $this->checks->raised($this->reader, $page->period, $this->clock->now()->getTimestamp());
+        } catch (\Throwable $e) {
+            $this->logger?->error('JMonitor could not read the checks of the application: ' . $e->getMessage(), ['exception' => $e]);
+
+            return null;
+        }
+    }
+
+    /** @return array{list<Block>, ?RaisedChecks} */
     private function storageBlocks(StorageScreenInterface $screen, Period $period, int $now, string $sort, string $direction, bool $storageFailed): array
     {
         if ($this->reader === null) {
-            return [Block::unavailable(Block::TABLE, BlockState::NoConnection)];
+            return [[Block::unavailable(Block::TABLE, BlockState::NoConnection)], null];
         }
 
         if ($storageFailed) {
-            return [Block::unavailable(Block::TABLE, BlockState::StorageError)];
+            return [[Block::unavailable(Block::TABLE, BlockState::StorageError)], null];
         }
 
         try {
@@ -83,22 +107,22 @@ final class ScreenBuilder
         } catch (\Throwable $e) {
             $this->logger?->error('JMonitor could not read its data: ' . $e->getMessage(), ['exception' => $e]);
 
-            return [Block::unavailable(Block::TABLE, BlockState::StorageError)];
+            return [[Block::unavailable(Block::TABLE, BlockState::StorageError)], null];
         }
 
         if (!$view->isEmpty()) {
-            return self::figures($view);
+            return [self::figures($view), $view->raised];
         }
 
         $cause = $this->emptyCause();
 
         if ($cause !== null) {
-            return [Block::unavailable(Block::TABLE, $cause)];
+            return [[Block::unavailable(Block::TABLE, $cause)], $view->raised];
         }
 
         $empty = $screen->emptyState();
 
-        return [Block::unavailable(Block::TABLE, BlockState::Empty, $empty['title'], $empty['text'])];
+        return [[Block::unavailable(Block::TABLE, BlockState::Empty, $empty['title'], $empty['text'])], $view->raised];
     }
 
     private function composedPage(ComposedScreen $screen, Period $period, ?string $sort, ?string $direction, bool $storageFailed, ScreenRequest $request): Page
@@ -139,11 +163,13 @@ final class ScreenBuilder
         }
 
         $blocks = $cause === null ? [] : [Block::unavailable(Block::TABLE, $cause)];
+        $raised = null;
 
         foreach ($parts as $i => [$section, $own, $sectionSort, $sectionDirection]) {
             $view = $views[$i] ?? null;
             $content = $own;
             $empty = null;
+            $raised ??= $view?->raised;
 
             if ($view !== null && !$view->isEmpty()) {
                 $content = [...$own, ...self::figures($view)];
@@ -164,6 +190,7 @@ final class ScreenBuilder
             $chosen[2] ?? '',
             [],
             $request->instance === null ? [] : [ScreenRequest::INSTANCE => $request->instance],
+            raised: $raised,
         );
     }
 
