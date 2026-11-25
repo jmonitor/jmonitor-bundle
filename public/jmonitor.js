@@ -260,10 +260,10 @@
     }
 
     function replaceContent(html) {
-        var wraps = content.querySelectorAll('.jm-table-wrap');
-        var scrollLefts = [];
+        var wraps = content.querySelectorAll('.jm-table-wrap[id]');
+        var scrollLefts = {};
         for (var w = 0; w < wraps.length; w++) {
-            scrollLefts.push(wraps[w].scrollLeft);
+            scrollLefts[wraps[w].id] = wraps[w].scrollLeft;
         }
         var focused = focusedIdentity();
         var row = focusedRow();
@@ -273,9 +273,11 @@
         content.innerHTML = html;
         reopen(opened);
 
-        wraps = content.querySelectorAll('.jm-table-wrap');
-        for (w = 0; w < wraps.length && w < scrollLefts.length; w++) {
-            wraps[w].scrollLeft = scrollLefts[w];
+        wraps = content.querySelectorAll('.jm-table-wrap[id]');
+        for (w = 0; w < wraps.length; w++) {
+            if (Object.prototype.hasOwnProperty.call(scrollLefts, wraps[w].id)) {
+                wraps[w].scrollLeft = scrollLefts[wraps[w].id];
+            }
         }
 
         restoreFocus(focused);
