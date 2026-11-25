@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
@@ -157,7 +158,7 @@ final class ReadCostTest extends KernelTestCase
 
             foreach ($section->sorts() as $sort => $direction) {
                 $recorder->statements = [];
-                $view = $section->build($reader, Period::OneHour, self::NOW, $sort, $direction);
+                $view = $section->build($reader, Period::OneHour, self::NOW, $sort, $direction, new RaisedChecks([], [], Period::OneHour));
 
                 static::assertFalse($view->isEmpty(), sprintf('The seeded database shows nothing in the "%s" section.', $section->id()));
                 static::assertLessThanOrEqual($budget, \count($recorder->statements), sprintf(

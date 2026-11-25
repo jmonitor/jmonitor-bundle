@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Percentile;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\BlockSourceInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -97,7 +98,7 @@ final class MessagesSection implements SectionInterface, BlockSourceInterface
         return $this->queues?->blocks($request) ?? [];
     }
 
-    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction): ScreenView
+    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction, RaisedChecks $raised): ScreenView
     {
         if (!$this->recorded) {
             return new ScreenView();

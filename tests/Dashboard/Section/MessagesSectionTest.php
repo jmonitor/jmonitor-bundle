@@ -10,6 +10,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Percentile;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\BlockSourceInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
@@ -86,7 +87,7 @@ final class MessagesSectionTest extends TestCase
         $reader = new FixedReader();
         $screen = new MessagesSection(true, false, self::queues());
 
-        $view = $screen->build($reader, Period::OneHour, self::NOW, 'handled', 'desc');
+        $view = $screen->build($reader, Period::OneHour, self::NOW, 'handled', 'desc', new RaisedChecks([], [], Period::OneHour));
 
         static::assertSame([], $reader->queries);
         static::assertTrue($view->isEmpty());
@@ -114,7 +115,7 @@ final class MessagesSectionTest extends TestCase
     {
         foreach (array_keys((new MessagesSection(true, true))->sorts()) as $sort) {
             $reader = new FixedReader();
-            (new MessagesSection(true, true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
+            (new MessagesSection(true, true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc', new RaisedChecks([], [], Period::OneHour));
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
@@ -271,6 +272,7 @@ final class MessagesSectionTest extends TestCase
             self::NOW,
             $sort,
             $direction,
+            new RaisedChecks([], [], Period::OneHour),
         );
     }
 

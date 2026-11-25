@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Section\CommandsSection;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -55,7 +56,7 @@ final class CommandsSectionTest extends TestCase
     {
         foreach (array_keys((new CommandsSection(true))->sorts()) as $sort) {
             $reader = new FixedReader();
-            (new CommandsSection(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
+            (new CommandsSection(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc', new RaisedChecks([], [], Period::OneHour));
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
@@ -111,7 +112,7 @@ final class CommandsSectionTest extends TestCase
             self::command('h1', 'app:old', lastRun: self::NOW - 3600),
             self::command('h2', 'app:recent', lastRun: self::NOW - 10),
             self::command('h3', 'app:middle', lastRun: self::NOW - 600),
-        ]), Period::OneHour, self::NOW, array_key_first((new CommandsSection(true))->sorts()), 'desc');
+        ]), Period::OneHour, self::NOW, array_key_first((new CommandsSection(true))->sorts()), 'desc', new RaisedChecks([], [], Period::OneHour));
 
         static::assertSame(['app:recent', 'app:middle', 'app:old'], $this->names($view));
     }
@@ -210,7 +211,7 @@ final class CommandsSectionTest extends TestCase
      */
     private function build(array $rows, string $sort = 'last', string $direction = 'desc', ?ReportRow $other = null, Period $period = Period::OneHour, array $series = []): ScreenView
     {
-        return (new CommandsSection(true))->build($this->reader($rows, $other, $series), $period, self::NOW, $sort, $direction);
+        return (new CommandsSection(true))->build($this->reader($rows, $other, $series), $period, self::NOW, $sort, $direction, new RaisedChecks([], [], Period::OneHour));
     }
 
     /**

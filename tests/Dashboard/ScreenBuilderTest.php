@@ -19,13 +19,16 @@ use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
+use Jmonitor\JmonitorBundle\Dashboard\View\Brief;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
 use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
 use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
+use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
@@ -35,6 +38,8 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\Totals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\AbstractLogger;
@@ -298,21 +303,34 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame([Block::TABLE], self::types($this->builder(recordingEnabled: false)->create($screen, null, null, null)->blocks));
     }
 
-    public function testASectionKeepsItsBlocksOfToday(): void
+    public function testASectionNeverRendersALeadChecksOrGuideOfItsOwn(): void
     {
         $lead = new Lead('Sentence');
+        $checks = new CheckList([self::line('a', 'bad')]);
         $guide = new Guide([new GuideItem('Term', 'Text')]);
-        $guided = new StubSection('guided', fn(): ScreenView => new ScreenView([], [$this->table(rows: 1)], $lead, null, $guide));
-        $quietGuided = new StubSection('quiet', fn(): ScreenView => new ScreenView([], [$this->table(rows: 0)], $lead, null, $guide));
+        $card = new Card('Runs', '3');
+        $guided = new StubSection('guided', fn(): ScreenView => new ScreenView([$card], [$this->table(rows: 1)], $lead, $checks, $guide));
+        $briefed = new StubSection('briefed', fn(): ScreenView => new ScreenView([], [$this->table(rows: 1)], $lead), brief: new Brief('3', '3 runs'), checks: $checks, guide: $guide);
+        $quietGuided = new StubSection('quiet', fn(): ScreenView => new ScreenView([], [$this->table(rows: 0)], $lead, $checks, $guide));
         $notice = Block::notice(new Notice('info', 'Own'));
 
-        $page = $this->builder()->create(self::composed($this->section('plain', rows: 1), new StubSourceSection($guided, [$notice]), $quietGuided, $this->section('bare', rows: 0)), null, null, null);
+        foreach ([
+            'without a brief' => self::composed($this->section('plain', rows: 1), new StubSourceSection($guided, [$notice]), $quietGuided, $this->section('bare', rows: 0)),
+            'beside a brief' => self::composed($this->section('plain', rows: 1), new StubSourceSection($guided, [$notice]), $quietGuided, $this->section('bare', rows: 0), new StubSourceSection($briefed, [$notice])),
+        ] as $case => $screen) {
+            $page = $this->builder()->create($screen, null, null, null);
 
-        static::assertSame([Block::CARDS, Block::TABLE], self::types(self::sectionOf($page, 'plain')->blocks));
-        static::assertSame([Block::NOTICE, Block::LEAD, Block::TABLE, Block::GUIDE], self::types(self::sectionOf($page, 'guided')->blocks));
-        static::assertSame([], self::sectionOf($page, 'quiet')->blocks);
-        static::assertNotNull(self::sectionOf($page, 'quiet')->empty);
-        static::assertSame([], self::sectionOf($page, 'bare')->blocks);
+            static::assertSame([Block::CARDS, Block::TABLE], self::types(self::sectionOf($page, 'plain')->blocks), $case);
+            static::assertSame([Block::NOTICE, Block::CARDS, Block::TABLE], self::types(self::sectionOf($page, 'guided')->blocks), $case);
+            static::assertSame([$notice, [$card]], [self::sectionOf($page, 'guided')->blocks[0], self::sectionOf($page, 'guided')->blocks[1]->content], $case);
+            static::assertSame([], self::sectionOf($page, 'quiet')->blocks, $case);
+            static::assertNotNull(self::sectionOf($page, 'quiet')->empty, $case);
+            static::assertSame([], self::sectionOf($page, 'bare')->blocks, $case);
+        }
+
+        static::assertSame([Block::NOTICE, Block::TABLE], self::types(self::sectionOf($page, 'briefed')->blocks), 'A section without card has no block of cards.');
+        static::assertSame([Block::LEAD, Block::CHECKS], \array_slice(self::types($page->blocks), 0, 2));
+        static::assertSame([Block::GUIDE], \array_slice(self::types($page->blocks), -1));
     }
 
     public function testTheScreenRequestSaysWhenItIsAFollowUp(): void
@@ -682,6 +700,297 @@ final class ScreenBuilderTest extends TestCase
         static::assertNull($builder->raisedChecks($builder->create($this->screen(rows: 1), null, null, null), ['requests']));
     }
 
+    /**
+     * @return iterable<string, array{list<string>, string}>
+     */
+    public static function sentences(): iterable
+    {
+        yield 'one part' => [['42 messages handled'], '42 messages handled in the last 6 hours.'];
+        yield 'two parts' => [['1,668 cache reads (96 % found)', '13 outgoing calls'], '1,668 cache reads (96 % found) and 13 outgoing calls in the last 6 hours.'];
+        yield 'three parts' => [['42 messages handled', '12 scheduled runs', '3 command runs'], '42 messages handled, 12 scheduled runs and 3 command runs in the last 6 hours.'];
+        yield 'a part that starts in lower case' => [['one run'], 'One run in the last 6 hours.'];
+    }
+
+    /**
+     * @param list<string> $clauses
+     */
+    #[DataProvider('sentences')]
+    public function testAComposedPageOpensWithOneSentenceForItsSections(array $clauses, string $sentence): void
+    {
+        $sections = array_map(fn(int $i, string $clause): StubSection => $this->briefed('s' . $i, new Brief((string) $i, $clause)), array_keys($clauses), $clauses);
+
+        $page = $this->builder()->create(self::composed(...$sections), '6h', null, null);
+
+        static::assertSame(['lead ready', 'checks ready', ...array_map(static fn(int $i): string => 'section s' . $i, array_keys($clauses))], self::shape($page));
+        static::assertEquals(new Lead($sentence), $page->blocks[0]->content);
+        static::assertSame('ready', $page->state());
+    }
+
+    public function testTheStandoutsOfTheSectionsMakeTheDetail(): void
+    {
+        $page = $this->builder()->create(self::composed(
+            $this->briefed('quiet', new Brief('3', '3 runs')),
+            $this->briefed('failing', new Brief('2', '2 calls', standout: '1 call got no answer.')),
+            $this->briefed('low', new Brief('9', '9 reads', standout: '2 pools have a low hit rate.')),
+        ), null, null, null);
+
+        static::assertEquals(new Lead('3 runs, 2 calls and 9 reads in the last hour.', '1 call got no answer. 2 pools have a low hit rate.'), $page->blocks[0]->content);
+        static::assertSame('', $this->builder()->create(self::composed($this->briefed('quiet', new Brief('3', '3 runs'))), null, null, null)->blocks[0]->content->detail);
+    }
+
+    public function testTheChecksOfTheSectionsAreOneBlockMostSevereFirst(): void
+    {
+        $first = new CheckList([self::line('first.warn', 'warn'), self::line('first.bad', 'bad'), self::line('first.other', 'warn')], 'Nothing to flag', 'no first problem', 'Worth a look');
+        $second = new CheckList([self::line('second.warn', 'warn'), self::line('second.bad', 'bad')], 'Nothing to flag', 'no second problem', 'Worth a look');
+
+        $page = $this->builder()->create(self::composed(
+            $this->briefed('first', new Brief('1', '1 first'), $first),
+            $this->briefed('quiet', new Brief('1', '1 quiet')),
+            $this->briefed('second', new Brief('1', '1 second'), $second),
+        ), null, null, null);
+
+        $checks = $page->blocks[1]->content;
+        static::assertInstanceOf(CheckList::class, $checks);
+        static::assertSame(['first.bad', 'second.bad', 'first.warn', 'first.other', 'second.warn'], array_map(static fn(CheckLine $line): string => $line->id, $checks->lines));
+        static::assertSame(['Worth a look', 'Nothing to flag'], [$checks->title, $checks->emptyTitle]);
+    }
+
+    public function testWithoutCheckTheBlockSaysWhatEachSectionChecked(): void
+    {
+        $page = $this->builder()->create(self::composed(
+            $this->briefed('messages', new Brief('4', '4 messages handled'), new CheckList([], emptyText: 'no failed message')),
+            $this->briefed('silent', new Brief('1', '1 silent'), new CheckList([])),
+            $this->briefed('none', new Brief('1', '1 none')),
+            $this->briefed('commands', new Brief('2', '2 command runs'), new CheckList([], emptyText: 'no failed command run')),
+        ), '24h', null, null);
+
+        static::assertEquals(new CheckList([], 'Nothing to flag', 'No failed message, no failed command run in the last 24 hours.', 'Worth a look'), $page->blocks[1]->content);
+
+        $page = $this->builder()->create(self::composed($this->briefed('none', new Brief('1', '1 none')), $this->briefed('silent', new Brief('1', '1 silent'), new CheckList([]))), null, null, null);
+
+        static::assertSame([Block::LEAD, Block::CHECKS], \array_slice(self::types($page->blocks), 0, 2));
+        static::assertEquals(new CheckList([], 'Nothing to flag', '', 'Worth a look'), $page->blocks[1]->content);
+    }
+
+    public function testASectionWithoutChecksBringsNeitherLineNorText(): void
+    {
+        $page = $this->builder()->create(self::composed(
+            $this->briefed('none', new Brief('1', '1 none'), guide: new Guide([new GuideItem('Term', 'Text')])),
+            $this->briefed('cache', new Brief('9', '9 reads'), new CheckList([self::line('cache.low_hit_rate', 'warn')], emptyText: 'no pool with a low hit rate')),
+        ), null, null, null);
+
+        $checks = $page->blocks[1]->content;
+        static::assertInstanceOf(CheckList::class, $checks);
+        static::assertSame(['cache.low_hit_rate'], array_map(static fn(CheckLine $line): string => $line->id, $checks->lines));
+        static::assertSame('No pool with a low hit rate in the last hour.', $checks->emptyText);
+    }
+
+    public function testAnOutlineScreenShowsOneAnchorCardPerBrief(): void
+    {
+        $sections = [
+            $this->briefed('messages', new Brief('42', '42 messages handled', 'handled, 45 sent, 3 failed', '3 messages failed.', 'bad'), guide: new Guide([new GuideItem('Sent and handled.', 'Text')])),
+            $this->section('plain', rows: 1),
+            $this->briefed('commands', new Brief('3', '3 command runs', 'runs of 2 commands')),
+        ];
+
+        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, $sections, true), null, null, null);
+
+        static::assertSame(['lead ready', 'checks ready', 'cards ready', 'section messages', 'section plain', 'section commands', 'guide ready'], self::shape($page));
+        static::assertEquals([
+            new Card('Messages', '42', 'handled, 45 sent, 3 failed', 'bad', anchor: 'messages'),
+            new Card('Commands', '3', 'runs of 2 commands', anchor: 'commands'),
+        ], $page->blocks[2]->content);
+        static::assertSame(['lead ready', 'checks ready', 'section messages', 'section plain', 'section commands', 'guide ready'], self::shape($this->builder()->create(self::composed(...$sections), null, null, null)));
+    }
+
+    public function testTheGuideKeepsTheFirstThreeItemsOfTheSections(): void
+    {
+        $item = static fn(string $term): GuideItem => new GuideItem($term, 'Text of ' . $term);
+        $unbriefed = new StubSection('unbriefed', fn(): ScreenView => new ScreenView([], [$this->table(rows: 1)]), guide: new Guide([$item('unbriefed')]));
+
+        $page = $this->builder()->create(self::composed(
+            $unbriefed,
+            $this->briefed('first', new Brief('1', '1 first'), guide: new Guide([$item('a'), $item('b')])),
+            $this->briefed('none', new Brief('1', '1 none')),
+            $this->briefed('second', new Brief('1', '1 second'), guide: new Guide([$item('c'), $item('d')])),
+        ), null, null, null);
+
+        $guide = $page->blocks[\count($page->blocks) - 1]->content;
+        static::assertInstanceOf(Guide::class, $guide);
+        static::assertSame(['a', 'b', 'c'], array_map(static fn(GuideItem $item): string => $item->term, $guide->items));
+
+        $page = $this->builder()->create(self::composed($unbriefed, $this->briefed('none', new Brief('1', '1 none'))), null, null, null);
+
+        static::assertSame(['lead ready', 'checks ready', 'section unbriefed', 'section none'], self::shape($page));
+    }
+
+    public function testWithoutAnyBriefThePageIsTheOneOfToday(): void
+    {
+        $checks = new CheckList([self::line('a', 'bad')]);
+        $guide = new Guide([new GuideItem('Term', 'Text')]);
+        $guided = new StubSection('guided', fn(): ScreenView => new ScreenView([new Card('Runs', '3')], [$this->table(rows: 1)], checks: $checks, guide: $guide));
+
+        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [$this->section('first', rows: 1), $guided, $this->section('quiet', rows: 0)], true), null, null, null);
+
+        static::assertSame(['section first', 'section guided', 'section quiet'], self::shape($page));
+        static::assertSame('mixed', $page->state());
+    }
+
+    public function testAnEmptySectionBringsNothingEvenWithItsBrief(): void
+    {
+        $checks = new CheckList([self::line('quiet.bad', 'bad')], emptyText: 'no quiet problem');
+        $guide = new Guide([new GuideItem('Quiet', 'Text')]);
+        $quiet = new StubSection('quiet', fn(): ScreenView => new ScreenView([new Card('Runs', '0')], [$this->table(rows: 0)]), brief: new Brief('0', '0 quiet runs', 'runs', 'Nothing ran.', 'bad'), checks: $checks, guide: $guide);
+        $sections = [$this->briefed('first', new Brief('2', '2 runs')), $quiet];
+
+        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, $sections, true), null, null, null);
+
+        static::assertSame(['lead ready', 'checks ready', 'cards ready', 'section first', 'section quiet'], self::shape($page));
+        static::assertEquals(new Lead('2 runs in the last hour.'), $page->blocks[0]->content);
+        static::assertEquals(new CheckList([], 'Nothing to flag', '', 'Worth a look'), $page->blocks[1]->content);
+        static::assertEquals([new Card('First', '2', anchor: 'first')], $page->blocks[2]->content);
+        static::assertNotNull(self::sectionOf($page, 'quiet')->empty);
+
+        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [$quiet, $this->section('plain', rows: 1)], true), null, null, null);
+
+        static::assertSame(['section quiet', 'section plain'], self::shape($page));
+    }
+
+    public function testACauseOfTheWholePageLeavesNoSentence(): void
+    {
+        $file = $this->path();
+        touch($file);
+        $notice = Block::notice(new Notice('info', 'Own'));
+        $guide = new Guide([new GuideItem('Term', 'Text')]);
+        $screen = self::composed(
+            new StubSourceSection($this->briefed('own', new Brief('2', '2 runs'), guide: $guide), [$notice]),
+            $this->briefed('other', new Brief('1', '1 call'), new CheckList([self::line('a', 'bad')]), $guide),
+            $this->section('quiet', rows: 0),
+        );
+
+        static::assertSame(['table recording_disabled', 'section own', 'section other'], self::shape($this->builder(recordingEnabled: false)->create($screen, null, null, null)));
+        static::assertSame(['table buffer_unavailable', 'section own', 'section other'], self::shape($this->builder(bufferDirectory: new BufferDirectory($file, 'test'))->create($screen, null, null, null)));
+        static::assertSame(['table no_connection', 'section own'], self::shape($this->builder(null)->create($screen, null, null, null)));
+        static::assertSame(['table storage_error', 'section own'], self::shape($this->builder()->create($screen, null, null, null, true)));
+    }
+
+    public function testTheRaisedChecksAreReadOnceAndBeforeTheSections(): void
+    {
+        $reader = new class implements ReaderInterface {
+            /** @var list<string> */
+            public array $calls = [];
+
+            public function read(ReportQuery $query): Report
+            {
+                $this->calls[] = 'read';
+
+                return new Report();
+            }
+
+            public function labels(array $keys): array
+            {
+                return [];
+            }
+
+            public function totals(Period $period, int $now, array $metricTypes, array $keyed = []): Totals
+            {
+                $this->calls[] = 'totals ' . $period->label();
+
+                return new Totals([self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+            }
+
+            private const SERVER_ERRORS = Metric::REQUEST_STATUS_PREFIX . '5xx';
+        };
+        $first = $this->briefed('first', new Brief('1', '1 first'));
+        $second = $this->section('second', rows: 1);
+        $builder = new ScreenBuilder($reader, true, new MockClock('@1800000000'), checks: new ApplicationChecks([new ServerErrorsCheck()]));
+
+        $page = $builder->create(self::composed($first, $second), '6h', null, null);
+
+        static::assertSame(['totals 6h', 'read', 'read'], $reader->calls);
+        static::assertNotNull($page->raised);
+        static::assertTrue($page->raised->has('requests.server_errors'));
+        static::assertSame([$page->raised], $first->raised);
+        static::assertSame([$page->raised], $second->raised);
+        static::assertSame($page->raised, $page->withTabs(new SubNav('Application', []))->raised);
+    }
+
+    public function testATotalsReadThatThrowsStopsTheSections(): void
+    {
+        $reader = new FixedReader(totals: []);
+        $failing = new class ($reader) implements ReaderInterface {
+            public function __construct(public readonly FixedReader $reader) {}
+
+            public function read(ReportQuery $query): Report
+            {
+                return $this->reader->read($query);
+            }
+
+            public function labels(array $keys): array
+            {
+                return [];
+            }
+
+            public function totals(Period $period, int $now, array $metricTypes, array $keyed = []): Totals
+            {
+                throw new \RuntimeException('Storage is down');
+            }
+        };
+        $logger = $this->logger();
+        $notice = Block::notice(new Notice('info', 'Own'));
+        $first = $this->briefed('first', new Brief('1', '1 first'));
+        $own = new StubSourceSection($this->briefed('own', new Brief('2', '2 own')), [$notice]);
+
+        $page = (new ScreenBuilder($failing, true, new MockClock('@1800000000'), logger: $logger, checks: new ApplicationChecks([new ServerErrorsCheck()])))->create(self::composed($first, $own), null, null, null);
+
+        static::assertSame([], $reader->queries);
+        static::assertSame([], $first->builds);
+        static::assertSame([], $own->section->builds);
+        static::assertSame(['table storage_error', 'section own'], self::shape($page));
+        static::assertSame([$notice], self::sectionOf($page, 'own')->blocks);
+        static::assertNull($page->raised);
+        static::assertSame(['error JMonitor could not read its data: Storage is down'], $logger->messages);
+    }
+
+    public function testASectionReadThatThrowsLeavesThePageWithoutRaisedChecks(): void
+    {
+        $reader = new FixedReader(static fn(): Report => throw new \RuntimeException('Storage is down'), totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $builder = new ScreenBuilder($reader, true, new MockClock('@1800000000'), logger: $this->logger(), checks: new ApplicationChecks([new ServerErrorsCheck()]));
+
+        $page = $builder->create(self::composed($this->briefed('first', new Brief('1', '1 first'))), null, null, null);
+
+        static::assertCount(1, $reader->totalRequests);
+        static::assertSame(['table storage_error'], self::shape($page));
+        static::assertNull($page->raised);
+    }
+
+    public function testWithoutReaderOrAfterAFailedFlushTheTotalsAreNotRead(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $checks = new ApplicationChecks([new ServerErrorsCheck()]);
+        $screen = self::composed($this->briefed('first', new Brief('1', '1 first')));
+
+        $page = (new ScreenBuilder($reader, true, new MockClock('@1800000000'), checks: $checks))->create($screen, null, null, null, true);
+
+        static::assertSame([], $reader->totalRequests);
+        static::assertNull($page->raised);
+        static::assertNull((new ScreenBuilder(null, true, new MockClock('@1800000000'), checks: $checks))->create($screen, null, null, null)->raised);
+    }
+
+    public function testOwnBlocksThatThrowLeaveTheSentence(): void
+    {
+        $logger = $this->logger();
+        $queues = new StubSourceSection($this->briefed('messages', new Brief('4', '4 messages handled')), new \RuntimeException('Queues failed'));
+
+        $page = (new ScreenBuilder($this->reader(), true, new MockClock('@1800000000'), logger: $logger))->create(self::composed($queues, $this->briefed('tasks', new Brief('2', '2 scheduled runs'))), null, null, null);
+
+        static::assertSame(['lead ready', 'checks ready', 'section messages', 'section tasks'], self::shape($page));
+        static::assertEquals(new Lead('4 messages handled and 2 scheduled runs in the last hour.'), $page->blocks[0]->content);
+        static::assertEquals(Block::unavailable(Block::TABLE, BlockState::Error), self::sectionOf($page, 'messages')->blocks[0]);
+        static::assertSame([Block::TABLE, Block::CARDS, Block::TABLE], self::types(self::sectionOf($page, 'messages')->blocks));
+        static::assertSame(['error JMonitor could not display the "messages" section: Queues failed'], $logger->messages);
+    }
+
     private static function composed(SectionInterface ...$sections): ComposedScreen
     {
         return new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, $sections);
@@ -714,6 +1023,19 @@ final class ScreenBuilderTest extends TestCase
     private static function types(array $blocks): array
     {
         return array_map(static fn(Block $block): string => $block->type, $blocks);
+    }
+
+    private static function line(string $id, string $tone): CheckLine
+    {
+        return new CheckLine($id, new Mark($tone, $tone === 'bad' ? 'Critical' : 'Warning'), 'Sentence of ' . $id, 'Why.', '', title: 'Title of ' . $id, action: 'What.');
+    }
+
+    /** @param non-empty-string $id */
+    private function briefed(string $id, Brief $brief, ?CheckList $checks = null, ?Guide $guide = null): StubSection
+    {
+        $table = $this->table(1);
+
+        return new StubSection($id, static fn(): ScreenView => new ScreenView([new Card('Runs', '3')], [$table]), brief: $brief, checks: $checks, guide: $guide);
     }
 
     /**

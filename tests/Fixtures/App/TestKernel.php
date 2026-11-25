@@ -7,8 +7,10 @@ namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App;
 use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
 use EasyCorp\Bundle\EasyAdminBundle\EasyAdminBundle;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
+use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\EasyAdmin\JmonitorController;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
@@ -43,6 +45,7 @@ use Jmonitor\JmonitorBundle\Tests\Fixtures\App\EasyAdmin\StaffDashboard;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeController;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\BackOfficeUrls;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\GalleryScreen;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\GallerySection;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Embed\ProbeScreen;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPing;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\BatchPingHandler;
@@ -60,6 +63,7 @@ use Symfony\Bundle\TwigBundle\TwigBundle;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\DependencyInjection\Loader\Configurator\InlineServiceConfigurator;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\HttpKernel\Log\Logger;
@@ -69,6 +73,7 @@ use Symfony\Component\Security\Core\User\InMemoryUser;
 use Symfony\UX\TwigComponent\TwigComponentBundle;
 use Twig\Extra\TwigExtraBundle\TwigExtraBundle;
 
+use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
 final class TestKernel extends Kernel
@@ -521,6 +526,16 @@ final class TestKernel extends Kernel
                 ->args([$this->varDir . '/gallery-requests'])
                 ->tag('jmonitor.screen', ['priority' => 5])
                 ->tag('kernel.reset', ['method' => 'reset']);
+            $services->set('jmonitor.fixture.gallery_composed', ComposedScreen::class)
+                ->args([
+                    'gallery-composed',
+                    'Gallery composed',
+                    'A composed screen with an outline',
+                    Space::Application,
+                    array_map(static fn(string $id): InlineServiceConfigurator => inline_service(GallerySection::class)->args([$id]), ['failing', 'steady', 'unbriefed']),
+                    true,
+                ])
+                ->tag('jmonitor.screen', ['priority' => 4]);
         }
         if ($this->withEasyAdmin) {
             foreach ([AdminDashboard::class, StaffDashboard::class] as $dashboard) {

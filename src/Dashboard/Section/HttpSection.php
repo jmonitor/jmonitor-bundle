@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Dashboard\Section;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -71,7 +72,7 @@ final class HttpSection implements SectionInterface
         ];
     }
 
-    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction): ScreenView
+    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction, RaisedChecks $raised): ScreenView
     {
         [$metric, $field] = self::SORTS[$sort] ?? self::SORTS['total'];
         $report = $reader->read(new ReportQuery($period, $now, Family::Http, $metric, $field, $direction !== 'asc', self::LIMIT, Metric::HTTP_DURATION));

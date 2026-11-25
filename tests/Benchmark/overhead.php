@@ -15,6 +15,7 @@ use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
@@ -499,7 +500,7 @@ function displayMillis(Connection $connection, int $now, StorageScreenInterface|
     $rows = 0;
     for ($run = 0; $run < DISPLAY_RUNS; ++$run) {
         $start = hrtime(true);
-        $view = $screen->build($reader, $period, $now, $sort, $sorts[$sort]);
+        $view = $screen instanceof SectionInterface ? $screen->build($reader, $period, $now, $sort, $sorts[$sort], new RaisedChecks([], [], $period)) : $screen->build($reader, $period, $now, $sort, $sorts[$sort]);
         $timings[] = (hrtime(true) - $start) / 1_000_000;
         $rows = array_sum(array_map(static fn(Table $table): int => \count($table->rows), $view->tables));
     }
@@ -528,7 +529,7 @@ function composedDisplayMillis(Connection $connection, int $now, ComposedScreen 
     foreach ($screen->sections() as $section) {
         $sorts = $section->sorts();
         $sort = (string) array_key_first($sorts);
-        $view = $section->build($reader, Period::OneHour, $now, $sort, $sorts[$sort]);
+        $view = $section->build($reader, Period::OneHour, $now, $sort, $sorts[$sort], new RaisedChecks([], [], Period::OneHour));
         $rows += array_sum(array_map(static fn(Table $table): int => \count($table->rows), $view->tables));
     }
 

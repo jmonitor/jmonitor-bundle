@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Dashboard\Section;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 
@@ -25,5 +26,5 @@ interface SectionInterface
     /** @return array{title: string, text: string} */
     public function emptyState(Period $period): array;
 
-    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction): ScreenView;
+    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction, RaisedChecks $raised): ScreenView;
 }

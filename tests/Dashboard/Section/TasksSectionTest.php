@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -65,7 +66,7 @@ final class TasksSectionTest extends TestCase
 
         foreach (array_keys($screen->sorts()) as $sort) {
             $reader = new FixedReader();
-            $screen->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
+            $screen->build($reader, Period::SixHours, self::NOW, $sort, 'asc', new RaisedChecks([], [], Period::OneHour));
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
@@ -259,6 +260,7 @@ final class TasksSectionTest extends TestCase
             self::NOW,
             'next',
             'asc',
+            new RaisedChecks([], [], Period::OneHour),
         );
 
         static::assertSame(['app:work'], $this->labels($view));
@@ -319,6 +321,7 @@ final class TasksSectionTest extends TestCase
             self::NOW,
             $sort,
             $direction,
+            new RaisedChecks([], [], Period::OneHour),
         );
     }
 

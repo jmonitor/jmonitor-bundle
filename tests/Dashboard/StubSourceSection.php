@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\BlockSourceInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
@@ -55,9 +56,9 @@ final class StubSourceSection implements SectionInterface, BlockSourceInterface
         return $this->section->emptyState($period);
     }
 
-    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction): ScreenView
+    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction, RaisedChecks $raised): ScreenView
     {
-        return $this->section->build($reader, $period, $now, $sort, $direction);
+        return $this->section->build($reader, $period, $now, $sort, $direction, $raised);
     }
 
     public function blocks(ScreenRequest $request): array

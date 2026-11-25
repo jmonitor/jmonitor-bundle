@@ -2,7 +2,7 @@
 {% set table = block.content %}
 {% set section = section ?? null %}
 {% set title_id = section ? 'jm-section-' ~ section.id ~ '-title' : 'jm-' ~ table.id ~ '-title' %}
-{% set shown = table.rows|filter(row => not row.muted)|length + table.remaining %}
+{% set shown = table.rows|filter(row => not row.muted and not row.nested)|length + table.remaining %}
 {% set panel = section ? 'div' : 'section' %}
 <{{ panel }} class="jm-panel"{% if not section %} aria-labelledby="{{ title_id }}"{% endif %}>
     <div class="jm-panel__header">
@@ -43,7 +43,7 @@
             </thead>
             <tbody>
                 {% for row in table.rows %}
-                    <tr{% if row.muted %} class="jm-row--muted"{% endif %}{% for name, value in row.attributes %} {{ name|e('html_attr') }}="{{ value }}"{% endfor %}>
+                    <tr{% if row.muted or row.nested %} class="{{ row.muted ? 'jm-row--muted' }}{{ row.muted and row.nested ? ' ' }}{{ row.nested ? 'jm-row--nested' }}"{% endif %}{% for name, value in row.attributes %} {{ name|e('html_attr') }}="{{ value }}"{% endfor %}>
                         {% for column in table.columns %}
                             {% set cell = row.cells[column.id] ?? null %}
                             {% set tag = loop.first ? 'th' : 'td' %}

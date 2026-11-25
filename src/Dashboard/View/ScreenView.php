@@ -19,6 +19,7 @@ final class ScreenView
         public readonly ?CheckList $checks = null,
         public readonly ?Guide $guide = null,
         public readonly ?RaisedChecks $raised = null,
+        public readonly ?Brief $brief = null,
     ) {}
 
     public function isEmpty(): bool

@@ -587,7 +587,8 @@ body.jm .jm-header {
     margin-bottom: 20px;
 }
 
-.jm-screen > .jm-cards:not(:has(> .jm-card--wide)) {
+.jm-screen > .jm-cards:not(:has(> .jm-card--wide)),
+.jm-section > .jm-cards:not(:has(> .jm-card--wide)) {
     grid-template-columns: none;
     grid-auto-columns: minmax(0, 1fr);
     grid-auto-flow: column;
@@ -610,6 +611,17 @@ body.jm .jm-header {
     font-weight: 600;
     letter-spacing: .06em;
     text-transform: uppercase;
+}
+
+.jm-card__link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.jm-card__link:hover,
+.jm-card__link:focus-visible {
+    color: inherit;
+    text-decoration: underline;
 }
 
 .jm-card__row {
@@ -1024,6 +1036,14 @@ body.jm .jm-section {
 .jm-table .jm-row--muted > * {
     color: var(--jm-muted);
     font-style: italic;
+}
+
+.jm-table tbody .jm-row--nested > * {
+    background: var(--jm-surface-hover);
+}
+
+.jm-table tbody .jm-row--nested > :first-child {
+    padding-left: 38px;
 }
 
 .jm-sql {
@@ -2062,12 +2082,14 @@ body.jm .jm-section {
         grid-column: 1 / -1;
     }
 
-    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)) {
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)),
+    .jm-section > .jm-cards:not(:has(> .jm-card--wide)) {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         grid-auto-flow: row;
     }
 
-    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(4):last-child) {
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(4):last-child),
+    .jm-section > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(4):last-child) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -2083,15 +2105,18 @@ body.jm .jm-section {
 }
 
 @media (min-width: 721px) and (max-width: 1080px) {
-    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child) {
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child),
+    .jm-section > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child) {
         grid-template-columns: repeat(6, minmax(0, 1fr));
     }
 
-    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child) > .jm-card {
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child) > .jm-card,
+    .jm-section > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child) > .jm-card {
         grid-column: span 2;
     }
 
-    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child) > .jm-card:nth-child(n + 4) {
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child) > .jm-card:nth-child(n + 4),
+    .jm-section > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(5):last-child) > .jm-card:nth-child(n + 4) {
         grid-column: span 3;
     }
 }
@@ -2135,7 +2160,8 @@ body.jm .jm-section {
         grid-column: 1 / -1;
     }
 
-    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)) {
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)),
+    .jm-section > .jm-cards:not(:has(> .jm-card--wide)) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -2285,6 +2311,10 @@ body.jm .jm-section {
 }
 
 @media (max-width: 400px) {
+    .jm-screen > .jm-cards:has(> .jm-card .jm-card__link) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .jm-panel__header:has(> .jm-panel__note) {
         flex-direction: column;
         gap: 2px;
@@ -2298,7 +2328,9 @@ body.jm .jm-section {
 @media (max-width: 380px) {
     .jm-cards,
     .jm-screen > .jm-cards:not(:has(> .jm-card--wide)),
-    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(4):last-child) {
+    .jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(4):last-child),
+    .jm-section > .jm-cards:not(:has(> .jm-card--wide)),
+    .jm-section > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(4):last-child) {
         grid-template-columns: minmax(0, 1fr);
     }
 

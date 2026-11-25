@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Section\HttpSection;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -65,7 +66,7 @@ final class HttpSectionTest extends TestCase
         foreach ($sorts as $sort => [$metric, $field]) {
             foreach (['desc' => true, 'asc' => false] as $direction => $descending) {
                 $reader = new FixedReader();
-                (new HttpSection(true))->build($reader, Period::SixHours, self::NOW, (string) $sort, $direction);
+                (new HttpSection(true))->build($reader, Period::SixHours, self::NOW, (string) $sort, $direction, new RaisedChecks([], [], Period::OneHour));
 
                 static::assertCount(1, $reader->queries);
                 $query = $reader->queries[0];
@@ -82,7 +83,7 @@ final class HttpSectionTest extends TestCase
         }
 
         $reader = new FixedReader();
-        (new HttpSection(true))->build($reader, Period::OneHour, self::NOW, 'unknown', 'desc');
+        (new HttpSection(true))->build($reader, Period::OneHour, self::NOW, 'unknown', 'desc', new RaisedChecks([], [], Period::OneHour));
         static::assertSame([Metric::HTTP_DURATION, 'sum'], [$reader->queries[0]->sortMetric, $reader->queries[0]->sortField]);
     }
 
@@ -196,7 +197,7 @@ final class HttpSectionTest extends TestCase
         );
         $reader = new FixedReader(new Report($rows, $other, $keyCount ?? \count($rows), $series, $all === [] ? [] : $totals));
 
-        return (new HttpSection(true))->build($reader, $period, self::NOW, 'total', 'desc');
+        return (new HttpSection(true))->build($reader, $period, self::NOW, 'total', 'desc', new RaisedChecks([], [], Period::OneHour));
     }
 
     /** @return array<string, MetricValue> */

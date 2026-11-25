@@ -31,6 +31,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
+use Jmonitor\JmonitorBundle\Dashboard\View\Brief;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
@@ -1048,6 +1049,9 @@ final class PageRendererTest extends TestCase
             }
         }
 
+        static::assertCount(2, $reader->totalRequests, 'Only the composed screen read its checks, before its section failed.');
+
+        $reader->totalRequests = [];
         $flusher = $this->failingFlusher();
         $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries')], $flusher, $reader, checks: self::checks());
 
@@ -1071,12 +1075,18 @@ final class PageRendererTest extends TestCase
             new StubBlockScreen('server', space: Space::Stack),
         ], reader: $reader, checks: self::checks());
 
-        foreach (['background', 'stack', 'server', 'probe'] as $path) {
+        foreach (['stack', 'server', 'probe'] as $path) {
             $renderer->page(Request::create('/'), $path, new FakeHostUrls());
             $renderer->fragment(Request::create('/'), $path, new FakeHostUrls());
         }
 
         static::assertSame([], $reader->totalRequests);
+
+        $renderer->page(Request::create('/'), 'background', new FakeHostUrls());
+        $renderer->fragment(Request::create('/'), 'background', new FakeHostUrls());
+
+        static::assertCount(2, $reader->totalRequests, 'A composed screen reads its checks for its sections, once per display.');
+        $reader->totalRequests = [];
 
         $renderer = $this->renderer([self::tableScreen('exceptions'), self::tableScreen('users')], reader: $reader, checks: self::checks());
         $renderer->page(Request::create('/'), 'exceptions', new FakeHostUrls());
@@ -1193,6 +1203,55 @@ final class PageRendererTest extends TestCase
 
         static::assertCount(4, $reader->totalRequests);
         static::assertSame(array_fill(0, 4, [Metric::CACHE_HIT, Metric::CACHE_MISS]), $reader->keyedRequests);
+    }
+
+    public function testTheTabsOfAComposedPageReuseItsRaisedChecks(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $cache = self::briefedSection('cache', '9 cache reads');
+        $composed = new ComposedScreen('cache-http', 'Cache & HTTP', 'What your code waits for', Space::Application, [$cache]);
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), $composed], reader: $reader, checks: self::checks());
+
+        foreach ([
+            'page' => static fn(): string => $renderer->page(Request::create('/'), 'cache-http', new FakeHostUrls())->html,
+            'fragment' => static fn(): string => (string) $renderer->fragment(Request::create('/'), 'cache-http', new FakeHostUrls())->getContent(),
+        ] as $kind => $render) {
+            $reader->totalRequests = [];
+            $cache->raised = [];
+            $crawler = new Crawler($render());
+
+            static::assertCount(1, $reader->totalRequests, $kind);
+            static::assertCount(1, $cache->raised, $kind);
+            static::assertTrue($cache->raised[0]->has('requests.server_errors'), $kind);
+            static::assertSame(['1 critical in the last hour'], $crawler->filter('.jm-subnav__item .jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')), $kind);
+        }
+    }
+
+    public function testAComposedPageWithALeadHasOneHeading(): void
+    {
+        $cacheHttp = new ComposedScreen('cache-http', 'Cache & HTTP', 'What your code waits for', Space::Application, [self::briefedSection('cache', '9 cache reads'), self::briefedSection('http', '2 outgoing calls')]);
+        $background = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [self::briefedSection('messages', '4 messages handled')], true);
+        $renderer = $this->renderer([self::tableScreen('requests'), $cacheHttp, $background]);
+
+        foreach (['cache-http' => '9 cache reads and 2 outgoing calls in the last hour.', 'background' => '4 messages handled in the last hour.'] as $path => $sentence) {
+            foreach ([
+                'page' => $renderer->page(Request::create('/'), $path, new FakeHostUrls())->html,
+                'fragment' => (string) $renderer->fragment(Request::create('/'), $path, new FakeHostUrls())->getContent(),
+            ] as $kind => $html) {
+                $crawler = new Crawler($html);
+
+                static::assertSame([$sentence], $crawler->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()), $path . ' ' . $kind);
+                static::assertCount(1, $crawler->filter('.jm-screen > section.jm-lead > h1'), $path . ' ' . $kind);
+                static::assertCount(0, $crawler->filter('.jm-heading'), $path . ' ' . $kind);
+                static::assertSame('Nothing to flag', $crawler->filter('.jm-screen > section.jm-lead + .jm-checks--empty > h2')->text(), $path . ' ' . $kind);
+                static::assertCount(0, $crawler->filter('.jm-section .jm-lead, .jm-section .jm-checks, .jm-section .jm-guide'), $path . ' ' . $kind);
+            }
+        }
+
+        $anchors = (new Crawler($renderer->page(Request::create('/'), 'background', new FakeHostUrls())->html))->filter('.jm-screen > .jm-cards a.jm-card__link');
+
+        static::assertSame(['#jm-messages'], $anchors->each(static fn(Crawler $a): string => (string) $a->attr('href')));
+        static::assertCount(0, (new Crawler($renderer->page(Request::create('/'), 'cache-http', new FakeHostUrls())->html))->filter('.jm-card__link'));
     }
 
     public function testTheBadgesAreReadWhileRecordingIsOffOrTheBufferIsUnusable(): void
@@ -1541,6 +1600,16 @@ final class PageRendererTest extends TestCase
                 new Row('k1', ['name' => new Cell('a'), 'runs' => new Cell('1')]),
             ]),
         ]), sorts: ['runs' => 'desc', 'name' => 'asc']);
+    }
+
+    /** @param non-empty-string $id */
+    private static function briefedSection(string $id, string $clause): StubSection
+    {
+        return new StubSection($id, static fn(): ScreenView => new ScreenView([new Card('Runs', '3')], [
+            new Table($id, ucfirst($id), [new Column('name', 'Name', false, 'name'), new Column('runs', 'Runs', sort: 'runs')], [
+                new Row('k1', ['name' => new Cell('a'), 'runs' => new Cell('1')]),
+            ]),
+        ]), sorts: ['runs' => 'desc', 'name' => 'asc'], brief: new Brief('1', $clause));
     }
 
     /**

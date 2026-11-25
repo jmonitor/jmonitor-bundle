@@ -16,6 +16,7 @@ final class ComposedScreen implements RecordedScreenInterface
     /**
      * @param non-empty-string           $id
      * @param iterable<SectionInterface> $sections
+     * @param bool                       $outline  whether its top shows one card per section, that leads to it
      */
     public function __construct(
         private readonly string $id,
@@ -23,6 +24,7 @@ final class ComposedScreen implements RecordedScreenInterface
         private readonly string $heading,
         private readonly Space $space,
         iterable $sections,
+        private readonly bool $outline = false,
     ) {
         $this->sections = array_values([...$sections]);
     }
@@ -50,6 +52,11 @@ final class ComposedScreen implements RecordedScreenInterface
     public function space(): Space
     {
         return $this->space;
+    }
+
+    public function outline(): bool
+    {
+        return $this->outline;
     }
 
     /** @return list<SectionInterface> the available ones */

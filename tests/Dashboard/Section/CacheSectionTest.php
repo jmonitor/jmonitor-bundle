@@ -8,6 +8,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Section\CacheSection;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -53,7 +54,7 @@ final class CacheSectionTest extends TestCase
     {
         foreach (array_keys((new CacheSection(true))->sorts()) as $sort) {
             $reader = new FixedReader();
-            (new CacheSection(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
+            (new CacheSection(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc', new RaisedChecks([], [], Period::OneHour));
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
@@ -134,7 +135,7 @@ final class CacheSectionTest extends TestCase
 
         foreach ($expected as $order => $pools) {
             [$sort, $direction] = explode(' ', $order);
-            $view = (new CacheSection(true))->build($this->reader($rows), Period::OneHour, self::NOW, $sort, $direction);
+            $view = (new CacheSection(true))->build($this->reader($rows), Period::OneHour, self::NOW, $sort, $direction, new RaisedChecks([], [], Period::OneHour));
 
             static::assertSame($pools, array_map(static fn(Row $row): string => $row->cells['pool']->text, $view->tables[0]->rows), $order);
         }
@@ -190,7 +191,7 @@ final class CacheSectionTest extends TestCase
      */
     private function build(array $rows, ?ReportRow $other = null, Period $period = Period::OneHour): ScreenView
     {
-        return (new CacheSection(true))->build($this->reader($rows, $other), $period, self::NOW, 'reads', 'desc');
+        return (new CacheSection(true))->build($this->reader($rows, $other), $period, self::NOW, 'reads', 'desc', new RaisedChecks([], [], Period::OneHour));
     }
 
     /**

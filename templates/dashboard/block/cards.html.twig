@@ -2,7 +2,7 @@
 <section class="jm-cards" aria-label="Summary">
     {% for card in block.content %}
         <article class="jm-card{{ card.wide ? ' jm-card--wide' }}{{ card.tone ? ' jm-card--' ~ card.tone }}">
-            <h2 class="jm-card__label">{{ card.label }}</h2>
+            <h2 class="jm-card__label">{% if card.anchor is not null %}<a class="jm-card__link" href="#jm-{{ card.anchor }}">{{ card.label }}</a>{% else %}{{ card.label }}{% endif %}</h2>
             {% if card.series is not empty %}
                 <div class="jm-card__row">
                     <p class="jm-card__value">{{ card.value }}</p>

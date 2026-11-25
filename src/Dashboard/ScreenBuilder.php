@@ -12,6 +12,12 @@ use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
+use Jmonitor\JmonitorBundle\Dashboard\View\Brief;
+use Jmonitor\JmonitorBundle\Dashboard\View\Card;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
+use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
+use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
@@ -138,6 +144,7 @@ final class ScreenBuilder
         }
 
         $views = [];
+        $raised = null;
         $cause = null;
 
         if ($this->reader === null) {
@@ -145,16 +152,17 @@ final class ScreenBuilder
         } elseif ($storageFailed) {
             $cause = BlockState::StorageError;
         } else {
-            foreach ($parts as [$section, , $sectionSort, $sectionDirection]) {
-                try {
-                    $views[] = $section->build($this->reader, $period, $request->now, $sectionSort, $sectionDirection);
-                } catch (\Throwable $e) {
-                    $this->logger?->error('JMonitor could not read its data: ' . $e->getMessage(), ['exception' => $e]);
-                    $cause = BlockState::StorageError;
-                    $views = [];
+            try {
+                $raised = $this->checks->raised($this->reader, $period, $request->now);
 
-                    break;
+                foreach ($parts as [$section, , $sectionSort, $sectionDirection]) {
+                    $views[] = $section->build($this->reader, $period, $request->now, $sectionSort, $sectionDirection, $raised);
                 }
+            } catch (\Throwable $e) {
+                $this->logger?->error('JMonitor could not read its data: ' . $e->getMessage(), ['exception' => $e]);
+                $cause = BlockState::StorageError;
+                $views = [];
+                $raised = null;
             }
 
             if ($cause === null && array_filter($views, static fn(ScreenView $view): bool => $view->isEmpty()) !== []) {
@@ -162,7 +170,8 @@ final class ScreenBuilder
             }
         }
 
-        $blocks = $cause === null ? [] : [Block::unavailable(Block::TABLE, $cause)];
+        $blocks = [];
+        $briefed = [];
 
         foreach ($parts as $i => [$section, $own, $sectionSort, $sectionDirection]) {
             $view = $views[$i] ?? null;
@@ -170,7 +179,11 @@ final class ScreenBuilder
             $empty = null;
 
             if ($view !== null && !$view->isEmpty()) {
-                $content = [...$own, ...self::figures($view)];
+                $content = [...$own, ...self::sectionFigures($view)];
+
+                if ($view->brief !== null) {
+                    $briefed[] = [$section, $view, $view->brief];
+                }
             } elseif ($view !== null && $cause === null) {
                 $empty = $section->emptyState($period);
             } elseif ($own === []) {
@@ -178,6 +191,12 @@ final class ScreenBuilder
             }
 
             $blocks[] = Block::section(new Section($section->id(), $section->title(), $section->summary(), $content, $sectionSort, $sectionDirection, $section->sorts(), $empty));
+        }
+
+        if ($cause !== null) {
+            $blocks = [Block::unavailable(Block::TABLE, $cause), ...$blocks];
+        } elseif ($briefed !== []) {
+            $blocks = [...self::top($briefed, $period, $screen->outline()), ...$blocks, ...self::guide($briefed)];
         }
 
         return new Page(
@@ -188,7 +207,69 @@ final class ScreenBuilder
             $chosen[2] ?? '',
             [],
             $request->instance === null ? [] : [ScreenRequest::INSTANCE => $request->instance],
+            raised: $raised,
         );
+    }
+
+    /**
+     * @param non-empty-list<array{SectionInterface, ScreenView, Brief}> $briefed the sections shown with their figures and a brief, in order
+     *
+     * @return list<Block> the sentence, the checks, then the cards that lead to each section when the screen has an outline
+     */
+    private static function top(array $briefed, Period $period, bool $outline): array
+    {
+        $inPeriod = ' in the ' . strtolower(Format::period($period)) . '.';
+        $clauses = array_map(static fn(array $part): string => $part[2]->clause, $briefed);
+        $last = array_pop($clauses);
+        $sentence = ucfirst(($clauses === [] ? $last : implode(', ', $clauses) . ' and ' . $last) . $inPeriod);
+        $detail = implode(' ', array_filter(array_map(static fn(array $part): string => $part[2]->standout, $briefed), static fn(string $standout): bool => $standout !== ''));
+
+        $lines = [];
+        $checked = [];
+
+        foreach ($briefed as [, $view]) {
+            if ($view->checks !== null) {
+                array_push($lines, ...$view->checks->lines);
+
+                if ($view->checks->emptyText !== '') {
+                    $checked[] = $view->checks->emptyText;
+                }
+            }
+        }
+
+        $bad = array_values(array_filter($lines, static fn(CheckLine $line): bool => $line->mark->tone === 'bad'));
+        $others = array_values(array_filter($lines, static fn(CheckLine $line): bool => $line->mark->tone !== 'bad'));
+        $blocks = [
+            Block::lead(new Lead($sentence, $detail)),
+            Block::checks(new CheckList([...$bad, ...$others], 'Nothing to flag', $checked === [] ? '' : ucfirst(implode(', ', $checked)) . $inPeriod, 'Worth a look')),
+        ];
+
+        if ($outline) {
+            $blocks[] = Block::cards(array_map(
+                static fn(array $part): Card => new Card($part[0]->title(), $part[2]->count, $part[2]->figures, $part[2]->tone, anchor: $part[0]->id()),
+                $briefed,
+            ));
+        }
+
+        return $blocks;
+    }
+
+    /**
+     * @param non-empty-list<array{SectionInterface, ScreenView, Brief}> $briefed
+     *
+     * @return list<Block>
+     */
+    private static function guide(array $briefed): array
+    {
+        $items = [];
+
+        foreach ($briefed as [, $view]) {
+            if ($view->guide !== null) {
+                array_push($items, ...$view->guide->items);
+            }
+        }
+
+        return $items === [] ? [] : [Block::guide(new Guide(\array_slice($items, 0, 3)))];
     }
 
     /**
@@ -238,6 +319,12 @@ final class ScreenBuilder
 
             return [Block::unavailable(Block::TABLE, BlockState::Error)];
         }
+    }
+
+    /** @return list<Block> */
+    private static function sectionFigures(ScreenView $view): array
+    {
+        return [...($view->cards === [] ? [] : [Block::cards($view->cards)]), ...array_map(Block::table(...), $view->tables)];
     }
 
     /** @return list<Block> */

@@ -40,8 +40,8 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Symfony\Contracts\Service\ResetInterface;
 
 /**
- * Every block of the live stack in every state, the blocks that guide the reading of a screen, then a section in each
- * of its states. Each request moves
+ * Every block of the live stack in every state, the blocks that guide the reading of a screen, cards that lead to the
+ * sections below, then a section in each of its states. Each request moves
  * a counter kept in a file: the badge shows it, and its tone and the web server named by the second
  * navigation alternate with its parity.
  */
@@ -169,11 +169,26 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 new Row('search', ['route' => Cell::route('GET app_search_with_a_route_name_long_enough_to_wrap'), 'total' => Cell::bar('12 ms', 0.007), 'split' => Cell::split(['php' => 3.0, 'sql' => 40.0, 'http' => 0.0], '3 · 40 ms, a text long enough to be cut'), 'problems' => Cell::tags([new Tag('slow', 'warn')])]),
                 new Row('other', ['route' => new Cell('Other routes'), 'total' => Cell::bar('90 ms', 0.05), 'split' => Cell::split(['php' => 0.0, 'sql' => 0.0, 'http' => 0.0], '—'), 'problems' => Cell::tags([])], muted: true),
             ], 12, 'route', partsLegend: true, footnote: 'Averages per request. The PHP part is what is left once SQL and outgoing HTTP calls are taken away.')),
+            Block::table(new Table('gallery-nested', 'Exceptions', [
+                new Column('exception', 'Exception', false),
+                new Column('count', 'Count'),
+                new Column('last', 'Last seen'),
+            ], [
+                new Row('runtime', ['exception' => new Cell('RuntimeException', kind: 'code'), 'count' => new Cell('12'), 'last' => new Cell('2 min ago')]),
+                new Row('runtime-checkout', ['exception' => Cell::route('GET app_checkout'), 'count' => new Cell('9'), 'last' => new Cell('2 min ago')], nested: true),
+                new Row('runtime-import', ['exception' => new Cell('app:import', kind: 'code'), 'count' => new Cell('3'), 'last' => new Cell('1 h ago')], nested: true),
+                new Row('logic', ['exception' => new Cell('LogicException', kind: 'code'), 'count' => new Cell('1'), 'last' => new Cell('40 min ago')]),
+            ], noun: 'exception')),
             Block::guide(new Guide([
                 new GuideItem('Total time', 'adds up the time of every request of the route: a route called often can weigh more than a slow one.'),
                 new GuideItem('Time split', 'shows where an average request spends its time: your PHP code, SQL queries, outgoing HTTP calls.', ['See the gallery' => 'gallery', 'See a missing screen' => 'missing']),
                 new GuideItem('Problems', self::LONG),
             ])),
+            Block::cards([
+                new Card('A section with figures', '1,284', 'runs, 3 failed', 'bad', anchor: 'full'),
+                new Card('A section without activity', '0', 'nothing ran', anchor: 'quiet'),
+                new Card('Not a link', '12', 'A card without anchor'),
+            ]),
             Block::section(new Section('full', 'A section with figures', 'Cards and a table, sorted within the section.', [
                 Block::cards([new Card('Runs', '1,284', 'in the last hour', series: [3, 5, 4, 8, 6]), new Card('Failed', '3', tone: 'bad'), new Card('Slowest', '4.2 s'), new Card('Commands', '12')]),
                 Block::table(new Table('gallery-full', 'Commands', [

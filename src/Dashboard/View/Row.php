@@ -15,5 +15,6 @@ final class Row
         public readonly array $cells,
         public readonly array $attributes = [],
         public readonly bool $muted = false,
+        public readonly bool $nested = false,
     ) {}
 }

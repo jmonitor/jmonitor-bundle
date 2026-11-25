@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTask;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
@@ -78,7 +79,7 @@ final class TasksSection implements SectionInterface
         ];
     }
 
-    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction): ScreenView
+    public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction, RaisedChecks $raised): ScreenView
     {
         $report = $reader->read(new ReportQuery($period, $now, Family::Task, seriesMetric: Metric::TASK_DURATION));
         $declared = $this->declared->all($now);
