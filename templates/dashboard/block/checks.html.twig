@@ -1,22 +1,37 @@
 {% autoescape 'html' %}
 {% set list = block.content %}
+{% set tones = list.lines|filter(line => line.action is not same as(''))|length > 0 ? list.lines|map(line => line.mark.tone) : [] %}
+{% set frame = 'bad' in tones ? ' jm-checks--bad' : ('warn' in tones ? ' jm-checks--warn' : '') %}
 {% if list.lines is empty %}
-    <section class="jm-checks jm-checks--empty" aria-label="To check">
+    <section class="jm-checks jm-checks--empty" aria-label="{{ list.title }}">
         <h2 class="jm-checks__empty-title">{{ list.emptyTitle }}</h2>
         {% if list.emptyText is not same as('') %}
             <p class="jm-checks__empty-text">{{ list.emptyText }}</p>
         {% endif %}
     </section>
 {% else %}
-    <section class="jm-panel jm-checks" aria-label="To check">
+    <section class="jm-panel jm-checks{{ frame }}" aria-label="{{ list.title }}">
         <div class="jm-panel__header">
-            <h2 class="jm-panel__title">To check</h2>
+            <h2 class="jm-panel__title">{{ list.title }}</h2>
         </div>
         <ul class="jm-checks__list">
             {% for line in list.lines %}
-                <li class="jm-check" data-jm-check="{{ line.id }}" data-jm-severity="{{ line.mark.tone }}">
+{% set guided = line.action is not same as('') %}
+                <li class="jm-check{{ guided ? ' jm-check--guided' }}" data-jm-check="{{ line.id }}" data-jm-severity="{{ line.mark.tone }}">
                     <div class="jm-check__mark">{{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: line.mark}, with_context = false) }}</div>
                     <div class="jm-check__body">
+{% if guided %}
+                        <p class="jm-check__sentence">{% if line.title is not same as('') %}<strong>{{ line.title }}</strong> · {% endif %}{{ line.sentence }}</p>
+                        {% if line.code is not null %}
+                            <pre class="jm-check__code"><code>{{ line.code }}</code></pre>
+                        {% endif %}
+                        <div class="jm-check__advice">
+                            {% if line.explanation is not same as('') %}
+                                <p class="jm-check__why"><strong>Why it matters</strong> {{ line.explanation }}</p>
+                            {% endif %}
+                            <p class="jm-check__todo"><strong>What to do</strong> {{ line.action }}</p>
+                        </div>
+{% else %}
                         <p class="jm-check__sentence">{{ line.sentence }}</p>
                         {% if line.explanation is not same as('') %}
                             <details class="jm-check__more" data-jm-key="check-{{ line.id }}-{{ line.where }}">
@@ -24,15 +39,18 @@
                                 <p>{{ line.explanation }}</p>
                             </details>
                         {% endif %}
+{% endif %}
                     </div>
+{% if line.where is not same as('') or line.age is not null %}
                     <p class="jm-check__where">
-                        {%- if line.path is not null -%}
+                        {%- if line.path is not null and (line.path|split('/')|first) in screens -%}
                             <a href="{{ urls.page(line.path, line.query) }}">{{ line.where }}</a>
                         {%- else -%}
                             {{ line.where }}
                         {%- endif -%}
                         {%- if line.age is not null %} <span class="jm-check__age">{{ line.age }}</span>{% endif -%}
                     </p>
+{% endif %}
                 </li>
             {% endfor %}
         </ul>

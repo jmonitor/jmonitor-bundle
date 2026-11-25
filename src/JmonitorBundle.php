@@ -386,7 +386,7 @@ final class JmonitorBundle extends AbstractBundle
                     ->children()
                         ->booleanNode('enabled')->defaultNull()->info('Record HTTP requests, console commands, messages and scheduled tasks. Defaults to true, except in the "test" environment.')->end()
                         ->integerNode('flush_interval')->defaultValue(10)->min(1)->max(3600)->info('Seconds between two flushes of the buffer to the storage.')->end()
-                        ->integerNode('slow_threshold')->defaultValue(1000)->min(1)->info('Duration in ms above which a request counts as slow.')->end()
+                        ->integerNode('slow_threshold')->defaultValue(1000)->min(1)->info('Duration in ms from which a request counts as slow.')->end()
                         ->arrayNode('ignore_routes')
                             ->scalarPrototype()->end()
                             ->defaultValue([])

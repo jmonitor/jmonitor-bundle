@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
@@ -17,14 +20,20 @@ use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
+use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
+use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
+use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -34,6 +43,8 @@ use Symfony\Component\Filesystem\Filesystem;
 
 final class ScreenBuilderTest extends TestCase
 {
+    private const SERVER_ERRORS = Metric::REQUEST_STATUS_PREFIX . '5xx';
+
     /** @var list<string> */
     private array $paths = [];
 
@@ -255,6 +266,53 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame('mixed', $page->state());
         static::assertSame(Period::SixHours, $page->period);
         static::assertSame(['count', 'desc'], [$page->sort, $page->direction]);
+    }
+
+    public function testTheBlocksOfAScreenFollowTheReadingOrder(): void
+    {
+        $lead = new Lead('Sentence');
+        $checks = new CheckList([]);
+        $guide = new Guide([new GuideItem('Term', 'Text')]);
+        $card = new Card('Hits', '12');
+        $first = $this->table(rows: 1);
+        $second = $this->table(rows: 0);
+        $view = static fn(ScreenView $view): StubScreen => new StubScreen(view: static fn(ReaderInterface $reader): ScreenView => $view);
+
+        $page = $this->builder()->create($view(new ScreenView([$card], [$first, $second], $lead, $checks, $guide)), null, null, null);
+
+        static::assertSame([Block::LEAD, Block::CHECKS, Block::CARDS, Block::TABLE, Block::TABLE, Block::GUIDE], self::types($page->blocks));
+        static::assertSame([$lead, $checks, [$card], $first, $second, $guide], array_map(static fn(Block $block): mixed => $block->content, $page->blocks));
+        static::assertSame([Block::LEAD, Block::TABLE, Block::GUIDE], self::types($this->builder()->create($view(new ScreenView([], [$first], $lead, guide: $guide)), null, null, null)->blocks), 'A lead takes the place of an empty list of cards.');
+        static::assertSame([Block::CHECKS, Block::CARDS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$first], checks: $checks)), null, null, null)->blocks), 'Without a lead, an empty list of cards keeps its block.');
+        static::assertSame([Block::CARDS, Block::TABLE, Block::GUIDE], self::types($this->builder()->create($view(new ScreenView([$card], [$first], guide: $guide)), null, null, null)->blocks));
+    }
+
+    public function testAnEmptyScreenShowsItsStateWithoutLeadNorGuide(): void
+    {
+        $screen = new StubScreen(view: fn(ReaderInterface $reader): ScreenView => new ScreenView([new Card('Hits', '0')], [$this->table(rows: 0)], new Lead('Sentence'), new CheckList([]), new Guide([new GuideItem('Term', 'Text')])));
+
+        $page = $this->builder()->create($screen, null, null, null);
+
+        static::assertCount(1, $page->blocks);
+        static::assertSame([Block::TABLE, BlockState::Empty, 'Nothing yet'], [$page->blocks[0]->type, $page->blocks[0]->state, $page->blocks[0]->title]);
+        static::assertSame([Block::TABLE], self::types($this->builder(recordingEnabled: false)->create($screen, null, null, null)->blocks));
+    }
+
+    public function testASectionKeepsItsBlocksOfToday(): void
+    {
+        $lead = new Lead('Sentence');
+        $guide = new Guide([new GuideItem('Term', 'Text')]);
+        $guided = new StubSection('guided', fn(): ScreenView => new ScreenView([], [$this->table(rows: 1)], $lead, null, $guide));
+        $quietGuided = new StubSection('quiet', fn(): ScreenView => new ScreenView([], [$this->table(rows: 0)], $lead, null, $guide));
+        $notice = Block::notice(new Notice('info', 'Own'));
+
+        $page = $this->builder()->create(self::composed($this->section('plain', rows: 1), new StubSourceSection($guided, [$notice]), $quietGuided, $this->section('bare', rows: 0)), null, null, null);
+
+        static::assertSame([Block::CARDS, Block::TABLE], self::types(self::sectionOf($page, 'plain')->blocks));
+        static::assertSame([Block::NOTICE, Block::LEAD, Block::TABLE, Block::GUIDE], self::types(self::sectionOf($page, 'guided')->blocks));
+        static::assertSame([], self::sectionOf($page, 'quiet')->blocks);
+        static::assertNotNull(self::sectionOf($page, 'quiet')->empty);
+        static::assertSame([], self::sectionOf($page, 'bare')->blocks);
     }
 
     public function testTheScreenRequestSaysWhenItIsAFollowUp(): void
@@ -585,6 +643,43 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame([false, true], array_map(static fn(Block $block): bool => $block->reading, $page->blocks));
         static::assertTrue($this->builder(null)->create($screen, null, null, null)->isReading());
         static::assertFalse($this->builder()->create(self::composed($this->section('first', rows: 1), $this->section('quiet', rows: 0)), null, null, null)->isReading());
+    }
+
+    public function testTheRaisedChecksOfAViewGoToThePageAndStayWithItsTabs(): void
+    {
+        $raised = (new ApplicationChecks([new ServerErrorsCheck()]))->raised(new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]), Period::OneHour, 1800000000);
+        $table = $this->table(1);
+
+        $page = $this->builder()->create(new StubScreen(view: static fn(): ScreenView => new ScreenView([], [$table], raised: $raised)), null, null, null);
+
+        static::assertSame($raised, $page->raised);
+        static::assertSame($raised, $page->withTabs(new SubNav('Application', []))->raised);
+        static::assertNull($this->builder()->create($this->screen(rows: 1), null, null, null)->raised);
+    }
+
+    public function testTheChecksAreReadForAPageWithAPeriodAndATabThatHasACheck(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $builder = new ScreenBuilder($reader, true, new MockClock('@1800000000'), null, null, new ApplicationChecks([new ServerErrorsCheck()]));
+        $page = $builder->create($this->screen(rows: 1), '6h', null, null);
+
+        static::assertNull($builder->raisedChecks($page, ['queries', 'exceptions']));
+        static::assertSame([], $reader->totalRequests);
+
+        static::assertTrue($builder->raisedChecks($page, ['exceptions', 'requests'])?->has('requests.server_errors'));
+        static::assertSame([[Period::SixHours, 1800000000, [self::SERVER_ERRORS]]], $reader->totalRequests);
+
+        static::assertNull($builder->raisedChecks($builder->create($this->screen(rows: 1), '6h', null, null, storageFailed: true), ['requests']));
+        static::assertNull($builder->raisedChecks($builder->create(new StubScreen(view: static fn(): ScreenView => throw new \RuntimeException('Gone')), null, null, null), ['requests']));
+        static::assertNull($builder->raisedChecks($builder->create(new StubBlockScreen('probe'), null, null, null), ['requests']));
+        static::assertCount(1, $reader->totalRequests);
+    }
+
+    public function testTheChecksAreNotReadWithoutReader(): void
+    {
+        $builder = new ScreenBuilder(null, true, new MockClock('@1800000000'), null, null, new ApplicationChecks([new ServerErrorsCheck()]));
+
+        static::assertNull($builder->raisedChecks($builder->create($this->screen(rows: 1), null, null, null), ['requests']));
     }
 
     private static function composed(SectionInterface ...$sections): ComposedScreen

@@ -102,6 +102,17 @@ final class Format
         };
     }
 
+    /** where a curve of the period starts, read from now */
+    public static function periodStart(Period $period): string
+    {
+        return match ($period) {
+            Period::OneHour => '1 h ago',
+            Period::SixHours => '6 h ago',
+            Period::OneDay => '24 h ago',
+            Period::SevenDays => '7 d ago',
+        };
+    }
+
     private static function trimZero(string $number): string
     {
         return str_ends_with($number, '.0') ? substr($number, 0, -2) : $number;

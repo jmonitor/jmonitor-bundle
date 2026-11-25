@@ -71,14 +71,6 @@ for _ in $(seq 1 30); do
 done
 [ "$repeated" = 1 ] || fail 'the Queries screen did not list the N+1 of "GET app_n_plus_one" within 30 s'
 
-for _ in 1 2 3; do
-    curl -sf -o /dev/null "$BASE/cached" || fail "GET /cached did not return 2xx"
-done
-for _ in 1 2; do
-    status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/boom")"
-    [ "$status" = 500 ] || fail "GET /boom answered $status instead of 500"
-done
-
 expect_page() {
     found=0
     for _ in $(seq 1 30); do
@@ -91,6 +83,28 @@ expect_page() {
     done
     [ "$found" = 1 ] || fail "$3 within 30 s"
 }
+
+expect_page /jmonitor/queries 'class="jm-heading__title jm-lead__title">39 SQL queries in the last hour, ' 'the Queries screen did not sum up 39 SQL queries in its lead'
+printf '%s\n' "$page" | grep -q 'aria-label="Worth a look"' || fail 'the Queries screen has no "Worth a look" block with a repeated query'
+printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Queries screen does not flag the repeated query"
+printf '%s\n' "$page" | grep -q '<strong>Repeated query (N+1)</strong> · GET app_n_plus_one runs the same query 12 times on average, 12 at worst.' || fail "the Queries screen does not name GET app_n_plus_one as the route that repeats a query 12 times"
+
+for _ in 1 2 3; do
+    curl -sf -o /dev/null "$BASE/cached" || fail "GET /cached did not return 2xx"
+done
+for _ in 1 2; do
+    status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/boom")"
+    [ "$status" = 500 ] || fail "GET /boom answered $status instead of 500"
+done
+
+expect_page /jmonitor/requests 'class="jm-heading__title jm-lead__title">38 requests in the last hour, ' 'the Requests screen did not sum up 38 requests in its lead'
+printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "the Requests screen does not flag the server errors"
+printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "the Requests screen does not name GET app_boom as the route that answered 2 server errors"
+printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Requests screen does not flag the query that GET app_n_plus_one repeats"
+admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/requests")" || fail "GET /admin/jmonitor/requests failed"
+status="$(printf '%s\n' "$admin" | tail -n 1)"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor/requests answered $status instead of 200"
+printf '%s\n' "$admin" | grep -q 'class="jm-heading__title jm-lead__title">38 requests in the last hour, ' || fail "the Requests screen inside EasyAdmin does not sum up 38 requests in its lead"
 
 expect_page /jmonitor/cache-http 'data-jm-pool="cache.app" data-jm-reads="3"' 'the Cache & HTTP screen did not list 3 reads of cache.app'
 expect_page /jmonitor/exceptions 'data-jm-exception="RuntimeException" data-jm-count="2"' 'the Exceptions screen did not list 2 RuntimeException'
@@ -235,4 +249,4 @@ if printf '%s\n' "$commands" | grep -q 'jmonitor:stack:queues'; then
     fail "the Background screen lists jmonitor:stack:queues"
 fi
 
-echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"
+echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; the Requests and Queries screens sum up the period and flag the server errors and the repeated query, also inside EasyAdmin; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"

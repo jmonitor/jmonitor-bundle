@@ -7,6 +7,11 @@ use Jmonitor\JmonitorBundle\Controller\DashboardController;
 use Jmonitor\JmonitorBundle\Controller\StandaloneUrls;
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\DashboardAccess;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
@@ -93,21 +98,42 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             service('jmonitor.clock'),
             service(BufferDirectory::class)->nullOnInvalid(),
             \is_string($customLogger) ? service($customLogger) : service('logger')->nullOnInvalid(),
+            service(ApplicationChecks::class),
         ]);
 
     if ($customLogger === null) {
         $screenBuilder->tag('monolog.logger', ['channel' => 'jmonitor']);
     }
 
+    $services->set(ApplicationChecks::class)
+        ->args([tagged_iterator('jmonitor.check')]);
+
+    $services->set(ServerErrorsCheck::class)
+        ->tag('jmonitor.check');
+
+    $services->set(SlowRequestsCheck::class)
+        ->args([param('jmonitor.recording.slow_threshold')])
+        ->tag('jmonitor.check');
+
+    $services->set(SlowQueriesCheck::class)
+        ->args([param('jmonitor.recording.sql.slow_threshold')])
+        ->tag('jmonitor.check');
+
+    $services->set(RepeatedQueriesCheck::class)
+        ->args([param('jmonitor.recording.sql.n_plus_one_threshold')])
+        ->tag('jmonitor.check');
+
     $services->set(ScreenRegistry::class)
         ->args([tagged_iterator('jmonitor.screen')]);
 
     $services->set(RequestsScreen::class)
+        ->args([service(ApplicationChecks::class), param('jmonitor.recording.slow_threshold')])
         ->tag('jmonitor.screen', ['priority' => 100]);
 
     $services->set(QueriesScreen::class)
         ->args([
             $builder->getParameter('jmonitor.recording.sql.enabled') !== false,
+            service(ApplicationChecks::class),
             param('jmonitor.recording.sql.slow_threshold'),
             param('jmonitor.recording.sql.n_plus_one_threshold'),
         ])

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
@@ -26,6 +27,7 @@ final class Page
         public readonly array $sorts,
         public readonly array $query = [],
         private readonly ?SubNav $givenTabs = null,
+        public readonly ?RaisedChecks $raised = null,
     ) {}
 
     public function tabs(): ?SubNav
@@ -47,7 +49,7 @@ final class Page
 
     public function withTabs(SubNav $tabs): self
     {
-        return new self($this->screen, $this->blocks, $this->period, $this->sort, $this->direction, $this->sorts, $this->query, $tabs);
+        return new self($this->screen, $this->blocks, $this->period, $this->sort, $this->direction, $this->sorts, $this->query, $tabs, $this->raised);
     }
 
     public function state(): string
@@ -85,6 +87,11 @@ final class Page
         }
 
         return $states;
+    }
+
+    public function hasState(BlockState $state): bool
+    {
+        return \in_array($state->value, self::states($this->blocks), true);
     }
 
     public function isReading(): bool

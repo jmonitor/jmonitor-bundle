@@ -11,13 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` page: requests, response times and errors per route, stored in the application database.
 - `jmonitor:setup` command: creates or upgrades the `jmonitor_aggregates` and `jmonitor_keys` tables.
 - `/jmonitor` Queries screen: SQL queries run through Doctrine DBAL with their executions, time and slow count, and the queries repeated within one request (N+1).
-- Requests screen: SQL time and number of queries per request.
+- Requests screen: where the average request goes, between your PHP code, SQL and outgoing HTTP calls.
 - `recording.sql` option: turns SQL recording off or changes its slow query and N+1 thresholds.
 - `/jmonitor` Cache & HTTP tab: outgoing calls of the `http_client` service and scoped clients, per host.
 - `/jmonitor` Cache & HTTP tab: hits, misses, writes and deletes per cache pool.
 - `/jmonitor` Exceptions screen: the exceptions behind 5xx responses, per class and per route.
 - `/jmonitor` Users screen: requests, time and errors per signed-in user.
-- Requests screen: `HTTP out` column with the time spent in outgoing HTTP calls.
 - `recording.exceptions`, `recording.users`, `recording.http_client` and `recording.cache` options: each turns its recording off.
 - The `/jmonitor` page says when its buffer directory is unusable.
 - `/jmonitor` Background screen: runs, duration, failures, peak memory and SQL time per console command.
@@ -43,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `stack` options `postgresql` and `redis`.
 - `/jmonitor` navigation: three entries, Application, Background and Stack, with tabs under the header.
 - Live indicator: says how old the figures are, and when a refresh failed.
+- Requests and Queries screens: a sentence that sums up the period, what is worth a look with why it matters and what to do, and a guide to read the screen.
+- Requests and Queries tabs: a badge when something is worth a look.
+- Requests and Queries tables: a bar on the total time and a Problems column.
 
 ### Changed
 - Requires PHP 8.2.

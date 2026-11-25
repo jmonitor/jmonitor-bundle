@@ -306,6 +306,103 @@ final class DashboardTest extends WebTestCase
         static::assertStringNotContainsString('<html', (string) $client->getResponse()->getContent());
     }
 
+    public function testRequestsReadsFromTheSentenceToTheGuide(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        for ($i = 0; $i < 3; ++$i) {
+            $client->request('GET', '/hello/world');
+            static::assertResponseIsSuccessful();
+        }
+        $crawler = self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET app_hello"][data-jm-requests="3"]');
+
+        static::assertSame(
+            ['jm-lead', 'jm-checks', 'jm-cards', 'jm-panel', 'jm-guide'],
+            $crawler->filter('.jm-screen > section')->each(static fn(Crawler $block): string => explode(' ', (string) $block->attr('class'))[0]),
+        );
+        static::assertCount(1, $crawler->filter('h1'));
+        static::assertCount(0, $crawler->filter('.jm-heading'));
+        static::assertMatchesRegularExpression('/^3 requests in the last hour, 95 % answered in under \S+ ms\.$/', $crawler->filter('h1.jm-lead__title')->text());
+        static::assertSame('No server error, no slow request.', $crawler->filter('.jm-lead__detail')->text());
+        static::assertSame('Worth a look', $crawler->filter('section.jm-checks')->attr('aria-label'));
+        static::assertSame('Nothing to flag', $crawler->filter('.jm-checks__empty-title')->text());
+        static::assertSame('No server error, no slow request and no route that repeats a query in the last hour.', $crawler->filter('.jm-checks__empty-text')->text());
+        static::assertSame(['Average', 'p95', 'Slowest', 'Server errors', 'Slow requests'], $crawler->filter('.jm-card__label')->each(static fn(Crawler $label): string => $label->text()));
+        static::assertSame('Routes', $crawler->filter('#jm-routes-title')->text());
+        static::assertSame('How to read this screen', $crawler->filter('.jm-guide__title')->text());
+        static::assertSame(
+            ['/jmonitor/queries?period=1h', '/jmonitor/cache-http?period=1h'],
+            $crawler->filter('.jm-guide a')->each(static fn(Crawler $link): string => (string) $link->attr('href')),
+        );
+        static::assertCount(0, $crawler->filter('.jm-subnav .jm-nav__badge'));
+    }
+
+    public function testAServerErrorIsWorthALookAndBadgesTheTab(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        for ($i = 0; $i < 2; ++$i) {
+            $client->request('GET', '/boom');
+            static::assertResponseStatusCodeSame(500);
+        }
+        $crawler = self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET app_boom"][data-jm-requests="2"]');
+
+        static::assertSame('2 requests', explode(' in ', $crawler->filter('h1.jm-lead__title')->text())[0]);
+        static::assertSame('2 server errors, no slow request.', $crawler->filter('.jm-lead__detail')->text());
+        $check = $crawler->filter('[data-jm-check="requests.server_errors"]');
+        static::assertCount(1, $check);
+        static::assertSame(['requests.server_errors'], $crawler->filter('[data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        static::assertSame('bad', $check->attr('data-jm-severity'));
+        static::assertSame('2 server errors · GET app_boom answered with a 5xx status 2 times.', $check->filter('.jm-check__sentence')->text());
+        static::assertSame('Critical', $check->filter('.jm-check__mark')->text());
+        static::assertStringStartsWith('What to do Open Exceptions', $check->filter('.jm-check__todo')->text());
+        static::assertCount(0, $check->filter('.jm-check__where'));
+        static::assertSame(['2 × 5xx'], $crawler->filter('tr[data-jm-route="GET app_boom"] .jm-tag--bad')->each(static fn(Crawler $tag): string => $tag->text()));
+
+        $badge = $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge');
+        static::assertCount(1, $badge);
+        static::assertSame('1 critical in the last hour', $badge->attr('title'));
+        static::assertStringContainsString('jm-nav__badge--bad', (string) $badge->attr('class'));
+        static::assertStringStartsWith('1 critical', $badge->text());
+    }
+
+    public function testTheBadgeOfRequestsShowsOnTheOtherTabs(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/boom');
+        static::assertResponseStatusCodeSame(500);
+        self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET app_boom"][data-jm-requests="1"]');
+
+        foreach (['/jmonitor/exceptions', '/jmonitor/_fragment/exceptions', '/jmonitor/cache-http'] as $uri) {
+            $crawler = $client->request('GET', $uri);
+            static::assertResponseIsSuccessful($uri);
+
+            $tabs = $crawler->filter('nav.jm-subnav[aria-label="Application"] .jm-subnav__item');
+            static::assertSame(
+                ['1 critical in the last hour'],
+                $tabs->filter('.jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')),
+                $uri,
+            );
+            static::assertSame('/jmonitor/requests?period=1h', $tabs->filter('.jm-nav__badge')->closest('a')?->attr('href'), $uri);
+        }
+    }
+
+    public function testTheRequestsScreenKeepsItsEmptyState(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $crawler = $client->request('GET', '/jmonitor/requests');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('empty', $crawler->filter('.jm-screen')->attr('data-jm-state'));
+        static::assertSame('Requests', $crawler->filter('.jm-heading h1')->text());
+        static::assertSame('Traffic and response times per route, last hour.', $crawler->filter('.jm-heading p')->text());
+        static::assertStringContainsString('Waiting for traffic', $crawler->filter('[data-jm-state="empty"]')->last()->text());
+        static::assertCount(1, $crawler->filter('h1'));
+        static::assertCount(0, $crawler->filter('.jm-lead, .jm-checks, .jm-cards, .jm-guide, .jm-nav__badge'));
+    }
+
     public function testAnUnknownScreenIsNotFound(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
@@ -335,14 +432,14 @@ final class DashboardTest extends WebTestCase
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
         $client->request('GET', '/hello/world');
-        $crawler = self::requestUntil($client, '/jmonitor/requests?period=6h&sort=sql&dir=asc', 'tr[data-jm-route="GET app_hello"]');
+        $crawler = self::requestUntil($client, '/jmonitor/requests?period=6h&sort=avg&dir=asc', 'tr[data-jm-route="GET app_hello"]');
 
-        static::assertSame('/jmonitor/requests?period=6h&sort=sql&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
+        static::assertSame('/jmonitor/requests?period=6h&sort=avg&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
         static::assertSame('ascending', $crawler->filter('th.is-sorted')->attr('aria-sort'));
-        static::assertSame('/jmonitor/requests?period=24h&sort=sql&dir=asc', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
+        static::assertSame('/jmonitor/requests?period=24h&sort=avg&dir=asc', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
         static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-nav__item')->attr('href'));
         static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-subnav__item')->first()->attr('href'));
-        static::assertSame('—', trim($crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(5)->text()));
+        static::assertSame('PHP only', trim($crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(5)->filter('.jm-split__text')->text()));
     }
 
     public function testTheQueriesScreenListsQueriesAndRepeatedOnes(): void
@@ -358,21 +455,26 @@ final class DashboardTest extends WebTestCase
         $query = $crawler->filter('tr[data-jm-query][data-jm-executions="12"]');
         static::assertCount(1, $query);
         static::assertStringContainsString('demo_items', $query->text());
-        static::assertContains('Queries', $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()));
-        static::assertSame('Queries', $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
+        static::assertContains('Queries', $crawler->filter('.jm-subnav__item > span:first-child')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame('Queries', $crawler->filter('.jm-subnav__item[aria-current="page"] > span:first-child')->text());
     }
 
-    public function testSortingOnSlowQueriesWhenNoneIsSlowStillListsTheQueries(): void
+    public function testSortingOnProblemsWhenNoneIsSlowStillListsTheQueries(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
         $client->request('GET', '/n-plus-one');
         static::assertResponseIsSuccessful();
-        $crawler = self::requestUntil($client, '/jmonitor/queries?sort=slow', 'tr[data-jm-query][data-jm-executions="12"]');
+        $crawler = self::requestUntil($client, '/jmonitor/queries?sort=problems', 'tr[data-jm-query][data-jm-executions="12"]');
 
         static::assertSame('ready', $crawler->filter('.jm-screen')->attr('data-jm-state'));
         static::assertStringContainsString('demo_items', $crawler->filter('tr[data-jm-query][data-jm-executions="12"]')->text());
-        static::assertStringStartsWith('Slow', trim($crawler->filter('th.is-sorted')->text()));
+        static::assertStringStartsWith('Problems', trim($crawler->filter('th.is-sorted')->text()));
+
+        $crawler = $client->request('GET', '/jmonitor/queries?sort=slow');
+        static::assertResponseIsSuccessful();
+        static::assertStringStartsWith('Total time', trim($crawler->filter('th.is-sorted')->text()));
+        static::assertSame('descending', $crawler->filter('th.is-sorted')->attr('aria-sort'));
     }
 
     public function testAHostileQueryTextIsShownEscaped(): void

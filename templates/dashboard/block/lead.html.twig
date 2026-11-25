@@ -1,0 +1,14 @@
+{% autoescape 'html' %}
+{% set lead_view = block.content %}
+{% set heading = page_title ? 'h1' : 'h2' %}
+<section class="jm-lead{{ lead_view.series is not empty ? ' jm-lead--series' }}">
+    <{{ heading }} class="jm-heading__title jm-lead__title">{{ lead_view.sentence }}</{{ heading }}>
+    {% if lead_view.detail is not same as('') %}
+        <p class="jm-lead__detail">{{ lead_view.detail }}</p>
+    {% endif %}
+    {% if lead_view.series is not empty %}
+        {{ jmonitor_sparkline(lead_view.series, lead_view.seriesLabel) }}
+        <div class="jm-lead__axis" aria-hidden="true"><span>{{ lead_view.seriesStart }}</span><span>{{ lead_view.seriesLabel }}</span><span>now</span></div>
+    {% endif %}
+</section>
+{% endautoescape %}

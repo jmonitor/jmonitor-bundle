@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Dashboard\View;
 
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
+
 final class ScreenView
 {
     /**
@@ -13,6 +15,10 @@ final class ScreenView
     public function __construct(
         public readonly array $cards = [],
         public readonly array $tables = [],
+        public readonly ?Lead $lead = null,
+        public readonly ?CheckList $checks = null,
+        public readonly ?Guide $guide = null,
+        public readonly ?RaisedChecks $raised = null,
     ) {}
 
     public function isEmpty(): bool

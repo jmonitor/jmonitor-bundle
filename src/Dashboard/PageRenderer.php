@@ -63,6 +63,7 @@ final class PageRenderer
                 'standalone' => $standalone,
                 'actions' => $actions,
                 'token' => $token,
+                'screens' => $this->availableIds(),
             ]),
             'JMonitor — ' . $page->screen->label(),
             $this->assets->stylesheets($request),
@@ -83,6 +84,7 @@ final class PageRenderer
             'urls' => $urls,
             'path' => $path,
             'badges' => $this->slots($spaces),
+            'screens' => $this->availableIds(),
         ]), Response::HTTP_OK, self::HEADERS);
     }
 
@@ -178,6 +180,12 @@ final class PageRenderer
         }
     }
 
+    /** @return list<string> */
+    private function availableIds(): array
+    {
+        return array_map(static fn(ScreenInterface $screen): string => $screen->id(), $this->screens->available());
+    }
+
     /** @return array<string, non-empty-list<ScreenInterface>> by the value of the space */
     private function spaces(): array
     {
@@ -239,6 +247,7 @@ final class PageRenderer
         }
 
         $query = $page->period === null ? [] : ['period' => $page->period->label()];
+        $raised = $page->raised ?? $this->builder->raisedChecks($page, array_map(static fn(ScreenInterface $screen): string => $screen->id(), $screens));
 
         return $page->withTabs(new SubNav($root->space()->label(), array_map(fn(ScreenInterface $screen): SubNavItem => new SubNavItem(
             $screen->label(),
@@ -246,7 +255,7 @@ final class PageRenderer
             $screen->id() === $root->id(),
             null,
             $query,
-            $screen instanceof NavBadgeScreenInterface ? $this->badge($screen) : null,
+            $screen instanceof NavBadgeScreenInterface ? $this->badge($screen) : $raised?->badge($screen->id()),
         ), $screens)));
     }
 

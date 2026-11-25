@@ -205,6 +205,26 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertCount(1, $standalone->filter($row));
     }
 
+    public function testTheRequestsScreenReadsFromTheSentenceToTheGuideUnderEasyAdmin(): void
+    {
+        $client = $this->client();
+
+        $client->request('GET', '/boom');
+        static::assertResponseStatusCodeSame(500);
+        $crawler = self::requestUntil($client, '/admin/jmonitor/requests', 'tr[data-jm-route="GET app_boom"][data-jm-requests="1"]');
+
+        static::assertCount(1, $crawler->filter('h1'));
+        static::assertSame('1 request in the last hour', explode(', ', $crawler->filter('.jm h1.jm-lead__title')->text())[0]);
+        static::assertSame('Worth a look', $crawler->filter('.jm section.jm-checks')->attr('aria-label'));
+        static::assertSame(['requests.server_errors'], $crawler->filter('.jm [data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        static::assertSame('How to read this screen', $crawler->filter('.jm .jm-guide__title')->text());
+        static::assertSame(
+            ['/admin/jmonitor/queries?period=1h', '/admin/jmonitor/cache-http?period=1h'],
+            $crawler->filter('.jm .jm-guide a')->each(static fn(Crawler $link): string => (string) $link->attr('href')),
+        );
+        static::assertSame('1 critical in the last hour', $crawler->filter('.jm .jm-subnav__item[aria-current="page"] .jm-nav__badge')->attr('title'));
+    }
+
     public function testTheFragmentIsRelayedAsIs(): void
     {
         $client = $this->client();
@@ -226,9 +246,9 @@ final class EasyAdminPageTest extends WebTestCase
         $client = $this->client();
 
         $client->request('GET', '/hello/world');
-        $crawler = self::requestUntil($client, '/admin/jmonitor/requests?period=6h&sort=sql&dir=asc', 'tr[data-jm-route="GET app_hello"]');
+        $crawler = self::requestUntil($client, '/admin/jmonitor/requests?period=6h&sort=avg&dir=asc', 'tr[data-jm-route="GET app_hello"]');
 
-        static::assertSame('/admin/jmonitor/requests?period=6h&sort=sql&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
+        static::assertSame('/admin/jmonitor/requests?period=6h&sort=avg&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
     }
 
     public function testTheActionOfTheProbeScreenRunsThroughEasyAdmin(): void

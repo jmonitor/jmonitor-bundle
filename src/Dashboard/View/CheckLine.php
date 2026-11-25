@@ -7,10 +7,12 @@ namespace Jmonitor\JmonitorBundle\Dashboard\View;
 final class CheckLine
 {
     /**
-     * @param string                $where the component, and its instance when it has several
-     * @param ?string               $path  the JMonitor path of its detail
-     * @param ?string               $age   how old the data it judges is
-     * @param array<string, string> $query what the link to its detail carries
+     * @param string                $where  the component, and its instance when it has several
+     * @param ?string               $path   the JMonitor path of its detail
+     * @param ?string               $age    how old the data it judges is
+     * @param array<string, string> $query  what the link to its detail carries
+     * @param string                $action what to do about it
+     * @param ?string               $code   the code it points at
      */
     public function __construct(
         public readonly string $id,
@@ -21,5 +23,8 @@ final class CheckLine
         public readonly ?string $path = null,
         public readonly ?string $age = null,
         public readonly array $query = [],
+        public readonly string $title = '',
+        public readonly string $action = '',
+        public readonly ?string $code = null,
     ) {}
 }

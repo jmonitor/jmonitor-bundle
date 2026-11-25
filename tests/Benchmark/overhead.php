@@ -14,6 +14,11 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
@@ -484,7 +489,7 @@ function purgeMillis(Connection $connection, int $now): array
 /**
  * @return array{float, int} median milliseconds of the builds of the screen on its default sort, rows shown
  */
-function displayMillis(Connection $connection, int $now, StorageScreenInterface|SectionInterface $screen): array
+function displayMillis(Connection $connection, int $now, StorageScreenInterface|SectionInterface $screen, Period $period = Period::OneHour): array
 {
     $reader = new DbalReader($connection);
     $sorts = $screen->sorts();
@@ -494,7 +499,7 @@ function displayMillis(Connection $connection, int $now, StorageScreenInterface|
     $rows = 0;
     for ($run = 0; $run < DISPLAY_RUNS; ++$run) {
         $start = hrtime(true);
-        $view = $screen->build($reader, Period::OneHour, $now, $sort, $sorts[$sort]);
+        $view = $screen->build($reader, $period, $now, $sort, $sorts[$sort]);
         $timings[] = (hrtime(true) - $start) / 1_000_000;
         $rows = array_sum(array_map(static fn(Table $table): int => \count($table->rows), $view->tables));
     }
@@ -690,9 +695,14 @@ if (isset($bases['mysql'])) {
 
 foreach ($bases as $name => $connection) {
     $stored = fillPeriods($connection, $now, DISPLAYED);
-    foreach ([new RequestsScreen(), new QueriesScreen(true, 100, 10), new HttpSection(true), new CacheSection(true), new MessagesSection(true, true), new TasksSection(true, new DeclaredTasks()), new CommandsSection(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
+    $checks = new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(1000), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]);
+    foreach ([new RequestsScreen($checks, 1000), new QueriesScreen(true, $checks, 100, 10), new HttpSection(true), new CacheSection(true), new MessagesSection(true, true), new TasksSection(true, new DeclaredTasks()), new CommandsSection(true), new ExceptionsScreen(true), new UsersScreen(true, 1000)] as $screen) {
         [$milliseconds, $rows] = displayMillis($connection, $now, $screen);
         report(sprintf('display, %s, loaded database (%s)', $screen->id(), $name), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
+        if ($screen instanceof RequestsScreen || $screen instanceof QueriesScreen) {
+            [$milliseconds, $rows] = displayMillis($connection, $now, $screen, Period::SevenDays);
+            report(sprintf('display, %s, last 7 days, loaded database (%s)', $screen->id(), $name), $milliseconds, 'ms', 100, sprintf('(%d rows shown, %d rows stored)', $rows, $stored));
+        }
     }
     foreach ([
         new ComposedScreen('cache-http', 'Cache & HTTP', '', Space::Application, [new CacheSection(true), new HttpSection(true)]),

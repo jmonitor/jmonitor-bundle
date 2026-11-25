@@ -23,12 +23,15 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\ConnectionLogger;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
+use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
 final class SqlRecordingTest extends WebTestCase
 {
+    use PollsThePage;
+
     private const N_PLUS_ONE_SQL = 'SELECT * FROM demo_items WHERE id = ?';
 
     private string $bufferDir;
@@ -70,6 +73,67 @@ final class SqlRecordingTest extends WebTestCase
 
         $route = self::rowKeyed($this->read(Family::Request), 'GET app_n_plus_one');
         static::assertGreaterThanOrEqual(12.0, $route->sum(Metric::REQUEST_SQL_COUNT));
+    }
+
+    public function testARepeatedQueryIsWorthALookOnQueriesAndOnItsRoute(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording(['sql' => ['slow_threshold' => 60000]])]);
+
+        $client->request('GET', '/n-plus-one');
+        static::assertResponseIsSuccessful();
+        $queries = self::requestUntil($client, '/jmonitor/queries', 'tr[data-jm-nplus1="GET app_n_plus_one"][data-jm-repeats-max="12"]');
+
+        static::assertSame(
+            ['jm-lead', 'jm-checks', 'jm-cards', 'jm-panel', 'jm-panel', 'jm-guide'],
+            $queries->filter('.jm-screen > section')->each(static fn(Crawler $block): string => str_contains((string) $block->attr('class'), 'jm-checks') ? 'jm-checks' : explode(' ', (string) $block->attr('class'))[0]),
+        );
+        static::assertCount(1, $queries->filter('h1'));
+        static::assertMatchesRegularExpression('/^\d+ SQL queries in the last hour, \S+ m?s in total\.$/', $queries->filter('h1.jm-lead__title')->text());
+        static::assertSame('None was slow. 1 query is repeated many times inside the same request.', $queries->filter('.jm-lead__detail')->text());
+        static::assertSame(['Queries', 'SQL time', 'Slow queries', 'Repeated queries'], $queries->filter('.jm-card__label')->each(static fn(Crawler $label): string => $label->text()));
+        static::assertSame(['queries.repeated'], $queries->filter('[data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        $check = $queries->filter('[data-jm-check="queries.repeated"]');
+        static::assertSame('warn', $check->attr('data-jm-severity'));
+        static::assertSame('Repeated query (N+1) · GET app_n_plus_one runs the same query 12 times on average, 12 at worst.', $check->filter('.jm-check__sentence')->text());
+        static::assertCount(0, $check->filter('.jm-check__where'));
+        static::assertSame(['N+1'], $queries->filter('tr[data-jm-query][data-jm-executions="12"] .jm-tag--warn')->each(static fn(Crawler $tag): string => $tag->text()));
+        static::assertStringContainsString('demo_items', $queries->filter('tr[data-jm-query][data-jm-executions="12"]')->text());
+        static::assertSame(['queries' => '1 warning in the last hour'], self::badges($queries));
+
+        $requests = $client->request('GET', '/jmonitor/requests');
+        static::assertResponseIsSuccessful();
+
+        static::assertSame(['N+1'], $requests->filter('tr[data-jm-route="GET app_n_plus_one"] .jm-tag--warn')->each(static fn(Crawler $tag): string => $tag->text()));
+        $check = $requests->filter('[data-jm-check="queries.repeated"]');
+        static::assertCount(1, $check);
+        static::assertSame('Repeated query (N+1) · GET app_n_plus_one runs the same query 12 times on average, 12 at worst.', $check->filter('.jm-check__sentence')->text());
+        static::assertSame('Queries', $check->filter('.jm-check__where a')->text());
+        static::assertSame('/jmonitor/queries?period=1h', $check->filter('.jm-check__where a')->attr('href'));
+        static::assertSame(['queries' => '1 warning in the last hour'], self::badges($requests));
+    }
+
+    public function testASlowQueryShowsItsText(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+        $recorder = static::getContainer()->get(Recorder::class);
+        \assert($recorder instanceof Recorder);
+
+        $token = $recorder->begin(Entry::TYPE_REQUEST, microtime(true));
+        $recorder->addSql('SELECT * FROM demo_orders WHERE customer_id = 42', 250.0, SqlDialect::Sqlite);
+        $recorder->addSql('SELECT * FROM demo_orders WHERE customer_id = 43', 20.0, SqlDialect::Sqlite);
+        $recorder->end($token, 'GET app_hello', 300.0);
+        $this->flush();
+
+        $crawler = $client->request('GET', '/jmonitor/queries');
+        static::assertResponseIsSuccessful();
+
+        static::assertSame('1 was slow. None is repeated inside one request.', $crawler->filter('.jm-lead__detail')->text());
+        static::assertSame(['queries.slow'], $crawler->filter('[data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        $check = $crawler->filter('[data-jm-check="queries.slow"]');
+        static::assertSame('1 slow query · The one slow most often took 100 ms or more once, 250 ms at worst.', $check->filter('.jm-check__sentence')->text());
+        static::assertSame('SELECT * FROM demo_orders WHERE customer_id = ?', $check->filter('.jm-check__code')->text());
+        static::assertSame(['1 slow'], $crawler->filter('tr[data-jm-query][data-jm-executions="2"] .jm-tag--warn')->each(static fn(Crawler $tag): string => $tag->text()));
+        static::assertSame(['queries' => '1 warning in the last hour'], self::badges($crawler));
     }
 
     public function testTheQueriesOfJMonitorAreNeverRecorded(): void
@@ -208,6 +272,20 @@ final class SqlRecordingTest extends WebTestCase
     private function read(Family $family, ?string $sortMetric = null): Report
     {
         return (new DbalReader($this->connection()))->read(new ReportQuery(Period::OneHour, time(), $family, $sortMetric));
+    }
+
+    /** @return array<string, string> tab of the Application space => title of its badge */
+    private static function badges(Crawler $page): array
+    {
+        $badges = [];
+        $page->filter('nav.jm-subnav[aria-label="Application"] .jm-subnav__item')->each(static function (Crawler $tab) use (&$badges): void {
+            $badge = $tab->filter('.jm-nav__badge');
+            if ($badge->count() > 0) {
+                $badges[basename((string) parse_url((string) $tab->attr('href'), \PHP_URL_PATH))] = (string) $badge->attr('title');
+            }
+        });
+
+        return $badges;
     }
 
     private static function rowLabelled(Report $report, string $label): ReportRow

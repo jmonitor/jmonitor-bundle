@@ -37,7 +37,7 @@ final class DbalReader implements ReaderInterface
             if ($query->family->isOpen()) {
                 $hashes = $this->topKeys($query);
                 $metrics = $this->metrics($query, [...$hashes, $otherHash]);
-                [$totals, $keyCount] = $this->totals($query);
+                [$totals, $keyCount] = $this->familyTotals($query);
             } else {
                 $metrics = $this->metrics($query);
                 $hashes = array_values(array_diff(array_map('strval', array_keys($metrics)), [$otherHash]));
@@ -75,13 +75,42 @@ final class DbalReader implements ReaderInterface
         return $labels;
     }
 
+    public function totals(Period $period, int $now, array $metricTypes): array
+    {
+        // @phpstan-ignore identical.alwaysFalse (the type is only documented)
+        if ($metricTypes === []) {
+            throw new \InvalidArgumentException('The totals need at least one metric type.');
+        }
+
+        $metricTypes = array_values(array_unique($metricTypes));
+        [$periodSeconds, $since] = self::window($period, $now);
+
+        try {
+            $rows = $this->connection->fetchAllAssociative(
+                'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max'
+                . ' FROM ' . AggregatesTable::NAME . ' WHERE period = ? AND bucket > ? AND metric_type IN ('
+                . implode(', ', array_fill(0, \count($metricTypes), '?')) . ') GROUP BY metric_type',
+                [$periodSeconds, $since, ...$metricTypes],
+            );
+        } catch (TableNotFoundException) {
+            return [];
+        }
+
+        $totals = [];
+        foreach ($rows as $row) {
+            $totals[(string) $row['metric_type']] = new MetricValue((int) $row['entry_count'], (float) $row['value_sum'], (float) $row['value_max']);
+        }
+
+        return $totals;
+    }
+
     /**
      * @return list<string> the hashes of the first keys of the weight metric, in the requested order on the sort
      *                      metric, a key without it sorting as zero
      */
     private function topKeys(ReportQuery $query): array
     {
-        [$period, $since] = self::window($query);
+        [$period, $since] = self::window($query->period, $query->now);
         $sortExpression = self::SORT_EXPRESSIONS[$query->sortField];
         $weightMetric = $query->family->weightMetric();
         $params = [
@@ -112,7 +141,7 @@ final class DbalReader implements ReaderInterface
      */
     private function metrics(ReportQuery $query, ?array $hashes = null): array
     {
-        [$period, $since] = self::window($query);
+        [$period, $since] = self::window($query->period, $query->now);
         $sql = 'SELECT key_hash, metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum,'
             . ' MAX(value_max) AS value_max FROM ' . AggregatesTable::NAME
             . ' WHERE period = ? AND bucket > ? AND metric_type >= ? AND metric_type < ?';
@@ -139,9 +168,9 @@ final class DbalReader implements ReaderInterface
      * @return array{array<string, MetricValue>, int} metric type => total over every key, and the number of keys
      *                                                of the weight metric
      */
-    private function totals(ReportQuery $query): array
+    private function familyTotals(ReportQuery $query): array
     {
-        [$period, $since] = self::window($query);
+        [$period, $since] = self::window($query->period, $query->now);
         $rows = $this->connection->fetchAllAssociative(
             'SELECT metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max,'
             . ' (SELECT COUNT(DISTINCT key_hash) FROM ' . AggregatesTable::NAME
@@ -200,9 +229,9 @@ final class DbalReader implements ReaderInterface
     }
 
     /** @return array{int, int} the period and the last bucket before its window */
-    private static function window(ReportQuery $query): array
+    private static function window(Period $period, int $now): array
     {
-        return [$query->period->value, $query->period->bucketFor($query->now) - $query->period->value];
+        return [$period->value, $period->bucketFor($now) - $period->value];
     }
 
     /**

@@ -45,6 +45,14 @@ final class FormatTest extends TestCase
         static::assertSame('Last 7 days', Format::period(Period::SevenDays));
     }
 
+    public function testPeriodStart(): void
+    {
+        static::assertSame('1 h ago', Format::periodStart(Period::OneHour));
+        static::assertSame('6 h ago', Format::periodStart(Period::SixHours));
+        static::assertSame('24 h ago', Format::periodStart(Period::OneDay));
+        static::assertSame('7 d ago', Format::periodStart(Period::SevenDays));
+    }
+
     public function testPercent(): void
     {
         static::assertSame('0.4 %', Format::percent(0.004));

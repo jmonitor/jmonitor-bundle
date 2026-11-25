@@ -124,9 +124,9 @@ final class EmbeddedPageTest extends WebTestCase
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
         $client->request('GET', '/hello/world');
-        $crawler = self::requestUntil($client, '/back-office/monitoring/requests?menu=3&period=6h&sort=sql&dir=asc', 'tr[data-jm-route="GET app_hello"]');
+        $crawler = self::requestUntil($client, '/back-office/monitoring/requests?menu=3&period=6h&sort=avg&dir=asc', 'tr[data-jm-route="GET app_hello"]');
 
-        static::assertSame('/back-office/monitoring/requests?menu=3&period=6h&sort=sql&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
+        static::assertSame('/back-office/monitoring/requests?menu=3&period=6h&sort=avg&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
     }
 
     public function testEmbeddedRequestsAreNotRecorded(): void
@@ -298,6 +298,34 @@ final class EmbeddedPageTest extends WebTestCase
         }
         static::assertStringStartsWith('/back-office/monitoring/gallery?', (string) $crawler->filter('nav.jm-subnav[aria-label="Application"] [aria-current="page"]')->attr('href'));
         static::assertCount(1, $crawler->filter('nav.jm-subnav[aria-label="Application"] [aria-current="page"] .jm-nav__badge'));
+    }
+
+    public function testTheGalleryShowsTheBlocksThatGuideTheReading(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('h1'));
+        static::assertSame('Gallery', $crawler->filter('.jm-screen > .jm-heading > h1')->text());
+        static::assertSame(2, $crawler->filter('.jm-screen > section.jm-lead > h2')->count());
+        static::assertCount(1, $crawler->filter('.jm-lead--series svg.jm-sparkline'));
+        $worth = $crawler->filter('.jm-screen > section.jm-checks.jm-checks--bad[aria-label="Worth a look"]');
+        static::assertCount(1, $worth);
+        static::assertCount(1, $worth->filter('[data-jm-severity="bad"] pre.jm-check__code'));
+        static::assertCount(2, $worth->filter('[data-jm-severity="bad"] .jm-check__advice > p'));
+        static::assertCount(1, $worth->filter('[data-jm-severity="bad"] .jm-check__where a'));
+        static::assertCount(0, $worth->filter('[data-jm-severity="warn"] pre, [data-jm-severity="warn"] .jm-check__where'));
+        static::assertSame('Nothing to flag', $crawler->filter('.jm-checks--empty[aria-label="Worth a look"] h2')->text());
+        $table = $crawler->filter('#jm-gallery-routes-wrap');
+        static::assertCount(4, $table->filter('.jm-bar svg[aria-hidden="true"]'));
+        static::assertSame([3, 1, 2, 0], $table->filter('.jm-split')->each(static fn(Crawler $split): int => $split->filter('rect')->count()));
+        static::assertCount(3, $table->filter('.jm-tag'));
+        static::assertSame('your PHP code SQL HTTP out', $crawler->filter('.jm-legend')->text());
+        static::assertCount(1, $crawler->filter('.jm-panel__footnote'));
+        static::assertCount(3, $crawler->filter('.jm-guide li'));
+        static::assertSame(['See the gallery'], $crawler->filter('.jm-guide a')->each(static fn(Crawler $a): string => $a->text()));
     }
 
     public function testTheGalleryShowsASectionInEachState(): void

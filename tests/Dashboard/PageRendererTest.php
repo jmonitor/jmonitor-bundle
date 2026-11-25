@@ -5,10 +5,17 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
+use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Buffer\FileBuffer;
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
@@ -22,7 +29,13 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
+use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
+use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
+use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
@@ -44,6 +57,9 @@ use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\ResultState;
 use Jmonitor\JmonitorBundle\Stack\WebNode;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
+use Jmonitor\JmonitorBundle\Storage\Read\Report;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FakeStackReader;
@@ -73,6 +89,8 @@ use Twig\Loader\FilesystemLoader;
 
 final class PageRendererTest extends TestCase
 {
+    private const SERVER_ERRORS = Metric::REQUEST_STATUS_PREFIX . '5xx';
+
     private ?string $dir = null;
 
     protected function tearDown(): void
@@ -949,6 +967,230 @@ final class PageRendererTest extends TestCase
         }
     }
 
+    public function testATabCarriesTheBadgeOfItsRaisedChecks(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::QUERY_SLOW => new MetricValue(1, 0.0, 0.0)]);
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), self::tableScreen('exceptions'), new StubBlockScreen('stack', space: Space::Stack)], reader: $reader, checks: self::checks());
+        $request = Request::create('/', parameters: ['period' => '6h']);
+
+        foreach ([
+            'page' => $renderer->page($request, 'exceptions', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment($request, 'exceptions', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            $tabs = (new Crawler($html))->filter('.jm-subnav__item');
+
+            static::assertSame('<span class="jm-nav__badge jm-nav__badge--bad" title="1 critical in the last 6 hours">1 critical<span class="jm-visually-hidden"> — 1 critical in the last 6 hours</span></span>', $tabs->eq(0)->filter('.jm-nav__badge')->outerHtml(), $kind);
+            static::assertSame('<span class="jm-nav__badge jm-nav__badge--warn" title="1 warning in the last 6 hours">1 warning<span class="jm-visually-hidden"> — 1 warning in the last 6 hours</span></span>', $tabs->eq(1)->filter('.jm-nav__badge')->outerHtml(), $kind);
+            static::assertCount(0, $tabs->eq(2)->filter('.jm-nav__badge'), $kind);
+            static::assertStringNotContainsString('data-jm-slot', $html, $kind);
+        }
+
+        static::assertSame([Period::SixHours, Period::SixHours], array_column($reader->totalRequests, 0));
+    }
+
+    public function testATabKeepsTheBadgeOfItsScreenOverItsRaisedChecks(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::QUERY_SLOW => new MetricValue(1, 0.0, 0.0)]);
+        $renderer = $this->renderer([new StubBadgeScreen('requests', new NavBadge('7', 'warn', '7 things')), self::tableScreen('queries')], reader: $reader, checks: self::checks());
+
+        $tabs = (new Crawler($renderer->page(Request::create('/'), 'queries', new FakeHostUrls())->html))->filter('.jm-subnav__item');
+
+        static::assertSame(['7 things', '1 warning in the last hour'], $tabs->filter('.jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')));
+    }
+
+    public function testTheTotalsAreReadOncePerDisplay(): void
+    {
+        $checks = self::checks();
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $requests = new StubScreen('requests', view: static fn(ReaderInterface $reader): ScreenView => new ScreenView(
+            self::tableView()->cards,
+            self::tableView()->tables,
+            raised: $checks->raised($reader, Period::OneHour, 1800000000),
+        ));
+        $renderer = $this->renderer([$requests, self::tableScreen('queries')], reader: $reader, checks: $checks);
+
+        foreach (['requests', 'queries'] as $path) {
+            $reader->totalRequests = [];
+            $page = new Crawler($renderer->page(Request::create('/'), $path, new FakeHostUrls())->html);
+
+            static::assertCount(1, $reader->totalRequests, $path);
+            static::assertSame('1 critical in the last hour', $page->filter('.jm-subnav__item')->eq(0)->filter('.jm-nav__badge')->attr('title'), $path);
+
+            $reader->totalRequests = [];
+            $renderer->fragment(Request::create('/'), $path, new FakeHostUrls());
+
+            static::assertCount(1, $reader->totalRequests, $path);
+        }
+    }
+
+    public function testNoTotalsAreReadAfterAFailedStorageRead(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $failing = new StubScreen('queries', view: static fn(): ScreenView => throw new \RuntimeException('Gone'));
+        $composed = new ComposedScreen('cache-http', 'Cache & HTTP', 'What your code waits for', Space::Application, [
+            new StubSection('cache', static fn(): ScreenView => throw new \RuntimeException('Gone')),
+        ]);
+        $renderer = $this->renderer([self::tableScreen('requests'), $failing, $composed], reader: $reader, checks: self::checks());
+
+        foreach (['queries', 'cache-http'] as $path) {
+            foreach ([
+                'page' => $renderer->page(Request::create('/'), $path, new FakeHostUrls())->html,
+                'fragment' => (string) $renderer->fragment(Request::create('/'), $path, new FakeHostUrls())->getContent(),
+            ] as $kind => $html) {
+                static::assertStringContainsString('data-jm-state="storage_error"', $html, $path . ' ' . $kind);
+                static::assertCount(3, (new Crawler($html))->filter('.jm-subnav__item'), $path . ' ' . $kind);
+                static::assertCount(0, (new Crawler($html))->filter('.jm-nav__badge'), $path . ' ' . $kind);
+            }
+        }
+
+        $flusher = $this->failingFlusher();
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries')], $flusher, $reader, checks: self::checks());
+
+        $html = $renderer->page(Request::create('/'), 'queries', new FakeHostUrls())->html;
+        $renderer->fragment(Request::create('/'), 'queries', new FakeHostUrls());
+
+        static::assertNotNull($flusher->lastFailure());
+        static::assertStringContainsString('data-jm-state="storage_error"', $html);
+        static::assertSame([], $reader->totalRequests);
+    }
+
+    public function testNoTotalsAreReadWithoutATabThatHasACheck(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $renderer = $this->renderer([
+            self::tableScreen('requests'),
+            self::tableScreen('queries'),
+            new StubBlockScreen('probe'),
+            self::composed(self::sectionWithATable('commands')),
+            new StubBlockScreen('stack', space: Space::Stack),
+            new StubBlockScreen('server', space: Space::Stack),
+        ], reader: $reader, checks: self::checks());
+
+        foreach (['background', 'stack', 'server', 'probe'] as $path) {
+            $renderer->page(Request::create('/'), $path, new FakeHostUrls());
+            $renderer->fragment(Request::create('/'), $path, new FakeHostUrls());
+        }
+
+        static::assertSame([], $reader->totalRequests);
+
+        $renderer = $this->renderer([self::tableScreen('exceptions'), self::tableScreen('users')], reader: $reader, checks: self::checks());
+        $renderer->page(Request::create('/'), 'exceptions', new FakeHostUrls());
+        $renderer->fragment(Request::create('/'), 'users', new FakeHostUrls());
+
+        static::assertSame([], $reader->totalRequests);
+    }
+
+    /**
+     * @return iterable<string, array{\Throwable}>
+     */
+    public static function totalsFailures(): iterable
+    {
+        yield 'exception' => [new \RuntimeException('Connection lost')];
+        yield 'error' => [new \TypeError('Connection lost')];
+    }
+
+    #[DataProvider('totalsFailures')]
+    public function testATotalsReadThatThrowsLeavesThePageWithoutBadge(\Throwable $failure): void
+    {
+        $logger = $this->logger();
+        $reader = new class ($failure) implements ReaderInterface {
+            public function __construct(private readonly \Throwable $failure) {}
+
+
+            public function read(ReportQuery $query): Report
+            {
+                return new Report();
+            }
+
+            public function labels(array $keys): array
+            {
+                return [];
+            }
+
+            public function totals(Period $period, int $now, array $metricTypes): array
+            {
+                throw $this->failure;
+            }
+        };
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), self::tableScreen('exceptions')], reader: $reader, logger: $logger, checks: self::checks());
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/'), 'exceptions', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/'), 'exceptions', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            $crawler = new Crawler($html);
+
+            static::assertSame(['Requests', 'Queries', 'Exceptions'], $crawler->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => $item->text()), $kind);
+            static::assertCount(0, $crawler->filter('.jm-nav__badge'), $kind);
+            static::assertCount(1, $crawler->filter('table'), $kind);
+        }
+
+        static::assertSame(array_fill(0, 2, 'error JMonitor could not read the checks of the application: Connection lost'), $logger->messages);
+    }
+
+    public function testAComposedScreenOfTheApplicationReadsTheTotalsOnce(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::NPLUS1_CALLS => new MetricValue(1, 0.0, 0.0)]);
+        $composed = new ComposedScreen('cache-http', 'Cache & HTTP', 'What your code waits for', Space::Application, [self::sectionWithATable('cache'), self::sectionWithATable('http')]);
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), $composed], reader: $reader, checks: self::checks());
+        $request = Request::create('/', parameters: ['period' => '24h']);
+
+        foreach ([
+            'page' => $renderer->page($request, 'cache-http', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment($request, 'cache-http', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            static::assertSame(
+                ['1 critical in the last 24 hours', '1 warning in the last 24 hours'],
+                (new Crawler($html))->filter('.jm-subnav__item .jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')),
+                $kind,
+            );
+        }
+
+        static::assertSame([Period::OneDay, Period::OneDay], array_column($reader->totalRequests, 0));
+    }
+
+    public function testTheBadgesAreReadWhileRecordingIsOffOrTheBufferIsUnusable(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0)]);
+        $screens = [
+            self::tableScreen('requests'),
+            self::tableScreen('queries'),
+            new StubScreen('exceptions'),
+            new ComposedScreen('cache-http', 'Cache & HTTP', 'What your code waits for', Space::Application, [new StubSection('cache')]),
+        ];
+
+        foreach ([
+            'recording_disabled' => $this->renderer($screens, reader: $reader, checks: self::checks(), recording: false),
+            'buffer_unavailable' => $this->renderer($screens, reader: $reader, checks: self::checks(), bufferDirectory: new BufferDirectory(__FILE__, 'app')),
+        ] as $state => $renderer) {
+            foreach (['exceptions', 'cache-http'] as $path) {
+                $reader->totalRequests = [];
+                $html = $renderer->page(Request::create('/'), $path, new FakeHostUrls())->html;
+
+                static::assertStringContainsString('data-jm-state="' . $state . '"', $html, $state . ' ' . $path);
+                static::assertCount(1, $reader->totalRequests, $state . ' ' . $path);
+                static::assertSame(['1 critical in the last hour'], (new Crawler($html))->filter('.jm-subnav__item .jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')), $state . ' ' . $path);
+            }
+        }
+    }
+
+    public function testAnEmptyViewThatCarriesItsRaisedChecksIsNotReadAgain(): void
+    {
+        $checks = self::checks();
+
+        foreach (['empty' => true, 'recording_disabled' => false] as $state => $recording) {
+            $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0)]);
+            $requests = new StubScreen('requests', view: static fn(ReaderInterface $reader): ScreenView => new ScreenView(raised: $checks->raised($reader, Period::OneHour, 1800000000)));
+            $renderer = $this->renderer([$requests, self::tableScreen('queries')], reader: $reader, checks: $checks, recording: $recording);
+
+            $html = $renderer->page(Request::create('/'), 'requests', new FakeHostUrls())->html;
+
+            static::assertStringContainsString('data-jm-state="' . $state . '"', $html, $state);
+            static::assertCount(1, $reader->totalRequests, $state);
+            static::assertSame(['1 critical in the last hour'], (new Crawler($html))->filter('.jm-subnav__item .jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')), $state);
+        }
+    }
+
     public function testTheBrandLeadsToTheHomeOfThePage(): void
     {
         $renderer = $this->renderer();
@@ -969,6 +1211,103 @@ final class PageRendererTest extends TestCase
         static::assertStringContainsString('Read right now, no period', $toolbar->text());
         static::assertCount(0, $toolbar->filter('.jm-segmented'));
         static::assertStringNotContainsString('Read right now', $renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html);
+    }
+
+    public function testALeadIsTheOnlyHeadingOfThePage(): void
+    {
+        $lead = new StubScreen(view: static fn(): ScreenView => new ScreenView([], [
+            new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])]),
+        ], new Lead('42 requests in the last hour', 'None ended in an error.', [1, 3, 2], 'requests per minute', '1 hour ago')));
+
+        foreach ([[$lead], [$lead, new StubScreen('queries')]] as $screens) {
+            $renderer = $this->renderer($screens);
+
+            foreach ([
+                'page' => $renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html,
+                'fragment' => (string) $renderer->fragment(Request::create('/'), 'stub', new FakeHostUrls())->getContent(),
+            ] as $kind => $html) {
+                $crawler = new Crawler($html);
+
+                static::assertCount(1, $crawler->filter('h1'), $kind);
+                static::assertSame('42 requests in the last hour', $crawler->filter('.jm-screen > section.jm-lead > h1')->text(), $kind);
+                static::assertSame('None ended in an error.', $crawler->filter('.jm-lead > h1 + p')->text(), $kind);
+                static::assertSame(['1 hour ago', 'requests per minute', 'now'], $crawler->filter('.jm-lead [aria-hidden="true"] > span')->each(static fn(Crawler $span): string => $span->text()), $kind);
+                static::assertCount(1, $crawler->filter('.jm-lead svg.jm-sparkline'), $kind);
+                static::assertCount(0, $crawler->filter('.jm-heading'), $kind);
+                static::assertSame(\count($screens) > 1 ? 1 : 0, $crawler->filter('.jm-screen > .jm-subbar + section.jm-lead')->count(), $kind);
+            }
+        }
+    }
+
+    public function testWithoutALeadTheHeadingIsTheOneOfToday(): void
+    {
+        $renderer = $this->renderer();
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/'), 'stub', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            $crawler = new Crawler($html);
+
+            static::assertCount(1, $crawler->filter('h1'), $kind);
+            static::assertSame('Stub', $crawler->filter('.jm-screen > .jm-heading > h1.jm-heading__title')->text(), $kind);
+            static::assertCount(0, $crawler->filter('.jm-lead'), $kind);
+        }
+    }
+
+    public function testALinkToAnUnavailableScreenIsNotRendered(): void
+    {
+        $view = static fn(): ScreenView => new ScreenView([], [
+            new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])]),
+        ], new Lead('Sentence'), new CheckList([
+            new CheckLine('queries.repeated', new Mark('warn', 'Warning'), 'One query ran 12 times', 'Why.', 'GET app_home', 'queries', action: 'What.'),
+            new CheckLine('requests.slow', new Mark('warn', 'Warning'), 'One route is slow', 'Why.', 'GET app_slow', 'stub', action: 'What.'),
+        ], title: 'Worth a look'), new Guide([
+            new GuideItem('Repeated', 'queries are listed apart.', ['See the queries' => 'queries', 'See the routes' => 'stub']),
+            new GuideItem('Stack', 'reads the server.', ['Open the stack' => 'stack/php']),
+        ]));
+
+        foreach ([[false, false], [true, true]] as [$queries, $stack]) {
+            $renderer = $this->renderer([new StubScreen(view: $view), new StubScreen('queries', $queries), new StubBlockScreen('stack', $stack, space: Space::Stack)]);
+
+            foreach ([
+                'page' => $renderer->page(Request::create('/'), 'stub', new FakeHostUrls())->html,
+                'fragment' => (string) $renderer->fragment(Request::create('/'), 'stub', new FakeHostUrls())->getContent(),
+            ] as $kind => $html) {
+                $crawler = new Crawler($html);
+                $repeated = $crawler->filter('[data-jm-check="queries.repeated"] .jm-check__where');
+
+                static::assertSame('GET app_home', $repeated->text(), $kind);
+                static::assertSame($queries ? 1 : 0, $repeated->filter('a')->count(), $kind);
+                static::assertSame(['/host/page/stub?menu=3'], $crawler->filter('[data-jm-check="requests.slow"] .jm-check__where a')->each(static fn(Crawler $a): string => (string) $a->attr('href')), $kind);
+                static::assertSame(
+                    [...($queries ? ['See the queries'] : []), 'See the routes', ...($stack ? ['Open the stack'] : [])],
+                    $crawler->filter('.jm-guide a')->each(static fn(Crawler $a): string => $a->text()),
+                    $kind,
+                );
+                static::assertSame($queries, str_contains($crawler->filter('.jm-guide')->text(), 'See the queries'), $kind);
+                static::assertStringStartsWith('Repeated queries are listed apart.', $crawler->filter('.jm-guide li')->eq(0)->text(), $kind);
+            }
+        }
+    }
+
+    public function testALinkOfACheckKeepsThePeriod(): void
+    {
+        $renderer = $this->renderer([new StubScreen(view: static fn(): ScreenView => new ScreenView([], [
+            new Table('stubs', 'Stubs', [new Column('name', 'Name', false)], [new Row('k1', ['name' => new Cell('a')])]),
+        ], null, new CheckList([
+            new CheckLine('requests.slow', new Mark('warn', 'Warning'), 'One route is slow', 'Why.', 'GET app_slow', 'stub', null, ['period' => '6h'], action: 'What.'),
+        ]), new Guide([new GuideItem('Slow', 'routes take long.', ['See the routes' => 'stub'])])))]);
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/', parameters: ['period' => '6h']), 'stub', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/', parameters: ['period' => '6h']), 'stub', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            $crawler = new Crawler($html);
+
+            static::assertSame('/host/page/stub?menu=3&period=6h', $crawler->filter('[data-jm-check="requests.slow"] .jm-check__where a')->attr('href'), $kind);
+            static::assertSame('/host/page/stub?menu=3&period=6h', $crawler->filter('.jm-guide a')->attr('href'), $kind);
+        }
     }
 
     public function testAComposedScreenFlushesBeforeItReads(): void
@@ -1109,7 +1448,7 @@ final class PageRendererTest extends TestCase
     /**
      * @param list<ScreenInterface>|null $screens
      */
-    private function renderer(?array $screens = null, ?Flusher $flusher = null, ?ReaderInterface $reader = new FixedReader(), ?ActionGuard $guard = null, ?LoggerInterface $logger = null): PageRenderer
+    private function renderer(?array $screens = null, ?Flusher $flusher = null, ?ReaderInterface $reader = new FixedReader(), ?ActionGuard $guard = null, ?LoggerInterface $logger = null, ?ApplicationChecks $checks = null, bool $recording = true, ?BufferDirectory $bufferDirectory = null): PageRenderer
     {
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');
@@ -1118,7 +1457,7 @@ final class PageRendererTest extends TestCase
 
         return new PageRenderer(
             new ScreenRegistry($screens ?? [$this->screenWithATable()]),
-            new ScreenBuilder($reader, true, new MockClock('@1800000000')),
+            new ScreenBuilder($reader, $recording, new MockClock('@1800000000'), $bufferDirectory, $logger, $checks ?? new ApplicationChecks([])),
             $flusher,
             $twig,
             new Assets(),
@@ -1187,6 +1526,51 @@ final class PageRendererTest extends TestCase
         };
 
         return [new Flusher($buffer, new Aggregator(500), $storage, new FlushLock($directory, 10, $clock), $clock), $storage];
+    }
+
+    private static function checks(): ApplicationChecks
+    {
+        return new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(500), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]);
+    }
+
+    private static function tableScreen(string $id): StubScreen
+    {
+        return new StubScreen($id, view: static fn(): ScreenView => self::tableView());
+    }
+
+    private static function tableView(): ScreenView
+    {
+        return new ScreenView([new Card('Hits', '12')], [
+            new Table('stubs', 'Stubs', [new Column('name', 'Name', false, 'name'), new Column('count', 'Count', sort: 'count')], [
+                new Row('k1', ['name' => new Cell('a'), 'count' => new Cell('1')]),
+            ]),
+        ]);
+    }
+
+    private function failingFlusher(): Flusher
+    {
+        $this->dir = sys_get_temp_dir() . '/jmonitor-renderer-' . bin2hex(random_bytes(6));
+        mkdir($this->dir);
+        $clock = new MockClock('@1000');
+        $directory = new BufferDirectory($this->dir, 'app');
+        $buffer = new FileBuffer($directory, 10, $clock);
+        $buffer->append(new Entry(Entry::TYPE_REQUEST, 'GET app_home', 1000.0, 20.0, ['status' => 200]));
+        $clock->sleep(11);
+        $storage = new class implements StorageInterface {
+            public function prepare(): bool
+            {
+                return false;
+            }
+
+            public function store(array $aggregates, int $now, array $labels = []): void
+            {
+                throw new \RuntimeException('Gone');
+            }
+
+            public function purge(int $now): void {}
+        };
+
+        return new Flusher($buffer, new Aggregator(500), $storage, new FlushLock($directory, 10, $clock), $clock);
     }
 
     private function screenWithATable(): StubScreen

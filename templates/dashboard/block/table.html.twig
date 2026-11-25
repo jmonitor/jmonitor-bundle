@@ -10,6 +10,13 @@
         <h2 class="jm-panel__title" id="{{ title_id }}">{{ table.title }}</h2>
 {% endif %}
         <p class="jm-panel__meta">{{ shown|jmonitor_number }} {{ table.nounFor(shown) }}{% if table.note is not null %}, {{ table.note }}{% endif %}</p>
+{% if table.partsLegend %}
+        <div class="jm-legend">
+            {% for part, label in {php: 'your PHP code', sql: 'SQL', http: 'HTTP out'} %}
+                <span class="jm-legend__item"><span class="jm-legend__swatch jm-legend__swatch--{{ part }}" aria-hidden="true"></span>{{ label }}</span>
+            {% endfor %}
+        </div>
+{% endif %}
     </div>
     <div class="jm-table-wrap" id="jm-{{ table.id }}-wrap" role="region" aria-labelledby="{{ title_id }}" tabindex="0">
         <table class="jm-table">
@@ -47,13 +54,30 @@
                                 {%- elseif cell.kind == 'route' -%}
                                     {% set method = (cell.data.method ?? '')|lower %}
                                     <span class="jm-method jm-method--{{ method in ['get', 'post', 'put', 'patch', 'delete'] ? method : 'other' }}">{{ cell.data.method ?? '' }}</span>
-                                    <code class="jm-route{{ cell.text == '(unmatched)' ? ' jm-route--unmatched' }}">{{ cell.text }}</code>
+                                    <code class="jm-route{{ cell.text == '(unmatched)' ? ' jm-route--unmatched' }}"{% if cell.data.title is defined %} title="{{ cell.data.title }}"{% endif %}>{{ cell.text }}</code>
                                 {%- elseif cell.kind == 'sql' -%}
                                     {% if cell.text|length > 120 %}
                                         <details class="jm-sql" data-jm-key="{{ row.key }}"><summary><code>{{ cell.text|slice(0, 120) }}</code></summary><pre><code>{{ cell.text }}</code></pre></details>
                                     {% else %}
                                         <code class="jm-sql">{{ cell.text }}</code>
                                     {% endif %}
+                                {%- elseif cell.kind == 'bar' -%}
+                                    <span class="jm-bar"><svg viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="jm-bar__rail" width="100" height="6"/><rect class="jm-bar__fill" width="{{ cell.data.share }}" height="6"/></svg><span class="jm-bar__value">{{ cell.text }}</span></span>
+                                {%- elseif cell.kind == 'split' -%}
+                                    {%- set segments = cell.segments -%}
+                                    <span class="jm-split">
+                                        {%- if segments is not empty -%}
+                                            <svg viewBox="0 0 {{ constant('Jmonitor\\JmonitorBundle\\Dashboard\\View\\Cell::SPLIT_WIDTH') }} 8" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                                                {%- for segment in segments -%}
+                                                    <rect class="jm-split__part jm-split__part--{{ segment.part }}" x="{{ segment.x }}" width="{{ segment.width }}" height="8"/>
+                                                {%- endfor -%}
+                                            </svg>
+                                        {%- endif -%}
+                                        <span class="jm-split__text" aria-hidden="true" title="{{ cell.text }}">{{ cell.text }}</span><span class="jm-visually-hidden">{{ cell.data.spoken }}</span></span>
+                                {%- elseif cell.kind == 'tags' -%}
+                                    {%- for chip in cell.tags -%}
+                                        {{ loop.first ? '' : ' ' }}<span class="jm-tag jm-tag--{{ chip.tone }}">{{ chip.text }}</span>
+                                    {%- endfor -%}
                                 {%- else -%}
                                     {{ cell.text }}
                                 {%- endif -%}
@@ -67,5 +91,8 @@
     {% if table.remaining > 0 %}
         <p class="jm-panel__footer">{{ table.remaining|jmonitor_number }} more {{ table.nounFor(table.remaining) }} not shown</p>
     {% endif %}
+{% if table.footnote is not null %}
+    <p class="jm-panel__footnote">{{ table.footnote }}</p>
+{% endif %}
 </{{ panel }}>
 {% endautoescape %}
