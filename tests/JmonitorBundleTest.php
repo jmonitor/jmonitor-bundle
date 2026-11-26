@@ -212,7 +212,7 @@ class JmonitorBundleTest extends TestCase
     public function testTheEasyAdminOptionWithoutEasyAdminIsRefused(): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('The "jmonitor.easyadmin" option requires the EasyAdminBundle: install easycorp/easyadmin-bundle 5.10.2 or later, or turn the option off.');
+        $this->expectExceptionMessage('The "jmonitor.easyadmin" option requires the EasyAdminBundle: install easycorp/easyadmin-bundle 5.10.4 or later, or turn the option off.');
 
         $this->loadBundle(['easyadmin' => true], bundles: []);
     }

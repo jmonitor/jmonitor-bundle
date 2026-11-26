@@ -41,25 +41,20 @@ final class ScreenRegistryTest extends TestCase
         static::assertSame('requests', $registry->default()->id());
     }
 
-    public function testWithoutUsableStorageTheDefaultIsTheFirstScreenThatDoesNotReadIt(): void
-    {
-        $registry = new ScreenRegistry([new StubScreen('requests'), new StubBlockScreen('probe')]);
-
-        static::assertSame('requests', $registry->default(true)->id());
-        static::assertSame('probe', $registry->default(false)->id());
-
-        $registry = new ScreenRegistry([new StubScreen('requests'), new StubScreen('queries')]);
-
-        static::assertSame('requests', $registry->default(false)->id());
-    }
-
-    public function testWithoutStorageTheDefaultScreenIsNeitherAStorageNorAComposedOne(): void
+    public function testTheDefaultScreenIsTheFirstAvailableWhateverTheStorage(): void
     {
         $composed = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]);
-        $registry = new ScreenRegistry([$composed, new StubScreen('requests'), new StubBlockScreen('probe', space: Space::Stack)]);
 
-        static::assertSame('background', $registry->default(true)->id());
-        static::assertSame('probe', $registry->default(false)->id());
+        static::assertSame('requests', (new ScreenRegistry([new StubScreen('requests'), new StubBlockScreen('probe')]))->default()->id());
+        static::assertSame('background', (new ScreenRegistry([$composed, new StubScreen('requests'), new StubBlockScreen('probe', space: Space::Stack)]))->default()->id());
+        static::assertSame('probe', (new ScreenRegistry([new StubScreen('requests', available: false), new StubBlockScreen('probe')]))->default()->id());
+    }
+
+    public function testWithoutAvailableScreenThereIsNoDefault(): void
+    {
+        $this->expectException(\LogicException::class);
+
+        (new ScreenRegistry([new StubScreen('requests', available: false)]))->default();
     }
 
     public function testSpacesAreThoseWithAnAvailableScreenInTheirOrder(): void

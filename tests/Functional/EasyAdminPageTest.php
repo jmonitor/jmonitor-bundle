@@ -111,14 +111,28 @@ final class EasyAdminPageTest extends WebTestCase
         }
     }
 
-    public function testTheEmptyPathIsTheDefaultScreen(): void
+    public function testTheEmptyPathOpensTheOverviewAndItsLinksStayUnderIt(): void
     {
         $client = $this->client();
 
         $crawler = $client->request('GET', '/admin/jmonitor');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('Requests', $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->text());
+        $jmonitor = $crawler->filter('.jm');
+        static::assertSame('Overview', $jmonitor->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('/admin/jmonitor?period=1h', $jmonitor->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
+        static::assertSame('/admin/jmonitor?period=24h', $jmonitor->filter('.jm-segmented__item')->eq(2)->attr('href'));
+        static::assertSame('/admin/jmonitor/_fragment', $jmonitor->filter('[data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+        static::assertSame('/admin/jmonitor?period=1h', $jmonitor->filter('.jm-place__label')->first()->attr('href'));
+        static::assertCount(1, $jmonitor->filter('.jm-map'));
+        foreach (self::urlsOf($jmonitor) as $url) {
+            static::assertStringStartsWith('/admin/jmonitor', $url);
+        }
+
+        $client->request('GET', '/admin/jmonitor/_fragment');
+
+        static::assertResponseIsSuccessful();
+        static::assertStringContainsString('jm-places', (string) $client->getResponse()->getContent());
     }
 
     public function testThePageSitsInTheFrameOfEasyAdmin(): void
@@ -301,6 +315,9 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertCount(1, $crawler->filter('.jm [data-jm-component="symfony"]'));
         static::assertSame('/admin/jmonitor/stack', $crawler->filter('.jm .jm-nav__item[aria-current="page"]')->attr('href'));
         static::assertSame('/admin/jmonitor/stack/php', $crawler->filter('.jm [data-jm-component="php"] a')->attr('href'));
+        static::assertMatchesRegularExpression('/^(Everything that runs your application answers\.|Part of what runs your application could not be read\.|What runs your application needs attention\.|Reading what runs your application…)/', $crawler->filter('.jm .jm-screen h1.jm-lead__title')->text());
+        static::assertSame('Worth a look', $crawler->filter('.jm section.jm-checks')->attr('aria-label'));
+        static::assertSame('Read again now', $crawler->filter('.jm form[action="/admin/jmonitor/_action/stack"] button')->text());
         foreach (self::urlsOf($crawler->filter('.jm')) as $url) {
             static::assertStringStartsWith('/admin/jmonitor', $url);
         }

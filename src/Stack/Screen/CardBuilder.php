@@ -100,7 +100,20 @@ final class CardBuilder
             $note,
             $main?->ok() === true ? $main->collectedAt : null,
             $path === null || $instance->id === null ? [] : [ScreenRequest::INSTANCE => $instance->id],
+            self::role($component),
         );
+    }
+
+    private static function role(Component $component): string
+    {
+        return match ($component) {
+            Component::System => 'The machine everything runs on.',
+            Component::Php => 'Runs your code.',
+            Component::Symfony => 'Your framework.',
+            Component::FrankenPhp, Component::Apache, Component::Nginx => 'Receives the requests and hands them to PHP.',
+            Component::Mysql, Component::Postgresql => 'A database of your application.',
+            Component::Redis => 'Keeps data in memory, often the cache, the sessions or the queues.',
+        };
     }
 
     /**

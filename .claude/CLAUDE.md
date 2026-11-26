@@ -37,9 +37,10 @@ The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboar
 
 The `/jmonitor` page, its screens and their blocks:
 
-- Every screen says its space (`ScreenInterface::space()`): `Application`, `Background` or `Stack`. The header lists the spaces that have an available screen, and a space with more than one available screen gets tabs, built by `PageRenderer`.
+- Every screen says its space (`ScreenInterface::space()`): `Overview`, `Application`, `Background` or `Stack`. The header lists the spaces that have an available screen, and a space with more than one available screen gets tabs, built by `PageRenderer`.
 - The tabs and the title of a screen are in the refreshed part (`_screen.html.twig`), never in `page.html.twig`. A lead that comes first is the `h1` of the page, in place of the title.
-- The reading order of a screen is set by `ScreenBuilder` alone: lead, checks, cards, tables, guide. A screen with nothing to show keeps its empty state, without lead nor guide.
+- The Overview screen (`OverviewScreen`) is the default screen, the first available one, whatever the storage. It is addressed by the empty path, which stays the path of the page: the links of a page opened by `/jmonitor` stay on `/jmonitor`, its actions post to the id of the screen, and `/jmonitor/overview` answers the same page.
+- The reading order of a screen is set by `ScreenBuilder` alone: lead, checks, map or cards, tables, guide, places. A screen with nothing to show keeps its empty state, without lead nor guide.
 - A composed screen (`ComposedScreen`) is made of sections (`SectionInterface`, in `src/Dashboard/Section/`). It is available while one of its sections is; an unavailable section does not exist for the page.
 - A section never replaces the page. A cause that touches the whole page is told once, above the sections: no connection, a failed flush, a read that throws and, as soon as one section is empty, recording off or an unusable buffer directory.
 - A composed screen reads its raised checks before its sections, which receive them. A read that throws, the checks or a section, stops the next ones: a database that does not answer makes the page wait once.
@@ -47,7 +48,7 @@ The `/jmonitor` page, its screens and their blocks:
 - `ScreenBuilder` alone assembles the sentence, the block of checks, the anchor cards and the guide of a composed screen.
 - The own blocks of a section (`BlockSourceInterface`) are read even without storage; one that throws only breaks its section.
 - One sort is chosen per page, named by its section (`sort=<section>.<column>`). The other sections keep their default sort, and an invalid sort chooses nothing.
-- A composed screen is a `RecordedScreenInterface`: it never opens `/jmonitor` when nothing is recorded, and `PageRenderer` flushes the buffer before it reads.
+- A composed screen and the Overview screen are `RecordedScreenInterface`: `PageRenderer` flushes the buffer before they read.
 - Every variable a block template reads is set by the bundle, by `PageRenderer` or by the `include()` of the block (`block`, `page_title`, and `section`, `null` outside a section), so that a Twig global of the host never stands in for one.
 - A link of a block to a screen (a check, a guide) is only rendered when that screen is available (`screens`, set by `PageRenderer`); otherwise its text stays without the link.
 - A check of the application (`src/Dashboard/Check/`) is raised by one entry of one of its metrics in the period, or by its keys when it is judged key by key, and only through `ApplicationChecks`. Its texts live in its class, the same wherever it shows.
@@ -55,7 +56,14 @@ The `/jmonitor` page, its screens and their blocks:
 - A check judged key by key implements `KeyedCheckInterface`: its metrics are read key by key in the statement of the other totals, which stays one query.
 - The threshold of the cache hit rate lives in `CacheHitRateCheck`, which the check, the tag of a pool and the card share.
 - A check of the application has one screen, whose tab carries its badge. Shown on another screen, it carries the link to its own and does not count in the badge of that tab.
-- The totals behind the checks are read once per display, by the screen or else by `ScreenBuilder::raisedChecks()` for the badges, and never after a read of the storage failed in that display.
+- The badge of the `Application` or `Background` entry counts the checks of the available screens of its space, so it is the sum of the badges of its tabs. The `Overview` entry has none.
+- The totals behind the checks are read once per display, for the tabs and the entries, by the screen or else by `ScreenBuilder::raisedChecks()`; never on a screen of the stack, which has no period, and never after a read of the storage failed in that display.
+- The Overview screen reads the application in two reads: the totals of the checks, widened to the types its map shows, and the Request family restricted to its types, the report it hands to both checks of Request. Each other raised check reads its own culprit.
+- A box of the map only exists while the section or the screen it opens is available, asked to itself (`isAvailable()`).
+- A box is framed by its tone only when it carries a tag of that tone: the tag tells the word.
+- On the Overview screen, the server errors and the slow requests are read in the totals that raise the checks, never in the report of Request: the sentence, the tags and the checks then say the same.
+- The `Messages` box only exists while the messages are recorded (`MessagesSection::recordsMessages()`).
+- The map is laid out by its own width, with container queries, and stacked by default: a browser without them still reads it.
 - A part of a split and a tag always carry their word: neither is told by colour alone.
 - The base rule of the links is `.jm :where(a)`, so that a class set on a link keeps its colour.
 - `public/jmonitor.js` has no test suite in the repository: a change to it is checked in a browser.
@@ -66,7 +74,7 @@ The engine that reads the server, PHP, Symfony, the web server, the databases an
 
 - Its code lives in `src/Stack/` and `config/stack.php`. It shares nothing with `src/Collector/` nor the `jmonitor.collectors` services of the worker.
 - Nothing collects outside a call to `StackReaderInterface`: no event listener or scheduled task. Its only command, `jmonitor:stack:queues`, is only started by a read of the queues.
-- The queues are only read by `StackReaderInterface::queues()`, never by the overview.
+- The queues are only read by `StackReaderInterface::queues()`, never by the Stack overview nor by the Overview screen.
 - A status page is read through `StatusPageFetcher`, a command run through `ProcessRunner`, never through the executor of the library.
 - The main collector of a component carries the name of the component.
 - What a collector of the library returns is filtered before it is kept.
@@ -75,10 +83,13 @@ The engine that reads the server, PHP, Symfony, the web server, the databases an
 - A shared value is the same for every instance of its component: its cache keys name the component, never the instance.
 - `jmonitor.stack.cache` is not declared under `framework.cache.pools`, or its reads would be counted on the Cache & HTTP screen.
 - No test calls the network or `composer`: fake fetchers and process runners stand in for them, and the test kernel turns `stack.end_of_life`, `stack.symfony.flex` and `stack.symfony.messenger` off unless a test sets `stack` itself.
+- A test that displays the Overview screen or the header never asserts on what the stack reads of the machine it runs on: it turns the stack off, fakes its collectors, or only asserts on what it is about.
 - No PHPUnit test starts the console in a process: the test kernel plays the command counting the queues (`queuesOutput`) and the web servers with their status pages (`fakeWebServer`). Only the kernel of `TestKernel::fromEnvironment()`, used by the end-to-end runs, starts the real command.
-- Its screens live in `src/Stack/Screen/`: `StackScreen` and `ComponentScreen` get the reader, the checks and the summary through a service locator, read by `StackScreenParts`, so that the reader and the checks are only built when a Stack screen is displayed.
+- Its screens live in `src/Stack/Screen/`: `StackScreen`, `ComponentScreen` and `OverviewGlance` get the reader, the checks and the summary through a service locator, read by `StackScreenParts`, so that the reader and the checks are only built when a Stack screen or the Overview screen is displayed.
+- The Overview screen reads the stack through `StackGlanceInterface` (`OverviewGlance`), always with `ReadMode::Page`, a refresh included: it never starts a slow collector.
 - An application screen costs the stack one cache read, the summary behind the badge of the navigation, and builds no reader.
-- Only the display of the overview (`StackScreen::blocks()`) writes that summary (`StackSummary::remember()`).
+- The summary (`StackSummary::remember()`) is written by `OverviewGlance` at each read, and by the Stack overview (`StackScreen::blocks()`) once nothing is reading, or when no summary exists.
+- A line of a stack check shows its explanation and its identifier in view, without anything to unfold.
 - Every check of `StackChecks` has a stable identifier, which users put in `stack.ignore_checks` and the README lists, and a case at its threshold and just below in `StackChecksTest`.
 - The percentages and byte sizes a check judges and a screen shows are formatted by `Figures`, so that both show the same value.
 - A block of `src/Dashboard/View/` names no type of `src/Stack/`.
@@ -90,7 +101,7 @@ The engine that reads the server, PHP, Symfony, the web server, the databases an
 - A failure keeps its kind (`FailureKind`): an unreachable server, a missing prerequisite or another error are kept and judged apart.
 - A failure is kept with the connection it happened on, a value with its server. While a remote connection cannot be reached, none of its collectors runs but a shared one; when the collector that cannot reach it is only read for the detail, only the collectors of the detail are held.
 - A component says itself whether it is grouped by server (`Component::groupsByServer()`); the server of an instance only says where it leads.
-- A connection that failed on a value of its server reads the server again itself, at the end of its pause and after a `Refresh`, and is healthy again only when its own read succeeds.
+- A connection that failed on a value of its server reads the server again itself, at the end of its pause and after a `Read again now`, and is healthy again only when its own read succeeds.
 - A server that does not answer makes one connection wait per display: its failure is copied to the other connections of that server read in the same display.
 - A request that PHP stops while it reads lifts its witnesses; the collector it was running fails, as a server that did not answer only when PHP stopped it for its time limit. Once the request is stopped, a cache operation that takes longer than a second leaves the cache alone.
 - The time limit of the request is only raised by `SnapshotProvider`, around a remote collector, and put back at the end of the read.

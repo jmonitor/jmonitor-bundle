@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Jmonitor\JmonitorBundle\Dashboard\StackGlanceInterface;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
 use Jmonitor\JmonitorBundle\Stack\Collector\PhpCli;
@@ -36,6 +37,7 @@ use Jmonitor\JmonitorBundle\Stack\Screen\Detail\PostgresqlDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\RedisDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\ServerDetail;
 use Jmonitor\JmonitorBundle\Stack\Screen\Detail\SymfonyDetail;
+use Jmonitor\JmonitorBundle\Stack\Screen\OverviewGlance;
 use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
 use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
@@ -226,13 +228,20 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(PostgresqlDetail::class);
     $services->set(RedisDetail::class);
 
+    $screenServices = service_locator([
+        StackReaderInterface::class => service(StackReaderInterface::class),
+        StackChecks::class => service(StackChecks::class),
+        StackSummary::class => service(StackSummary::class),
+    ]);
+
+    $services->set(OverviewGlance::class)
+        ->args([$screenServices, service(CardBuilder::class), service('jmonitor.clock')]);
+
+    $services->alias(StackGlanceInterface::class, OverviewGlance::class);
+
     $services->set(StackScreen::class)
         ->args([
-            service_locator([
-                StackReaderInterface::class => service(StackReaderInterface::class),
-                StackChecks::class => service(StackChecks::class),
-                StackSummary::class => service(StackSummary::class),
-            ]),
+            $screenServices,
             service(CardBuilder::class),
             service('jmonitor.clock'),
             service_locator([

@@ -195,6 +195,26 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertCount(1, $crawler->filter('tr[data-jm-probe-runs="1"]'));
     }
 
+    public function testADefaultScreenWithAnActionPostsItToItsOwnAddress(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording(), 'probeFirst' => true]);
+
+        $crawler = $client->request('GET', '/jmonitor/');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('JMonitor — Probe', $crawler->filter('title')->text());
+        static::assertSame('/jmonitor/_action/probe', $crawler->filter('.jm-toolbar form')->attr('action'));
+
+        $client->request('POST', '/jmonitor/_action/probe', ['action' => 'ping'], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
+
+        static::assertResponseRedirects('/jmonitor/probe', 303);
+        static::assertCount(1, $client->request('GET', '/jmonitor/')->filter('tr[data-jm-probe-runs="1"]'));
+
+        $hosted = $client->request('GET', '/back-office/monitoring/');
+
+        static::assertSame('/back-office/monitoring-action/probe?menu=3', $hosted->filter('.jm-toolbar form')->attr('action'));
+    }
+
     public function testAHostKeepsTheConnectionInItsOwnUrls(): void
     {
         $client = static::createClient();
@@ -386,6 +406,43 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertSame('jm-guide', $crawler->filter('.jm-screen > section:last-of-type')->attr('class'));
     }
 
+    public function testTheGalleryShowsTheMapAndThePlaces(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+
+        static::assertResponseIsSuccessful();
+        $maps = $crawler->filter('.jm-screen > section.jm-map');
+        static::assertCount(4, $maps);
+        static::assertSame(['1 · What comes in', '2 · Your application', '3 · What it calls'], $maps->eq(0)->filter('.jm-map__title')->each(static fn(Crawler $h2): string => $h2->text()));
+        static::assertCount(2, $maps->eq(0)->filter('svg.jm-map__arrow[aria-hidden="true"]'));
+        static::assertSame(
+            ['/back-office/monitoring/gallery?menu=3#jm-full', '/back-office/monitoring/gallery?menu=3#jm-quiet', '/back-office/monitoring/gallery?menu=3'],
+            $maps->eq(0)->filter('.jm-map__column--incoming a.jm-box')->each(static fn(Crawler $a): string => (string) $a->attr('href')),
+        );
+        static::assertSame('Commands 12 Console runs.', $maps->eq(0)->filter('.jm-map__column--incoming div.jm-box')->text());
+        static::assertCount(2, $maps->eq(0)->filter('.jm-box--pending'));
+        static::assertSame(['Messages', 'Other sites and APIs'], $maps->eq(0)->filter('.jm-box--bad')->each(static fn(Crawler $box): string => $box->filter('.jm-box__label')->text()));
+        static::assertCount(1, $maps->eq(0)->filter('.jm-box--warn'));
+        static::assertCount(1, $maps->eq(0)->filter('.jm-box svg.jm-sparkline'));
+        static::assertCount(3, $maps->eq(0)->filter('.jm-map__average .jm-split rect'));
+        static::assertSame(['ok', 'warn', 'bad', 'unknown'], $maps->eq(0)->filter('.jm-runs__line .jm-mark')->each(static fn(Crawler $mark): string => substr((string) $mark->attr('class'), \strlen('jm-mark jm-mark--'))));
+        static::assertCount(0, $maps->eq(1)->filter('.jm-map__title, .jm-map__text'));
+        static::assertSame(['your PHP code 42 ms', 'SQL 30 ms', 'HTTP out 12 ms'], $maps->eq(0)->filter('.jm-map__legend .jm-legend__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame('8.2.29 · OPcache memory 92 % · OPcache hit rate 99.8 %', $maps->eq(0)->filter('.jm-runs__figures')->eq(1)->text());
+        static::assertCount(2, $maps->eq(1)->filter('a.jm-runs__line'));
+        static::assertSame('Warning The live stack needs a working cache', $maps->eq(2)->filter('.jm-runs .jm-notice__title')->text());
+        static::assertCount(1, $maps->eq(2)->filter('.jm-runs > .jm-notice + .jm-runs__list > .jm-runs__item'));
+        static::assertSame('Error The stack could not be read', $maps->eq(3)->filter('.jm-runs .jm-notice__title')->text());
+        static::assertCount(0, $maps->eq(3)->filter('.jm-runs__list, .jm-runs__empty'));
+        $places = $crawler->filter('.jm-screen > section.jm-places');
+        static::assertSame(['Overview', 'Application', 'Stack'], $places->filter('a.jm-place__label')->each(static fn(Crawler $a): string => $a->text()));
+        static::assertStringStartsWith('/back-office/monitoring', (string) $places->filter('a.jm-place__label')->attr('href'));
+        static::assertSame('Checked and fine: no server error, no slow request, no failed message, 2 of 3 stack components healthy.', $crawler->filter('.jm-checks__footnote')->text());
+        static::assertDoesNotMatchRegularExpression('/<[^>]+\sstyle=/', (string) $client->getResponse()->getContent());
+    }
+
     public function testTheGalleryShowsTheSelectorOfAConnection(): void
     {
         $client = static::createClient(['gallery' => true]);
@@ -456,16 +513,16 @@ final class EmbeddedPageTest extends WebTestCase
      */
     public static function storageSettings(): iterable
     {
-        yield 'storage and recording on' => [['jmonitor' => ['recording' => ['enabled' => true]]], 'Requests'];
-        yield 'recording off' => [['jmonitor' => ['recording' => ['enabled' => false]]], 'Probe'];
-        yield 'no Doctrine' => [['doctrine' => false, 'jmonitor' => ['recording' => ['enabled' => true]]], 'Probe'];
+        yield 'storage and recording on' => [['jmonitor' => ['recording' => ['enabled' => true]]], null];
+        yield 'recording off' => [['jmonitor' => ['recording' => ['enabled' => false]]], 'Recording is off'];
+        yield 'no Doctrine' => [['doctrine' => false, 'jmonitor' => ['recording' => ['enabled' => true]]], 'No storage configured'];
     }
 
     /**
      * @param array<string, mixed> $options
      */
     #[DataProvider('storageSettings')]
-    public function testTheDefaultScreenFollowsTheStorage(array $options, string $screen): void
+    public function testTheEmptyPathOpensTheOverviewAtAHostWhateverTheStorage(array $options, ?string $state): void
     {
         $options['jmonitor']['recording']['buffer_dir'] = $this->bufferDir;
         $client = static::createClient($options);
@@ -473,7 +530,18 @@ final class EmbeddedPageTest extends WebTestCase
         $crawler = $client->request('GET', '/back-office/monitoring/');
 
         static::assertResponseIsSuccessful();
-        static::assertSame($screen, $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
+        $current = $crawler->filter('.jm-nav__item[aria-current="page"]');
+        static::assertSame('Overview', $current->text());
+        static::assertSame($state === null ? [] : [$state], $crawler->filter('.jm-state__title')->each(static fn(Crawler $title): string => $title->text()));
+        static::assertCount(1, $crawler->filter('.jm-places'));
+        $href = (string) $current->attr('href');
+        static::assertStringStartsWith('/back-office/monitoring', $href);
+        static::assertStringNotContainsString('overview', $href);
+
+        $again = $client->request('GET', $href);
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('Overview', $again->filter('.jm-nav__item[aria-current="page"]')->text());
     }
 
     /**
@@ -534,7 +602,7 @@ final class EmbeddedPageTest extends WebTestCase
     }
 
     /**
-     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool, messenger?: bool, scheduler?: bool, csrf?: bool, gallery?: bool} $options
+     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool, messenger?: bool, scheduler?: bool, csrf?: bool, gallery?: bool, probeFirst?: bool} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -550,6 +618,7 @@ final class EmbeddedPageTest extends WebTestCase
             withEmbedHost: true,
             withCsrf: $options['csrf'] ?? false,
             withGallery: $options['gallery'] ?? false,
+            probeFirst: $options['probeFirst'] ?? false,
         );
         self::$varDirs[] = $kernel->getVarDir();
 

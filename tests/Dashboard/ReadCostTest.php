@@ -7,11 +7,16 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
+use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\Finding;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
@@ -30,7 +35,9 @@ use Jmonitor\JmonitorBundle\Tests\Storage\Dbal\StatementRecorder;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\KernelInterface;
+use Twig\Environment;
 
 final class ReadCostTest extends KernelTestCase
 {
@@ -43,6 +50,11 @@ final class ReadCostTest extends KernelTestCase
         'exceptions' => 14,
         'users' => 8,
     ];
+
+    /** SQL statements the Overview reads without a raised check, then with the ten raised */
+    private const OVERVIEW_BUDGET = 4;
+    private const OVERVIEW_BUDGET_WITH_THREE_CHECKS = 12;
+    private const OVERVIEW_BUDGET_WITH_TEN_CHECKS = 28;
 
     /** @var array<string, int> section id => SQL statements read to display it once */
     private const SECTION_BUDGET = [
@@ -406,6 +418,129 @@ final class ReadCostTest extends KernelTestCase
         );
         static::assertSame('2 signed-in users made 3 of the 4 requests in the last hour.', $users->lead?->sentence);
         static::assertSame('The other request came from a visitor who was not signed in.', $users->tables[0]->footnote);
+    }
+
+    public function testTheOverviewWithoutCheckReadsFourStatements(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $startedAt = (float) (self::NOW - 30);
+        $units = [
+            new Entry(Entry::TYPE_REQUEST, 'GET app_list', $startedAt, 40.0, ['status' => 200, 'memory' => 2048, 'sql_n' => 1, 'sql_ms' => 1.0, 'http_n' => 1, 'http_ms' => 10.0], [
+                new Entry(Entry::TYPE_QUERY, self::QUERY_ID, $startedAt, 1.0, ['n' => 1, 'm' => 1.0]),
+                new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $startedAt, 0.0, ['n' => 1]),
+                new Entry(Entry::TYPE_USER, 'admin', $startedAt, 0.0, ['n' => 1]),
+                new Entry(Entry::TYPE_HTTP, 'api.example.com', $startedAt, 10.0, ['n' => 1, 'm' => 10.0]),
+                new Entry(Entry::TYPE_CACHE, 'cache.app', $startedAt, 0.0, ['n' => 4, 'h' => 3, 'mi' => 1]),
+                new Entry(Entry::TYPE_SENT, 'App\\Message\\SendInvoice', $startedAt, 0.0, ['n' => 1]),
+            ]),
+            new Entry(Entry::TYPE_COMMAND, 'app:work', $startedAt, 120.0, ['exit' => 0, 'memory' => 4096]),
+            new Entry(Entry::TYPE_MESSAGE, 'App\\Message\\SendInvoice', $startedAt, 15.0, ['memory' => 4096]),
+            new Entry(Entry::TYPE_TASK, (new TaskKey('default', '28af6db0', 'app:work', 'every 1 second'))->toString(), $startedAt, 12.0),
+        ];
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($units), self::NOW, self::LABELS);
+        $recorder->statements = [];
+
+        $read = self::overview()->read(new DbalReader($connection), Period::OneHour, self::NOW);
+
+        static::assertFalse($read->isEmpty());
+        static::assertSame([], $read->findings);
+        static::assertCount(1, $read->requests->rows);
+        static::assertCount(self::OVERVIEW_BUDGET, $recorder->statements, implode("\n", array_column($recorder->statements, 'sql')));
+    }
+
+    public function testTheOverviewWithAServerErrorARepeatedQueryAndAnErrorResponseReadsTwelveStatements(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $startedAt = (float) (self::NOW - 30);
+        $units = [
+            new Entry(Entry::TYPE_REQUEST, 'GET app_boom', $startedAt, 40.0, ['status' => 500, 'memory' => 2048, 'sql_n' => 12, 'sql_ms' => 6.0], [
+                new Entry(Entry::TYPE_QUERY, self::REPEATED_QUERY_ID, $startedAt, 6.0, ['n' => 12, 'm' => 0.5]),
+                new Entry(Entry::TYPE_NPLUS1, self::REPEATED_QUERY_ID, $startedAt, 6.0, ['n' => 12]),
+                new Entry(Entry::TYPE_HTTP, 'api.example.com', $startedAt, 10.0, ['n' => 1, 'm' => 10.0, 'c5' => 1]),
+            ]),
+        ];
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($units), self::NOW, self::LABELS);
+        $recorder->statements = [];
+
+        $read = self::overview()->read(new DbalReader($connection), Period::OneHour, self::NOW);
+
+        static::assertSame(['requests.server_errors', 'queries.repeated', 'http.errors'], array_map(static fn(Finding $finding): string => $finding->id, $read->findings));
+        static::assertCount(self::OVERVIEW_BUDGET_WITH_THREE_CHECKS, $recorder->statements, implode("\n", array_column($recorder->statements, 'sql')));
+    }
+
+    public function testTheBudgetOfTheOverviewIsMeasuredWithItsTenChecks(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $startedAt = (float) (self::NOW - 30);
+        $units = [
+            ...self::units(),
+            new Entry(Entry::TYPE_REQUEST, 'GET app_boom', $startedAt, 10.0, ['status' => 500]),
+            new Entry(Entry::TYPE_REQUEST, 'GET app_slow', $startedAt, 1500.0, ['status' => 200]),
+            new Entry(Entry::TYPE_REQUEST, 'GET app_cold', $startedAt, 10.0, ['status' => 200], [
+                new Entry(Entry::TYPE_CACHE, 'app.cold', $startedAt, 0.0, ['n' => 25, 'h' => 2, 'mi' => 23]),
+            ]),
+            new Entry(Entry::TYPE_COMMAND, 'app:fail', $startedAt, 10.0, ['exit' => 1, 'memory' => 2048]),
+            new Entry(Entry::TYPE_MESSAGE, 'App\\Message\\Resize', $startedAt, 5.0, ['memory' => 2048, 'failed' => 1]),
+        ];
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($units), self::NOW, self::LABELS);
+        $recorder->statements = [];
+
+        $read = self::overview()->read(new DbalReader($connection), Period::OneHour, self::NOW);
+
+        static::assertSame(
+            ['requests.server_errors', 'messages.failed', 'tasks.failed', 'commands.failed', 'http.failures', 'requests.slow', 'queries.slow', 'queries.repeated', 'cache.low_hit_rate', 'http.errors'],
+            array_map(static fn(Finding $finding): string => $finding->id, $read->findings),
+        );
+        static::assertStringStartsWith('GET app_boom ', $read->findings[0]->sentence);
+        static::assertStringStartsWith('GET app_slow ', $read->findings[5]->sentence);
+        static::assertCount(self::OVERVIEW_BUDGET_WITH_TEN_CHECKS, $recorder->statements, implode("\n", array_column($recorder->statements, 'sql')));
+    }
+
+    public function testAStackScreenReadsNoStatement(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate(self::units()), self::NOW, self::LABELS);
+        $twig = static::getContainer()->get('twig');
+        \assert($twig instanceof Environment);
+        $renderer = new PageRenderer(
+            static::getContainer()->get(ScreenRegistry::class),
+            new ScreenBuilder(new DbalReader($connection), true, new MockClock('@' . self::NOW), checks: self::checks()),
+            null,
+            $twig,
+            new Assets(),
+            new ActionGuard(),
+            null,
+        );
+        $urls = new FakeHostUrls();
+
+        $requests = $renderer->page(Request::create('/'), 'requests', $urls)->html;
+
+        static::assertNotSame([], $recorder->statements);
+        static::assertStringContainsString('data-jm-slot="nav-application"><span class="jm-nav__badge', $requests);
+
+        $displays = [
+            'stack' => static fn(): string => $renderer->page(Request::create('/'), 'stack', $urls)->html,
+            'the fragment of stack' => static fn(): string => (string) $renderer->fragment(Request::create('/'), 'stack', $urls)->getContent(),
+            'stack/php' => static fn(): string => $renderer->page(Request::create('/'), 'stack/php', $urls)->html,
+        ];
+        foreach ($displays as $display => $render) {
+            $recorder->statements = [];
+
+            $html = $render();
+
+            static::assertStringContainsString('data-jm-component="php"', $html, $display);
+            static::assertSame([], array_column($recorder->statements, 'sql'), $display);
+        }
+    }
+
+    private static function overview(): OverviewScreen
+    {
+        $registry = static::getContainer()->get(ScreenRegistry::class);
+        \assert($registry instanceof ScreenRegistry);
+        $screen = $registry->get('overview');
+        \assert($screen instanceof OverviewScreen);
+
+        return $screen;
     }
 
     private static function screen(string $id): StorageScreenInterface

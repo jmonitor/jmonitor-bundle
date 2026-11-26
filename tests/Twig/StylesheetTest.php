@@ -220,7 +220,7 @@ final class StylesheetTest extends TestCase
         };
 
         static::assertContains(['background', 'transparent'], $declarations('.jm-nav__badge--warn', null));
-        static::assertContains(['background', 'var(--jm-bad-strong)'], $declarations('.jm-nav__badge--bad', null));
+        static::assertSame([['border-color', 'var(--jm-bad-border)'], ['background', 'var(--jm-bad-bg)'], ['color', 'var(--jm-bad)']], $declarations('.jm-nav__badge--bad', null));
         static::assertContains(['background', 'Highlight'], $declarations('.jm-nav__badge--bad', '@media (forced-colors: active)'));
         static::assertContains(['border-color', 'CanvasText'], $declarations('.jm-nav__badge', '@media (forced-colors: active)'));
     }
@@ -609,6 +609,99 @@ final class StylesheetTest extends TestCase
         static::assertContains(['margin', '8px 0 0'], $code);
     }
 
+    public function testTheMapAndThePlacesAreStyledUnderJm(): void
+    {
+        $selectors = [];
+        foreach (self::rules() as $rule) {
+            array_push($selectors, ...$rule['selectors']);
+        }
+
+        foreach (['.jm-map', '.jm-map__columns', '.jm-map__column', '.jm-map__column--app', '.jm-map__title', '.jm-map__text', '.jm-map__arrow', '.jm-map__boxes', '.jm-map__boxes--inside', '.jm-map__app', '.jm-map__average', '.jm-map__average--pending', '.jm-map__split', '.jm-map__legend', '.jm-map__phrase', '.jm-box', '.jm-box__head', '.jm-box__label', '.jm-box__value', '.jm-box__text', '.jm-box__tags', '.jm-box--small', '.jm-box--pending', '.jm-box--warn', '.jm-box--bad', '.jm-runs', '.jm-runs__title', '.jm-runs__line', '.jm-runs__name', '.jm-runs__figures', '.jm-runs__more', '.jm-runs__empty', '.jm-places__list', '.jm-place', '.jm-place__label', '.jm-place__question', '.jm-checks__footnote'] as $class) {
+            static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => preg_match('/' . preg_quote($class, '/') . '(?![a-z0-9_-])/', $selector) === 1), $class);
+        }
+    }
+
+    public function testAToneOnlyColoursTheFrameOfABox(): void
+    {
+        static::assertSame([['border-color', 'var(--jm-warn-border)']], self::declarationsOf('.jm-box--warn', null));
+        static::assertSame([['border-color', 'var(--jm-bad-border)']], self::declarationsOf('.jm-box--bad', null));
+    }
+
+    public function testAPendingBoxHasADashedFrameAndNoBackground(): void
+    {
+        $pending = self::declarationsOf('.jm-box--pending', null);
+
+        static::assertContains(['border-style', 'dashed'], $pending);
+        static::assertContains(['background', 'none'], $pending);
+    }
+
+    public function testTheMapIsStackedUnlessItIsWideEnoughForItsColumns(): void
+    {
+        $wide = '@container jm-map (width >= 960px)';
+        $medium = '@container jm-map (width >= 480px)';
+
+        static::assertContains(['container-type', 'inline-size'], self::declarationsOf('.jm-map', null));
+        static::assertContains(['container-name', 'jm-map'], self::declarationsOf('.jm-map', null));
+        static::assertContains(['display', 'flex'], self::declarationsOf('.jm-map__columns', null));
+        static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__columns', null));
+        static::assertContains(['display', 'none'], self::declarationsOf('.jm-map__arrow', null));
+        static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__boxes', null));
+        static::assertSame([], self::declarationsOf('.jm-map__boxes--inside', null));
+        static::assertContains(['flex-direction', 'row'], self::declarationsOf('.jm-map__columns', $wide));
+        static::assertContains(['flex', '1 1 0'], self::declarationsOf('.jm-map__column', $wide));
+        static::assertContains(['flex-grow', '1.25'], self::declarationsOf('.jm-map__column--app', $wide));
+        static::assertContains(['display', 'block'], self::declarationsOf('.jm-map__arrow', $wide));
+        static::assertContains(['flex-direction', 'row'], self::declarationsOf('.jm-map__boxes--inside', $medium));
+        static::assertSame([], self::declarationsOf('.jm-map__boxes--inside', $wide));
+    }
+
+    public function testTheMapIsLaidOutByItsOwnWidthNotByTheWindow(): void
+    {
+        foreach (self::rules() as $rule) {
+            if ($rule['at'] !== null && str_starts_with($rule['at'], '@media ')) {
+                foreach ($rule['selectors'] as $selector) {
+                    static::assertDoesNotMatchRegularExpression('/\.jm-map(?![a-z0-9_-])|\.jm-map__(?:columns|column|arrow|boxes)/', $selector, $rule['at']);
+                }
+            }
+        }
+    }
+
+    public function testTheParserReadsContainerRules(): void
+    {
+        static::assertContains('.jm-map__columns', self::selectorsIn(self::rules(), '@container jm-map (width >= 960px)'));
+    }
+
+    public function testABoxThatIsALinkKeepsTheColoursOfItsText(): void
+    {
+        static::assertContains(['display', 'flex'], self::declarationsOf('.jm-box', null));
+        static::assertContains(['color', 'inherit'], self::declarationsOf('.jm-box', null));
+        static::assertContains(['text-decoration', 'none'], self::declarationsOf('.jm-box', null));
+        static::assertContains(['display', 'grid'], self::declarationsOf('.jm-runs__line', null));
+        static::assertContains(['align-items', 'start'], self::declarationsOf('.jm-runs__line', null));
+        static::assertContains(['overflow-wrap', 'anywhere'], self::declarationsOf('.jm-runs__figures', null));
+        static::assertSame([['white-space', 'nowrap']], self::declarationsOf('.jm-runs__value', null));
+        static::assertSame([], array_filter(self::declarationsOf('.jm-runs__figures', null), static fn(array $declaration): bool => \in_array($declaration[0], ['white-space', 'text-overflow', 'overflow'], true)));
+    }
+
+    public function testTheWordPeriodShowsOnlyFrom1500Pixels(): void
+    {
+        $hidden = [];
+        foreach (self::rules() as $rule) {
+            if (\in_array('.jm-period__label', $rule['selectors'], true) && \in_array('display', array_column($rule['declarations'], 0), true)) {
+                $hidden[] = $rule['at'];
+            }
+        }
+
+        static::assertSame(['@media (max-width: 1499px)'], $hidden);
+        static::assertSame([['display', 'none']], self::declarationsOf('.jm-period__label', '@media (max-width: 1499px)'));
+    }
+
+    public function testTheRunsOnLinesSitOnTheSurfaceOfACardOfTheStackScreen(): void
+    {
+        static::assertContains(['background', 'linear-gradient(var(--jm-surface), var(--jm-surface)), var(--jm-bg)'], self::declarationsOf('.jm-runs__list', null));
+        static::assertSame([['font-weight', '600']], self::declarationsOf('.jm-runs__version', null));
+    }
+
     private static function withoutHostAncestor(string $selector): string
     {
         foreach (self::HOST_ANCESTORS as $ancestor) {
@@ -689,7 +782,7 @@ final class StylesheetTest extends TestCase
                 continue;
             }
 
-            if (!str_starts_with($prelude, '@media ') && !str_starts_with($prelude, '@keyframes ')) {
+            if (!str_starts_with($prelude, '@media ') && !str_starts_with($prelude, '@container ') && !str_starts_with($prelude, '@keyframes ')) {
                 throw new \RuntimeException('Unsupported at-rule: ' . $prelude);
             }
 

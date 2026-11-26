@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
@@ -43,6 +44,10 @@ final class ScreenBuilder
             return $this->composedPage($screen, Period::fromLabel($period ?? '') ?? Period::OneHour, $sort, $direction, $storageFailed, new ScreenRequest($now, $fragment, $instance));
         }
 
+        if ($screen instanceof OverviewScreen) {
+            return $this->overviewPage($screen, Period::fromLabel($period ?? '') ?? Period::OneHour, $storageFailed, $now);
+        }
+
         $blocks = [];
         $sorts = [];
         $raised = null;
@@ -72,19 +77,9 @@ final class ScreenBuilder
         return new Page($screen, $blocks, $period, $sort, $direction, $sorts, $instance === null ? [] : [ScreenRequest::INSTANCE => $instance], raised: $raised);
     }
 
-    public function storageUsable(): bool
+    public function raisedChecks(Page $page): ?RaisedChecks
     {
-        return $this->reader !== null && $this->recordingEnabled;
-    }
-
-    /** @param list<string> $tabs the ids of the screens whose tab is shown with the page */
-    public function raisedChecks(Page $page, array $tabs): ?RaisedChecks
-    {
-        if ($page->period === null || $this->reader === null || array_intersect($tabs, $this->checks->screens()) === []) {
-            return null;
-        }
-
-        if ($page->hasState(BlockState::StorageError)) {
+        if ($page->period === null || $this->reader === null || $page->hasState(BlockState::StorageError)) {
             return null;
         }
 
@@ -129,6 +124,49 @@ final class ScreenBuilder
         $empty = $screen->emptyState();
 
         return [[Block::unavailable(Block::TABLE, BlockState::Empty, $empty['title'], $empty['text'])], $view->raised];
+    }
+
+    private function overviewPage(OverviewScreen $screen, Period $period, bool $storageFailed, int $now): Page
+    {
+        $read = null;
+        $cause = null;
+
+        if ($this->reader === null) {
+            $cause = BlockState::NoConnection;
+        } elseif ($storageFailed) {
+            $cause = BlockState::StorageError;
+        } else {
+            try {
+                $read = $screen->read($this->reader, $period, $now);
+            } catch (\Throwable $e) {
+                $this->logger?->error('JMonitor could not read its data: ' . $e->getMessage(), ['exception' => $e]);
+                $cause = BlockState::StorageError;
+            }
+
+            if ($read !== null && $read->isEmpty()) {
+                $cause = $this->emptyCause();
+            }
+        }
+
+        try {
+            $stack = $screen->stack();
+        } catch (\Throwable $e) {
+            $this->logger?->error('JMonitor could not read the stack: ' . $e->getMessage(), ['exception' => $e]);
+            $stack = null;
+        }
+
+        try {
+            $blocks = self::figures($screen->view($cause === null ? $read : null, $stack, $period));
+        } catch (\Throwable $e) {
+            $this->logger?->error(sprintf('JMonitor could not display the "%s" screen: %s', $screen->id(), $e->getMessage()), ['exception' => $e]);
+            $blocks = [Block::unavailable(Block::TABLE, BlockState::Error)];
+        }
+
+        if ($cause !== null) {
+            $blocks = [Block::unavailable(Block::TABLE, $cause), ...$blocks];
+        }
+
+        return new Page($screen, $blocks, $period, '', '', [], raised: $read?->raised);
     }
 
     private function composedPage(ComposedScreen $screen, Period $period, ?string $sort, ?string $direction, bool $storageFailed, ScreenRequest $request): Page
@@ -342,7 +380,9 @@ final class ScreenBuilder
             $blocks[] = Block::checks($view->checks);
         }
 
-        if ($view->cards !== [] || $view->lead === null) {
+        if ($view->map !== null) {
+            $blocks[] = Block::map($view->map);
+        } elseif ($view->cards !== [] || ($view->lead === null && $view->places === null)) {
             $blocks[] = Block::cards($view->cards);
         }
 
@@ -350,6 +390,10 @@ final class ScreenBuilder
 
         if ($view->guide !== null) {
             $blocks[] = Block::guide($view->guide);
+        }
+
+        if ($view->places !== null) {
+            $blocks[] = Block::places($view->places);
         }
 
         return $blocks;

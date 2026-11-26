@@ -36,6 +36,11 @@ final class HttpErrorsCheck implements CheckInterface
         return 'Cache & HTTP';
     }
 
+    public function passed(): string
+    {
+        return 'no error response';
+    }
+
     public function metrics(): array
     {
         return [self::CLIENT_ERRORS, self::SERVER_ERRORS];

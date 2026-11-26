@@ -641,6 +641,30 @@ final class CardBuilderTest extends TestCase
         self::assertSame(['Memory' => 'Reading…', 'Hit rate' => 'Reading…', 'Commands' => 'Reading…'], self::vitals($card));
     }
 
+    /**
+     * @return iterable<string, array{Component, string}>
+     */
+    public static function roles(): iterable
+    {
+        yield 'server' => [Component::System, 'The machine everything runs on.'];
+        yield 'php' => [Component::Php, 'Runs your code.'];
+        yield 'symfony' => [Component::Symfony, 'Your framework.'];
+        yield 'frankenphp' => [Component::FrankenPhp, 'Receives the requests and hands them to PHP.'];
+        yield 'apache' => [Component::Apache, 'Receives the requests and hands them to PHP.'];
+        yield 'nginx' => [Component::Nginx, 'Receives the requests and hands them to PHP.'];
+        yield 'mysql' => [Component::Mysql, 'A database of your application.'];
+        yield 'postgresql' => [Component::Postgresql, 'A database of your application.'];
+        yield 'redis' => [Component::Redis, 'Keeps data in memory, often the cache, the sessions or the queues.'];
+    }
+
+    #[DataProvider('roles')]
+    public function testEachComponentSaysWhatItIsFor(Component $component, string $role): void
+    {
+        self::assertSame($role, $this->card(Snapshots::of($component, []))->role);
+        self::assertSame($role, $this->card(Snapshots::of($component, [], [$component->value => ResultState::Failed]))->role);
+        self::assertSame($role, $this->cardOf($component, new InstanceState('main', 'shop', null, Snapshots::of($component, [])), 'stack/' . $component->value, false)->role);
+    }
+
     private function card(ComponentSnapshot $snapshot, ?string $path = null): ComponentCard
     {
         return $this->cardOf($snapshot->component, new InstanceState(null, null, null, $snapshot), $path);

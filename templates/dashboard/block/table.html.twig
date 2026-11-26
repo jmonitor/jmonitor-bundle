@@ -64,16 +64,7 @@
                                 {%- elseif cell.kind == 'bar' -%}
                                     <span class="jm-bar"><svg viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="jm-bar__rail" width="100" height="6"/><rect class="jm-bar__fill" width="{{ cell.data.share }}" height="6"/></svg><span class="jm-bar__value">{{ cell.text }}</span></span>
                                 {%- elseif cell.kind == 'split' -%}
-                                    {%- set segments = cell.segments -%}
-                                    <span class="jm-split">
-                                        {%- if segments is not empty -%}
-                                            <svg viewBox="0 0 {{ constant('Jmonitor\\JmonitorBundle\\Dashboard\\View\\Cell::SPLIT_WIDTH') }} 8" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-                                                {%- for segment in segments -%}
-                                                    <rect class="jm-split__part jm-split__part--{{ segment.part }}" x="{{ segment.x }}" width="{{ segment.width }}" height="8"/>
-                                                {%- endfor -%}
-                                            </svg>
-                                        {%- endif -%}
-                                        <span class="jm-split__text" aria-hidden="true" title="{{ cell.text }}">{{ cell.text }}</span><span class="jm-visually-hidden">{{ cell.data.spoken }}</span></span>
+                                    {{ include('@Jmonitor/dashboard/_split.html.twig', {cell: cell, words: true}, with_context = false) }}
                                 {%- elseif cell.kind == 'tags' -%}
                                     {%- for chip in cell.tags -%}
                                         {{ loop.first ? '' : ' ' }}<span class="jm-tag jm-tag--{{ chip.tone }}">{{ chip.text }}</span>

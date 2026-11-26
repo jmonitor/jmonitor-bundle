@@ -14,6 +14,7 @@ final class ComponentCard
      * @param list<Mark>            $badges
      * @param ?int                  $readAt  Unix timestamp of the data shown
      * @param array<string, string> $query   what the link to its detail carries
+     * @param ?string               $role    what it is for, in a few words
      */
     public function __construct(
         public readonly string $id,
@@ -28,5 +29,6 @@ final class ComponentCard
         public readonly ?string $note = null,
         public readonly ?int $readAt = null,
         public readonly array $query = [],
+        public readonly ?string $role = null,
     ) {}
 }

@@ -110,19 +110,44 @@ echo "worker request counter after the page phase: $counter"
 
 listed=0
 for _ in $(seq 1 30); do
-    page="$(curl -sf "$BASE/jmonitor/")" || fail "GET /jmonitor/ did not return 2xx"
+    page="$(curl -sf "$BASE/jmonitor/requests")" || fail "GET /jmonitor/requests did not return 2xx"
     if printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"'; then
         listed=1
         break
     fi
     sleep 1
 done
-[ "$listed" = 1 ] || fail 'the page did not list 30 requests for "GET app_hello" within 30 s'
+[ "$listed" = 1 ] || fail 'the Requests screen did not list 30 requests for "GET app_hello" within 30 s'
 
 css_path="$(printf '%s\n' "$page" | sed -n 's|.*href="\(/bundles/jmonitor/jmonitor\.css?v=[0-9a-f]*\)".*|\1|p' | head -n 1)"
 [ -n "$css_path" ] || fail "the page links no /bundles/jmonitor/jmonitor.css?v=..."
 css="$(curl -s -o /dev/null -w '%{http_code}' "$BASE$css_path")"
 [ "$css" = 200 ] || fail "$css_path answered $css"
+
+slow_entries() {
+    $COMPOSE exec -T redis redis-cli --scan --pattern '*frankenphp.version*' || fail "the keys of the Redis server could not be listed"
+}
+
+overview_lead='class="jm-heading__title jm-lead__title">Your application answers normally\. \(Nothing is\|1 thing is\|[0-9]* things are\) worth a look\.<'
+expect_page /jmonitor/ '<span class="jm-box__label">Requests</span> <span class="jm-box__value">30</span>' 'the Overview did not count 30 requests in its Requests box'
+printf '%s\n' "$page" | grep -q "$overview_lead" || fail "the Overview does not open on its lead sentence"
+printf '%s\n' "$page" | grep -q 'class="jm-nav__item" href="/jmonitor/?period=1h" aria-current="page">Overview</a>' || fail "the navigation of the Overview has no current Overview entry"
+for name in FrankenPHP PHP; do
+    printf '%s\n' "$page" | grep -q "class=\"jm-runs__name\">$name<" || fail "the Overview has no \"Runs on\" line for $name"
+done
+hit /jmonitor/overview 200
+admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor")" || fail "GET /admin/jmonitor failed"
+status="$(printf '%s\n' "$admin" | tail -n 1)"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor answered $status instead of 200"
+printf '%s\n' "$admin" | grep -q "$overview_lead" || fail "/admin/jmonitor does not open on the lead sentence of the Overview"
+
+for _ in 1 2 3 4 5; do
+    hit /jmonitor/ 200
+    hit /jmonitor/_fragment 200
+done
+[ -n "$($COMPOSE exec -T redis redis-cli --scan --pattern '*jmonitor.stack.result.*')" ] || fail "the Overview kept no value of the stack in the cache of the application"
+started="$(slow_entries)"
+[ -z "$started" ] || fail "ten displays of the Overview read the version of FrankenPHP, a process of the stack: $started"
 
 cards_of() {
     printf '%s\n' "$1" | grep -o 'data-jm-component="[^"]*"' | sed 's/.*="\([a-z]*\).*/\1/' | sort | tr '\n' ' '
@@ -179,6 +204,9 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 [ "$complete" = 1 ] || fail "the Stack screen did not show the frankenphp, mysql, two postgresql, redis, system, php and symfony cards without data-jm-reading within 30 s: $(cards_of "$page")"
+[ -n "$(slow_entries)" ] || fail "the cache holds no version of FrankenPHP once the Stack screen has read it: the check of the Overview looks at nothing"
+printf '%s\n' "$page" | grep -q 'aria-label="Worth a look"' || fail 'the Stack screen has no "Worth a look" block'
+printf '%s\n' "$page" | grep -q '<button type="submit" class="jm-button">Read again now</button>' || fail 'the Stack screen has no "Read again now" button'
 mysql="$(card "$page" mysql.main)"
 [ "$(printf '%s\n' "$page" | grep -c 'data-jm-component="mysql\.')" = 1 ] || fail "the two connections of one MySQL server do not share one card: $(cards_of "$page")"
 printf '%s\n' "$mysql" | grep -Eq 'class="jm-component__version">MySQL [0-9]+\.[0-9]+\.[0-9]+<' || fail "the MySQL card shows no version: $mysql"
@@ -450,6 +478,11 @@ expect_page /jmonitor/requests 'class="jm-heading__title jm-lead__title">40 requ
 printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "the Requests screen does not flag the server errors"
 printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "the Requests screen does not name GET app_boom as the route that answered 2 server errors"
 printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Requests screen does not flag the query that GET app_n_plus_one repeats"
+printf '%s\n' "$page" | grep -q 'data-jm-slot="nav-application"><span class="jm-nav__badge jm-nav__badge--bad"' || fail "the Application entry of the Requests screen carries no critical badge with the server errors"
+stack="$(curl -sf "$BASE/jmonitor/stack")" || fail "GET /jmonitor/stack did not return 2xx"
+for space in application background; do
+    printf '%s\n' "$stack" | grep -q "data-jm-slot=\"nav-$space\"></span>" || fail "the $space entry of the Stack screen is not an empty slot, while the Requests screen badges the server errors"
+done
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/requests")" || fail "GET /admin/jmonitor/requests failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/requests answered $status instead of 200"
@@ -540,4 +573,4 @@ if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; the Requests and Queries screens sum up the period, have nothing to flag, then flag the server errors and the repeated query, also inside EasyAdmin; the Cache & HTTP, Exceptions and Background screens sum up the period, Exceptions with the server errors of the route that threw, the others with nothing to flag, Background also inside EasyAdmin; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; the Overview opens /jmonitor, also inside EasyAdmin, with its sentence, its count of requests and the components it runs on, and ten displays of it start no slow read of the stack; the Requests and Queries screens sum up the period, have nothing to flag, then flag the server errors and the repeated query, also inside EasyAdmin; the Cache & HTTP, Exceptions and Background screens sum up the period, Exceptions with the server errors of the route that threw, the others with nothing to flag, Background also inside EasyAdmin; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, worth a look, without the badges of the application, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"

@@ -1,0 +1,15 @@
+{% autoescape 'html' %}
+{%- set segments = cell.segments -%}
+<span class="jm-split">
+    {%- if segments is not empty -%}
+        <svg viewBox="0 0 {{ constant('Jmonitor\\JmonitorBundle\\Dashboard\\View\\Cell::SPLIT_WIDTH') }} 8" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+            {%- for segment in segments -%}
+                <rect class="jm-split__part jm-split__part--{{ segment.part }}" x="{{ segment.x }}" width="{{ segment.width }}" height="8"/>
+            {%- endfor -%}
+        </svg>
+    {%- endif -%}
+    {%- if words -%}
+        <span class="jm-split__text" aria-hidden="true" title="{{ cell.text }}">{{ cell.text }}</span><span class="jm-visually-hidden">{{ cell.data.spoken }}</span>
+    {%- endif -%}
+</span>
+{%- endautoescape %}

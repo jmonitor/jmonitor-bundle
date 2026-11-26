@@ -36,6 +36,11 @@ final class CacheHitRateCheck implements KeyedCheckInterface
         return 'Cache & HTTP';
     }
 
+    public function passed(): string
+    {
+        return 'no pool with a low hit rate';
+    }
+
     public function metrics(): array
     {
         return [Metric::CACHE_HIT, Metric::CACHE_MISS];

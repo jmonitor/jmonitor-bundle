@@ -15,7 +15,7 @@ final class RequirementsTest extends TestCase
      */
     public static function acceptedVersionProvider(): iterable
     {
-        yield 'the minimum' => ['5.10.2'];
+        yield 'the minimum' => ['5.10.4'];
         yield 'a later minor' => ['5.11.0'];
         yield 'a later major' => ['6.0.0'];
     }
@@ -33,7 +33,7 @@ final class RequirementsTest extends TestCase
      */
     public static function refusedVersionProvider(): iterable
     {
-        yield 'a previous patch' => ['5.10.1'];
+        yield 'a previous patch' => ['5.10.3'];
         yield 'a previous minor' => ['5.2.0'];
         yield 'a previous major' => ['4.29.17'];
     }
@@ -42,7 +42,7 @@ final class RequirementsTest extends TestCase
     public function testAVersionBelowTheMinimumIsRefused(string $installed): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage(\sprintf('The "jmonitor.easyadmin" option requires EasyAdmin 5.10.2 or later, %s is installed.', $installed));
+        $this->expectExceptionMessage(\sprintf('The "jmonitor.easyadmin" option requires EasyAdmin 5.10.4 or later, %s is installed.', $installed));
 
         Requirements::assertVersion($installed);
     }
@@ -50,7 +50,7 @@ final class RequirementsTest extends TestCase
     public function testTheBundleMustBeAmongTheBundles(): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('The "jmonitor.easyadmin" option requires the EasyAdminBundle: install easycorp/easyadmin-bundle 5.10.2 or later, or turn the option off.');
+        $this->expectExceptionMessage('The "jmonitor.easyadmin" option requires the EasyAdminBundle: install easycorp/easyadmin-bundle 5.10.4 or later, or turn the option off.');
 
         Requirements::assertMet([]);
     }

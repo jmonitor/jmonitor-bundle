@@ -28,10 +28,15 @@ use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavRow;
 use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
+use Jmonitor\JmonitorBundle\Dashboard\View\Map;
+use Jmonitor\JmonitorBundle\Dashboard\View\MapBox;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
+use Jmonitor\JmonitorBundle\Dashboard\View\Place;
+use Jmonitor\JmonitorBundle\Dashboard\View\Places;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
+use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
@@ -41,9 +46,9 @@ use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * Every block of the live stack in every state, the blocks that guide the reading of a screen, cards that lead to the
- * sections below, then a section in each of its states. Each request moves
- * a counter kept in a file: the badge shows it, and its tone and the web server named by the second
- * navigation alternate with its parity.
+ * sections below, a section in each of its states, then the map of an application and what to find where. Each request
+ * moves a counter kept in a file: the badge shows it, and its tone and the web server named by the second navigation
+ * alternate with its parity.
  */
 final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterface, ResetInterface
 {
@@ -204,6 +209,49 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
             Block::section(new Section('counting', 'A section with a block still being read', 'Its own block fills in on a quick refresh.', [
                 Block::unavailable(Block::FACTS, BlockState::Reading, 'Counting…', 'The figures of this block are being read.'),
             ], 'runs', 'desc', ['runs' => 'desc'], ['title' => 'Nothing ran in the last hour.', 'text' => ''])),
+            Block::checks(new CheckList([
+                new CheckLine('queries.repeated', $warning, 'One query ran 48 times in a single request', 'Each run waits for the database.', 'GET app_checkout', 'gallery', title: 'Repeated query', action: 'Load the related rows in one query.'),
+                new CheckLine('php.opcache_memory', $info, 'OPcache memory is nearly full', self::LONG, 'Stack · PHP', 'gallery'),
+            ], title: 'Worth a look', footnote: 'Checked and fine: no server error, no slow request, no failed message, 2 of 3 stack components healthy.')),
+            Block::map(new Map(
+                [
+                    new MapBox('Requests', '1,284', 'No server error, no slow request.', path: 'gallery', anchor: 'full', series: [12, 18, 15, 22, 40, 64, 31, 20, 18, 25, 19, 16]),
+                    new MapBox('Messages', '42', 'Handled by Messenger, 45 sent.', [new Tag('3 failed', 'bad')], 'gallery', 'quiet', 'bad'),
+                    new MapBox('Scheduled tasks', null, '2 tasks declared, none ran in the last hour.', path: 'gallery'),
+                    new MapBox('Commands', '12', 'Console runs.', path: 'missing'),
+                ],
+                new MapBox('An average request', '84 ms', '4.2 SQL queries per request.'),
+                Cell::averageSplit(84.0, 30.0, 4.2, 12.0),
+                [
+                    new MapBox('Exceptions', '7', 'exceptions thrown.', path: 'gallery'),
+                    new MapBox('User requests', '140', 'made by signed-in users.'),
+                ],
+                new StackGlance([
+                    new ComponentCard('server', 'Server', $healthy, [new Vital('Load', '0.42'), new Vital('Memory', '61 %'), new Vital('Disk', '48 %')], 'Ubuntu 24.04 LTS', 'gallery'),
+                    new ComponentCard('php', 'PHP', $warning, [new Vital('OPcache memory', '92 %'), new Vital('OPcache hit rate', '99.8 %'), new Vital('FPM workers', '3 / 8')], '8.2.29', 'gallery'),
+                    new ComponentCard('postgresql.reporting_read_replica_with_a_long_name', 'PostgreSQL · reporting_read_replica_with_a_long_name', $critical, [new Vital('Connections', '98 %')], '16.4', 'gallery', reason: 'SQLSTATE[08006] could not connect to server: Connection refused while reading ' . self::HOST),
+                    new ComponentCard('redis', 'Redis', $unknown, [new Vital('Memory', '12 %')], reading: true),
+                ], more: '1 more connection'),
+                [
+                    new MapBox('SQL queries', '3,402', '2.6 s in total, 12 slow.', [new Tag('12 slow', 'warn'), new Tag('N+1', 'warn')], 'gallery', 'full', 'warn'),
+                    new MapBox('Cache', null, 'No cache read in the last hour.', path: 'gallery'),
+                    new MapBox('Other sites and APIs', '84', '120 ms per call on average.', [new Tag('2 no answer', 'bad'), new Tag('3 × 4xx', 'warn')], 'gallery', null, 'bad'),
+                ],
+            )),
+            Block::map(new Map(runsOn: new StackGlance([
+                new ComponentCard('php', 'PHP', $healthy, [new Vital('OPcache memory', '42 %')], '8.4.1', 'gallery'),
+                new ComponentCard('symfony', 'Symfony', $info, [new Vital('Environment', 'prod'), new Vital('Debug', 'off')], '7.4.0', 'gallery'),
+            ]))),
+            Block::map(new Map(runsOn: new StackGlance([
+                new ComponentCard('php', 'PHP', $healthy, [new Vital('OPcache memory', '42 %')], '8.4.1', 'gallery'),
+            ], notice: new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.')))),
+            Block::map(new Map(runsOn: new StackGlance(notice: new Notice('bad', 'The stack could not be read', 'Cannot reach redis://cache:6379: Connection refused')))),
+            Block::places(new Places([
+                new Place('Overview', '', 'This page. What needs a look comes first.', 'Is everything fine?'),
+                new Place('Application', 'gallery', 'Requests, SQL queries, cache, outgoing HTTP, exceptions, users.', 'What is slow, and why?'),
+                new Place('Background', 'missing', 'Messenger messages, scheduled tasks and console commands.', 'Did the work behind the scenes run?'),
+                new Place('Stack', 'gallery', 'The server, PHP, Symfony, the web server, the databases and Redis.', 'Are the servers healthy right now?'),
+            ])),
         ];
     }
 

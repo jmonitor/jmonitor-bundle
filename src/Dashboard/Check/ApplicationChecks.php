@@ -28,19 +28,16 @@ final class ApplicationChecks
         $this->checks = $byId;
     }
 
-    /** @return list<string> the ids of the screens that detail a check */
-    public function screens(): array
-    {
-        return array_values(array_unique(array_map(static fn(CheckInterface $check): string => $check->screen(), array_values($this->checks))));
-    }
-
     /** the read that names the first culprit of a check, null when no check has this id */
     public function query(string $id, Period $period, int $now): ?ReportQuery
     {
         return isset($this->checks[$id]) ? $this->checks[$id]->query($period, $now) : null;
     }
 
-    public function raised(ReaderInterface $reader, Period $period, int $now): RaisedChecks
+    /**
+     * @param list<string> $more metric types read in the same statement, whose totals the result gives too
+     */
+    public function raised(ReaderInterface $reader, Period $period, int $now, array $more = []): RaisedChecks
     {
         $metrics = [];
         $keyed = [];
@@ -52,6 +49,8 @@ final class ApplicationChecks
                 array_push($keyed, ...$check->metrics());
             }
         }
+
+        array_push($metrics, ...$more);
 
         if ($metrics === []) {
             return new RaisedChecks([], [], $period);
@@ -107,6 +106,24 @@ final class ApplicationChecks
         $others = array_values(array_filter($findings, static fn(Finding $finding): bool => $finding->severity !== Severity::Critical));
 
         return [...$critical, ...$others];
+    }
+
+    /**
+     * @param list<string> $ids
+     *
+     * @return list<string> what the checks among $ids that are not raised say, in the order of $ids
+     */
+    public function passed(RaisedChecks $raised, array $ids): array
+    {
+        $passed = [];
+
+        foreach (array_values(array_unique($ids)) as $id) {
+            if (isset($this->checks[$id]) && !$raised->has($id)) {
+                $passed[] = $this->checks[$id]->passed();
+            }
+        }
+
+        return $passed;
     }
 
     /**

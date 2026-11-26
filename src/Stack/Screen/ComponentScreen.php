@@ -84,7 +84,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
 
     public function actions(): array
     {
-        return ['refresh' => 'Refresh'];
+        return ['refresh' => StackScreenParts::READ_AGAIN];
     }
 
     public function run(string $action): void
@@ -140,7 +140,7 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
         return [
             ...$blocks,
             StackScreenParts::followUp($state) ? $card->withReading() : $card,
-            Block::checks($this->parts->checkList($findings, false, 'Nothing to check on ' . $this->label())),
+            Block::checks($this->parts->checkList($findings, false, 'Nothing to flag on ' . $this->label())),
             ...$this->detail->sections($instance, $findings, $this->parts->now(), $reading),
         ];
     }

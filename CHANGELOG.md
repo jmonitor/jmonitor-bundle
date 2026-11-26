@@ -30,7 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `data-jm-theme="auto"`: the screens shown inside another page follow the Bootstrap colour mode of that page.
 - `/jmonitor` Stack screen: the server, PHP and Symfony read live, with what to check and a detail per component.
 - `stack` option: turns the live stack, one of its components or one of its two outgoing calls off, and silences a check with `ignore_checks`.
-- The `/jmonitor` page opens on the Stack screen when nothing is recorded.
 - `/jmonitor` Stack screen: FrankenPHP, Apache and Nginx read live from their status page, with what to check and a detail each.
 - `/jmonitor` Background screen: the messages waiting in each Messenger transport, shown even without storage or recording.
 - `stack` options `frankenphp`, `apache`, `nginx` and `symfony.messenger`: turn a web server or the queue count off, or set the address of a status page.
@@ -40,13 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` Stack screen: the PostgreSQL databases of the Doctrine connections read live, one card per connection, with what to check and a detail.
 - `/jmonitor` Stack screen: the Redis and Valkey servers of the application read live, found in `stack.redis.connections`, the cache, the sessions or `REDIS_URL`.
 - `stack` options `postgresql` and `redis`.
-- `/jmonitor` navigation: three entries, Application, Background and Stack, with tabs under the header.
+- `/jmonitor` navigation: four entries, Overview, Application, Background and Stack, with tabs under the header.
 - Live indicator: says how old the figures are, and when a refresh failed.
 - `/jmonitor` screens: a sentence that sums up the period, what is worth a look with why it matters and what to do, and a guide to read the screen.
 - `/jmonitor` tabs: a badge when something is worth a look.
 - `/jmonitor` tables: a bar on what costs the most and a Problems column.
 - Background screen: where the average message and command go, between your PHP code, SQL and outgoing HTTP calls.
 - Exceptions screen: one table, with under each class where it was thrown.
+- `/jmonitor` opens on an Overview: what is worth a look, then a map of your application, from what comes in to what it calls.
+- Navigation: a badge on Application and Background when something is worth a look.
+- Stack screen: a sentence that sums it up, every point with its explanation in view, and what each component is for.
 
 ### Changed
 - Requires PHP 8.2.

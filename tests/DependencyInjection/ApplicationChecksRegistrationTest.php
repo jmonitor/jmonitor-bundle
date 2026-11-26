@@ -58,7 +58,6 @@ final class ApplicationChecksRegistrationTest extends TestCase
 
         static::assertSame([self::METRICS], array_column($reader->totalRequests, 2));
         static::assertSame([[Metric::CACHE_HIT, Metric::CACHE_MISS]], $reader->keyedRequests);
-        static::assertSame(['requests', 'queries', 'cache-http', 'background'], $checks->screens());
         static::assertSame(
             ['requests.server_errors', 'http.failures', 'messages.failed', 'tasks.failed', 'commands.failed', 'requests.slow', 'queries.slow', 'queries.repeated', 'http.errors', 'cache.low_hit_rate'],
             array_keys($sentences),

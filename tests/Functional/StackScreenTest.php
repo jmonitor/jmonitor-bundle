@@ -73,15 +73,59 @@ final class StackScreenTest extends WebTestCase
         static::assertCount(1, $crawler->filter('form[action="/jmonitor/_action/stack"] button'));
     }
 
-    public function testAnApplicationWithoutDatabaseArrivesOnTheStack(): void
+    public function testTheStackScreenOpensOnASentenceThenWhatIsWorthALook(): void
+    {
+        $client = $this->client();
+
+        $crawler = $client->request('GET', '/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame(['h1'], $crawler->filter('.jm-screen h1')->each(static fn(Crawler $title): string => $title->nodeName()));
+        static::assertMatchesRegularExpression('/^(Everything that runs your application answers\.|Part of what runs your application could not be read\.|What runs your application needs attention\.|Reading what runs your application…)/', $crawler->filter('.jm-screen h1.jm-lead__title')->text());
+        static::assertSame('Read on your servers as you open this screen. Nothing is kept: it shows now, not the past.', $crawler->filter('.jm-lead__detail')->text());
+        static::assertCount(0, $crawler->filter('.jm-heading__text'));
+        static::assertSame('Worth a look', $crawler->filter('section.jm-checks')->attr('aria-label'));
+        static::assertSame('Read again now', $crawler->filter('form[action="/jmonitor/_action/stack"] button')->text());
+        static::assertSame(['Four words.', 'Found by itself.', 'A check that does not apply to you.'], $crawler->filter('.jm-guide li strong')->each(static fn(Crawler $term): string => $term->text()));
+        static::assertCount(0, $crawler->filter('.jm-screen details'));
+
+        $crawler = $client->request('GET', '/jmonitor/stack/php');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('Worth a look', $crawler->filter('section.jm-checks')->attr('aria-label'));
+        static::assertSame('Read again now', $crawler->filter('form[action="/jmonitor/_action/stack/php"] button')->text());
+        static::assertSame('Runs your code.', $crawler->filter('[data-jm-component="php"] .jm-component__role')->text());
+        static::assertCount(0, $crawler->filter('.jm-lead, .jm-guide'));
+    }
+
+    public function testTheOverviewListsTheComponentsOfTheStack(): void
+    {
+        $client = $this->client(['jmonitor' => ['recording' => ['flush_interval' => 1]]]);
+
+        $client->request('GET', '/hello/world');
+        $crawler = self::requestUntil($client, '/jmonitor/overview', 'tr[data-jm-route="GET app_hello"][data-jm-requests="1"]');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('Runs on read right now, whatever the period', $crawler->filter('.jm-runs__title')->text());
+        $lines = $crawler->filter('.jm-runs__item a.jm-runs__line');
+        $names = $lines->each(static fn(Crawler $line): string => $line->filter('.jm-runs__name')->text());
+        $paths = array_combine($names, $lines->each(static fn(Crawler $line): string => (string) $line->attr('href')));
+        static::assertSame('/jmonitor/stack/php', $paths['PHP'] ?? null);
+        static::assertSame('/jmonitor/stack/symfony', $paths['Symfony'] ?? null);
+        static::assertContains('Two clocks.', $crawler->filter('.jm-guide li strong')->each(static fn(Crawler $term): string => $term->text()));
+        static::assertSame('Overview', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+    }
+
+    public function testAnApplicationWithoutDatabaseArrivesOnTheOverviewWithItsStack(): void
     {
         $client = $this->client(['doctrine' => false]);
 
         $crawler = $client->request('GET', '/jmonitor/');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('JMonitor — Stack', $crawler->filter('title')->text());
-        static::assertCount(1, $crawler->filter('[data-jm-component="php"]'));
+        static::assertSame('JMonitor — Overview', $crawler->filter('title')->text());
+        static::assertSame(['No storage configured'], $crawler->filter('.jm-state__title')->each(static fn(Crawler $title): string => $title->text()));
+        static::assertSame('/jmonitor/stack/php', $crawler->filter('a.jm-runs__line[href="/jmonitor/stack/php"]')->attr('href'));
     }
 
     public function testAnApplicationWithoutMysqlHasNoMysqlCardAndSaysWhy(): void
@@ -121,14 +165,16 @@ final class StackScreenTest extends WebTestCase
         static::assertStringContainsString('Redis: No Redis DSN found: set jmonitor.stack.redis.connections, use Redis for a cache pool or the sessions, or set the REDIS_URL environment variable.', self::notDetected($crawler));
     }
 
-    public function testRecordingOffArrivesOnTheStack(): void
+    public function testRecordingOffWithoutDataArrivesOnTheOverviewWithItsStack(): void
     {
         $client = $this->client(['jmonitor' => ['recording' => ['enabled' => false]]]);
 
         $crawler = $client->request('GET', '/jmonitor/');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('JMonitor — Stack', $crawler->filter('title')->text());
+        static::assertSame('JMonitor — Overview', $crawler->filter('title')->text());
+        static::assertSame(['Recording is off'], $crawler->filter('.jm-state__title')->each(static fn(Crawler $title): string => $title->text()));
+        static::assertGreaterThan(0, $crawler->filter('.jm-runs__item')->count());
     }
 
     public function testATestThatLeavesTheStackOutReadsNothingOutsideTheWebServer(): void
@@ -525,7 +571,7 @@ final class StackScreenTest extends WebTestCase
         $client = $this->client([
             'internals' => true,
             'connections' => ['dead' => ['url' => 'mysql://jmonitor:jmonitor@127.0.0.1:1/jmonitor']],
-            'jmonitor' => ['stack' => ['ignore_checks' => ['system.load']]],
+            'jmonitor' => ['stack' => ['system' => false, 'php' => false]],
         ]);
 
         $client->request('GET', '/jmonitor/stack');
@@ -546,7 +592,7 @@ final class StackScreenTest extends WebTestCase
         static::assertSame('bad', $check->attr('data-jm-severity'));
         static::assertStringStartsWith('MySQL cannot be reached: ', $check->filter('.jm-check__sentence')->text());
         static::assertSame('/jmonitor/stack/mysql?connection=dead', $check->filter('.jm-check__where a')->attr('href'));
-        static::assertSame('1', $crawler->filter('[data-jm-slot="nav-stack"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent);
+        static::assertSame('1 critical', $crawler->filter('[data-jm-slot="nav-stack"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent);
 
         $crawler = $client->request('GET', '/jmonitor/stack/mysql?connection=dead');
 

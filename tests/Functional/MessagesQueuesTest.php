@@ -139,7 +139,7 @@ final class MessagesQueuesTest extends WebTestCase
 
         $home = $client->request('GET', '/jmonitor/');
         self::assertResponseIsSuccessful();
-        self::assertSame('JMonitor — Stack', $home->filter('title')->text());
+        self::assertSame('JMonitor — Overview', $home->filter('title')->text());
     }
 
     public function testMessagesWithRecordingOffStillShowsTheQueues(): void

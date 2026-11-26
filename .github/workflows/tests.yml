@@ -25,12 +25,12 @@ jobs:
                 # (every release is blocked by security advisories), so the 7.x line
                 # is covered by 7.4 (the lowest maintained 7.x) and the 8.x line by 8.1.
                 include:
-                    - { php: '8.2', symfony: '6.4.*', dbal: '^3.8', easyadmin: '5.10.2' }    # bundle PHP floor + Symfony LTS floor + EasyAdmin floor
-                    - { php: '8.4', symfony: '6.4.*', dbal: '^4.0', easyadmin: '^5.10.2' }   # LTS on the newest PHP (catches deprecations)
-                    - { php: '8.3', symfony: '7.4.*', dbal: '^3.8', easyadmin: '^5.10.2' }   # lowest maintained 7.x on a recent PHP
-                    - { php: '8.5', symfony: '7.4.*', dbal: '^4.0', easyadmin: '^5.10.2' }
-                    - { php: '8.4', symfony: '8.1.*', dbal: '^4.0', easyadmin: '^5.10.2' }
-                    - { php: '8.5', symfony: '8.1.*', dbal: '^4.0', easyadmin: '^5.10.2' }
+                    - { php: '8.2', symfony: '6.4.*', dbal: '^3.8', easyadmin: '5.10.4' }    # bundle PHP floor + Symfony LTS floor + EasyAdmin floor
+                    - { php: '8.4', symfony: '6.4.*', dbal: '^4.0', easyadmin: '^5.10.4' }   # LTS on the newest PHP (catches deprecations)
+                    - { php: '8.3', symfony: '7.4.*', dbal: '^3.8', easyadmin: '^5.10.4' }   # lowest maintained 7.x on a recent PHP
+                    - { php: '8.5', symfony: '7.4.*', dbal: '^4.0', easyadmin: '^5.10.4' }
+                    - { php: '8.4', symfony: '8.1.*', dbal: '^4.0', easyadmin: '^5.10.4' }
+                    - { php: '8.5', symfony: '8.1.*', dbal: '^4.0', easyadmin: '^5.10.4' }
 
         services:
             mysql:

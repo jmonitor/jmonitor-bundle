@@ -15,10 +15,16 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
+use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
+use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
+use Jmonitor\JmonitorBundle\Stack\Check\Finding;
+use Jmonitor\JmonitorBundle\Stack\Check\Severity;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
+use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
@@ -74,7 +80,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
 
     public function actions(): array
     {
-        return ['refresh' => 'Refresh'];
+        return ['refresh' => StackScreenParts::READ_AGAIN];
     }
 
     public function run(string $action): void
@@ -123,6 +129,10 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
 
         $blocks = [Block::subnav(self::subnav($state, $health))];
 
+        if ($state->components !== []) {
+            $blocks[] = Block::lead(self::lead($state, $health));
+        }
+
         if ($state->cache === CacheState::OutOfOrder) {
             $blocks[] = Block::notice(StackScreenParts::cacheOutOfOrder());
         }
@@ -133,9 +143,14 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             return $state->notDetected === [] ? $blocks : [...$blocks, Block::components(new ComponentCards([], self::notDetected($state)))];
         }
 
-        $blocks[] = Block::checks($this->parts->checkList($health->findings, true, $state->isReading() ? 'Nothing to check so far' : null));
+        $blocks[] = Block::checks($this->parts->checkList($health->findings, true, $state->isReading() ? 'Nothing to flag so far' : 'Nothing to flag'));
         $components = Block::components($this->componentCards($state, $health));
         $blocks[] = StackScreenParts::followUp($state) ? $components->withReading() : $components;
+        $blocks[] = Block::guide(new Guide([
+            new GuideItem('Four words.', 'Healthy: nothing to do. Info: good to know. Warning: act before it becomes a problem. Critical: it is a problem now.'),
+            new GuideItem('Found by itself.', 'The components come from your Symfony configuration: Doctrine connections, cache and session DSN. Nothing to declare.'),
+            new GuideItem('A check that does not apply to you.', 'Each one has a name, such as php.opcache_memory. Put it in stack.ignore_checks to silence it.'),
+        ]));
 
         return $blocks;
     }
@@ -143,8 +158,9 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
     public function navBadge(): ?NavBadge
     {
         $last = $this->parts->summary()->last();
+        $count = $last === null ? 0 : $last['critical'] + $last['warning'];
 
-        if ($last === null || $last['critical'] + $last['warning'] === 0) {
+        if ($last === null || $count === 0) {
             return null;
         }
 
@@ -154,10 +170,78 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
         ]);
 
         return new NavBadge(
-            (string) ($last['critical'] + $last['warning']),
+            $last['critical'] > 0 ? $count . ' critical' : ($count === 1 ? '1 warning' : $count . ' warnings'),
             $last['critical'] > 0 ? 'bad' : 'warn',
-            sprintf('%s at the last visit of the Stack overview, %s', implode(', ', $counts), Format::ago($last['at'], $this->parts->now())),
+            sprintf('%s at the last read of the stack, %s', implode(', ', $counts), Format::ago($last['at'], $this->parts->now())),
         );
+    }
+
+    private static function lead(StackState $state, StackHealth $health): Lead
+    {
+        $detail = 'Read on your servers as you open this screen. Nothing is kept: it shows now, not the past.';
+
+        if ($state->isReading()) {
+            return new Lead('Reading what runs your application…', $detail);
+        }
+
+        $critical = $health->count(Severity::Critical);
+        $warning = $health->count(Severity::Warning);
+        $sentence = match (true) {
+            $critical > 0 => 'What runs your application needs attention.',
+            self::hasUnknown($state, $health) => 'Part of what runs your application could not be read.',
+            default => 'Everything that runs your application answers.',
+        };
+
+        if ($critical + $warning === 0) {
+            return new Lead($sentence, $detail);
+        }
+
+        $counts = array_filter([
+            $critical > 0 ? $critical . ' critical' : null,
+            match ($warning) {
+                0 => null,
+                1 => '1 warning',
+                default => $warning . ' warnings',
+            },
+        ]);
+        $flagged = array_map(
+            static fn(Finding $finding): Component => $finding->component,
+            array_filter($health->findings, static fn(Finding $finding): bool => $finding->severity !== Severity::Info),
+        );
+        $components = [];
+
+        foreach ($state->components as $component) {
+            if (in_array($component->component, $flagged, true)) {
+                $components[] = $component->component->label();
+            }
+        }
+
+        return new Lead(sprintf('%s %s, on %s.', $sentence, implode(' and ', $counts), self::enumerate($components)), $detail);
+    }
+
+    private static function hasUnknown(StackState $state, StackHealth $health): bool
+    {
+        foreach ($state->components as $component) {
+            if ($health->componentVerdict($component->component) === Verdict::Unknown) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param list<string> $labels
+     */
+    private static function enumerate(array $labels): string
+    {
+        if (count($labels) > 3) {
+            return count($labels) . ' components';
+        }
+
+        $last = array_pop($labels);
+
+        return $labels === [] ? (string) $last : implode(', ', $labels) . ' and ' . $last;
     }
 
     private static function subnav(StackState $state, StackHealth $health): SubNav
@@ -174,11 +258,8 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
     private function componentCards(StackState $state, StackHealth $health): ComponentCards
     {
         $cards = [];
-        $unread = ['connection' => 0, 'server' => 0];
 
         foreach ($state->components as $component) {
-            $unread[$component->component->groupsByServer() ? 'server' : 'connection'] += $component->unread;
-
             foreach ($component->instances as $instance) {
                 if ($instance->snapshot !== null) {
                     $cards[] = $this->cards->card($component->component, $instance, $health, StackScreenParts::path($component->component), $state->cache !== CacheState::OutOfOrder);
@@ -186,17 +267,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             }
         }
 
-        $more = array_map(
-            static fn(string $noun, int $count): ?string => match ($count) {
-                0 => null,
-                1 => '1 more ' . $noun,
-                default => $count . ' more ' . $noun . 's',
-            },
-            array_keys($unread),
-            array_values($unread),
-        );
-
-        return new ComponentCards($cards, self::notDetected($state), $state->node, implode(', ', array_filter($more)) ?: null);
+        return new ComponentCards($cards, self::notDetected($state), $state->node, StackScreenParts::more($state));
     }
 
     /**
