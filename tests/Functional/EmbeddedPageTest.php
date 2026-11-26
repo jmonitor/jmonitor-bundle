@@ -195,6 +195,26 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertCount(1, $crawler->filter('tr[data-jm-probe-runs="1"]'));
     }
 
+    public function testADefaultScreenWithAnActionPostsItToItsOwnAddress(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording(), 'probeFirst' => true]);
+
+        $crawler = $client->request('GET', '/jmonitor/');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('JMonitor — Probe', $crawler->filter('title')->text());
+        static::assertSame('/jmonitor/_action/probe', $crawler->filter('.jm-toolbar form')->attr('action'));
+
+        $client->request('POST', '/jmonitor/_action/probe', ['action' => 'ping'], server: ['HTTP_SEC_FETCH_SITE' => 'same-origin']);
+
+        static::assertResponseRedirects('/jmonitor/probe', 303);
+        static::assertCount(1, $client->request('GET', '/jmonitor/')->filter('tr[data-jm-probe-runs="1"]'));
+
+        $hosted = $client->request('GET', '/back-office/monitoring/');
+
+        static::assertSame('/back-office/monitoring-action/probe?menu=3', $hosted->filter('.jm-toolbar form')->attr('action'));
+    }
+
     public function testAHostKeepsTheConnectionInItsOwnUrls(): void
     {
         $client = static::createClient();
@@ -579,7 +599,7 @@ final class EmbeddedPageTest extends WebTestCase
     }
 
     /**
-     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool, messenger?: bool, scheduler?: bool, csrf?: bool, gallery?: bool} $options
+     * @param array{environment?: string, debug?: bool, jmonitor?: array<string, mixed>, doctrine?: bool, security?: bool, twig?: bool, messenger?: bool, scheduler?: bool, csrf?: bool, gallery?: bool, probeFirst?: bool} $options
      */
     protected static function createKernel(array $options = []): KernelInterface
     {
@@ -595,6 +615,7 @@ final class EmbeddedPageTest extends WebTestCase
             withEmbedHost: true,
             withCsrf: $options['csrf'] ?? false,
             withGallery: $options['gallery'] ?? false,
+            probeFirst: $options['probeFirst'] ?? false,
         );
         self::$varDirs[] = $kernel->getVarDir();
 

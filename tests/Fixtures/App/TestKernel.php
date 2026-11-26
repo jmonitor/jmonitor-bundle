@@ -94,6 +94,7 @@ final class TestKernel extends Kernel
      * @param array<string, string> $transports     name => DSN, added to the transports of Messenger
      * @param ?string               $queuesOutput   what the command counting the queues prints, never started but by fromEnvironment()
      * @param array<string, array<string, mixed>> $connections name => DoctrineBundle configuration, added to the "default" connection
+     * @param bool                  $probeFirst     the probe of the host, which has an action, comes before every screen of the bundle
      */
     public function __construct(
         string $environment,
@@ -120,6 +121,7 @@ final class TestKernel extends Kernel
         private readonly ?string $queuesOutput = null,
         private readonly array $connections = [],
         private readonly ?string $redisProvider = null,
+        private readonly bool $probeFirst = false,
     ) {
         if ($withEasyAdmin && !$withDoctrine) {
             throw new \LogicException('The EasyAdmin back office needs Doctrine.');
@@ -143,7 +145,7 @@ final class TestKernel extends Kernel
         $this->jmonitorConfig = ($jmonitorConfig ?: self::environmentConfig($withEasyAdmin)) + ['stack' => ['end_of_life' => false, 'symfony' => ['flex' => false, 'messenger' => false]]];
 
         $this->varDir = sys_get_temp_dir() . '/jmonitor-bundle-tests/'
-            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer, $transports, $queuesOutput, $connections, $redisProvider]));
+            . hash('xxh128', serialize([$environment, $debug, $this->jmonitorConfig, $withDoctrine, $withSecurity, $withTwig, $withConnectionLogger, $withHttpClient, $withProfiler, $withMessenger, $withScheduler, $withPublicInternals, $withEmbedHost, $withCsrf, $withEasyAdmin, $withCspNonce, $withOpenBackOffice, $cacheApp, $withGallery, $fakeWebServer, $transports, $queuesOutput, $connections, $redisProvider, $probeFirst]));
     }
 
     public static function fromEnvironment(): self
@@ -519,7 +521,7 @@ final class TestKernel extends Kernel
                 ->tag('controller.service_arguments');
             $services->set(ProbeScreen::class)
                 ->args([$this->varDir . '/probe-runs'])
-                ->tag('jmonitor.screen', ['priority' => 10]);
+                ->tag('jmonitor.screen', ['priority' => $this->probeFirst ? 1000 : 10]);
         }
         if ($this->withGallery) {
             $services->set(GalleryScreen::class)

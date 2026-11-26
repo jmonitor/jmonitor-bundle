@@ -337,9 +337,9 @@ final class DashboardTest extends WebTestCase
         static::assertCount(0, $crawler->filter('.jm-state'));
         static::assertCount(0, $crawler->filter('table'));
         static::assertCount(0, $crawler->filter('.jm-guide'));
-        static::assertGreaterThan(0, $crawler->filter('.jm-map .jm-box')->count());
+        static::assertSame(['Requests', 'Commands', 'Exceptions', 'SQL queries', 'Cache', 'Other sites and APIs'], $crawler->filter('.jm-map .jm-box .jm-box__label')->each(static fn(Crawler $label): string => $label->text()));
         static::assertCount(0, $crawler->filter('.jm-map .jm-box__value'));
-        static::assertGreaterThan(0, $crawler->filter('.jm-runs__item')->count());
+        static::assertSame(['Server', 'PHP', 'Symfony'], $crawler->filter('.jm-runs__item .jm-runs__name')->each(static fn(Crawler $name): string => $name->text()));
         static::assertSame('What you will find here', $crawler->filter('.jm-places .jm-panel__title')->text());
         static::assertSame(['Overview', 'Application', 'Background', 'Stack'], $crawler->filter('.jm-place__label')->each(static fn(Crawler $link): string => $link->text()));
         static::assertSame(

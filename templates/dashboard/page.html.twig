@@ -43,7 +43,7 @@
                 <span class="jm-toolbar__note">Read right now, no period</span>
             {% endif %}
             {% for name, label in actions %}
-                <form method="post" action="{{ urls.action(path) }}">
+                <form method="post" action="{{ urls.action(path is same as('') ? page.screen.id : path) }}">
                     <input type="hidden" name="action" value="{{ name }}">
                     {% for parameter, value in page.query %}
                         <input type="hidden" name="{{ parameter }}" value="{{ value }}">
