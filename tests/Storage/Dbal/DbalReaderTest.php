@@ -364,6 +364,47 @@ final class DbalReaderTest extends TestCase
         );
     }
 
+    #[DataProvider('recordedConnections')]
+    public function testARestrictedReadRunsAsManyStatementsAsAWholeRead(Connection $connection, StatementRecorder $recorder): void
+    {
+        $this->store($connection, [
+            new Aggregate(Period::OneHour, Period::OneHour->bucketFor(self::NOW), Metric::REQUEST_DURATION, 'GET app_home', 1, 20.0, 20.0),
+            new Aggregate(Period::OneHour, Period::OneHour->bucketFor(self::NOW), Metric::REQUEST_SLOW, 'GET app_home', 1, 0.0, 0.0),
+        ]);
+        $reader = new DbalReader($connection);
+        $counts = [];
+
+        foreach (['whole' => [], 'restricted' => [Metric::REQUEST_SLOW]] as $case => $metrics) {
+            foreach ([null, Metric::REQUEST_DURATION] as $series) {
+                $recorder->statements = [];
+                $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Request, seriesMetric: $series, metrics: $metrics));
+                $counts[$case][] = \count($recorder->statements);
+            }
+        }
+
+        static::assertSame($counts['whole'], $counts['restricted']);
+        static::assertSame([2, 3], $counts['restricted']);
+    }
+
+    #[DataProvider('recordedConnections')]
+    public function testAWholeReadRunsTheSameStatementAsBeforeAndARestrictedOneNamesItsTypes(Connection $connection, StatementRecorder $recorder): void
+    {
+        $this->store($connection, [new Aggregate(Period::OneHour, Period::OneHour->bucketFor(self::NOW), Metric::REQUEST_SLOW, 'GET app_home', 1, 0.0, 0.0)]);
+        $reader = new DbalReader($connection);
+        $recorder->statements = [];
+
+        $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Request));
+        $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Request, metrics: [Metric::REQUEST_STATUS_PREFIX . '5xx', Metric::REQUEST_SLOW]));
+
+        $select = 'SELECT key_hash, metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum, MAX(value_max) AS value_max FROM jmonitor_aggregates WHERE period = ? AND bucket > ? AND ';
+        $statements = array_values(array_filter($recorder->statements, static fn(array $statement): bool => str_starts_with($statement['sql'], 'SELECT key_hash, metric_type')));
+        $since = Period::OneHour->bucketFor(self::NOW) - 3600;
+
+        static::assertSame([$select . 'metric_type >= ? AND metric_type < ? GROUP BY key_hash, metric_type', $select . 'metric_type IN (?, ?) GROUP BY key_hash, metric_type'], array_column($statements, 'sql'));
+        static::assertSame([3600, $since, 'request.', 'request/'], array_values($statements[0]['params']));
+        static::assertSame([3600, $since, Metric::REQUEST_STATUS_PREFIX . '5xx', Metric::REQUEST_SLOW], array_values($statements[1]['params']));
+    }
+
     #[DataProvider('connections')]
     public function testTotalsWithoutTheTableAreEmpty(Connection $connection): void
     {

@@ -35,7 +35,7 @@ final class ServerErrorsCheckTest extends TestCase
 
     public function testItReadsEveryRoute(): void
     {
-        static::assertEquals(new ReportQuery(Period::SixHours, self::NOW, Family::Request), (new ServerErrorsCheck())->query(Period::SixHours, self::NOW));
+        static::assertEquals(new ReportQuery(Period::SixHours, self::NOW, Family::Request, metrics: [Metric::REQUEST_STATUS_PREFIX . '5xx', Metric::REQUEST_SLOW, Metric::REQUEST_DURATION]), (new ServerErrorsCheck())->query(Period::SixHours, self::NOW));
     }
 
     /**

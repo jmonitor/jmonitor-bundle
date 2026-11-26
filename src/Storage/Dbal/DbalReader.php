@@ -184,8 +184,9 @@ final class DbalReader implements ReaderInterface
         [$period, $since] = self::window($query->period, $query->now);
         $sql = 'SELECT key_hash, metric_type, SUM(entry_count) AS entry_count, SUM(value_sum) AS value_sum,'
             . ' MAX(value_max) AS value_max FROM ' . AggregatesTable::NAME
-            . ' WHERE period = ? AND bucket > ? AND metric_type >= ? AND metric_type < ?';
-        $params = [$period, $since, ...AggregatesTable::familyBounds($query->family)];
+            . ' WHERE period = ? AND bucket > ? AND '
+            . ($query->metrics === [] ? 'metric_type >= ? AND metric_type < ?' : 'metric_type IN (' . implode(', ', array_fill(0, \count($query->metrics), '?')) . ')');
+        $params = [$period, $since, ...($query->metrics === [] ? AggregatesTable::familyBounds($query->family) : $query->metrics)];
 
         if ($hashes !== null) {
             $sql .= ' AND key_hash IN (' . implode(', ', array_fill(0, \count($hashes), '?')) . ')';

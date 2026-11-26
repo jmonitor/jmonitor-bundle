@@ -36,7 +36,7 @@ final class FailedCommandsCheckTest extends TestCase
 
     public function testItReadsEveryCommand(): void
     {
-        static::assertEquals(new ReportQuery(Period::OneDay, self::NOW, Family::Command), (new FailedCommandsCheck())->query(Period::OneDay, self::NOW));
+        static::assertEquals(new ReportQuery(Period::OneDay, self::NOW, Family::Command, metrics: [Metric::COMMAND_FAILED]), (new FailedCommandsCheck())->query(Period::OneDay, self::NOW));
     }
 
     /**

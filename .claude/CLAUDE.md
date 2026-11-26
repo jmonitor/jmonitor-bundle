@@ -51,6 +51,7 @@ The `/jmonitor` page, its screens and their blocks:
 - Every variable a block template reads is set by the bundle, by `PageRenderer` or by the `include()` of the block (`block`, `page_title`, and `section`, `null` outside a section), so that a Twig global of the host never stands in for one.
 - A link of a block to a screen (a check, a guide) is only rendered when that screen is available (`screens`, set by `PageRenderer`); otherwise its text stays without the link.
 - A check of the application (`src/Dashboard/Check/`) is raised by one entry of one of its metrics in the period, or by its keys when it is judged key by key, and only through `ApplicationChecks`. Its texts live in its class, the same wherever it shows.
+- A check reads its culprit through a read restricted to the metrics it looks at (`ReportQuery::$metrics`); a screen that already holds the report of the family hands it over instead.
 - A check judged key by key implements `KeyedCheckInterface`: its metrics are read key by key in the statement of the other totals, which stays one query.
 - The threshold of the cache hit rate lives in `CacheHitRateCheck`, which the check, the tag of a pool and the card share.
 - A check of the application has one screen, whose tab carries its badge. Shown on another screen, it carries the link to its own and does not count in the badge of that tab.

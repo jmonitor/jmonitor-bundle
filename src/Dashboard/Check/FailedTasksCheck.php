@@ -41,7 +41,7 @@ final class FailedTasksCheck implements CheckInterface
 
     public function query(Period $period, int $now): ReportQuery
     {
-        return new ReportQuery($period, $now, Family::Task);
+        return new ReportQuery($period, $now, Family::Task, metrics: [Metric::TASK_FAILED]);
     }
 
     public function finding(Report $report, array $totals, Period $period): Finding

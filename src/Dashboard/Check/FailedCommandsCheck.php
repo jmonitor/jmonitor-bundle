@@ -40,7 +40,7 @@ final class FailedCommandsCheck implements CheckInterface
 
     public function query(Period $period, int $now): ReportQuery
     {
-        return new ReportQuery($period, $now, Family::Command);
+        return new ReportQuery($period, $now, Family::Command, metrics: [Metric::COMMAND_FAILED]);
     }
 
     public function finding(Report $report, array $totals, Period $period): Finding

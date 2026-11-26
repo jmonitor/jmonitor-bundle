@@ -40,7 +40,7 @@ final class FailedMessagesCheck implements CheckInterface
 
     public function query(Period $period, int $now): ReportQuery
     {
-        return new ReportQuery($period, $now, Family::Message);
+        return new ReportQuery($period, $now, Family::Message, metrics: [Metric::MESSAGE_FAILED]);
     }
 
     public function finding(Report $report, array $totals, Period $period): Finding

@@ -379,6 +379,35 @@ final class ReadCostTest extends KernelTestCase
         static::assertCount(7, $recorder->statements);
     }
 
+    public function testTheRestrictedReadsNameTheCulpritAndTheTotalOfRequests(): void
+    {
+        [$connection] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $startedAt = (float) (self::NOW - 30);
+        $units = [
+            ...self::units(),
+            new Entry(Entry::TYPE_REQUEST, 'GET app_boom', $startedAt, 10.0, ['status' => 500], [
+                new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $startedAt, 0.0, ['n' => 1]),
+                new Entry(Entry::TYPE_USER, 'admin', $startedAt, 0.0, ['n' => 1]),
+            ]),
+            new Entry(Entry::TYPE_REQUEST, 'GET app_slow', $startedAt, 1500.0, ['status' => 200], [new Entry(Entry::TYPE_USER, 'editor', $startedAt, 0.0, ['n' => 1])]),
+            new Entry(Entry::TYPE_REQUEST, 'GET app_anonymous', $startedAt, 10.0, ['status' => 200]),
+        ];
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($units), self::NOW, self::LABELS);
+        $reader = new DbalReader($connection);
+        $sentences = static fn(?CheckList $checks): array => array_map(static fn(CheckLine $line): string => $line->id . ': ' . $line->sentence, $checks->lines ?? []);
+
+        $exceptions = self::screen('exceptions')->build($reader, Period::OneHour, self::NOW, 'count', 'desc');
+        $users = self::screen('users')->build($reader, Period::OneHour, self::NOW, 'requests', 'desc');
+
+        static::assertSame(['requests.server_errors: GET app_boom answered with a 5xx status once.'], $sentences($exceptions->checks));
+        static::assertSame(
+            ['requests.server_errors: GET app_boom answered with a 5xx status once.', 'requests.slow: GET app_slow took 1.0 s or more once, 1.5 s at worst.'],
+            $sentences($users->checks),
+        );
+        static::assertSame('2 signed-in users made 3 of the 4 requests in the last hour.', $users->lead?->sentence);
+        static::assertSame('The other request came from a visitor who was not signed in.', $users->tables[0]->footnote);
+    }
+
     private static function screen(string $id): StorageScreenInterface
     {
         $registry = static::getContainer()->get(ScreenRegistry::class);

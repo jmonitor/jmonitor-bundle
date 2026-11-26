@@ -36,7 +36,7 @@ final class FailedMessagesCheckTest extends TestCase
 
     public function testItReadsEveryMessageClass(): void
     {
-        static::assertEquals(new ReportQuery(Period::SixHours, self::NOW, Family::Message), (new FailedMessagesCheck())->query(Period::SixHours, self::NOW));
+        static::assertEquals(new ReportQuery(Period::SixHours, self::NOW, Family::Message, metrics: [Metric::MESSAGE_FAILED]), (new FailedMessagesCheck())->query(Period::SixHours, self::NOW));
     }
 
     /**

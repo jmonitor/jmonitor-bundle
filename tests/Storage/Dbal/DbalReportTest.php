@@ -387,6 +387,105 @@ final class DbalReportTest extends TestCase
         static::assertSame($at, $tasks->rows[0]->max(Metric::TASK_LAST_RUN));
     }
 
+    #[DataProvider('connections')]
+    public function testARestrictedReadOnlyGivesTheAskedTypesAndTheKeysThatHaveThem(Connection $connection): void
+    {
+        $this->seed($connection, [
+            $this->aggregate(Metric::REQUEST_DURATION, 'GET app_error', 3, 30.0, 20.0),
+            $this->aggregate(Metric::REQUEST_STATUS_PREFIX . '5xx', 'GET app_error', 2, 0.0, 0.0),
+            $this->aggregate(Metric::REQUEST_STATUS_PREFIX . '5xx', 'GET app_error', 1, 0.0, 0.0, 600),
+            $this->aggregate(Metric::REQUEST_DURATION_LE_PREFIX . '50', 'GET app_error', 3, 0.0, 0.0),
+            $this->aggregate(Metric::REQUEST_DURATION, 'GET app_slow', 1, 900.0, 900.0),
+            $this->aggregate(Metric::REQUEST_SLOW, 'GET app_slow', 1, 0.0, 0.0),
+            $this->aggregate(Metric::REQUEST_DURATION, 'GET app_calm', 5, 50.0, 10.0),
+            $this->aggregate(Metric::REQUEST_STATUS_PREFIX . '2xx', 'GET app_calm', 5, 0.0, 0.0),
+            $this->aggregate(Metric::REQUEST_DURATION, Aggregator::OTHER, 7, 70.0, 10.0),
+            $this->aggregate(Metric::QUERY_SLOW, 'q1', 4, 0.0, 0.0),
+        ]);
+        $reader = new DbalReader($connection);
+
+        $report = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Request, metrics: [Metric::REQUEST_STATUS_PREFIX . '5xx', Metric::REQUEST_SLOW]));
+
+        $rows = $this->indexByKey($report->rows);
+        static::assertSame(['GET app_error', 'GET app_slow'], array_keys($rows));
+        static::assertSame(2, $report->keyCount);
+        static::assertNull($report->other);
+        static::assertSame([Metric::REQUEST_STATUS_PREFIX . '5xx'], array_keys($rows['GET app_error']->metrics));
+        static::assertEquals(new MetricValue(3, 0.0, 0.0), $rows['GET app_error']->metrics[Metric::REQUEST_STATUS_PREFIX . '5xx']);
+        static::assertSame([Metric::REQUEST_SLOW], array_keys($rows['GET app_slow']->metrics));
+        static::assertSame('GET app_error', $rows['GET app_error']->label);
+        static::assertEqualsCanonicalizing([Metric::REQUEST_STATUS_PREFIX . '5xx', Metric::REQUEST_SLOW], array_keys($report->totals));
+        static::assertEquals(new MetricValue(3, 0.0, 0.0), $report->totals[Metric::REQUEST_STATUS_PREFIX . '5xx']);
+        static::assertEquals(new MetricValue(1, 0.0, 0.0), $report->totals[Metric::REQUEST_SLOW]);
+
+        $withDuration = $reader->read(new ReportQuery(Period::OneHour, self::NOW, Family::Request, metrics: [Metric::REQUEST_STATUS_PREFIX . '5xx', Metric::REQUEST_SLOW, Metric::REQUEST_DURATION]));
+
+        static::assertSame(['GET app_calm', 'GET app_error', 'GET app_slow'], array_keys($this->indexByKey($withDuration->rows)));
+        static::assertSame(3, $withDuration->keyCount);
+        static::assertSame([Metric::REQUEST_DURATION], array_keys((array) $withDuration->other?->metrics));
+        static::assertEquals(new MetricValue(16, 1050.0, 900.0), $withDuration->totals[Metric::REQUEST_DURATION]);
+        static::assertEqualsCanonicalizing([Metric::REQUEST_DURATION, Metric::REQUEST_STATUS_PREFIX . '5xx'], array_keys($this->indexByKey($withDuration->rows)['GET app_error']->metrics));
+    }
+
+    #[DataProvider('connections')]
+    public function testTheOtherRowOfARestrictedReadExistsWhenItHasAnAskedType(Connection $connection): void
+    {
+        $this->seed($connection, [
+            $this->aggregate(Metric::COMMAND_DURATION, 'app:work', 2, 20.0, 10.0),
+            $this->aggregate(Metric::COMMAND_DURATION, Aggregator::OTHER, 4, 40.0, 10.0),
+            $this->aggregate(Metric::COMMAND_FAILED, Aggregator::OTHER, 3, 0.0, 0.0),
+        ]);
+
+        $report = (new DbalReader($connection))->read(new ReportQuery(Period::OneHour, self::NOW, Family::Command, metrics: [Metric::COMMAND_FAILED]));
+
+        static::assertSame([], $report->rows);
+        static::assertSame(0, $report->keyCount);
+        static::assertSame(Aggregator::OTHER, $report->other?->key);
+        static::assertSame([Metric::COMMAND_FAILED => 3], array_map(static fn(MetricValue $value): int => $value->count, $report->other->metrics));
+        static::assertEquals([Metric::COMMAND_FAILED => new MetricValue(3, 0.0, 0.0)], $report->totals);
+    }
+
+    #[DataProvider('connections')]
+    public function testARestrictedReadKeepsTheWindowOfThePeriod(Connection $connection): void
+    {
+        $current = Period::OneHour->bucketFor(self::NOW);
+        $this->seed($connection, [
+            $this->aggregate(Metric::TASK_FAILED, 'old', 1, 0.0, 0.0, self::NOW - $current + 3600),
+            $this->aggregate(Metric::TASK_FAILED, 'edge', 2, 0.0, 0.0, self::NOW - $current + 3540),
+        ]);
+
+        $report = (new DbalReader($connection))->read(new ReportQuery(Period::OneHour, self::NOW, Family::Task, metrics: [Metric::TASK_FAILED]));
+
+        static::assertSame(['edge'], array_keys($this->indexByKey($report->rows)));
+        static::assertSame(1, $report->keyCount);
+        static::assertEquals([Metric::TASK_FAILED => new MetricValue(2, 0.0, 0.0)], $report->totals);
+    }
+
+    public function testAnOpenFamilyIsNotReadRestricted(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new ReportQuery(Period::OneHour, self::NOW, Family::Query, Metric::QUERY_DURATION, metrics: [Metric::QUERY_SLOW]);
+    }
+
+    /**
+     * @return iterable<string, array{Family, string}>
+     */
+    public static function foreignTypes(): iterable
+    {
+        yield 'a type of another family' => [Family::Request, Metric::QUERY_SLOW];
+        yield 'a type of a family that starts the same' => [Family::Exception, Metric::EXCEPTION_WHERE_COUNT];
+        yield 'a type of no family' => [Family::Request, 'requests.slow'];
+    }
+
+    #[DataProvider('foreignTypes')]
+    public function testARestrictedReadOnlyTakesTypesOfItsFamily(Family $family, string $type): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new ReportQuery(Period::OneHour, self::NOW, $family, metrics: [$type]);
+    }
+
     public function testAnOpenFamilyNeedsASortMetric(): void
     {
         $this->expectException(\InvalidArgumentException::class);

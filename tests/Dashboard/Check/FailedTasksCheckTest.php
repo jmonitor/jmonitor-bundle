@@ -37,7 +37,7 @@ final class FailedTasksCheckTest extends TestCase
 
     public function testItReadsEveryTask(): void
     {
-        static::assertEquals(new ReportQuery(Period::SevenDays, self::NOW, Family::Task), (new FailedTasksCheck())->query(Period::SevenDays, self::NOW));
+        static::assertEquals(new ReportQuery(Period::SevenDays, self::NOW, Family::Task, metrics: [Metric::TASK_FAILED]), (new FailedTasksCheck())->query(Period::SevenDays, self::NOW));
     }
 
     /**

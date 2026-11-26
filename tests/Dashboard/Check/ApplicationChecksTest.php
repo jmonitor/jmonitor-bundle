@@ -220,7 +220,7 @@ final class ApplicationChecksTest extends TestCase
         $findings = $checks->findings($reader, Period::OneHour, self::NOW, $raised, array_values(self::RAISED_BY));
 
         static::assertSame(['requests.server_errors'], array_map(static fn(Finding $finding): string => $finding->id, $findings));
-        static::assertEquals([new ReportQuery(Period::OneHour, self::NOW, Family::Request)], $reader->queries);
+        static::assertEquals([(new ServerErrorsCheck())->query(Period::OneHour, self::NOW)], $reader->queries);
     }
 
     public function testAKnownReportIsNotReadAgain(): void
