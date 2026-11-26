@@ -683,6 +683,19 @@ final class StylesheetTest extends TestCase
         static::assertSame([], array_filter(self::declarationsOf('.jm-runs__figures', null), static fn(array $declaration): bool => \in_array($declaration[0], ['white-space', 'text-overflow', 'overflow'], true)));
     }
 
+    public function testTheWordPeriodShowsOnlyFrom1500Pixels(): void
+    {
+        $hidden = [];
+        foreach (self::rules() as $rule) {
+            if (\in_array('.jm-period__label', $rule['selectors'], true) && \in_array('display', array_column($rule['declarations'], 0), true)) {
+                $hidden[] = $rule['at'];
+            }
+        }
+
+        static::assertSame(['@media (max-width: 1499px)'], $hidden);
+        static::assertSame([['display', 'none']], self::declarationsOf('.jm-period__label', '@media (max-width: 1499px)'));
+    }
+
     public function testTheRunsOnLinesSitOnTheSurfaceOfACardOfTheStackScreen(): void
     {
         static::assertContains(['background', 'linear-gradient(var(--jm-surface), var(--jm-surface)), var(--jm-bg)'], self::declarationsOf('.jm-runs__list', null));
