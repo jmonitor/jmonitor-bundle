@@ -191,7 +191,7 @@ final class EasyAdminProofsTest extends WebTestCase
 
         $crawler = $client->request('GET', '/jmonitor/');
         static::assertResponseIsSuccessful();
-        static::assertSame('JMonitor — Requests', $crawler->filter('title')->text());
+        static::assertSame('JMonitor — Overview', $crawler->filter('title')->text());
         static::assertCount(1, $crawler->filter('.jm .jm-brand'));
     }
 

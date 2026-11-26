@@ -37,10 +37,13 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\Map;
 use Jmonitor\JmonitorBundle\Dashboard\View\MapBox;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
+use Jmonitor\JmonitorBundle\Dashboard\View\Place;
+use Jmonitor\JmonitorBundle\Dashboard\View\Places;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
 use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
@@ -209,8 +212,8 @@ final class OverviewScreenTest extends TestCase
         ];
         yield 'one request, one server error' => [[self::route('GET app_a', 1, errors: 1)], [self::SERVER_ERRORS => self::counted(1)], [], '1 server error in 1 request. 1 thing is worth a look.', $look];
         yield 'more server errors than requests read' => [[self::route('GET app_a', 1, errors: 1)], [self::SERVER_ERRORS => self::counted(2)], [], '2 server errors in 2 requests. 1 thing is worth a look.', $look];
-        yield 'no request' => [[], [], [], 'No request in the last hour. Nothing is worth a look.', $fine];
-        yield 'no request, the lines of the stack' => [[], [], [self::stackLine('php.opcache', 'info'), self::stackLine('php.memory', 'warn')], 'No request in the last hour. 2 things are worth a look.', $look];
+        yield 'no request' => [[], [Metric::EXCEPTION_COUNT => self::counted(1)], [], 'No request in the last hour. Nothing is worth a look.', $fine];
+        yield 'no request, the lines of the stack' => [[], [Metric::EXCEPTION_COUNT => self::counted(1)], [self::stackLine('php.opcache', 'info'), self::stackLine('php.memory', 'warn')], 'No request in the last hour. 2 things are worth a look.', $look];
         yield 'a line of the stack only' => [[self::route('GET app_a', 2)], [], [self::stackLine('php.opcache', 'info')], 'Your application answers normally. 1 thing is worth a look.', $look];
     }
 
@@ -232,7 +235,7 @@ final class OverviewScreenTest extends TestCase
 
     public function testTheLeadNamesThePeriod(): void
     {
-        $view = $this->view($this->reader([]), Period::SevenDays);
+        $view = $this->view($this->reader([], [Metric::EXCEPTION_COUNT => self::counted(1)]), Period::SevenDays);
 
         static::assertSame('No request in the last 7 days. Nothing is worth a look.', $view->lead?->sentence);
         static::assertSame('Last 7 days. Follow any box to its detail.', $view->lead?->detail);
@@ -309,14 +312,14 @@ final class OverviewScreenTest extends TestCase
 
     public function testNothingCheckedLeavesNeitherFootnoteNorText(): void
     {
-        $checks = $this->view($this->reader([]), withStack: false)->checks;
+        $checks = $this->view($this->reader([], [Metric::EXCEPTION_COUNT => self::counted(1)]), withStack: false)->checks;
 
         static::assertNotNull($checks);
         static::assertSame([], $checks->lines);
         static::assertSame('', $checks->emptyText);
         static::assertSame('', $checks->footnote);
 
-        $checks = $this->view($this->reader([]), stack: new StackGlance(lines: [self::stackLine('php.opcache', 'info')]))->checks;
+        $checks = $this->view($this->reader([], [Metric::EXCEPTION_COUNT => self::counted(1)]), stack: new StackGlance(lines: [self::stackLine('php.opcache', 'info')]))->checks;
 
         static::assertSame('', $checks?->footnote);
     }
@@ -647,12 +650,93 @@ final class OverviewScreenTest extends TestCase
         static::assertNull($this->screen()->view(null, null, Period::OneHour)->map);
     }
 
+    public function testNothingInThePeriodShowsEveryBoxPendingAndThePlaces(): void
+    {
+        $stack = new StackGlance([self::card('php', 'ok')]);
+
+        $view = $this->view($this->reader([]), stack: $stack, screen: $this->screen(declared: 2));
+
+        static::assertEquals(new Lead('JMonitor is installed and recording.', 'Nothing was recorded in the last hour. The figures fill in as your application receives requests. Your servers are already read.'), $view->lead);
+        static::assertSame(['Requests', 'Messages', 'Scheduled tasks', 'Commands', 'An average request', 'Exceptions', 'Signed-in users', 'SQL queries', 'Cache', 'Other sites and APIs'], self::labels($view));
+        static::assertSame([], array_values(array_filter(self::boxesOf($view), static fn(MapBox $box): bool => $box->value !== null || $box->tags !== [] || $box->tone !== null)));
+        static::assertSame('2 tasks declared, none ran in the last hour.', self::box($view, 'Scheduled tasks')?->text);
+        static::assertNull($view->map?->split);
+        static::assertSame($stack, $view->map?->runsOn);
+        static::assertSame([], $view->tables);
+        static::assertNull($view->guide);
+        static::assertEquals(self::places(), $view->places);
+        static::assertSame([], self::lines($view));
+        static::assertSame('1 of 1 stack component healthy in the last hour.', $view->checks?->emptyText);
+        static::assertNotNull($view->raised);
+    }
+
+    public function testTheEmptyDetailOnlyNamesTheServersWhenTheyAreRead(): void
+    {
+        $detail = fn(?StackGlance $stack, bool $withStack = true): ?string => $this->view($this->reader([]), Period::SixHours, $stack, $withStack)->lead?->detail;
+        $nothing = 'Nothing was recorded in the last 6 hours. The figures fill in as your application receives requests.';
+
+        static::assertSame($nothing . ' Your servers are already read.', $detail(new StackGlance([self::card('php', 'warn')])));
+        static::assertSame($nothing, $detail(new StackGlance()));
+        static::assertSame($nothing, $detail(new StackGlance(lines: [self::stackLine('php.memory', 'warn')])));
+        static::assertSame($nothing, $detail(new StackGlance(notice: new Notice('bad', 'The live stack could not be read'))));
+        static::assertSame($nothing, $detail(null, false));
+    }
+
+    public function testNothingInThePeriodOnlyShowsWorthALookWithWhatTheStackBrings(): void
+    {
+        $empty = $this->reader([]);
+
+        static::assertNull($this->view($empty, stack: new StackGlance())->checks);
+        static::assertNull($this->view($empty, stack: new StackGlance(notice: new Notice('bad', 'The live stack could not be read')))->checks);
+        static::assertNull($this->view($empty, withStack: false)->checks);
+        static::assertSame(['php.memory'], array_map(static fn(CheckLine $line): string => $line->id, self::lines($this->view($empty, stack: new StackGlance(lines: [self::stackLine('php.memory', 'warn')])))));
+        static::assertSame('Worth a look', $this->view($empty, stack: new StackGlance([self::card('php', 'ok')]))->checks?->title);
+    }
+
+    public function testWithoutReadTheMapOnlyKeepsRunsOn(): void
+    {
+        $stack = new StackGlance([self::card('php', 'ok')], [self::stackLine('php.memory', 'warn')]);
+
+        $view = $this->screen()->view(null, $stack, Period::OneHour);
+
+        static::assertEquals(new Map(runsOn: $stack), $view->map);
+        static::assertSame([], self::labels($view));
+        static::assertNull($view->lead);
+        static::assertNull($view->guide);
+        static::assertEquals(self::places(), $view->places);
+
+        $view = $this->screen(withStack: false)->view(null, null, Period::OneHour);
+
+        static::assertNull($view->map);
+        static::assertNull($view->checks);
+        static::assertEquals(self::places(), $view->places);
+    }
+
+    public function testAPageWithDataNeitherSaysItIsRecordingNorShowsThePlaces(): void
+    {
+        $view = $this->view($this->reader([], [Metric::COMMAND_DURATION => self::counted(1)]), stack: new StackGlance([self::card('php', 'ok')]));
+
+        static::assertSame('No request in the last hour. Nothing is worth a look.', $view->lead?->sentence);
+        static::assertNull($view->places);
+        static::assertNotNull($view->guide);
+    }
+
     public function testTheViewHandsItsRaisedChecksOn(): void
     {
         $screen = $this->screen();
         $read = $screen->read($this->reader([self::route('GET app_a')], [self::SERVER_ERRORS => self::counted(1)]), Period::OneHour, self::NOW);
 
         static::assertSame($read->raised, $screen->view($read, null, Period::OneHour)->raised);
+    }
+
+    private static function places(): Places
+    {
+        return new Places([
+            new Place('Overview', '', 'This page. What needs a look comes first.', 'Is everything fine?'),
+            new Place('Application', 'requests', 'Requests, SQL queries, cache, outgoing HTTP, exceptions, users.', 'What is slow, and why?'),
+            new Place('Background', 'background', 'Messenger messages, scheduled tasks and console commands.', 'Did the work behind the scenes run?'),
+            new Place('Stack', 'stack', 'The server, PHP, Symfony, the web server, the databases and Redis.', 'Are the servers healthy right now?'),
+        ]);
     }
 
     private static function checks(): ApplicationChecks

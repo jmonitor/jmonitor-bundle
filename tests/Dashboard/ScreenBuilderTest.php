@@ -364,14 +364,6 @@ final class ScreenBuilderTest extends TestCase
         static::assertTrue($this->builder(null)->create(new StubBlockScreen(blocks: [$cards, Block::unavailable(Block::TABLE, BlockState::Reading)]), null, null, null)->isReading());
     }
 
-    public function testStorageIsUsableWithAReaderAndRecordingOn(): void
-    {
-        static::assertTrue($this->builder($this->reader(), true)->storageUsable());
-        static::assertFalse($this->builder($this->reader(), false)->storageUsable());
-        static::assertFalse($this->builder(null, true)->storageUsable());
-        static::assertFalse($this->builder(null, false)->storageUsable());
-    }
-
     public function testAComposedScreenShowsEachAvailableSectionInOrder(): void
     {
         $first = $this->section('first', rows: 2);
@@ -1175,7 +1167,7 @@ final class ScreenBuilderTest extends TestCase
 
         $page = (new ScreenBuilder($reader, true, new MockClock('@1800000000'), logger: $logger))->create(self::overview($glance), null, null, null);
 
-        static::assertSame(['table storage_error', 'checks ready', 'map ready'], self::shape($page));
+        static::assertSame(['table storage_error', 'checks ready', 'map ready', 'places ready'], self::shape($page));
         static::assertSame(1, $glance->calls);
         static::assertNull($page->raised);
         $checks = $page->blocks[1]->content;
@@ -1188,9 +1180,9 @@ final class ScreenBuilderTest extends TestCase
     {
         $glance = new FixedGlance(new StackGlance([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'))]));
 
-        static::assertSame(['table no_connection', 'map ready'], self::shape($this->builder(null)->create(self::overview($glance), null, null, null)));
-        static::assertSame(['table storage_error', 'map ready'], self::shape($this->builder()->create(self::overview($glance), null, null, null, true)));
-        static::assertSame(['table storage_error'], self::shape($this->builder()->create(self::overview(null), null, null, null, true)));
+        static::assertSame(['table no_connection', 'map ready', 'places ready'], self::shape($this->builder(null)->create(self::overview($glance), null, null, null)));
+        static::assertSame(['table storage_error', 'map ready', 'places ready'], self::shape($this->builder()->create(self::overview($glance), null, null, null, true)));
+        static::assertSame(['table storage_error', 'places ready'], self::shape($this->builder()->create(self::overview(null), null, null, null, true)));
     }
 
     public function testAStackThatThrowsKeepsTheApplicationOfTheOverview(): void
@@ -1238,6 +1230,90 @@ final class ScreenBuilderTest extends TestCase
         static::assertNotNull($page->raised);
         static::assertTrue($page->raised->has('requests.server_errors'));
         static::assertCount(1, $reader->totalRequests);
+    }
+
+    public function testWithoutConnectionTheOverviewSaysItOnceThenShowsTheStack(): void
+    {
+        $this->assertTheOverviewTellsItsCauseOnce($this->builder(null), false, 'no_connection');
+    }
+
+    public function testAFailedFlushIsToldOnceOnTheOverviewThenTheStack(): void
+    {
+        $this->assertTheOverviewTellsItsCauseOnce($this->builder(), true, 'storage_error');
+    }
+
+    public function testAReadThatThrowsIsToldOnceOnTheOverviewThenTheStack(): void
+    {
+        $this->assertTheOverviewTellsItsCauseOnce($this->builder(new FixedReader(static fn(): Report => throw new \RuntimeException('Storage is down'))), false, 'storage_error');
+    }
+
+    public function testRecordingOffWithoutDataIsToldOnceOnTheOverviewThenTheStack(): void
+    {
+        $this->assertTheOverviewTellsItsCauseOnce($this->builder(recordingEnabled: false), false, 'recording_disabled');
+    }
+
+    public function testAnUnusableBufferDirectoryWithoutDataIsToldOnceOnTheOverviewThenTheStack(): void
+    {
+        $file = $this->path();
+        touch($file);
+
+        $this->assertTheOverviewTellsItsCauseOnce($this->builder(bufferDirectory: new BufferDirectory($file, 'test')), false, 'buffer_unavailable');
+    }
+
+    public function testRecordingOffWithDataInThePeriodShowsTheOverview(): void
+    {
+        $file = $this->path();
+        touch($file);
+        $report = new Report([self::requestRow()], null, 1, array_fill(0, 60, 0), self::requestRow()->metrics);
+        $glance = new FixedGlance(new StackGlance([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'))]));
+
+        foreach ([
+            'recording off' => $this->builder(new FixedReader($report), false),
+            'buffer directory unusable' => $this->builder(new FixedReader($report), bufferDirectory: new BufferDirectory($file, 'test')),
+        ] as $case => $builder) {
+            $page = $builder->create(self::overview($glance), null, null, null);
+
+            static::assertSame(['lead ready', 'checks ready', 'map ready', 'table ready', 'guide ready'], self::shape($page), $case);
+            static::assertSame('ready', $page->state(), $case);
+        }
+    }
+
+    public function testWithoutStackACauseLeavesTheStateAndThePlaces(): void
+    {
+        static::assertSame(['table no_connection', 'places ready'], self::shape($this->builder(null)->create(self::overview(null), null, null, null)));
+        static::assertSame(['table recording_disabled', 'places ready'], self::shape($this->builder(recordingEnabled: false)->create(self::overview(null), null, null, null)));
+        static::assertSame(['table storage_error', 'places ready'], self::shape($this->builder(new FixedReader(static fn(): Report => throw new \RuntimeException('Storage is down')))->create(self::overview(null), null, null, null)));
+    }
+
+    public function testNothingInThePeriodWithoutCauseShowsTheFirstRunOfTheOverview(): void
+    {
+        $glance = new FixedGlance(new StackGlance([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'))]));
+
+        $page = $this->builder()->create(self::overview($glance), null, null, null);
+
+        static::assertSame(['lead ready', 'checks ready', 'map ready', 'places ready'], self::shape($page));
+        static::assertNotNull($page->raised);
+        static::assertSame(['lead ready', 'map ready', 'places ready'], self::shape($this->builder()->create(self::overview(null), null, null, null)));
+    }
+
+    private function assertTheOverviewTellsItsCauseOnce(ScreenBuilder $builder, bool $storageFailed, string $state): void
+    {
+        $line = new CheckLine('php.memory', new Mark('warn', 'Warning'), 'Memory is nearly full.', 'Why.', 'Stack · PHP', 'stack/php');
+        $stack = new StackGlance([new ComponentCard('php', 'PHP', new Mark('warn', 'Warning'))], [$line]);
+        $glance = new FixedGlance($stack);
+
+        $page = $builder->create(self::overview($glance), null, null, null, $storageFailed);
+
+        static::assertSame(['table ' . $state, 'checks ready', 'map ready', 'places ready'], self::shape($page));
+        static::assertSame(1, $glance->calls);
+        $checks = $page->blocks[1]->content;
+        static::assertInstanceOf(CheckList::class, $checks);
+        static::assertSame([$line], $checks->lines);
+        static::assertSame('Worth a look', $checks->title);
+        static::assertEquals(new Map(runsOn: $stack), $page->blocks[2]->content);
+        $places = $page->blocks[3]->content;
+        static::assertInstanceOf(Places::class, $places);
+        static::assertSame(['Overview', 'Application', 'Background', 'Stack'], array_map(static fn(Place $place): string => $place->label, $places->places));
     }
 
     private static function overview(?FixedGlance $glance): OverviewScreen

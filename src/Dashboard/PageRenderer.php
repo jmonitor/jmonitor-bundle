@@ -135,9 +135,9 @@ final class PageRenderer
     private function resolve(string $path): array
     {
         if ($path === '') {
-            $screen = $this->screens->default($this->builder->storageUsable());
+            $screen = $this->screens->default();
 
-            return [$screen, $screen, $screen->id()];
+            return [$screen, $screen, ''];
         }
 
         $segments = explode('/', $path);
@@ -213,10 +213,11 @@ final class PageRenderer
     private function entries(array $spaces, ScreenInterface $root): array
     {
         $entries = [];
+        $default = $this->screens->default();
 
         foreach ($spaces as $value => $screens) {
             $space = Space::from($value);
-            $entries[] = ['id' => $value, 'label' => $space->label(), 'path' => $screens[0]->id(), 'current' => $space === $root->space()];
+            $entries[] = ['id' => $value, 'label' => $space->label(), 'path' => $screens[0] === $default ? '' : $screens[0]->id(), 'current' => $space === $root->space()];
         }
 
         return $entries;

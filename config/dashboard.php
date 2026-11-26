@@ -174,7 +174,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             ],
             service(StackGlanceInterface::class)->nullOnInvalid(),
         ])
-        ->tag('jmonitor.screen', ['priority' => 95]);
+        ->tag('jmonitor.screen', ['priority' => 110]);
 
     $services->set(QueriesScreen::class)
         ->args([

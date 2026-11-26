@@ -111,14 +111,28 @@ final class EasyAdminPageTest extends WebTestCase
         }
     }
 
-    public function testTheEmptyPathIsTheDefaultScreen(): void
+    public function testTheEmptyPathOpensTheOverviewAndItsLinksStayUnderIt(): void
     {
         $client = $this->client();
 
         $crawler = $client->request('GET', '/admin/jmonitor');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('Requests', $crawler->filter('.jm .jm-subnav__item[aria-current="page"]')->text());
+        $jmonitor = $crawler->filter('.jm');
+        static::assertSame('Overview', $jmonitor->filter('.jm-nav__item[aria-current="page"]')->text());
+        static::assertSame('/admin/jmonitor?period=1h', $jmonitor->filter('.jm-nav__item[aria-current="page"]')->attr('href'));
+        static::assertSame('/admin/jmonitor?period=24h', $jmonitor->filter('.jm-segmented__item')->eq(2)->attr('href'));
+        static::assertSame('/admin/jmonitor/_fragment', $jmonitor->filter('[data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+        static::assertSame('/admin/jmonitor?period=1h', $jmonitor->filter('.jm-place__label')->first()->attr('href'));
+        static::assertCount(1, $jmonitor->filter('.jm-map'));
+        foreach (self::urlsOf($jmonitor) as $url) {
+            static::assertStringStartsWith('/admin/jmonitor', $url);
+        }
+
+        $client->request('GET', '/admin/jmonitor/_fragment');
+
+        static::assertResponseIsSuccessful();
+        static::assertStringContainsString('jm-places', (string) $client->getResponse()->getContent());
     }
 
     public function testThePageSitsInTheFrameOfEasyAdmin(): void

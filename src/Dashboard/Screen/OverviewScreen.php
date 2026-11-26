@@ -24,6 +24,8 @@ use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\Map;
 use Jmonitor\JmonitorBundle\Dashboard\View\MapBox;
+use Jmonitor\JmonitorBundle\Dashboard\View\Place;
+use Jmonitor\JmonitorBundle\Dashboard\View\Places;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
@@ -165,6 +167,7 @@ final class OverviewScreen implements RecordedScreenInterface
             return new ScreenView(
                 checks: $lines === [] ? null : new CheckList($lines, 'Nothing to flag', '', 'Worth a look'),
                 map: $stack === null ? null : new Map(runsOn: $stack),
+                places: self::places(),
             );
         }
 
@@ -191,25 +194,27 @@ final class OverviewScreen implements RecordedScreenInterface
                 array_push($checked, ...$this->checks->passed($read->raised, $ids));
             }
         }
-        if ($stack !== null && $stack->cards !== []) {
+        $servers = $stack !== null && $stack->cards !== [];
+        if ($servers) {
             $checked[] = self::healthy($stack->cards);
         }
 
         $lines = self::ordered($this->checks->lines($read->findings, $this->id(), $period), $stack->lines ?? []);
         $requests = $read->count(Metric::REQUEST_DURATION);
+        $empty = $read->isEmpty();
 
         return new ScreenView(
             [],
             self::routes($read),
-            self::lead($read, \count($lines), $period, $periodText),
-            new CheckList(
+            $empty ? self::firstRun($servers, $periodText) : self::lead($read, \count($lines), $period, $periodText),
+            $empty && $lines === [] && !$servers ? null : new CheckList(
                 $lines,
                 'Nothing to flag',
                 $checked === [] || $lines !== [] ? '' : ucfirst(implode(', ', $checked)) . ' in the ' . $periodText . '.',
                 'Worth a look',
                 $checked === [] || $lines === [] ? '' : 'Checked and fine: ' . implode(', ', $checked) . '.',
             ),
-            self::guide($stack !== null),
+            $empty ? null : self::guide($stack !== null),
             $read->raised,
             map: new Map(
                 array_map(static fn(array $box): MapBox => $box[0], $incoming),
@@ -219,6 +224,7 @@ final class OverviewScreen implements RecordedScreenInterface
                 $stack,
                 array_map(static fn(array $box): MapBox => $box[0], $outgoing),
             ),
+            places: $empty ? self::places() : null,
         );
     }
 
@@ -282,6 +288,24 @@ final class OverviewScreen implements RecordedScreenInterface
             $first . ' ' . $second,
             Format::period($period) . ($lines === 0 ? '. Follow any box to its detail.' : '. Start with the list below, then follow any box to its detail.'),
         );
+    }
+
+    private static function firstRun(bool $servers, string $periodText): Lead
+    {
+        return new Lead(
+            'JMonitor is installed and recording.',
+            'Nothing was recorded in the ' . $periodText . '. The figures fill in as your application receives requests.' . ($servers ? ' Your servers are already read.' : ''),
+        );
+    }
+
+    private static function places(): Places
+    {
+        return new Places([
+            new Place('Overview', '', 'This page. What needs a look comes first.', 'Is everything fine?'),
+            new Place('Application', 'requests', 'Requests, SQL queries, cache, outgoing HTTP, exceptions, users.', 'What is slow, and why?'),
+            new Place('Background', 'background', 'Messenger messages, scheduled tasks and console commands.', 'Did the work behind the scenes run?'),
+            new Place('Stack', 'stack', 'The server, PHP, Symfony, the web server, the databases and Redis.', 'Are the servers healthy right now?'),
+        ]);
     }
 
     /** @return list<Table> */

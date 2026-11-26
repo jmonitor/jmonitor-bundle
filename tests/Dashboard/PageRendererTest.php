@@ -21,6 +21,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
@@ -29,6 +30,7 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
@@ -129,7 +131,7 @@ final class PageRendererTest extends TestCase
         $html = $this->renderer()->page($request, 'stub', new FakeHostUrls())->html;
         $crawler = new Crawler($html);
 
-        static::assertSame('/host/page/stub?menu=3&period=6h', $crawler->filter('.jm-nav__item')->attr('href'));
+        static::assertSame('/host/page/?menu=3&period=6h', $crawler->filter('.jm-nav__item')->attr('href'));
         static::assertSame('/host/page/stub?menu=3&period=6h&sort=name&dir=desc', $crawler->filter('th.is-sorted a.jm-sort')->attr('href'));
         static::assertSame('/host/page/stub?menu=3&period=24h&sort=name&dir=asc', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
         static::assertStringContainsString('data-jm-fragment-url="/host/fragment/stub?menu=3"', $html);
@@ -202,11 +204,71 @@ final class PageRendererTest extends TestCase
         static::assertSame('Stub', (new Crawler($content->html))->filter('.jm-subnav__item[aria-current="page"]')->text());
     }
 
-    public function testWithoutUsableStorageTheEmptyPathIsTheFirstBlockScreen(): void
+    public function testTheEmptyPathIsTheDefaultScreenWhateverTheStorage(): void
     {
-        $content = $this->renderer([new StubScreen(), new StubBlockScreen()], reader: null)->page(Request::create('/'), '', new FakeHostUrls());
+        foreach ([
+            'no connection' => $this->renderer([new StubScreen(), new StubBlockScreen()], reader: null),
+            'recording off' => $this->renderer([new StubScreen(), new StubBlockScreen()], recording: false),
+        ] as $case => $renderer) {
+            static::assertSame('JMonitor — Stub', $renderer->page(Request::create('/'), '', new FakeHostUrls())->title, $case);
+        }
+    }
 
-        static::assertSame('JMonitor — Probe', $content->title);
+    public function testTheEmptyPathOpensTheOverviewAndKeepsItsLinksOnIt(): void
+    {
+        $renderer = $this->renderer([self::overview(), self::tableScreen('requests'), new StubBlockScreen('stack', space: Space::Stack)]);
+        $request = Request::create('/', parameters: ['period' => '6h']);
+        $hrefs = static fn(Crawler $links): array => $links->each(static fn(Crawler $link): string => (string) $link->attr('href'));
+        $places = ['/host/page/?menu=3&period=6h', '/host/page/requests?menu=3&period=6h', '/host/page/stack?menu=3&period=6h'];
+
+        $content = $renderer->page($request, '', new FakeHostUrls(), true);
+        $crawler = new Crawler($content->html);
+
+        static::assertSame('JMonitor — Overview', $content->title);
+        static::assertSame('/host/page/?menu=3&period=24h', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
+        static::assertSame('/host/fragment/?menu=3', $crawler->filter('[data-jm-fragment-url]')->attr('data-jm-fragment-url'));
+        static::assertSame(['/host/page/?menu=3&period=6h', '/host/page/requests?menu=3&period=6h', '/host/page/stack?menu=3&period=6h'], $hrefs($crawler->filter('.jm-nav__item')));
+        static::assertSame('/host/page/?menu=3', $crawler->filter('a.jm-brand')->attr('href'));
+        static::assertSame(['Overview', 'Application', 'Stack'], $crawler->filter('.jm-place__label')->each(static fn(Crawler $link): string => $link->text()));
+        static::assertSame($places, $hrefs($crawler->filter('.jm-place__label')));
+
+        $fragment = new Crawler((string) $renderer->fragment($request, '', new FakeHostUrls())->getContent());
+
+        static::assertSame($places, $hrefs($fragment->filter('.jm-place__label')));
+        static::assertSame('JMonitor is installed and recording.', $fragment->filter('h1')->text());
+    }
+
+    public function testTheOverviewEntryIsCurrentOnTheEmptyPath(): void
+    {
+        $renderer = $this->renderer([self::overview(), self::tableScreen('requests'), self::tableScreen('queries')]);
+        $nav = static fn(string $path): Crawler => (new Crawler($renderer->page(Request::create('/'), $path, new FakeHostUrls())->html))->filter('.jm-nav__item');
+
+        foreach (['', 'overview'] as $path) {
+            static::assertSame('Overview', $nav($path)->filter('[aria-current="page"]')->text(), $path);
+            static::assertCount(1, $nav($path)->filter('[aria-current]'), $path);
+            static::assertSame('/host/page/?menu=3&period=1h', $nav($path)->first()->attr('href'), $path);
+        }
+
+        static::assertSame('Application', $nav('queries')->filter('[aria-current="page"]')->text());
+        static::assertSame(['/host/page/?menu=3&period=1h', '/host/page/requests?menu=3&period=1h'], $nav('queries')->each(static fn(Crawler $item): string => (string) $item->attr('href')));
+    }
+
+    public function testAFailedReadOfTheOverviewLeavesTheEntriesWithoutBadge(): void
+    {
+        $reader = new FixedReader(static fn(): Report => throw new \RuntimeException('Gone'), totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::MESSAGE_FAILED => new MetricValue(1, 0.0, 0.0)]);
+        $renderer = $this->renderer([self::overview(self::badgedChecks()), self::tableScreen('requests'), new StubScreen('background', view: static fn(): ScreenView => self::tableView(), space: Space::Background)], reader: $reader, checks: self::badgedChecks());
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/'), '', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/'), '', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            static::assertCount(1, (new Crawler($html))->filter('.jm-state'), $kind);
+            static::assertStringNotContainsString('jm-nav__badge', $html, $kind);
+            static::assertStringContainsString('<template data-jm-slot-content="nav-application"></template>', $html, $kind);
+            static::assertStringContainsString('<template data-jm-slot-content="nav-background"></template>', $html, $kind);
+        }
+
+        static::assertCount(2, $reader->totalRequests);
     }
 
     public function testOnlyAStorageScreenFlushesTheBuffer(): void
@@ -252,7 +314,7 @@ final class PageRendererTest extends TestCase
 
         static::assertStringNotContainsString('jm-period', $html);
         static::assertStringContainsString('<p class="jm-heading__text">Stub heading.</p>', $html);
-        static::assertSame('/host/page/stub?menu=3', (new Crawler($html))->filter('.jm-nav__item')->attr('href'));
+        static::assertSame('/host/page/?menu=3', (new Crawler($html))->filter('.jm-nav__item')->attr('href'));
     }
 
     public function testTheFragmentIsTheScreenAloneWithTheHeaders(): void
@@ -824,15 +886,15 @@ final class PageRendererTest extends TestCase
 
     public function testASpaceLeadsToItsFirstAvailableScreenAndKeepsThePeriod(): void
     {
-        $renderer = $this->renderer([new StubScreen('hidden', false), new StubScreen('requests'), new StubScreen('queries'), new StubBlockScreen('stack', space: Space::Stack)]);
+        $renderer = $this->renderer([new StubBlockScreen('home', space: Space::Overview), new StubScreen('hidden', false), new StubScreen('requests'), new StubScreen('queries'), new StubBlockScreen('stack', space: Space::Stack)]);
         $hrefs = static fn(string $html): array => (new Crawler($html))->filter('.jm-nav__item')->each(static fn(Crawler $item): string => (string) $item->attr('href'));
 
         static::assertSame(
-            ['/host/page/requests?menu=3&period=6h', '/host/page/stack?menu=3&period=6h'],
+            ['/host/page/?menu=3&period=6h', '/host/page/requests?menu=3&period=6h', '/host/page/stack?menu=3&period=6h'],
             $hrefs($renderer->page(Request::create('/', parameters: ['period' => '6h', 'sort' => 'name', 'dir' => 'asc']), 'queries', new FakeHostUrls())->html),
         );
         static::assertSame(
-            ['/host/page/requests?menu=3', '/host/page/stack?menu=3'],
+            ['/host/page/?menu=3', '/host/page/requests?menu=3', '/host/page/stack?menu=3'],
             $hrefs($renderer->page(Request::create('/', parameters: ['period' => '6h']), 'stack', new FakeHostUrls())->html),
         );
     }
@@ -1852,6 +1914,11 @@ final class PageRendererTest extends TestCase
     private static function badgedChecks(): ApplicationChecks
     {
         return new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(500), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10), new FailedMessagesCheck()]);
+    }
+
+    private static function overview(?ApplicationChecks $checks = null): OverviewScreen
+    {
+        return new OverviewScreen($checks ?? new ApplicationChecks([]), new DeclaredTasks(), [], []);
     }
 
     private static function tableScreen(string $id): StubScreen

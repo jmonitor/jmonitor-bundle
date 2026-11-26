@@ -77,11 +77,6 @@ final class ScreenBuilder
         return new Page($screen, $blocks, $period, $sort, $direction, $sorts, $instance === null ? [] : [ScreenRequest::INSTANCE => $instance], raised: $raised);
     }
 
-    public function storageUsable(): bool
-    {
-        return $this->reader !== null && $this->recordingEnabled;
-    }
-
     public function raisedChecks(Page $page): ?RaisedChecks
     {
         if ($page->period === null || $this->reader === null || $page->hasState(BlockState::StorageError)) {
@@ -147,6 +142,10 @@ final class ScreenBuilder
                 $this->logger?->error('JMonitor could not read its data: ' . $e->getMessage(), ['exception' => $e]);
                 $cause = BlockState::StorageError;
             }
+
+            if ($read !== null && $read->isEmpty()) {
+                $cause = $this->emptyCause();
+            }
         }
 
         try {
@@ -156,7 +155,7 @@ final class ScreenBuilder
             $stack = null;
         }
 
-        $blocks = $read === null && $stack === null ? [] : self::figures($screen->view($read, $stack, $period));
+        $blocks = self::figures($screen->view($cause === null ? $read : null, $stack, $period));
 
         if ($cause !== null) {
             $blocks = [Block::unavailable(Block::TABLE, $cause), ...$blocks];
@@ -378,7 +377,7 @@ final class ScreenBuilder
 
         if ($view->map !== null) {
             $blocks[] = Block::map($view->map);
-        } elseif ($view->cards !== [] || $view->lead === null) {
+        } elseif ($view->cards !== [] || ($view->lead === null && $view->places === null)) {
             $blocks[] = Block::cards($view->cards);
         }
 

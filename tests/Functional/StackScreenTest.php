@@ -75,9 +75,10 @@ final class StackScreenTest extends WebTestCase
 
     public function testTheOverviewListsTheComponentsOfTheStack(): void
     {
-        $client = $this->client();
+        $client = $this->client(['jmonitor' => ['recording' => ['flush_interval' => 1]]]);
 
-        $crawler = $client->request('GET', '/jmonitor/overview');
+        $client->request('GET', '/hello/world');
+        $crawler = self::requestUntil($client, '/jmonitor/overview', 'tr[data-jm-route="GET app_hello"][data-jm-requests="1"]');
 
         static::assertResponseIsSuccessful();
         static::assertSame('Runs on read right now, whatever the period', $crawler->filter('.jm-runs__title')->text());
@@ -90,15 +91,16 @@ final class StackScreenTest extends WebTestCase
         static::assertSame('Overview', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
     }
 
-    public function testAnApplicationWithoutDatabaseArrivesOnTheStack(): void
+    public function testAnApplicationWithoutDatabaseArrivesOnTheOverviewWithItsStack(): void
     {
         $client = $this->client(['doctrine' => false]);
 
         $crawler = $client->request('GET', '/jmonitor/');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('JMonitor — Stack', $crawler->filter('title')->text());
-        static::assertCount(1, $crawler->filter('[data-jm-component="php"]'));
+        static::assertSame('JMonitor — Overview', $crawler->filter('title')->text());
+        static::assertSame(['No storage configured'], $crawler->filter('.jm-state__title')->each(static fn(Crawler $title): string => $title->text()));
+        static::assertSame('/jmonitor/stack/php', $crawler->filter('a.jm-runs__line[href="/jmonitor/stack/php"]')->attr('href'));
     }
 
     public function testAnApplicationWithoutMysqlHasNoMysqlCardAndSaysWhy(): void
@@ -138,14 +140,16 @@ final class StackScreenTest extends WebTestCase
         static::assertStringContainsString('Redis: No Redis DSN found: set jmonitor.stack.redis.connections, use Redis for a cache pool or the sessions, or set the REDIS_URL environment variable.', self::notDetected($crawler));
     }
 
-    public function testRecordingOffArrivesOnTheStack(): void
+    public function testRecordingOffWithoutDataArrivesOnTheOverviewWithItsStack(): void
     {
         $client = $this->client(['jmonitor' => ['recording' => ['enabled' => false]]]);
 
         $crawler = $client->request('GET', '/jmonitor/');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('JMonitor — Stack', $crawler->filter('title')->text());
+        static::assertSame('JMonitor — Overview', $crawler->filter('title')->text());
+        static::assertSame(['Recording is off'], $crawler->filter('.jm-state__title')->each(static fn(Crawler $title): string => $title->text()));
+        static::assertGreaterThan(0, $crawler->filter('.jm-runs__item')->count());
     }
 
     public function testATestThatLeavesTheStackOutReadsNothingOutsideTheWebServer(): void

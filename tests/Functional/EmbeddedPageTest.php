@@ -490,16 +490,16 @@ final class EmbeddedPageTest extends WebTestCase
      */
     public static function storageSettings(): iterable
     {
-        yield 'storage and recording on' => [['jmonitor' => ['recording' => ['enabled' => true]]], 'Requests'];
-        yield 'recording off' => [['jmonitor' => ['recording' => ['enabled' => false]]], 'Probe'];
-        yield 'no Doctrine' => [['doctrine' => false, 'jmonitor' => ['recording' => ['enabled' => true]]], 'Probe'];
+        yield 'storage and recording on' => [['jmonitor' => ['recording' => ['enabled' => true]]], null];
+        yield 'recording off' => [['jmonitor' => ['recording' => ['enabled' => false]]], 'Recording is off'];
+        yield 'no Doctrine' => [['doctrine' => false, 'jmonitor' => ['recording' => ['enabled' => true]]], 'No storage configured'];
     }
 
     /**
      * @param array<string, mixed> $options
      */
     #[DataProvider('storageSettings')]
-    public function testTheDefaultScreenFollowsTheStorage(array $options, string $screen): void
+    public function testTheEmptyPathOpensTheOverviewAtAHostWhateverTheStorage(array $options, ?string $state): void
     {
         $options['jmonitor']['recording']['buffer_dir'] = $this->bufferDir;
         $client = static::createClient($options);
@@ -507,7 +507,18 @@ final class EmbeddedPageTest extends WebTestCase
         $crawler = $client->request('GET', '/back-office/monitoring/');
 
         static::assertResponseIsSuccessful();
-        static::assertSame($screen, $crawler->filter('.jm-subnav__item[aria-current="page"]')->text());
+        $current = $crawler->filter('.jm-nav__item[aria-current="page"]');
+        static::assertSame('Overview', $current->text());
+        static::assertSame($state === null ? [] : [$state], $crawler->filter('.jm-state__title')->each(static fn(Crawler $title): string => $title->text()));
+        static::assertCount(1, $crawler->filter('.jm-places'));
+        $href = (string) $current->attr('href');
+        static::assertStringStartsWith('/back-office/monitoring', $href);
+        static::assertStringNotContainsString('overview', $href);
+
+        $again = $client->request('GET', $href);
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('Overview', $again->filter('.jm-nav__item[aria-current="page"]')->text());
     }
 
     /**
