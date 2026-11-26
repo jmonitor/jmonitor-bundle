@@ -675,21 +675,18 @@ final class ScreenBuilderTest extends TestCase
         static::assertNull($this->builder()->create($this->screen(rows: 1), null, null, null)->raised);
     }
 
-    public function testTheChecksAreReadForAPageWithAPeriodAndATabThatHasACheck(): void
+    public function testTheChecksAreReadForAPageWithAPeriod(): void
     {
         $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
         $builder = new ScreenBuilder($reader, true, new MockClock('@1800000000'), null, null, new ApplicationChecks([new ServerErrorsCheck()]));
         $page = $builder->create($this->screen(rows: 1), '6h', null, null);
 
-        static::assertNull($builder->raisedChecks($page, ['queries', 'exceptions']));
-        static::assertSame([], $reader->totalRequests);
-
-        static::assertTrue($builder->raisedChecks($page, ['exceptions', 'requests'])?->has('requests.server_errors'));
+        static::assertTrue($builder->raisedChecks($page)?->has('requests.server_errors'));
         static::assertSame([[Period::SixHours, 1800000000, [self::SERVER_ERRORS]]], $reader->totalRequests);
 
-        static::assertNull($builder->raisedChecks($builder->create($this->screen(rows: 1), '6h', null, null, storageFailed: true), ['requests']));
-        static::assertNull($builder->raisedChecks($builder->create(new StubScreen(view: static fn(): ScreenView => throw new \RuntimeException('Gone')), null, null, null), ['requests']));
-        static::assertNull($builder->raisedChecks($builder->create(new StubBlockScreen('probe'), null, null, null), ['requests']));
+        static::assertNull($builder->raisedChecks($builder->create($this->screen(rows: 1), '6h', null, null, storageFailed: true)));
+        static::assertNull($builder->raisedChecks($builder->create(new StubScreen(view: static fn(): ScreenView => throw new \RuntimeException('Gone')), null, null, null)));
+        static::assertNull($builder->raisedChecks($builder->create(new StubBlockScreen('probe'), null, null, null)));
         static::assertCount(1, $reader->totalRequests);
     }
 
@@ -697,7 +694,7 @@ final class ScreenBuilderTest extends TestCase
     {
         $builder = new ScreenBuilder(null, true, new MockClock('@1800000000'), null, null, new ApplicationChecks([new ServerErrorsCheck()]));
 
-        static::assertNull($builder->raisedChecks($builder->create($this->screen(rows: 1), null, null, null), ['requests']));
+        static::assertNull($builder->raisedChecks($builder->create($this->screen(rows: 1), null, null, null)));
     }
 
     /**

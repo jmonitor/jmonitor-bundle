@@ -15,7 +15,10 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
+use Jmonitor\JmonitorBundle\Stack\Check\Finding;
+use Jmonitor\JmonitorBundle\Stack\Check\Severity;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
+use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Detection\Server;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
@@ -40,6 +43,7 @@ use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\DatabasePayloads;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FakeStackReader;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\WebServerPayloads;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\DependencyInjection\ServiceLocator;
@@ -554,7 +558,7 @@ final class StackScreenTest extends TestCase
         $this->clock->sleep(185);
 
         self::assertEquals(
-            new NavBadge('2', 'bad', '1 critical, 1 warning at the last visit of the Stack overview, 3 min ago'),
+            new NavBadge('2 critical', 'bad', '1 critical, 1 warning at the last read of the stack, 3 min ago'),
             $this->screen(new FakeStackReader(self::troubled()))->navBadge(),
         );
 
@@ -565,7 +569,7 @@ final class StackScreenTest extends TestCase
         $this->screen(new FakeStackReader($warnings))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertEquals(
-            new NavBadge('2', 'warn', '2 warnings at the last visit of the Stack overview, just now'),
+            new NavBadge('2 warnings', 'warn', '2 warnings at the last read of the stack, just now'),
             $this->screen(new FakeStackReader(self::troubled()))->navBadge(),
         );
 
@@ -574,9 +578,37 @@ final class StackScreenTest extends TestCase
         $this->clock->sleep(42);
 
         self::assertEquals(
-            new NavBadge('1', 'bad', '1 critical at the last visit of the Stack overview, 42 s ago'),
+            new NavBadge('1 critical', 'bad', '1 critical at the last read of the stack, 42 s ago'),
             $this->screen(new FakeStackReader(self::troubled()))->navBadge(),
         );
+    }
+
+    /**
+     * @return iterable<string, array{int, int, NavBadge}>
+     */
+    public static function badgeWords(): iterable
+    {
+        yield '2 critical' => [1, 1, new NavBadge('2 critical', 'bad', '1 critical, 1 warning at the last read of the stack, just now')];
+        yield '1 warning' => [0, 1, new NavBadge('1 warning', 'warn', '1 warning at the last read of the stack, just now')];
+        yield '3 warnings' => [0, 3, new NavBadge('3 warnings', 'warn', '3 warnings at the last read of the stack, just now')];
+    }
+
+    #[DataProvider('badgeWords')]
+    public function testTheBadgeSaysItsCountInWords(int $critical, int $warnings, NavBadge $badge): void
+    {
+        $findings = [];
+
+        for ($i = 0; $i < $critical; ++$i) {
+            $findings[] = new Finding('symfony.debug_' . $i, Component::Symfony, null, Severity::Critical, 'Debug', 'Debug in prod');
+        }
+
+        for ($i = 0; $i < $warnings; ++$i) {
+            $findings[] = new Finding('system.disk_' . $i, Component::System, null, Severity::Warning, 'Disk', 'Disk almost full');
+        }
+
+        $this->summary()->remember(self::healthy(), new StackHealth($findings, []));
+
+        self::assertEquals($badge, $this->screen(new FakeStackReader(self::healthy()))->navBadge());
     }
 
     public function testNoVisitNoBadge(): void

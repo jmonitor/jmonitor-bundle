@@ -36,12 +36,12 @@ final class RaisedChecks
         return array_intersect_key($this->totals, array_flip($this->checks[$id]->metrics()));
     }
 
-    public function badge(string $screen): ?NavBadge
+    public function badge(string ...$screens): ?NavBadge
     {
         $counts = ['critical' => 0, 'warning' => 0];
 
         foreach ($this->checks as $check) {
-            if ($check->screen() === $screen) {
+            if (\in_array($check->screen(), $screens, true)) {
                 ++$counts[$check->severity()->value];
             }
         }

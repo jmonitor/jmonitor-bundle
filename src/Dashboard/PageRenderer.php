@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Embed\HostUrlsInterface;
@@ -51,13 +52,14 @@ final class PageRenderer
         }
 
         $spaces = $this->spaces();
+        $raised = $page->raised ?? $this->builder->raisedChecks($page);
 
         return new PageContent(
             $twig->render('@Jmonitor/dashboard/page.html.twig', [
-                'page' => $this->withTabs($page, $root, $spaces),
+                'page' => $this->withTabs($page, $root, $spaces, $raised),
                 'path' => $path,
                 'spaces' => $this->entries($spaces, $root),
-                'badges' => $this->slots($spaces),
+                'badges' => $this->slots($spaces, $raised),
                 'periods' => Period::cases(),
                 'urls' => $urls,
                 'standalone' => $standalone,
@@ -78,12 +80,13 @@ final class PageRenderer
         [$root, $screen, $path] = $this->resolve($path);
         $page = $this->build($request, $screen, true);
         $spaces = $this->spaces();
+        $raised = $page->raised ?? $this->builder->raisedChecks($page);
 
         return new Response($twig->render('@Jmonitor/dashboard/_screen.html.twig', [
-            'page' => $this->withTabs($page, $root, $spaces),
+            'page' => $this->withTabs($page, $root, $spaces, $raised),
             'urls' => $urls,
             'path' => $path,
-            'badges' => $this->slots($spaces),
+            'badges' => $this->slots($spaces, $raised),
             'screens' => $this->availableIds(),
         ]), Response::HTTP_OK, self::HEADERS);
     }
@@ -222,15 +225,21 @@ final class PageRenderer
     /**
      * @param array<string, non-empty-list<ScreenInterface>> $spaces
      *
-     * @return array<string, ?NavBadge> the badge of the only screen of a space, by the value of the space
+     * @return array<string, ?NavBadge> the badge of every entry that can carry one, by the value of the space
      */
-    private function slots(array $spaces): array
+    private function slots(array $spaces, ?RaisedChecks $raised): array
     {
         $badges = [];
 
-        foreach ($spaces as $space => $screens) {
-            if (\count($screens) === 1 && $screens[0] instanceof NavBadgeScreenInterface) {
-                $badges[$space] = $this->badge($screens[0]);
+        foreach ($spaces as $value => $screens) {
+            $space = Space::from($value);
+
+            if ($space === Space::Stack) {
+                if (\count($screens) === 1 && $screens[0] instanceof NavBadgeScreenInterface) {
+                    $badges[$value] = $this->badge($screens[0]);
+                }
+            } elseif ($space !== Space::Overview) {
+                $badges[$value] = $raised?->badge(...array_map(static fn(ScreenInterface $screen): string => $screen->id(), $screens));
             }
         }
 
@@ -238,7 +247,7 @@ final class PageRenderer
     }
 
     /** @param array<string, non-empty-list<ScreenInterface>> $spaces */
-    private function withTabs(Page $page, ScreenInterface $root, array $spaces): Page
+    private function withTabs(Page $page, ScreenInterface $root, array $spaces, ?RaisedChecks $raised): Page
     {
         $screens = $spaces[$root->space()->value] ?? [];
 
@@ -247,7 +256,6 @@ final class PageRenderer
         }
 
         $query = $page->period === null ? [] : ['period' => $page->period->label()];
-        $raised = $page->raised ?? $this->builder->raisedChecks($page, array_map(static fn(ScreenInterface $screen): string => $screen->id(), $screens));
 
         return $page->withTabs(new SubNav($root->space()->label(), array_map(fn(ScreenInterface $screen): SubNavItem => new SubNavItem(
             $screen->label(),

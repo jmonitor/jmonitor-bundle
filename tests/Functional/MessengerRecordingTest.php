@@ -129,7 +129,30 @@ final class MessengerRecordingTest extends WebTestCase
         static::assertSame(Ping::class, $row->attr('data-jm-message'));
         static::assertSame(['1 failed', '1 retried'], $row->filter('.jm-tag')->each(static fn(Crawler $tag): string => $tag->text()));
         static::assertSame(['jm-tag jm-tag--bad', 'jm-tag jm-tag--warn'], $row->filter('.jm-tag')->each(static fn(Crawler $tag): string => (string) $tag->attr('class')));
-        static::assertCount(0, $crawler->filter('.jm-nav__item[aria-current="page"] .jm-nav__badge'));
+        static::assertSame('1 critical in the last hour', $crawler->filter('.jm-nav__item[aria-current="page"] [data-jm-slot="nav-background"] .jm-nav__badge')->attr('title'));
+    }
+
+    public function testAFailedMessageBadgesTheBackgroundEntryOnEveryApplicationScreen(): void
+    {
+        $client = static::createClient($this->options(messenger: true));
+
+        $client->request('GET', '/dispatch', ['mode' => 'fail', 'count' => '1']);
+        static::assertResponseIsSuccessful();
+        static::assertSame(0, $this->consume(['receivers' => ['async'], '--limit' => '2']));
+        $badge = '[data-jm-slot="nav-background"] .jm-nav__badge[title="1 critical in the last hour"]';
+        $crawler = self::requestUntil($client, '/jmonitor/requests', $badge);
+        $screens = $crawler->filter('nav.jm-subnav[aria-label="Application"] .jm-subnav__item')->each(static fn(Crawler $tab): string => (string) $tab->attr('href'));
+
+        static::assertContains('/jmonitor/requests?period=1h', $screens);
+        static::assertGreaterThan(1, \count($screens));
+
+        foreach ($screens as $screen) {
+            $crawler = $client->request('GET', $screen);
+
+            static::assertResponseIsSuccessful();
+            static::assertSame('1 critical', $crawler->filter($badge)->getNode(0)?->firstChild?->textContent, $screen);
+            static::assertSame(['Application', 'Background'], \array_slice($crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => trim((string) $item->getNode(0)?->firstChild?->textContent)), 0, 2), $screen);
+        }
     }
 
     public function testAMessageSentWhileHandlingAnotherIsCounted(): void

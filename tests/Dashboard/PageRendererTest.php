@@ -714,7 +714,7 @@ final class PageRendererTest extends TestCase
         static::assertSame(['blocks', 'badge'], $watched->calls);
         static::assertSame([], $hidden->calls);
         static::assertCount(3, $nav);
-        static::assertCount(0, $nav->eq(0)->filter('[data-jm-slot]'));
+        static::assertSame('<span data-jm-slot="nav-application"></span>', $nav->eq(0)->filter('[data-jm-slot]')->outerHtml());
         static::assertSame('<span data-jm-slot="nav-background"></span>', $nav->eq(1)->filter('[data-jm-slot]')->outerHtml());
         static::assertSame('<span data-jm-slot="nav-stack"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2<span class="jm-visually-hidden"> — 2 warnings</span></span></span>', $nav->eq(2)->filter('[data-jm-slot]')->outerHtml());
         static::assertStringNotContainsString('nav-hidden', $html);
@@ -723,7 +723,7 @@ final class PageRendererTest extends TestCase
 
         static::assertStringContainsString('<template data-jm-slot-content="nav-stack"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2<span class="jm-visually-hidden"> — 2 warnings</span></span></template>', $fragment);
         static::assertStringContainsString('<template data-jm-slot-content="nav-background"></template>', $fragment);
-        static::assertStringNotContainsString('nav-application', $fragment);
+        static::assertStringContainsString('<template data-jm-slot-content="nav-application"></template>', $fragment);
         static::assertStringNotContainsString('nav-hidden', $fragment);
         static::assertStringNotContainsString('jm-nav__item', $fragment);
     }
@@ -736,7 +736,7 @@ final class PageRendererTest extends TestCase
         $html = $renderer->page(Request::create('/'), 'plain', new FakeHostUrls())->html;
         $fragment = (string) $renderer->fragment(Request::create('/'), 'plain', new FakeHostUrls())->getContent();
 
-        static::assertSame('<span data-jm-slot="nav-stack"></span>', (new Crawler($html))->filter('[data-jm-slot]')->outerHtml());
+        static::assertSame('<span data-jm-slot="nav-stack"></span>', (new Crawler($html))->filter('[data-jm-slot="nav-stack"]')->outerHtml());
         static::assertStringContainsString('<template data-jm-slot-content="nav-stack"></template>', $fragment);
         static::assertSame(array_fill(0, 2, 'error JMonitor could not read the navigation badge of the "watched" screen: Cache down'), $logger->messages);
     }
@@ -944,18 +944,18 @@ final class PageRendererTest extends TestCase
         $nav = (new Crawler($renderer->page(Request::create('/'), 'requests', new FakeHostUrls())->html))->filter('.jm-nav__item');
 
         static::assertSame(['badge'], $watched->calls);
-        static::assertCount(0, $nav->eq(0)->filter('[data-jm-slot]'));
+        static::assertSame('<span data-jm-slot="nav-application"></span>', $nav->eq(0)->filter('[data-jm-slot]')->outerHtml());
         static::assertSame('<span data-jm-slot="nav-stack"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2<span class="jm-visually-hidden"> — 2 warnings</span></span></span>', $nav->eq(1)->filter('[data-jm-slot]')->outerHtml());
 
         $fragment = (string) $renderer->fragment(Request::create('/'), 'requests', new FakeHostUrls())->getContent();
 
         static::assertStringContainsString('<template data-jm-slot-content="nav-stack"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2<span class="jm-visually-hidden"> — 2 warnings</span></span></template>', $fragment);
-        static::assertSame(1, substr_count($fragment, 'data-jm-slot-content'));
+        static::assertSame(2, substr_count($fragment, 'data-jm-slot-content'));
         static::assertStringNotContainsString('nav-watched', $fragment);
 
         $quiet = $this->renderer([new StubBlockScreen('requests'), new StubBadgeScreen('quiet', space: Space::Stack)]);
 
-        static::assertSame('<span data-jm-slot="nav-stack"></span>', (new Crawler($quiet->page(Request::create('/'), 'quiet', new FakeHostUrls())->html))->filter('[data-jm-slot]')->outerHtml());
+        static::assertSame('<span data-jm-slot="nav-stack"></span>', (new Crawler($quiet->page(Request::create('/'), 'quiet', new FakeHostUrls())->html))->filter('[data-jm-slot="nav-stack"]')->outerHtml());
         static::assertStringContainsString('<template data-jm-slot-content="nav-stack"></template>', (string) $quiet->fragment(Request::create('/'), 'requests', new FakeHostUrls())->getContent());
     }
 
@@ -973,7 +973,7 @@ final class PageRendererTest extends TestCase
             static::assertSame('<span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2<span class="jm-visually-hidden"> — 2 warnings</span></span>', $tabs->eq(0)->filter('.jm-nav__badge')->outerHtml(), $kind);
             static::assertCount(0, $tabs->eq(1)->filter('.jm-nav__badge'), $kind);
             static::assertCount(0, $tabs->eq(2)->filter('.jm-nav__badge'), $kind);
-            static::assertStringNotContainsString('data-jm-slot', $html, $kind);
+            static::assertSame(['nav-application'], self::slotsOf($html), $kind);
         }
     }
 
@@ -992,7 +992,7 @@ final class PageRendererTest extends TestCase
             static::assertSame('<span class="jm-nav__badge jm-nav__badge--bad" title="1 critical in the last 6 hours">1 critical<span class="jm-visually-hidden"> — 1 critical in the last 6 hours</span></span>', $tabs->eq(0)->filter('.jm-nav__badge')->outerHtml(), $kind);
             static::assertSame('<span class="jm-nav__badge jm-nav__badge--warn" title="1 warning in the last 6 hours">1 warning<span class="jm-visually-hidden"> — 1 warning in the last 6 hours</span></span>', $tabs->eq(1)->filter('.jm-nav__badge')->outerHtml(), $kind);
             static::assertCount(0, $tabs->eq(2)->filter('.jm-nav__badge'), $kind);
-            static::assertStringNotContainsString('data-jm-slot', $html, $kind);
+            static::assertSame(['nav-application'], self::slotsOf($html), $kind);
         }
 
         static::assertSame([Period::SixHours, Period::SixHours], array_column($reader->totalRequests, 0));
@@ -1006,6 +1006,155 @@ final class PageRendererTest extends TestCase
         $tabs = (new Crawler($renderer->page(Request::create('/'), 'queries', new FakeHostUrls())->html))->filter('.jm-subnav__item');
 
         static::assertSame(['7 things', '1 warning in the last hour'], $tabs->filter('.jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')));
+    }
+
+    public function testTheApplicationEntryCarriesTheBadgeOfItsScreens(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::QUERY_SLOW => new MetricValue(1, 0.0, 0.0), Metric::MESSAGE_FAILED => new MetricValue(1, 0.0, 0.0)]);
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), self::tableScreen('exceptions'), new StubScreen('background', view: static fn(): ScreenView => self::tableView(), space: Space::Background), new StubBlockScreen('stack', space: Space::Stack)], reader: $reader, checks: self::badgedChecks());
+        $request = Request::create('/', parameters: ['period' => '6h']);
+
+        foreach (['exceptions', 'requests'] as $path) {
+            $entry = (new Crawler($renderer->page($request, $path, new FakeHostUrls())->html))->filter('.jm-nav__item')->eq(0);
+
+            static::assertSame('Application', trim((string) $entry->getNode(0)?->firstChild?->textContent), $path);
+            static::assertSame(
+                '<span data-jm-slot="nav-application"><span class="jm-nav__badge jm-nav__badge--bad" title="1 critical, 1 warning in the last 6 hours">2 critical<span class="jm-visually-hidden"> — 1 critical, 1 warning in the last 6 hours</span></span></span>',
+                $entry->filter('[data-jm-slot]')->outerHtml(),
+                $path,
+            );
+        }
+    }
+
+    public function testTheBackgroundEntryCarriesTheBadgeOfItsChecks(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::MESSAGE_FAILED => new MetricValue(3, 0.0, 0.0)]);
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), new StubScreen('background', view: static fn(): ScreenView => self::tableView(), space: Space::Background)], reader: $reader, checks: self::badgedChecks());
+        $badge = '<span data-jm-slot="nav-background"><span class="jm-nav__badge jm-nav__badge--bad" title="1 critical in the last hour">1 critical<span class="jm-visually-hidden"> — 1 critical in the last hour</span></span></span>';
+
+        foreach (['requests', 'queries', 'background'] as $path) {
+            $crawler = new Crawler($renderer->page(Request::create('/'), $path, new FakeHostUrls())->html);
+
+            static::assertSame($badge, $crawler->filter('.jm-nav__item')->eq(1)->filter('[data-jm-slot]')->outerHtml(), $path);
+        }
+
+        static::assertStringNotContainsString('jm-subnav', $renderer->page(Request::create('/'), 'background', new FakeHostUrls())->html);
+    }
+
+    public function testTheChecksAreReadOnceForTheTabsAndTheEntries(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::MESSAGE_FAILED => new MetricValue(1, 0.0, 0.0)]);
+        $checks = self::badgedChecks();
+        $requests = new StubScreen('requests', view: static fn(ReaderInterface $reader): ScreenView => new ScreenView(
+            self::tableView()->cards,
+            self::tableView()->tables,
+            raised: $checks->raised($reader, Period::OneHour, 1800000000),
+        ));
+        $renderer = $this->renderer([$requests, self::tableScreen('queries'), new StubScreen('background', view: static fn(): ScreenView => self::tableView(), space: Space::Background), new StubBlockScreen('stack', space: Space::Stack)], reader: $reader, checks: $checks);
+
+        foreach (['requests', 'queries', 'background'] as $path) {
+            foreach ([
+                'page' => static fn(): string => $renderer->page(Request::create('/'), $path, new FakeHostUrls())->html,
+                'fragment' => static fn(): string => (string) $renderer->fragment(Request::create('/'), $path, new FakeHostUrls())->getContent(),
+            ] as $kind => $render) {
+                $reader->totalRequests = [];
+                $html = $render();
+
+                static::assertCount(1, $reader->totalRequests, $path . ' ' . $kind);
+
+                foreach (['application', 'background'] as $space) {
+                    static::assertStringContainsString('<template data-jm-slot-content="nav-' . $space . '"><span class="jm-nav__badge jm-nav__badge--bad" title="1 critical in the last hour">', $html, $path . ' ' . $kind);
+                }
+            }
+        }
+    }
+
+    public function testAStackScreenReadsNoStorageAndLeavesTheEntriesWithoutBadge(): void
+    {
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::MESSAGE_FAILED => new MetricValue(1, 0.0, 0.0)]);
+        $stack = new StubBadgeScreen('stack', new NavBadge('1 warning', 'warn', '1 warning'), space: Space::Stack);
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), new StubScreen('background', view: static fn(): ScreenView => self::tableView(), space: Space::Background), $stack], reader: $reader, checks: self::badgedChecks());
+
+        $html = $renderer->page(Request::create('/', parameters: ['period' => '6h']), 'stack', new FakeHostUrls())->html;
+        $fragment = (string) $renderer->fragment(Request::create('/', parameters: ['period' => '6h']), 'stack', new FakeHostUrls())->getContent();
+        $slots = (new Crawler($html))->filter('.jm-nav__item [data-jm-slot]');
+
+        static::assertSame([], $reader->totalRequests);
+        static::assertSame(['<span data-jm-slot="nav-application"></span>', '<span data-jm-slot="nav-background"></span>'], [$slots->eq(0)->outerHtml(), $slots->eq(1)->outerHtml()]);
+        static::assertSame('nav-stack', $slots->eq(2)->attr('data-jm-slot'));
+        static::assertCount(1, $slots->eq(2)->filter('.jm-nav__badge'));
+        static::assertStringContainsString('<template data-jm-slot-content="nav-application"></template>', $fragment);
+        static::assertStringContainsString('<template data-jm-slot-content="nav-background"></template>', $fragment);
+    }
+
+    public function testNoBadgeAfterAFailedStorageRead(): void
+    {
+        $logger = $this->logger();
+        $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::MESSAGE_FAILED => new MetricValue(1, 0.0, 0.0)]);
+        $failing = new StubScreen('requests', view: static fn(): ScreenView => throw new \RuntimeException('Gone'));
+        $renderer = $this->renderer([$failing, self::tableScreen('queries'), new StubScreen('background', view: static fn(): ScreenView => self::tableView(), space: Space::Background)], reader: $reader, logger: $logger, checks: self::badgedChecks());
+
+        foreach ([
+            'page' => $renderer->page(Request::create('/'), 'requests', new FakeHostUrls())->html,
+            'fragment' => (string) $renderer->fragment(Request::create('/'), 'requests', new FakeHostUrls())->getContent(),
+        ] as $kind => $html) {
+            static::assertCount(1, (new Crawler($html))->filter('[data-jm-state="storage_error"]'), $kind);
+            static::assertStringNotContainsString('jm-nav__badge', $html, $kind);
+            static::assertStringContainsString('<template data-jm-slot-content="nav-application"></template>', $html, $kind);
+            static::assertStringContainsString('<template data-jm-slot-content="nav-background"></template>', $html, $kind);
+        }
+
+        static::assertSame([], $reader->totalRequests);
+
+        $flushed = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries')], $this->failingFlusher(), $reader, checks: self::badgedChecks());
+
+        static::assertStringNotContainsString('jm-nav__badge', $flushed->page(Request::create('/'), 'queries', new FakeHostUrls())->html);
+        static::assertSame([], $reader->totalRequests);
+    }
+
+    public function testEveryBadgedEntryHasItsSlotEvenEmpty(): void
+    {
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), new StubScreen('background', view: static fn(): ScreenView => self::tableView(), space: Space::Background), new StubBadgeScreen('stack', space: Space::Stack)], checks: self::badgedChecks());
+
+        foreach (['requests', 'background', 'stack'] as $path) {
+            $nav = (new Crawler($renderer->page(Request::create('/'), $path, new FakeHostUrls())->html))->filter('.jm-nav__item');
+
+            static::assertSame(
+                ['<span data-jm-slot="nav-application"></span>', '<span data-jm-slot="nav-background"></span>', '<span data-jm-slot="nav-stack"></span>'],
+                $nav->each(static fn(Crawler $item): string => $item->filter('[data-jm-slot]')->outerHtml()),
+                $path,
+            );
+        }
+
+        $plain = $this->renderer([self::tableScreen('requests'), new StubBlockScreen('stack', space: Space::Stack)]);
+        $nav = (new Crawler($plain->page(Request::create('/'), 'requests', new FakeHostUrls())->html))->filter('.jm-nav__item');
+
+        static::assertSame('<span data-jm-slot="nav-application"></span>', $nav->eq(0)->filter('[data-jm-slot]')->outerHtml());
+        static::assertCount(0, $nav->eq(1)->filter('[data-jm-slot]'));
+    }
+
+    public function testTheFragmentCarriesTheBadgeOfEveryEntry(): void
+    {
+        $reader = new FixedReader(totals: [Metric::QUERY_SLOW => new MetricValue(1, 0.0, 0.0), Metric::MESSAGE_FAILED => new MetricValue(1, 0.0, 0.0)]);
+        $renderer = $this->renderer([self::tableScreen('requests'), self::tableScreen('queries'), new StubScreen('background', view: static fn(): ScreenView => self::tableView(), space: Space::Background), new StubBadgeScreen('stack', new NavBadge('2 warnings', 'warn', '2 warnings'), space: Space::Stack)], reader: $reader, checks: self::badgedChecks());
+
+        $fragment = (string) $renderer->fragment(Request::create('/'), 'requests', new FakeHostUrls())->getContent();
+
+        static::assertSame(3, substr_count($fragment, 'data-jm-slot-content'));
+        static::assertStringContainsString('<template data-jm-slot-content="nav-application"><span class="jm-nav__badge jm-nav__badge--warn" title="1 warning in the last hour">1 warning<span class="jm-visually-hidden"> — 1 warning in the last hour</span></span></template>', $fragment);
+        static::assertStringContainsString('<template data-jm-slot-content="nav-background"><span class="jm-nav__badge jm-nav__badge--bad" title="1 critical in the last hour">1 critical<span class="jm-visually-hidden"> — 1 critical in the last hour</span></span></template>', $fragment);
+        static::assertStringContainsString('<template data-jm-slot-content="nav-stack"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings">2 warnings<span class="jm-visually-hidden"> — 2 warnings</span></span></template>', $fragment);
+        static::assertStringNotContainsString('jm-nav__item', $fragment);
+    }
+
+    public function testTheOverviewSpaceComesFirstAndStaysOutOfTheHeaderWithoutScreen(): void
+    {
+        static::assertSame(Space::Overview, Space::cases()[0]);
+        static::assertSame('Overview', Space::Overview->label());
+
+        $nav = (new Crawler($this->renderer([self::tableScreen('requests'), new StubBlockScreen('stack', space: Space::Stack)])->page(Request::create('/'), 'requests', new FakeHostUrls())->html))->filter('.jm-nav__item');
+
+        static::assertSame(['Application', 'Stack'], $nav->each(static fn(Crawler $item): string => $item->text()));
     }
 
     public function testTheExceptionsAndUsersTabsCarryNoBadgeForTheChecksOfRequestsTheyShow(): void
@@ -1107,7 +1256,7 @@ final class PageRendererTest extends TestCase
         static::assertSame([], $reader->totalRequests);
     }
 
-    public function testNoTotalsAreReadWithoutATabThatHasACheck(): void
+    public function testNoTotalsAreReadOnAScreenWithoutPeriod(): void
     {
         $reader = new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
         $renderer = $this->renderer([
@@ -1136,7 +1285,7 @@ final class PageRendererTest extends TestCase
         $renderer->page(Request::create('/'), 'exceptions', new FakeHostUrls());
         $renderer->fragment(Request::create('/'), 'users', new FakeHostUrls());
 
-        static::assertSame([], $reader->totalRequests);
+        static::assertCount(2, $reader->totalRequests, 'A screen with a period reads the checks for the entries, once per display.');
     }
 
     /**
@@ -1690,6 +1839,19 @@ final class PageRendererTest extends TestCase
     private static function checks(): ApplicationChecks
     {
         return new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(500), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]);
+    }
+
+    /** @return list<string> the slots a page or a fragment fills, once each */
+    private static function slotsOf(string $html): array
+    {
+        preg_match_all('/data-jm-slot(?:-content)?="([^"]+)"/', $html, $matches);
+
+        return array_values(array_unique($matches[1]));
+    }
+
+    private static function badgedChecks(): ApplicationChecks
+    {
+        return new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(500), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10), new FailedMessagesCheck()]);
     }
 
     private static function tableScreen(string $id): StubScreen

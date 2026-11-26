@@ -1302,9 +1302,9 @@ body.jm .jm-section {
 }
 
 .jm-nav__badge--bad {
-    border-color: var(--jm-bad-strong);
-    background: var(--jm-bad-strong);
-    color: var(--jm-bg);
+    border-color: var(--jm-bad-border);
+    background: var(--jm-bad-bg);
+    color: var(--jm-bad);
 }
 
 .jm-visually-hidden {

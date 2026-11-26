@@ -77,14 +77,9 @@ final class ScreenBuilder
         return $this->reader !== null && $this->recordingEnabled;
     }
 
-    /** @param list<string> $tabs the ids of the screens whose tab is shown with the page */
-    public function raisedChecks(Page $page, array $tabs): ?RaisedChecks
+    public function raisedChecks(Page $page): ?RaisedChecks
     {
-        if ($page->period === null || $this->reader === null || array_intersect($tabs, $this->checks->screens()) === []) {
-            return null;
-        }
-
-        if ($page->hasState(BlockState::StorageError)) {
+        if ($page->period === null || $this->reader === null || $page->hasState(BlockState::StorageError)) {
             return null;
         }
 

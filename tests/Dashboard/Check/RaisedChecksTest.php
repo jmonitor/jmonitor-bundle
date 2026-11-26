@@ -89,6 +89,42 @@ final class RaisedChecksTest extends TestCase
         static::assertEquals(new NavBadge('1 warning', 'warn', '1 warning in the last 6 hours'), $raised->badge('cache-http'));
     }
 
+    public function testTheBadgeOfSeveralScreensAddsTheirChecks(): void
+    {
+        $raised = self::checks()->raised(new FixedReader(totals: array_fill_keys([self::SERVER_ERRORS, Metric::QUERY_SLOW, Metric::NPLUS1_CALLS], new MetricValue(1, 0.0, 0.0))), Period::OneHour, self::NOW);
+
+        static::assertEquals(new NavBadge('3 critical', 'bad', '1 critical, 2 warnings in the last hour'), $raised->badge('requests', 'queries'));
+        static::assertEquals(new NavBadge('2 warnings', 'warn', '2 warnings in the last hour'), $raised->badge('queries', 'exceptions'));
+        static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('requests', 'requests'));
+        static::assertNull($raised->badge('exceptions', 'users'));
+        static::assertNull($raised->badge());
+    }
+
+    public function testTheBadgeOfASpaceIsTheSumOfItsTabs(): void
+    {
+        $checks = new ApplicationChecks([
+            new ServerErrorsCheck(),
+            new SlowRequestsCheck(500),
+            new SlowQueriesCheck(100),
+            new RepeatedQueriesCheck(10),
+            new HttpFailuresCheck(),
+            new HttpErrorsCheck(),
+            new FailedMessagesCheck(),
+        ]);
+        $totals = array_fill_keys([self::SERVER_ERRORS, Metric::REQUEST_SLOW, Metric::QUERY_SLOW, Metric::NPLUS1_CALLS, Metric::HTTP_FAILED, Metric::HTTP_STATUS_PREFIX . '4xx', Metric::MESSAGE_FAILED], new MetricValue(1, 0.0, 0.0));
+        $raised = $checks->raised(new FixedReader(totals: $totals), Period::OneHour, self::NOW);
+        $tabs = ['requests', 'queries', 'cache-http', 'exceptions', 'users'];
+        $count = static fn(?NavBadge $badge): int => $badge === null ? 0 : (int) $badge->text;
+
+        $space = $raised->badge(...$tabs);
+
+        static::assertNotNull($space);
+        static::assertSame(6, $count($space));
+        static::assertSame($count($space), array_sum(array_map(static fn(string $tab): int => $count($raised->badge($tab)), $tabs)));
+        static::assertSame('bad', $space->tone);
+        static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('background'));
+    }
+
     public function testTheTotalsOfARaisedCheckAreThoseOfItsMetrics(): void
     {
         $totals = [self::SERVER_ERRORS => new MetricValue(3, 0.0, 0.0), Metric::REQUEST_SLOW => new MetricValue(0, 0.0, 0.0)];

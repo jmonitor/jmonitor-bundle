@@ -143,8 +143,9 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
     public function navBadge(): ?NavBadge
     {
         $last = $this->parts->summary()->last();
+        $count = $last === null ? 0 : $last['critical'] + $last['warning'];
 
-        if ($last === null || $last['critical'] + $last['warning'] === 0) {
+        if ($last === null || $count === 0) {
             return null;
         }
 
@@ -154,9 +155,9 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
         ]);
 
         return new NavBadge(
-            (string) ($last['critical'] + $last['warning']),
+            $last['critical'] > 0 ? $count . ' critical' : ($count === 1 ? '1 warning' : $count . ' warnings'),
             $last['critical'] > 0 ? 'bad' : 'warn',
-            sprintf('%s at the last visit of the Stack overview, %s', implode(', ', $counts), Format::ago($last['at'], $this->parts->now())),
+            sprintf('%s at the last read of the stack, %s', implode(', ', $counts), Format::ago($last['at'], $this->parts->now())),
         );
     }
 
