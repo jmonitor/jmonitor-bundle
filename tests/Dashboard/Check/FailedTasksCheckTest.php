@@ -35,7 +35,7 @@ final class FailedTasksCheckTest extends TestCase
         static::assertNotInstanceOf(KeyedCheckInterface::class, $check);
     }
 
-    public function testItReadsEveryTask(): void
+    public function testItReadsTheFailuresOfTheTasks(): void
     {
         static::assertEquals(new ReportQuery(Period::SevenDays, self::NOW, Family::Task, metrics: [Metric::TASK_FAILED]), (new FailedTasksCheck())->query(Period::SevenDays, self::NOW));
     }

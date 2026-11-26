@@ -33,7 +33,7 @@ final class SlowRequestsCheckTest extends TestCase
         static::assertSame([Metric::REQUEST_SLOW], $check->metrics());
     }
 
-    public function testItReadsEveryRoute(): void
+    public function testItReadsWhatBothChecksOfTheRequestsLookAt(): void
     {
         static::assertEquals(new ReportQuery(Period::OneDay, self::NOW, Family::Request, metrics: [Metric::REQUEST_STATUS_PREFIX . '5xx', Metric::REQUEST_SLOW, Metric::REQUEST_DURATION]), (new SlowRequestsCheck(500))->query(Period::OneDay, self::NOW));
     }

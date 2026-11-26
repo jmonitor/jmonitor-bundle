@@ -34,7 +34,7 @@ final class FailedMessagesCheckTest extends TestCase
         static::assertNotInstanceOf(KeyedCheckInterface::class, $check);
     }
 
-    public function testItReadsEveryMessageClass(): void
+    public function testItReadsTheFailuresOfTheMessages(): void
     {
         static::assertEquals(new ReportQuery(Period::SixHours, self::NOW, Family::Message, metrics: [Metric::MESSAGE_FAILED]), (new FailedMessagesCheck())->query(Period::SixHours, self::NOW));
     }

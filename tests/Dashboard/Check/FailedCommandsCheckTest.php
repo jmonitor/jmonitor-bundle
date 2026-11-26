@@ -34,7 +34,7 @@ final class FailedCommandsCheckTest extends TestCase
         static::assertNotInstanceOf(KeyedCheckInterface::class, $check);
     }
 
-    public function testItReadsEveryCommand(): void
+    public function testItReadsTheFailuresOfTheCommands(): void
     {
         static::assertEquals(new ReportQuery(Period::OneDay, self::NOW, Family::Command, metrics: [Metric::COMMAND_FAILED]), (new FailedCommandsCheck())->query(Period::OneDay, self::NOW));
     }
