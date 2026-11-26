@@ -531,7 +531,8 @@ final class StylesheetTest extends TestCase
     public function testALongNameOfASectionTableWrapsInsteadOfWideningItsColumn(): void
     {
         static::assertSame([['overflow-wrap', 'anywhere']], self::declarationsOf('.jm-table .jm-code', null));
-        static::assertSame([['overflow-wrap', 'anywhere']], self::declarationsOf('.jm-table .jm-col-user', null));
+        static::assertSame([['overflow-wrap', 'anywhere'], ['min-width', '140px']], self::declarationsOf('.jm-table .jm-col-user', null));
+        static::assertSame([['min-width', '140px']], self::declarationsOf('.jm-table tbody th:has(> .jm-code)', null), 'A name that wraps keeps a column wide enough to be read.');
         static::assertSame([['white-space', 'normal']], self::declarationsOf('.jm-section .jm-table:has(.jm-split) td.jm-col-problems', null));
         static::assertSame([['white-space', 'nowrap']], self::declarationsOf('.jm-table:has(.jm-split) td:has(> .jm-tag)', null), 'The problems of a route stay on one line.');
     }

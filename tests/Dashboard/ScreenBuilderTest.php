@@ -818,11 +818,11 @@ final class ScreenBuilderTest extends TestCase
 
         $guide = $page->blocks[\count($page->blocks) - 1]->content;
         static::assertInstanceOf(Guide::class, $guide);
-        static::assertSame(['a', 'b', 'c'], array_map(static fn(GuideItem $item): string => $item->term, $guide->items));
+        static::assertSame(['unbriefed', 'a', 'b'], array_map(static fn(GuideItem $item): string => $item->term, $guide->items));
 
-        $page = $this->builder()->create(self::composed($unbriefed, $this->briefed('none', new Brief('1', '1 none'))), null, null, null);
+        $page = $this->builder()->create(self::composed($this->briefed('first', new Brief('1', '1 first')), $this->briefed('none', new Brief('1', '1 none'))), null, null, null);
 
-        static::assertSame(['lead ready', 'checks ready', 'section unbriefed', 'section none'], self::shape($page));
+        static::assertSame(['lead ready', 'checks ready', 'section first', 'section none'], self::shape($page));
     }
 
     public function testWithoutAnyBriefThePageIsTheOneOfToday(): void
@@ -984,7 +984,7 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame(['error JMonitor could not read its data: Storage is down'], $logger->messages);
     }
 
-    public function testASectionShownWithoutBriefBringsNeitherCheckNorGuide(): void
+    public function testASectionShownWithoutBriefBringsItsGuideButNoCheck(): void
     {
         $unbriefed = new StubSection('unbriefed', fn(): ScreenView => new ScreenView([new Card('Runs', '3')], [$this->table(rows: 1)]), checks: new CheckList([self::line('unbriefed.bad', 'bad')], emptyText: 'no unbriefed problem'), guide: new Guide([new GuideItem('Unbriefed', 'Text')]));
 
@@ -995,7 +995,10 @@ final class ScreenBuilderTest extends TestCase
             $page = $this->builder()->create(self::composed($unbriefed, $this->briefed('cache', new Brief('9', '9 reads'), $checks)), null, null, null);
             $list = $page->blocks[1]->content;
 
-            static::assertSame(['lead ready', 'checks ready', 'section unbriefed', 'section cache'], self::shape($page), $case);
+            static::assertSame(['lead ready', 'checks ready', 'section unbriefed', 'section cache', 'guide ready'], self::shape($page), $case);
+            $guide = $page->blocks[4]->content;
+            static::assertInstanceOf(Guide::class, $guide);
+            static::assertSame(['Unbriefed'], array_map(static fn(GuideItem $item): string => $item->term, $guide->items), $case);
             static::assertInstanceOf(CheckList::class, $list);
             static::assertSame(array_map(static fn(CheckLine $line): string => $line->id, $checks->lines), array_map(static fn(CheckLine $line): string => $line->id, $list->lines), $case);
             static::assertSame('No pool with a low hit rate in the last hour.', $list->emptyText, $case);

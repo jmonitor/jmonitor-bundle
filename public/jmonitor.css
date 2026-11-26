@@ -1020,6 +1020,11 @@ body.jm .jm-section {
     overflow-wrap: anywhere;
 }
 
+.jm-table tbody th:has(> .jm-code),
+.jm-table .jm-col-user {
+    min-width: 140px;
+}
+
 .jm-route--unmatched {
     color: var(--jm-muted);
     font-style: italic;

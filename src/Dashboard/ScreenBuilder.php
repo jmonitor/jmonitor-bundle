@@ -172,6 +172,7 @@ final class ScreenBuilder
 
         $blocks = [];
         $briefed = [];
+        $shown = [];
 
         foreach ($parts as $i => [$section, $own, $sectionSort, $sectionDirection]) {
             $view = $views[$i] ?? null;
@@ -180,6 +181,7 @@ final class ScreenBuilder
 
             if ($view !== null && !$view->isEmpty()) {
                 $content = [...$own, ...self::sectionFigures($view)];
+                $shown[] = $view;
 
                 if ($view->brief !== null) {
                     $briefed[] = [$section, $view, $view->brief];
@@ -196,7 +198,7 @@ final class ScreenBuilder
         if ($cause !== null) {
             $blocks = [Block::unavailable(Block::TABLE, $cause), ...$blocks];
         } elseif ($briefed !== []) {
-            $blocks = [...self::top($briefed, $period, $screen->outline()), ...$blocks, ...self::guide($briefed)];
+            $blocks = [...self::top($briefed, $period, $screen->outline()), ...$blocks, ...self::guide($shown)];
         }
 
         return new Page(
@@ -255,15 +257,15 @@ final class ScreenBuilder
     }
 
     /**
-     * @param non-empty-list<array{SectionInterface, ScreenView, Brief}> $briefed
+     * @param list<ScreenView> $shown the views of the sections shown with their figures, in order
      *
      * @return list<Block>
      */
-    private static function guide(array $briefed): array
+    private static function guide(array $shown): array
     {
         $items = [];
 
-        foreach ($briefed as [, $view]) {
+        foreach ($shown as $view) {
             if ($view->guide !== null) {
                 array_push($items, ...$view->guide->items);
             }
