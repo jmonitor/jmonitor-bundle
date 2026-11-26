@@ -175,11 +175,8 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
     private function componentCards(StackState $state, StackHealth $health): ComponentCards
     {
         $cards = [];
-        $unread = ['connection' => 0, 'server' => 0];
 
         foreach ($state->components as $component) {
-            $unread[$component->component->groupsByServer() ? 'server' : 'connection'] += $component->unread;
-
             foreach ($component->instances as $instance) {
                 if ($instance->snapshot !== null) {
                     $cards[] = $this->cards->card($component->component, $instance, $health, StackScreenParts::path($component->component), $state->cache !== CacheState::OutOfOrder);
@@ -187,17 +184,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
             }
         }
 
-        $more = array_map(
-            static fn(string $noun, int $count): ?string => match ($count) {
-                0 => null,
-                1 => '1 more ' . $noun,
-                default => $count . ' more ' . $noun . 's',
-            },
-            array_keys($unread),
-            array_values($unread),
-        );
-
-        return new ComponentCards($cards, self::notDetected($state), $state->node, implode(', ', array_filter($more)) ?: null);
+        return new ComponentCards($cards, self::notDetected($state), $state->node, StackScreenParts::more($state));
     }
 
     /**

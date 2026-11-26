@@ -25,7 +25,7 @@ use Psr\Clock\ClockInterface;
 use Psr\Container\ContainerInterface;
 
 /**
- * What the Stack screen and the detail of a component share.
+ * What the Stack screen, the detail of a component and the glance at the stack share.
  */
 final class StackScreenParts
 {
@@ -91,10 +91,35 @@ final class StackScreenParts
     }
 
     /**
+     * What was left out of the instances listed, as a sentence.
+     */
+    public static function more(StackState $state): ?string
+    {
+        $unread = ['connection' => 0, 'server' => 0];
+
+        foreach ($state->components as $component) {
+            $unread[$component->component->groupsByServer() ? 'server' : 'connection'] += $component->unread;
+        }
+
+        $more = array_map(
+            static fn(string $noun, int $count): ?string => match ($count) {
+                0 => null,
+                1 => '1 more ' . $noun,
+                default => $count . ' more ' . $noun . 's',
+            },
+            array_keys($unread),
+            array_values($unread),
+        );
+
+        return implode(', ', array_filter($more)) ?: null;
+    }
+
+    /**
      * @param list<Finding> $findings
      * @param bool          $linked   whether each line links to the detail of its component
+     * @param string        $prefix   put before the place of each line
      */
-    public function checkList(array $findings, bool $linked, ?string $emptyTitle = null): CheckList
+    public function checkList(array $findings, bool $linked, ?string $emptyTitle = null, string $prefix = ''): CheckList
     {
         $now = $this->now();
         $lines = array_map(static fn(Finding $finding): CheckLine => new CheckLine(
@@ -102,7 +127,7 @@ final class StackScreenParts
             Marks::severity($finding->severity),
             $finding->sentence,
             $finding->explanation,
-            $finding->instance === null ? $finding->component->label() : $finding->component->label() . ' · ' . $finding->instance,
+            $prefix . ($finding->instance === null ? $finding->component->label() : $finding->component->label() . ' · ' . $finding->instance),
             $linked ? self::path($finding->component) : null,
             $finding->age === null ? null : Format::ago($now - $finding->age, $now),
             $linked && $finding->instance !== null ? [ScreenRequest::INSTANCE => $finding->instance] : [],

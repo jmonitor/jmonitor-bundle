@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Stack;
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
@@ -14,6 +15,7 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
@@ -41,6 +43,7 @@ use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
 use Jmonitor\JmonitorBundle\Stack\Read\StackState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackSummary;
 use Jmonitor\JmonitorBundle\Stack\Screen\CardBuilder;
+use Jmonitor\JmonitorBundle\Stack\Screen\OverviewGlance;
 use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
 use Jmonitor\JmonitorBundle\Stack\Screen\StackScreen;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheProbe;
@@ -62,6 +65,7 @@ use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\Detectors;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Detection\StaticDetector;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ForgetfulCachePool;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\FreezableCachePool;
+use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\Snapshots;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\ThrowingCachePool;
 use Jmonitor\JmonitorBundle\Twig\JmonitorExtension;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -244,6 +248,75 @@ final class DisplayCostTest extends TestCase
         self::assertSame(['getItem' => 1], $cache->calls);
         self::assertSame([StackSummary::class], $this->built);
         self::assertSame($calls, $this->calls());
+    }
+
+    public function testFiftyGlancesNeverStartASlowCollector(): void
+    {
+        $cache = new CountingCachePool();
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $this->glance($this->stackServices($cache))->glance();
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+        }
+
+        self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Slow' => [0, 0, 0, 0, 0, 0, 0, 0, 0]], $this->calls());
+    }
+
+    public function testAWarmGlanceCostsAtMostSixteenRoundTrips(): void
+    {
+        $cache = new CountingCachePool();
+        $this->glance($this->stackServices($cache))->glance();
+        $this->glance($this->stackServices($cache))->glance();
+        $calls = $this->calls();
+        $cache->reset();
+
+        $glance = $this->glance($this->stackServices($cache))->glance();
+
+        self::assertSame($calls, $this->calls(), 'warm: nothing is collected');
+        self::assertCount(count(Component::cases()), $glance->cards);
+        self::assertSame(1, $cache->calls['save'] ?? 0, 'the summary is written');
+        self::assertLessThanOrEqual(16, $cache->roundTrips(), json_encode($cache->calls, \JSON_THROW_ON_ERROR));
+    }
+
+    public function testAGlanceAfterTheStackScreenCostsAtMostSixteenRoundTrips(): void
+    {
+        $cache = new CountingCachePool();
+        $this->renderer($cache)->page(Request::create('/'), 'stack', new FakeHostUrls());
+        $this->renderer($cache)->fragment(Request::create('/'), 'stack', new FakeHostUrls());
+        $calls = $this->calls();
+        $cache->reset();
+
+        $this->glance($this->stackServices($cache))->glance();
+
+        self::assertSame($calls, $this->calls(), 'warm: nothing is collected');
+        self::assertLessThanOrEqual(16, $cache->roundTrips(), json_encode($cache->calls, \JSON_THROW_ON_ERROR));
+    }
+
+    public function testTheStackBadgeOfADisplayFollowsItsGlance(): void
+    {
+        $system = new FakeCollector('system', Snapshots::system());
+        $this->registry = Detectors::registry(
+            [Component::System->value => new StaticDetector(Component::System, Detection::found(new CollectorSet(Component::System, [
+                new CollectorSpec($system, Lifetime::Dynamic, CostClass::Immediate),
+            ])))],
+            [Component::System->value => ['enabled' => 'auto']],
+        );
+        $cache = new CountingCachePool();
+        $this->renderer($cache)->page(Request::create('/'), 'stack', new FakeHostUrls());
+        $this->clock->sleep(60);
+        $full = Snapshots::system();
+        $full['disk']['free'] = 10_000_000_000;
+        $system->setData($full);
+        $services = $this->stackServices($cache);
+
+        $lines = $this->glance($services)->glance()->lines;
+        $cache->reset();
+        $badge = (new StackScreen($services, new CardBuilder($this->clock), $this->clock, new ServiceLocator([])))->navBadge();
+
+        self::assertSame(['system.disk'], array_map(static fn(CheckLine $line): string => $line->id, $lines));
+        self::assertEquals(new NavBadge('1 warning', 'warn', '1 warning at the last read of the stack, just now'), $badge);
+        self::assertSame(0, $cache->roundTrips(), 'the badge reads what the glance wrote');
+        self::assertEquals($badge, (new StackScreen($this->stackServices($cache), new CardBuilder($this->clock), $this->clock, new ServiceLocator([])))->navBadge(), 'the next display');
     }
 
     public function testFiftyPagesAskedForTheRestInTenSecondsCostOneCallPerCollector(): void
@@ -490,6 +563,47 @@ final class DisplayCostTest extends TestCase
 
         for ($i = 0; $i < self::DISPLAYS; ++$i) {
             $reader()->overview(ReadMode::Page);
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+            $detail = $reader()->component(Component::Mysql, 'default', ReadMode::Fragment);
+            $this->clock->sleep(self::BETWEEN_DISPLAYS);
+        }
+
+        self::assertSame(1, $container->asked);
+        self::assertEqualsWithDelta(self::START + 10 + 2 * self::DISPLAYS * self::BETWEEN_DISPLAYS, (float) $this->clock->now()->format('U.u'), 0.001, 'one wait of ten seconds');
+        self::assertFalse($detail?->isReading());
+
+        $snapshot = $detail?->component(Component::Mysql)?->instances[0]->snapshot;
+
+        foreach (['mysql', 'mysql.variables', 'mysql.sizes', 'mysql.slow_queries'] as $name) {
+            self::assertSame(ResultState::Failed, $snapshot?->result($name)?->state, $name);
+        }
+    }
+
+    public function testAFrozenDatabaseMakesOneGlanceWait(): void
+    {
+        $container = new class ($this->clock) extends Container {
+            public int $asked = 0;
+
+            public function __construct(
+                private readonly MockClock $clock,
+            ) {
+                parent::__construct();
+            }
+
+            public function get(string $id, int $invalidBehavior = self::EXCEPTION_ON_INVALID_REFERENCE): ?object
+            {
+                ++$this->asked;
+                $this->clock->sleep(10);
+
+                throw new \RuntimeException('SQLSTATE[HY000] [2006] MySQL server has gone away');
+            }
+        };
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->mysqlReader($container, ['default' => self::MYSQL], $cache);
+        $detail = null;
+
+        for ($i = 0; $i < self::DISPLAYS; ++$i) {
+            $this->glance($this->stackServices($cache, $reader))->glance();
             $this->clock->sleep(self::BETWEEN_DISPLAYS);
             $detail = $reader()->component(Component::Mysql, 'default', ReadMode::Fragment);
             $this->clock->sleep(self::BETWEEN_DISPLAYS);
@@ -917,6 +1031,34 @@ final class DisplayCostTest extends TestCase
             new ActionGuard(),
             $logger,
         );
+    }
+
+    /**
+     * The services of the stack for one request, each built once as the container builds them.
+     *
+     * @param ?\Closure(): LocalStackReader $reader the reader of the request, one on the collectors of the test when null
+     */
+    private function stackServices(CacheItemPoolInterface $cache, ?\Closure $reader = null): ServiceLocator
+    {
+        $node = new WebNode('web-1');
+        $factories = [
+            StackReaderInterface::class => $reader ?? fn(): StackReaderInterface => $this->reader($cache),
+            StackChecks::class => fn(): StackChecks => new StackChecks([], false, $this->clock),
+            StackSummary::class => fn(): StackSummary => new StackSummary(new ServiceLocator(['cache' => static fn(): CacheItemPoolInterface => $cache]), $node, $this->clock),
+        ];
+
+        return new ServiceLocator(array_map(static function (\Closure $factory): \Closure {
+            $service = null;
+
+            return static function () use ($factory, &$service): object {
+                return $service ??= $factory();
+            };
+        }, $factories));
+    }
+
+    private function glance(ServiceLocator $services): OverviewGlance
+    {
+        return new OverviewGlance($services, new CardBuilder($this->clock), $this->clock);
     }
 
     /** @return AbstractLogger&object{messages: list<string>} */
