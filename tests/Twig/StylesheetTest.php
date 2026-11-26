@@ -635,17 +635,24 @@ final class StylesheetTest extends TestCase
         static::assertContains(['background', 'none'], $pending);
     }
 
-    public function testTheColumnsOfTheMapStackAndLoseTheirArrowsWhenTheMapIsNarrow(): void
+    public function testTheMapIsStackedUnlessItIsWideEnoughForItsColumns(): void
     {
-        $at = '@container jm-map (width < 960px)';
+        $wide = '@container jm-map (width >= 960px)';
+        $medium = '@container jm-map (width >= 480px)';
 
         static::assertContains(['container-type', 'inline-size'], self::declarationsOf('.jm-map', null));
         static::assertContains(['container-name', 'jm-map'], self::declarationsOf('.jm-map', null));
         static::assertContains(['display', 'flex'], self::declarationsOf('.jm-map__columns', null));
-        static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__columns', $at));
-        static::assertContains(['display', 'none'], self::declarationsOf('.jm-map__arrow', $at));
-        static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__boxes--inside', '@container jm-map (width < 480px)'));
-        static::assertNotContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__boxes--inside', $at));
+        static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__columns', null));
+        static::assertContains(['display', 'none'], self::declarationsOf('.jm-map__arrow', null));
+        static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__boxes', null));
+        static::assertSame([], self::declarationsOf('.jm-map__boxes--inside', null));
+        static::assertContains(['flex-direction', 'row'], self::declarationsOf('.jm-map__columns', $wide));
+        static::assertContains(['flex', '1 1 0'], self::declarationsOf('.jm-map__column', $wide));
+        static::assertContains(['flex-grow', '1.25'], self::declarationsOf('.jm-map__column--app', $wide));
+        static::assertContains(['display', 'block'], self::declarationsOf('.jm-map__arrow', $wide));
+        static::assertContains(['flex-direction', 'row'], self::declarationsOf('.jm-map__boxes--inside', $medium));
+        static::assertSame([], self::declarationsOf('.jm-map__boxes--inside', $wide));
     }
 
     public function testTheMapIsLaidOutByItsOwnWidthNotByTheWindow(): void
@@ -661,7 +668,7 @@ final class StylesheetTest extends TestCase
 
     public function testTheParserReadsContainerRules(): void
     {
-        static::assertContains('.jm-map__columns', self::selectorsIn(self::rules(), '@container jm-map (width < 960px)'));
+        static::assertContains('.jm-map__columns', self::selectorsIn(self::rules(), '@container jm-map (width >= 960px)'));
     }
 
     public function testABoxThatIsALinkKeepsTheColoursOfItsText(): void
