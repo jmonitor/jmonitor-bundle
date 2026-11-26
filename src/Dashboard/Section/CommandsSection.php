@@ -131,7 +131,8 @@ final class CommandsSection implements SectionInterface
             return null;
         }
 
-        $figures = ($runs === 1 ? 'run' : 'runs') . ' of ' . ($report->keyCount === 1 ? '1 command' : Format::number($report->keyCount) . ' commands');
+        $commands = $report->keyCount + ($report->other === null ? 0 : 1);
+        $figures = ($runs === 1 ? 'run' : 'runs') . ' of ' . ($commands === 1 ? '1 command' : Format::number($commands) . ' commands') . ($report->other === null ? '' : ' or more');
 
         return new Brief(
             Format::number($runs),

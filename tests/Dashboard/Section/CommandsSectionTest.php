@@ -238,8 +238,16 @@ final class CommandsSectionTest extends TestCase
             [self::command('h1', 'app:a', 1000, failed: 2)],
             self::command('ho', Aggregator::OTHER, 234, failed: 1),
             1,
-            ['1,234', '1,234 command runs', 'runs of 1 command, 3 failed', '3 command runs failed.', 'bad'],
+            ['1,234', '1,234 command runs', 'runs of 2 commands or more, 3 failed', '3 command runs failed.', 'bad'],
         ];
+        yield 'a hundred commands and the other ones' => [
+            array_map(static fn(int $i): ReportRow => self::command('h' . $i, 'app:' . $i), range(1, 100)),
+            self::command('ho', Aggregator::OTHER, 1),
+            100,
+            ['101', '101 command runs', 'runs of 101 commands or more', '', null],
+        ];
+        yield 'only the other commands' => [[], self::command('ho', Aggregator::OTHER, 2, failed: 1), 0, ['2', '2 command runs', 'runs of 1 command or more, 1 failed', '1 command run failed.', 'bad']];
+        yield 'one run of the other commands' => [[], self::command('ho', Aggregator::OTHER, 1), 0, ['1', '1 command run', 'run of 1 command or more', '', null]];
     }
 
     /**

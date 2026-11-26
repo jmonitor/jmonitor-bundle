@@ -901,7 +901,7 @@ final class DisplayCostTest extends TestCase
             return $service;
         }, $services));
         $screen = new StackScreen($locator, new CardBuilder($this->clock), $this->clock, new ServiceLocator([]));
-        $screens = [new RequestsScreen(new ApplicationChecks([]), 1000), ...($queues === null ? [] : [new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new MessagesSection(true, true, new QueuesBlocks($locator, $this->clock))])]), $screen];
+        $screens = [new RequestsScreen(new ApplicationChecks([]), 1000), ...($queues === null ? [] : [new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new MessagesSection(true, true, new QueuesBlocks($locator, $this->clock), new ApplicationChecks([]))])]), $screen];
 
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');

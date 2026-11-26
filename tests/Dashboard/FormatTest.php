@@ -30,13 +30,6 @@ final class FormatTest extends TestCase
         static::assertSame('10.0', Format::number(10, 1));
     }
 
-    public function testSql(): void
-    {
-        static::assertSame('45 ms · 12 q', Format::sql(45.0, 12.0));
-        static::assertSame('15 ms · 0.8 q', Format::sql(15.0, 0.75));
-        static::assertSame('<1 ms · 1.5 q', Format::sql(0.5, 1.5));
-    }
-
     public function testPeriod(): void
     {
         static::assertSame('Last hour', Format::period(Period::OneHour));

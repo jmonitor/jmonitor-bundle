@@ -46,8 +46,8 @@ final class MessagesSection implements SectionInterface, BlockSourceInterface
     public function __construct(
         private readonly bool $messenger,
         private readonly bool $recorded,
-        private readonly ?BlockSourceInterface $queues = null,
-        private readonly ApplicationChecks $checks = new ApplicationChecks([]),
+        private readonly ?BlockSourceInterface $queues,
+        private readonly ApplicationChecks $checks,
     ) {}
 
     public function id(): string
