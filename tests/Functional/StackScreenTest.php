@@ -571,7 +571,7 @@ final class StackScreenTest extends WebTestCase
         $client = $this->client([
             'internals' => true,
             'connections' => ['dead' => ['url' => 'mysql://jmonitor:jmonitor@127.0.0.1:1/jmonitor']],
-            'jmonitor' => ['stack' => ['ignore_checks' => ['system.load']]],
+            'jmonitor' => ['stack' => ['system' => false, 'php' => false]],
         ]);
 
         $client->request('GET', '/jmonitor/stack');

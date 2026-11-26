@@ -1015,7 +1015,7 @@ final class DashboardTest extends WebTestCase
         $client = static::createClient(['jmonitor' => ['recording' => ['commands' => ['enabled' => false]] + $this->recording()['recording']]]);
 
         $crawler = $client->request('GET', '/jmonitor/');
-        static::assertSame(['Overview', 'Application', 'Stack'], $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame(['Overview', 'Application', 'Stack'], $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => trim((string) $item->getNode(0)?->firstChild?->textContent)));
 
         foreach (['background', '_fragment/background', 'commands'] as $address) {
             $client->request('GET', '/jmonitor/' . $address);
