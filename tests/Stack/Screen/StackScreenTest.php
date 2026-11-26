@@ -102,6 +102,8 @@ final class StackScreenTest extends TestCase
         yield 'nothing' => [Snapshots::stack($calm), 'Everything that runs your application answers.'];
         yield 'an info alone' => [self::healthy(), 'Everything that runs your application answers.'];
         yield 'a warning' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $calm), 'Everything that runs your application answers. 1 warning, on Server.'];
+        yield 'a warning beside an info' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), Snapshots::of(Component::Php, ['php' => Snapshots::php()])), 'Everything that runs your application answers. 1 warning, on Server.'];
+        yield 'a critical and a warning' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $calm, $debug), 'What runs your application needs attention. 1 critical and 1 warning, on Server and Symfony.'];
         yield 'two components' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $failed(Component::Php)), 'Everything that runs your application answers. 2 warnings, on Server and PHP.'];
         yield 'a critical and warnings' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $full]), $calm, $debug), 'What runs your application needs attention. 1 critical and 2 warnings, on Server and Symfony.'];
         yield 'three components' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $failed(Component::Php), $debug), 'What runs your application needs attention. 1 critical and 2 warnings, on Server, PHP and Symfony.'];
