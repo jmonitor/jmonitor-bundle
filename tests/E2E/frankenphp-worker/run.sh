@@ -70,7 +70,15 @@ captures_round() {
     hit /boom 500
     hit /boom 500
     expect_page /jmonitor/cache-http 'data-jm-pool="cache.app" data-jm-reads="3"' "round $1: the Cache & HTTP screen did not list 3 reads of cache.app"
+    printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">3 cache reads (' || fail "round $1: the Cache & HTTP screen does not sum up 3 cache reads in its lead"
+    printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-text">No pool with a low hit rate in the last hour.<' || fail "round $1: the Cache & HTTP screen does not say that no pool has a low hit rate"
+    if printf '%s\n' "$page" | grep -q 'data-jm-check='; then
+        fail "round $1: the Cache & HTTP screen flags a check without a low hit rate, a call without answer or an error response"
+    fi
     expect_page /jmonitor/exceptions 'data-jm-exception="RuntimeException" data-jm-count="2"' "round $1: the Exceptions screen did not list 2 RuntimeException"
+    printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">2 exceptions in the last hour' || fail "round $1: the Exceptions screen does not sum up 2 exceptions in its lead"
+    printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "round $1: the Exceptions screen does not show the server errors of the route that threw"
+    printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "round $1: the Exceptions screen does not name GET app_boom as the route that answered 2 server errors"
 }
 
 $COMPOSE build --quiet app
@@ -477,7 +485,13 @@ $COMPOSE exec -T app php tests/Fixtures/App/bin/console app:work || fail "app:wo
 expect_page /jmonitor/background 'data-jm-command="app:work" data-jm-runs="1"' 'the Background screen did not list 1 run of app:work'
 hit '/dispatch?count=1' 200
 expect_page /jmonitor/background 'data-jm-message="[^"]*\\Ping"[^>]*data-jm-sent="1"' 'the Background screen did not list 1 sent Ping message'
+printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">1 message sent and 1 command run in the last hour.<' || fail "the Background screen does not sum up 1 message sent and 1 command run in its lead"
+printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-text">No failed message, no failed command run in the last hour.<' || fail "the Background screen does not say that no message and no command run failed"
+if printf '%s\n' "$page" | grep -q 'data-jm-check='; then
+    fail "the Background screen flags a check without a failed message, scheduled run or command run"
+fi
 hit /admin/jmonitor/background 200 "$ADMIN"
+expect_page /admin/jmonitor/background 'class="jm-heading__title jm-lead__title">1 message sent and 1 command run in the last hour.<' 'the Background screen inside EasyAdmin did not sum up 1 message sent and 1 command run in its lead' "$ADMIN"
 for path in /jmonitor/messages /jmonitor/cache /admin/jmonitor/messages; do
     hit "$path" 404 "$ADMIN"
 done
@@ -526,4 +540,4 @@ if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; the Requests and Queries screens sum up the period, have nothing to flag, then flag the server errors and the repeated query, also inside EasyAdmin; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; the Requests and Queries screens sum up the period, have nothing to flag, then flag the server errors and the repeated query, also inside EasyAdmin; the Cache & HTTP, Exceptions and Background screens sum up the period, Exceptions with the server errors of the route that threw, the others with nothing to flag, Background also inside EasyAdmin; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
