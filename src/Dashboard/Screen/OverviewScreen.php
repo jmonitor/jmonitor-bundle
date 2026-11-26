@@ -431,12 +431,14 @@ final class OverviewScreen implements RecordedScreenInterface
             return null;
         }
 
+        $sent = $read->count(Metric::MESSAGE_SENT);
+
         return [
             self::box(
                 'Messages',
                 $read->count(Metric::MESSAGE_DURATION),
-                'Handled by Messenger, ' . Format::number($read->count(Metric::MESSAGE_SENT)) . ' sent.',
-                'No message handled in the ' . $periodText . '.',
+                'Handled by Messenger, ' . Format::number($sent) . ' sent.',
+                $sent > 0 ? self::plural($sent, 'message', 'messages') . ' sent, none handled in the ' . $periodText . '.' : 'No message handled in the ' . $periodText . '.',
                 self::failed($read->count(Metric::MESSAGE_FAILED)),
                 'background',
                 'messages',
@@ -513,7 +515,7 @@ final class OverviewScreen implements RecordedScreenInterface
         $count = $read->count(Metric::USER_DURATION);
 
         return [
-            self::box('Signed-in users', $count, $count === 1 ? 'request made by signed-in users.' : 'requests made by signed-in users.', 'No request from a signed-in user in the ' . $periodText . '.', [], 'users'),
+            self::box('User requests', $count, 'made by signed-in users.', 'No request from a signed-in user in the ' . $periodText . '.', [], 'users'),
             [],
         ];
     }

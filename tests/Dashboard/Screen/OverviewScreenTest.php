@@ -400,7 +400,9 @@ final class OverviewScreenTest extends TestCase
         yield 'messages' => ['Messages', [], [Metric::MESSAGE_DURATION => self::counted(42), Metric::MESSAGE_SENT => self::counted(45)], 0, new MapBox('Messages', '42', 'Handled by Messenger, 45 sent.', [], 'background', 'messages')];
         yield 'messages, one failed' => ['Messages', [], [Metric::MESSAGE_DURATION => self::counted(1), Metric::MESSAGE_FAILED => self::counted(1)], 0, new MapBox('Messages', '1', 'Handled by Messenger, 0 sent.', [new Tag('1 failed', 'bad')], 'background', 'messages', 'bad')];
         yield 'messages, several failed' => ['Messages', [], [Metric::MESSAGE_DURATION => self::counted(5), Metric::MESSAGE_SENT => self::counted(5), Metric::MESSAGE_FAILED => self::counted(3)], 0, new MapBox('Messages', '5', 'Handled by Messenger, 5 sent.', [new Tag('3 failed', 'bad')], 'background', 'messages', 'bad')];
-        yield 'no message' => ['Messages', [], [Metric::MESSAGE_SENT => self::counted(2)], 0, new MapBox('Messages', null, 'No message handled in the last hour.', [], 'background', 'messages')];
+        yield 'messages sent, none handled' => ['Messages', [], [Metric::MESSAGE_SENT => self::counted(1045)], 0, new MapBox('Messages', null, '1,045 messages sent, none handled in the last hour.', [], 'background', 'messages')];
+        yield 'one message sent, none handled' => ['Messages', [], [Metric::MESSAGE_SENT => self::counted(1)], 0, new MapBox('Messages', null, '1 message sent, none handled in the last hour.', [], 'background', 'messages')];
+        yield 'no message' => ['Messages', [], [], 0, new MapBox('Messages', null, 'No message handled in the last hour.', [], 'background', 'messages')];
 
         yield 'one run of one task' => ['Scheduled tasks', [], [Metric::TASK_DURATION => self::counted(1)], 1, new MapBox('Scheduled tasks', '1', 'Run of 1 declared task.', [], 'background', 'tasks')];
         yield 'runs of tasks' => ['Scheduled tasks', [], [Metric::TASK_DURATION => self::counted(12), Metric::TASK_FAILED => self::counted(2)], 3, new MapBox('Scheduled tasks', '12', 'Runs of 3 declared tasks.', [new Tag('2 failed', 'bad')], 'background', 'tasks', 'bad')];
@@ -418,9 +420,9 @@ final class OverviewScreenTest extends TestCase
         yield 'exceptions' => ['Exceptions', [], [Metric::EXCEPTION_COUNT => self::counted(1500)], 0, new MapBox('Exceptions', '1,500', 'exceptions thrown.', [], 'exceptions')];
         yield 'no exception' => ['Exceptions', [], [], 0, new MapBox('Exceptions', null, 'No exception in the last hour.', [], 'exceptions')];
 
-        yield 'one request of a user' => ['Signed-in users', [], [Metric::USER_DURATION => self::counted(1)], 0, new MapBox('Signed-in users', '1', 'request made by signed-in users.', [], 'users')];
-        yield 'requests of users' => ['Signed-in users', [], [Metric::USER_DURATION => self::counted(140)], 0, new MapBox('Signed-in users', '140', 'requests made by signed-in users.', [], 'users')];
-        yield 'no user' => ['Signed-in users', [], [], 0, new MapBox('Signed-in users', null, 'No request from a signed-in user in the last hour.', [], 'users')];
+        yield 'one request of a user' => ['User requests', [], [Metric::USER_DURATION => self::counted(1)], 0, new MapBox('User requests', '1', 'made by signed-in users.', [], 'users')];
+        yield 'requests of users' => ['User requests', [], [Metric::USER_DURATION => self::counted(140)], 0, new MapBox('User requests', '140', 'made by signed-in users.', [], 'users')];
+        yield 'no user' => ['User requests', [], [], 0, new MapBox('User requests', null, 'No request from a signed-in user in the last hour.', [], 'users')];
 
         yield 'queries' => ['SQL queries', [], [Metric::QUERY_DURATION => new MetricValue(3402, 2600.0, 40.0)], 0, new MapBox('SQL queries', '3,402', '2.6 s in total, none slow.', [], 'queries')];
         yield 'queries, one slow' => ['SQL queries', [], [Metric::QUERY_DURATION => new MetricValue(20, 400.0, 150.0), Metric::QUERY_SLOW => self::counted(1)], 0, new MapBox('SQL queries', '20', '400 ms in total.', [new Tag('1 slow', 'warn')], 'queries', null, 'warn')];
@@ -475,7 +477,7 @@ final class OverviewScreenTest extends TestCase
         static::assertNotNull($map);
         static::assertSame(['Requests', 'Messages', 'Scheduled tasks', 'Commands'], array_map(static fn(MapBox $box): string => $box->label, $map->incoming));
         static::assertSame('An average request', $map->average?->label);
-        static::assertSame(['Exceptions', 'Signed-in users'], array_map(static fn(MapBox $box): string => $box->label, $map->inside));
+        static::assertSame(['Exceptions', 'User requests'], array_map(static fn(MapBox $box): string => $box->label, $map->inside));
         static::assertSame(['SQL queries', 'Cache', 'Other sites and APIs'], array_map(static fn(MapBox $box): string => $box->label, $map->outgoing));
         static::assertEquals(new StackGlance([self::card('php', 'ok')]), $map->runsOn);
     }
@@ -492,8 +494,8 @@ final class OverviewScreenTest extends TestCase
         yield 'http' => [['http'], ['Other sites and APIs']];
         yield 'queries' => [['queries'], ['SQL queries']];
         yield 'exceptions' => [['exceptions'], ['Exceptions']];
-        yield 'users' => [['users'], ['Signed-in users']];
-        yield 'everything but requests' => [['messages', 'tasks', 'commands', 'cache', 'http', 'queries', 'exceptions', 'users'], ['Messages', 'Scheduled tasks', 'Commands', 'Exceptions', 'Signed-in users', 'SQL queries', 'Cache', 'Other sites and APIs']];
+        yield 'users' => [['users'], ['User requests']];
+        yield 'everything but requests' => [['messages', 'tasks', 'commands', 'cache', 'http', 'queries', 'exceptions', 'users'], ['Messages', 'Scheduled tasks', 'Commands', 'Exceptions', 'User requests', 'SQL queries', 'Cache', 'Other sites and APIs']];
     }
 
     /**
@@ -503,7 +505,7 @@ final class OverviewScreenTest extends TestCase
     #[DataProvider('unavailable')]
     public function testABoxOnlyExistsWhenWhatItOpensIsAvailable(array $off, array $gone): void
     {
-        $all = ['Requests', 'Messages', 'Scheduled tasks', 'Commands', 'An average request', 'Exceptions', 'Signed-in users', 'SQL queries', 'Cache', 'Other sites and APIs'];
+        $all = ['Requests', 'Messages', 'Scheduled tasks', 'Commands', 'An average request', 'Exceptions', 'User requests', 'SQL queries', 'Cache', 'Other sites and APIs'];
 
         $view = $this->view($this->reader([self::route('GET app_a')]), screen: $this->screen(off: $off));
 
@@ -720,7 +722,7 @@ final class OverviewScreenTest extends TestCase
         $view = $this->view($this->reader([]), stack: $stack, screen: $this->screen(declared: 2));
 
         static::assertEquals(new Lead('JMonitor is installed and recording.', 'Nothing was recorded in the last hour. The figures fill in as your application receives requests. Your servers are already read.'), $view->lead);
-        static::assertSame(['Requests', 'Messages', 'Scheduled tasks', 'Commands', 'An average request', 'Exceptions', 'Signed-in users', 'SQL queries', 'Cache', 'Other sites and APIs'], self::labels($view));
+        static::assertSame(['Requests', 'Messages', 'Scheduled tasks', 'Commands', 'An average request', 'Exceptions', 'User requests', 'SQL queries', 'Cache', 'Other sites and APIs'], self::labels($view));
         static::assertSame([], array_values(array_filter(self::boxesOf($view), static fn(MapBox $box): bool => $box->value !== null || $box->tags !== [] || $box->tone !== null)));
         static::assertSame('2 tasks declared, none ran in the last hour.', self::box($view, 'Scheduled tasks')?->text);
         static::assertNull($view->map?->split);

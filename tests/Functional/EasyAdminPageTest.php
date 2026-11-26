@@ -315,7 +315,7 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertCount(1, $crawler->filter('.jm [data-jm-component="symfony"]'));
         static::assertSame('/admin/jmonitor/stack', $crawler->filter('.jm .jm-nav__item[aria-current="page"]')->attr('href'));
         static::assertSame('/admin/jmonitor/stack/php', $crawler->filter('.jm [data-jm-component="php"] a')->attr('href'));
-        static::assertMatchesRegularExpression('/^(Everything that runs your application answers\.|What runs your application needs attention\.|Reading what runs your application…)/', $crawler->filter('.jm .jm-screen h1.jm-lead__title')->text());
+        static::assertMatchesRegularExpression('/^(Everything that runs your application answers\.|Part of what runs your application could not be read\.|What runs your application needs attention\.|Reading what runs your application…)/', $crawler->filter('.jm .jm-screen h1.jm-lead__title')->text());
         static::assertSame('Worth a look', $crawler->filter('.jm section.jm-checks')->attr('aria-label'));
         static::assertSame('Read again now', $crawler->filter('.jm form[action="/admin/jmonitor/_action/stack"] button')->text());
         foreach (self::urlsOf($crawler->filter('.jm')) as $url) {

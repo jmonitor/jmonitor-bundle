@@ -98,17 +98,22 @@ final class StackScreenTest extends TestCase
         $full['ram']['available'] = 800_000_000;
         $failed = static fn(Component $component): ComponentSnapshot => Snapshots::of($component, [], [$component->value => ResultState::Failed]);
         $debug = Snapshots::of(Component::Symfony, ['symfony' => ['debug' => true] + Snapshots::symfony()]);
+        $unread = [new InstanceState('cache', null, null, null)];
+        $read = static fn(ComponentSnapshot $snapshot): array => [new InstanceState(null, null, null, $snapshot)];
 
         yield 'nothing' => [Snapshots::stack($calm), 'Everything that runs your application answers.'];
         yield 'an info alone' => [self::healthy(), 'Everything that runs your application answers.'];
         yield 'a warning' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $calm), 'Everything that runs your application answers. 1 warning, on Server.'];
         yield 'a warning beside an info' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), Snapshots::of(Component::Php, ['php' => Snapshots::php()])), 'Everything that runs your application answers. 1 warning, on Server.'];
         yield 'a critical and a warning' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $calm, $debug), 'What runs your application needs attention. 1 critical and 1 warning, on Server and Symfony.'];
-        yield 'two components' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $failed(Component::Php)), 'Everything that runs your application answers. 2 warnings, on Server and PHP.'];
+        yield 'two components' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $failed(Component::Php)), 'Part of what runs your application could not be read. 2 warnings, on Server and PHP.'];
         yield 'a critical and warnings' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $full]), $calm, $debug), 'What runs your application needs attention. 1 critical and 2 warnings, on Server and Symfony.'];
         yield 'three components' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $failed(Component::Php), $debug), 'What runs your application needs attention. 1 critical and 2 warnings, on Server, PHP and Symfony.'];
         yield 'four components' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $failed(Component::Php), $debug, $failed(Component::Redis)), 'What runs your application needs attention. 1 critical and 3 warnings, on 4 components.'];
         yield 'two critical' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => ['disk' => ['total' => 100_000_000_000, 'free' => 1_000_000_000]] + Snapshots::system()]), $debug), 'What runs your application needs attention. 2 critical, on Server and Symfony.'];
+        yield 'a component not read' => [Snapshots::state(['php' => $read($calm), 'redis' => $unread]), 'Part of what runs your application could not be read.'];
+        yield 'a component not read beside a warning' => [Snapshots::state(['system' => $read(Snapshots::of(Component::System, ['system' => $disk])), 'php' => $read($calm), 'redis' => $unread]), 'Part of what runs your application could not be read. 1 warning, on Server.'];
+        yield 'a component not read beside a critical' => [Snapshots::state(['php' => $read($calm), 'symfony' => $read($debug), 'redis' => $unread]), 'What runs your application needs attention. 1 critical, on Symfony.'];
         yield 'reading' => [self::reading(), 'Reading what runs your application…'];
     }
 

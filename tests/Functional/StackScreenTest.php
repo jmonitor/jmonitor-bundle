@@ -81,7 +81,7 @@ final class StackScreenTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         static::assertSame(['h1'], $crawler->filter('.jm-screen h1')->each(static fn(Crawler $title): string => $title->nodeName()));
-        static::assertMatchesRegularExpression('/^(Everything that runs your application answers\.|What runs your application needs attention\.|Reading what runs your application…)/', $crawler->filter('.jm-screen h1.jm-lead__title')->text());
+        static::assertMatchesRegularExpression('/^(Everything that runs your application answers\.|Part of what runs your application could not be read\.|What runs your application needs attention\.|Reading what runs your application…)/', $crawler->filter('.jm-screen h1.jm-lead__title')->text());
         static::assertSame('Read on your servers as you open this screen. Nothing is kept: it shows now, not the past.', $crawler->filter('.jm-lead__detail')->text());
         static::assertCount(0, $crawler->filter('.jm-heading__text'));
         static::assertSame('Worth a look', $crawler->filter('section.jm-checks')->attr('aria-label'));

@@ -224,7 +224,7 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 Cell::averageSplit(84.0, 30.0, 4.2, 12.0),
                 [
                     new MapBox('Exceptions', '7', 'exceptions thrown.', path: 'gallery'),
-                    new MapBox('Signed-in users', '140', 'requests made by signed-in users.'),
+                    new MapBox('User requests', '140', 'made by signed-in users.'),
                 ],
                 new StackGlance([
                     new ComponentCard('server', 'Server', $healthy, [new Vital('Load', '0.42'), new Vital('Memory', '61 %'), new Vital('Disk', '48 %')], 'Ubuntu 24.04 LTS', 'gallery'),

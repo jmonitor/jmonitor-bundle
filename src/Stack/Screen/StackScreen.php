@@ -24,6 +24,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Check\Severity;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
+use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
@@ -185,7 +186,11 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
 
         $critical = $health->count(Severity::Critical);
         $warning = $health->count(Severity::Warning);
-        $sentence = $critical > 0 ? 'What runs your application needs attention.' : 'Everything that runs your application answers.';
+        $sentence = match (true) {
+            $critical > 0 => 'What runs your application needs attention.',
+            self::hasUnknown($state, $health) => 'Part of what runs your application could not be read.',
+            default => 'Everything that runs your application answers.',
+        };
 
         if ($critical + $warning === 0) {
             return new Lead($sentence, $detail);
@@ -212,6 +217,17 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
         }
 
         return new Lead(sprintf('%s %s, on %s.', $sentence, implode(' and ', $counts), self::enumerate($components)), $detail);
+    }
+
+    private static function hasUnknown(StackState $state, StackHealth $health): bool
+    {
+        foreach ($state->components as $component) {
+            if ($health->componentVerdict($component->component) === Verdict::Unknown) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -1227,7 +1227,7 @@ final class TemplatesTest extends TestCase
         $map = new Map(
             average: new MapBox('An average request', '84 ms', '4 SQL queries per request.'),
             split: $split,
-            inside: [new MapBox('Exceptions', '7', 'exceptions thrown.', path: 'exceptions'), new MapBox('Signed-in users', '140', 'requests made by signed-in users.')],
+            inside: [new MapBox('Exceptions', '7', 'exceptions thrown.', path: 'exceptions'), new MapBox('User requests', '140', 'made by signed-in users.')],
             runsOn: new StackGlance([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), [new Vital('OPcache memory', '42 %')], '8.4.1')]),
         );
 

@@ -28,12 +28,6 @@ final class ApplicationChecks
         $this->checks = $byId;
     }
 
-    /** @return list<string> the ids of the screens that detail a check */
-    public function screens(): array
-    {
-        return array_values(array_unique(array_map(static fn(CheckInterface $check): string => $check->screen(), array_values($this->checks))));
-    }
-
     /** the read that names the first culprit of a check, null when no check has this id */
     public function query(string $id, Period $period, int $now): ?ReportQuery
     {
