@@ -210,12 +210,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->args([param('jmonitor.recording.commands.enabled'), service(ApplicationChecks::class)]);
 
     $services->set(ExceptionsScreen::class)
-        ->args([param('jmonitor.recording.exceptions')])
+        ->args([param('jmonitor.recording.exceptions'), service(ApplicationChecks::class)])
         ->tag('jmonitor.screen', ['priority' => 30]);
 
     if (isset($builder->getParameter('kernel.bundles')['SecurityBundle'])) {
         $services->set(UsersScreen::class)
-            ->args([param('jmonitor.recording.users'), param('jmonitor.recording.slow_threshold')])
+            ->args([param('jmonitor.recording.users'), service(ApplicationChecks::class), param('jmonitor.recording.slow_threshold')])
             ->tag('jmonitor.screen', ['priority' => 20]);
     }
 

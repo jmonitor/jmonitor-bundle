@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
@@ -27,6 +28,8 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
@@ -65,6 +68,7 @@ use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Storage\Read\Totals;
 use Jmonitor\JmonitorBundle\Storage\StorageInterface;
 use Jmonitor\JmonitorBundle\Tests\Stack\Fixtures\CountingCachePool;
@@ -1002,6 +1006,46 @@ final class PageRendererTest extends TestCase
         $tabs = (new Crawler($renderer->page(Request::create('/'), 'queries', new FakeHostUrls())->html))->filter('.jm-subnav__item');
 
         static::assertSame(['7 things', '1 warning in the last hour'], $tabs->filter('.jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->attr('title')));
+    }
+
+    public function testTheExceptionsAndUsersTabsCarryNoBadgeForTheChecksOfRequestsTheyShow(): void
+    {
+        $thrown = Entry::TYPE_REQUEST . Entry::KEY_SEPARATOR . 'GET app_boom' . Entry::KEY_SEPARATOR . \RuntimeException::class;
+        $reports = [
+            Family::Exception->value => new Report([new ReportRow('h1', \RuntimeException::class, null, [Metric::EXCEPTION_COUNT => new MetricValue(2, 0.0, 1799999990.0)])], null, 1, [], [Metric::EXCEPTION_COUNT => new MetricValue(2, 0.0, 1799999990.0)]),
+            Family::ExceptionWhere->value => new Report([new ReportRow('w1', $thrown, null, [Metric::EXCEPTION_WHERE_COUNT => new MetricValue(2, 0.0, 1799999990.0)])], null, 1),
+            Family::User->value => new Report([new ReportRow('u1', 'alice', null, [
+                Metric::USER_DURATION => new MetricValue(3, 30.0, 10.0),
+                Metric::USER_ERROR => new MetricValue(2, 0.0, 0.0),
+                Metric::USER_SLOW => new MetricValue(1, 0.0, 0.0),
+            ])], null, 1, [], [
+                Metric::USER_DURATION => new MetricValue(3, 30.0, 10.0),
+                Metric::USER_ERROR => new MetricValue(2, 0.0, 0.0),
+                Metric::USER_SLOW => new MetricValue(1, 0.0, 0.0),
+            ]),
+        ];
+        $reader = new FixedReader(
+            static fn(ReportQuery $query): Report => $reports[$query->family->value] ?? new Report(),
+            totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0), Metric::REQUEST_SLOW => new MetricValue(1, 0.0, 0.0)],
+        );
+        $renderer = $this->renderer([self::tableScreen('requests'), new ExceptionsScreen(true, self::checks()), new UsersScreen(true, self::checks(), 500)], reader: $reader, checks: self::checks());
+
+        foreach (['exceptions' => ['requests.server_errors'], 'users' => ['requests.server_errors', 'requests.slow']] as $path => $checks) {
+            foreach ([
+                'page' => static fn(): string => $renderer->page(Request::create('/'), $path, new FakeHostUrls())->html,
+                'fragment' => static fn(): string => (string) $renderer->fragment(Request::create('/'), $path, new FakeHostUrls())->getContent(),
+            ] as $kind => $render) {
+                $reader->totalRequests = [];
+                $html = new Crawler($render());
+                $tabs = $html->filter('.jm-subnav__item');
+
+                static::assertSame($checks, $html->filter('[data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')), $path . ' ' . $kind);
+                static::assertSame('1 critical, 1 warning in the last hour', $tabs->eq(0)->filter('.jm-nav__badge')->attr('title'), $path . ' ' . $kind);
+                static::assertCount(0, $tabs->eq(1)->filter('.jm-nav__badge'), $path . ' ' . $kind);
+                static::assertCount(0, $tabs->eq(2)->filter('.jm-nav__badge'), $path . ' ' . $kind);
+                static::assertCount(1, array_filter($reader->totalRequests, static fn(array $request): bool => $request[2] !== [Metric::REQUEST_DURATION]), $path . ' ' . $kind);
+            }
+        }
     }
 
     public function testTheTotalsAreReadOncePerDisplay(): void

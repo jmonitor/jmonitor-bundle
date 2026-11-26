@@ -9,8 +9,10 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
@@ -38,8 +40,8 @@ final class ReadCostTest extends KernelTestCase
     private const BUDGET = [
         'requests' => 8,
         'queries' => 15,
-        'exceptions' => 5,
-        'users' => 5,
+        'exceptions' => 14,
+        'users' => 8,
     ];
 
     /** @var array<string, int> section id => SQL statements read to display it once */
@@ -292,6 +294,99 @@ final class ReadCostTest extends KernelTestCase
         }
 
         static::assertSame(['messages' => 2, 'tasks' => 2, 'commands' => 2], $sections);
+    }
+
+    public function testTheBudgetOfExceptionsIsMeasuredWithItsFourChecks(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $startedAt = (float) (self::NOW - 30);
+        $thrown = [new Entry(Entry::TYPE_EXCEPTION, \RuntimeException::class, $startedAt, 0.0, ['n' => 1])];
+        $units = [
+            ...self::units(),
+            new Entry(Entry::TYPE_REQUEST, 'GET app_boom', $startedAt, 10.0, ['status' => 500], $thrown),
+            new Entry(Entry::TYPE_COMMAND, 'app:fail', $startedAt, 10.0, ['exit' => 1, 'memory' => 2048], $thrown),
+            new Entry(Entry::TYPE_MESSAGE, 'App\\Message\\Resize', $startedAt, 5.0, ['memory' => 2048, 'failed' => 1], $thrown),
+            new Entry(Entry::TYPE_TASK, (new TaskKey('default', '28af6db0', 'app:purge', 'every 1 hour'))->toString(), $startedAt, 12.0, ['failed' => 1], $thrown),
+        ];
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($units), self::NOW, self::LABELS);
+        $screen = self::screen('exceptions');
+        \assert($screen instanceof ExceptionsScreen);
+        $reads = [];
+
+        foreach ($screen->sorts() as $sort => $direction) {
+            $recorder->statements = [];
+            $view = $screen->build(new DbalReader($connection), Period::OneHour, self::NOW, $sort, $direction);
+
+            static::assertNotNull($view->checks);
+            static::assertSame(['requests.server_errors', 'messages.failed', 'tasks.failed', 'commands.failed'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines), $sort);
+            $reads[$sort] = \count($recorder->statements);
+        }
+
+        static::assertSame(['count' => self::BUDGET['exceptions'], 'last' => self::BUDGET['exceptions'], 'class' => self::BUDGET['exceptions']], $reads);
+    }
+
+    public function testTheExceptionsScreenWithoutCheckReadsSixStatements(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate(self::units()), self::NOW, self::LABELS);
+        $screen = self::screen('exceptions');
+        $recorder->statements = [];
+
+        $view = $screen->build(new DbalReader($connection), Period::OneHour, self::NOW, 'count', 'desc');
+
+        static::assertFalse($view->isEmpty());
+        static::assertNull($view->checks);
+        static::assertCount(6, $recorder->statements);
+    }
+
+    public function testTheBudgetOfUsersIsMeasuredWithBothChecksOfRequests(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $startedAt = (float) (self::NOW - 30);
+        $units = [
+            ...self::units(),
+            new Entry(Entry::TYPE_REQUEST, 'GET app_boom', $startedAt, 10.0, ['status' => 500], [new Entry(Entry::TYPE_USER, 'admin', $startedAt, 0.0, ['n' => 1])]),
+            new Entry(Entry::TYPE_REQUEST, 'GET app_slow', $startedAt, 1500.0, ['status' => 200], [new Entry(Entry::TYPE_USER, 'editor', $startedAt, 0.0, ['n' => 1])]),
+        ];
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($units), self::NOW, self::LABELS);
+        $screen = self::screen('users');
+        \assert($screen instanceof UsersScreen);
+        $reads = [];
+
+        foreach ($screen->sorts() as $sort => $direction) {
+            $recorder->statements = [];
+            $view = $screen->build(new DbalReader($connection), Period::OneHour, self::NOW, $sort, $direction);
+
+            static::assertNotNull($view->checks);
+            static::assertSame(['requests.server_errors', 'requests.slow'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines), $sort);
+            $reads[$sort] = \count($recorder->statements);
+        }
+
+        static::assertSame(array_fill_keys(array_keys($screen->sorts()), self::BUDGET['users']), $reads);
+    }
+
+    public function testTheUsersScreenWithoutProblemReadsSevenStatements(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate(self::units()), self::NOW, self::LABELS);
+        $screen = self::screen('users');
+        $recorder->statements = [];
+
+        $view = $screen->build(new DbalReader($connection), Period::OneHour, self::NOW, 'requests', 'desc');
+
+        static::assertNotNull($view->checks);
+        static::assertSame([], $view->checks->lines);
+        static::assertCount(7, $recorder->statements);
+    }
+
+    private static function screen(string $id): StorageScreenInterface
+    {
+        $registry = static::getContainer()->get(ScreenRegistry::class);
+        \assert($registry instanceof ScreenRegistry);
+        $screen = $registry->get($id);
+        \assert($screen instanceof StorageScreenInterface);
+
+        return $screen;
     }
 
     private static function checks(): ApplicationChecks
