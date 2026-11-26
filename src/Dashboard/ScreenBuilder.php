@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
@@ -41,6 +42,10 @@ final class ScreenBuilder
 
         if ($screen instanceof ComposedScreen) {
             return $this->composedPage($screen, Period::fromLabel($period ?? '') ?? Period::OneHour, $sort, $direction, $storageFailed, new ScreenRequest($now, $fragment, $instance));
+        }
+
+        if ($screen instanceof OverviewScreen) {
+            return $this->overviewPage($screen, Period::fromLabel($period ?? '') ?? Period::OneHour, $storageFailed, $now);
         }
 
         $blocks = [];
@@ -124,6 +129,40 @@ final class ScreenBuilder
         $empty = $screen->emptyState();
 
         return [[Block::unavailable(Block::TABLE, BlockState::Empty, $empty['title'], $empty['text'])], $view->raised];
+    }
+
+    private function overviewPage(OverviewScreen $screen, Period $period, bool $storageFailed, int $now): Page
+    {
+        $read = null;
+        $cause = null;
+
+        if ($this->reader === null) {
+            $cause = BlockState::NoConnection;
+        } elseif ($storageFailed) {
+            $cause = BlockState::StorageError;
+        } else {
+            try {
+                $read = $screen->read($this->reader, $period, $now);
+            } catch (\Throwable $e) {
+                $this->logger?->error('JMonitor could not read its data: ' . $e->getMessage(), ['exception' => $e]);
+                $cause = BlockState::StorageError;
+            }
+        }
+
+        try {
+            $stack = $screen->stack();
+        } catch (\Throwable $e) {
+            $this->logger?->error('JMonitor could not read the stack: ' . $e->getMessage(), ['exception' => $e]);
+            $stack = null;
+        }
+
+        $blocks = $read === null && $stack === null ? [] : self::figures($screen->view($read, $stack, $period));
+
+        if ($cause !== null) {
+            $blocks = [Block::unavailable(Block::TABLE, $cause), ...$blocks];
+        }
+
+        return new Page($screen, $blocks, $period, '', '', [], raised: $read?->raised);
     }
 
     private function composedPage(ComposedScreen $screen, Period $period, ?string $sort, ?string $direction, bool $storageFailed, ScreenRequest $request): Page

@@ -151,8 +151,29 @@ final class MessengerRecordingTest extends WebTestCase
 
             static::assertResponseIsSuccessful();
             static::assertSame('1 critical', $crawler->filter($badge)->getNode(0)?->firstChild?->textContent, $screen);
-            static::assertSame(['Application', 'Background'], \array_slice($crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => trim((string) $item->getNode(0)?->firstChild?->textContent)), 0, 2), $screen);
+            static::assertSame(['Overview', 'Application', 'Background'], \array_slice($crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => trim((string) $item->getNode(0)?->firstChild?->textContent)), 0, 3), $screen);
         }
+    }
+
+    public function testAFailedMessageIsCriticalOnTheOverviewWithItsLink(): void
+    {
+        $client = static::createClient($this->options(messenger: true));
+
+        $client->request('GET', '/dispatch', ['mode' => 'fail', 'count' => '1']);
+        static::assertResponseIsSuccessful();
+        static::assertSame(0, $this->consume(['receivers' => ['async'], '--limit' => '2']));
+        $crawler = self::requestUntil($client, '/jmonitor/overview', '[data-jm-slot="nav-background"] .jm-nav__badge[title="1 critical in the last hour"]');
+
+        $line = $crawler->filter('section.jm-checks li.jm-check')->first();
+        static::assertSame('messages.failed', $line->attr('data-jm-check'));
+        static::assertSame('bad', $line->attr('data-jm-severity'));
+        static::assertStringStartsWith('1 message failed · ', $line->filter('.jm-check__sentence')->text());
+        static::assertSame('/jmonitor/background?period=1h', $line->filter('.jm-check__where a')->attr('href'));
+
+        $box = $crawler->filter('.jm-map a.jm-box[href="/jmonitor/background?period=1h#jm-messages"]');
+        static::assertCount(1, $box);
+        static::assertStringContainsString('jm-box--bad', (string) $box->attr('class'));
+        static::assertSame(['1 failed'], $box->filter('.jm-tag--bad')->each(static fn(Crawler $tag): string => $tag->text()));
     }
 
     public function testAMessageSentWhileHandlingAnotherIsCounted(): void

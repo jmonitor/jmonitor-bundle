@@ -13,7 +13,7 @@ final class RaisedChecks
 {
     /**
      * @param array<string, CheckInterface> $checks by id, those raised
-     * @param array<string, MetricValue>    $totals metric type => total in the period
+     * @param array<string, MetricValue>    $totals metric type => total in the period, for every type read
      */
     public function __construct(
         private readonly array $checks,
@@ -34,6 +34,11 @@ final class RaisedChecks
         }
 
         return array_intersect_key($this->totals, array_flip($this->checks[$id]->metrics()));
+    }
+
+    public function total(string $metric): ?MetricValue
+    {
+        return $this->totals[$metric] ?? null;
     }
 
     public function badge(string ...$screens): ?NavBadge

@@ -73,6 +73,23 @@ final class StackScreenTest extends WebTestCase
         static::assertCount(1, $crawler->filter('form[action="/jmonitor/_action/stack"] button'));
     }
 
+    public function testTheOverviewListsTheComponentsOfTheStack(): void
+    {
+        $client = $this->client();
+
+        $crawler = $client->request('GET', '/jmonitor/overview');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('Runs on read right now, whatever the period', $crawler->filter('.jm-runs__title')->text());
+        $lines = $crawler->filter('.jm-runs__item a.jm-runs__line');
+        $names = $lines->each(static fn(Crawler $line): string => $line->filter('.jm-runs__name')->text());
+        $paths = array_combine($names, $lines->each(static fn(Crawler $line): string => (string) $line->attr('href')));
+        static::assertSame('/jmonitor/stack/php', $paths['PHP'] ?? null);
+        static::assertSame('/jmonitor/stack/symfony', $paths['Symfony'] ?? null);
+        static::assertContains('Two clocks.', $crawler->filter('.jm-guide li strong')->each(static fn(Crawler $term): string => $term->text()));
+        static::assertSame('Overview', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+    }
+
     public function testAnApplicationWithoutDatabaseArrivesOnTheStack(): void
     {
         $client = $this->client(['doctrine' => false]);

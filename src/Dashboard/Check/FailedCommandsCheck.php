@@ -33,6 +33,11 @@ final class FailedCommandsCheck implements CheckInterface
         return 'Background';
     }
 
+    public function passed(): string
+    {
+        return 'no failed command run';
+    }
+
     public function metrics(): array
     {
         return [Metric::COMMAND_FAILED];

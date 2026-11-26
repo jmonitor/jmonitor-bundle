@@ -135,6 +135,20 @@ final class RaisedChecksTest extends TestCase
         static::assertSame([], $raised->totals('unknown'));
     }
 
+    public function testItGivesTheTotalOfAnyTypeRead(): void
+    {
+        $totals = [
+            self::SERVER_ERRORS => new MetricValue(3, 0.0, 0.0),
+            Metric::HTTP_DURATION => new MetricValue(12, 480.0, 90.0),
+        ];
+        $raised = self::checks()->raised(new FixedReader(totals: $totals), Period::OneHour, self::NOW, [Metric::HTTP_DURATION, Metric::QUERY_DURATION]);
+
+        static::assertEquals(new MetricValue(3, 0.0, 0.0), $raised->total(self::SERVER_ERRORS));
+        static::assertEquals(new MetricValue(12, 480.0, 90.0), $raised->total(Metric::HTTP_DURATION));
+        static::assertNull($raised->total(Metric::QUERY_DURATION));
+        static::assertNull($raised->total(Metric::REQUEST_SLOW));
+    }
+
     private static function checks(): ApplicationChecks
     {
         return new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(500), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]);

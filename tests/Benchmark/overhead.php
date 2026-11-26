@@ -10,6 +10,7 @@ use Doctrine\DBAL\Tools\DsnParser;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregate;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\HotKeys;
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
@@ -29,6 +30,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
@@ -61,6 +63,11 @@ use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
 use Jmonitor\JmonitorBundle\Storage\Dbal\KeysTable;
+use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
+use Jmonitor\JmonitorBundle\Storage\Read\Report;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\Totals;
+use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Psr\Clock\ClockInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Clock\MockClock;
@@ -102,6 +109,23 @@ const DISPLAY_RUNS = 5;
 const PURGE_DELAY = 420;
 const QUERIES_PER_ROUTE = 5;
 const EXCEPTION_CLASSES = 5;
+/** the metric types that raise a check of the application */
+const CHECK_TYPES = [
+    Metric::REQUEST_STATUS_PREFIX . '5xx',
+    Metric::REQUEST_SLOW,
+    Metric::QUERY_SLOW,
+    Metric::NPLUS1_CALLS,
+    Metric::HTTP_FAILED,
+    Metric::HTTP_STATUS_PREFIX . '4xx',
+    Metric::HTTP_STATUS_PREFIX . '5xx',
+    Metric::CACHE_HIT,
+    Metric::CACHE_MISS,
+    Metric::MESSAGE_FAILED,
+    Metric::TASK_FAILED,
+    Metric::COMMAND_FAILED,
+];
+/** what is left of them for three checks: a server error, a repeated query and an error response of another site */
+const THREE_CHECK_TYPES = [Metric::REQUEST_STATUS_PREFIX . '5xx', Metric::NPLUS1_CALLS, Metric::HTTP_STATUS_PREFIX . '5xx'];
 
 function workDir(): string
 {
@@ -542,6 +566,86 @@ function composedDisplayMillis(Connection $connection, int $now, ComposedScreen 
     return [$timings[intdiv(DISPLAY_RUNS, 2)], $rows];
 }
 
+/** Times each kind of read of the Overview: the totals, the Request family, the culprits. */
+final class TimedReader implements ReaderInterface
+{
+    /** @var array{totals: float, requests: float, culprits: float} milliseconds */
+    public array $millis = ['totals' => 0.0, 'requests' => 0.0, 'culprits' => 0.0];
+
+    public function __construct(private readonly ReaderInterface $reader) {}
+
+    public function read(ReportQuery $query): Report
+    {
+        $start = hrtime(true);
+        $report = $this->reader->read($query);
+        $this->millis[$query->family === Family::Request ? 'requests' : 'culprits'] += (hrtime(true) - $start) / 1_000_000;
+
+        return $report;
+    }
+
+    public function labels(array $keys): array
+    {
+        return $this->reader->labels($keys);
+    }
+
+    public function totals(Period $period, int $now, array $metricTypes, array $keyed = []): Totals
+    {
+        $start = hrtime(true);
+        $totals = $this->reader->totals($period, $now, $metricTypes, $keyed);
+        $this->millis['totals'] += (hrtime(true) - $start) / 1_000_000;
+
+        return $totals;
+    }
+}
+
+/**
+ * Adds a slow query, a call without an answer and a pool that misses, so that every check of the application is raised.
+ */
+function raiseEveryCheck(Connection $connection, int $now): void
+{
+    $startedAt = (float) $now;
+    $units = [new Entry(Entry::TYPE_REQUEST, 'GET route_0', $startedAt, 10.0, ['status' => 200], [
+        new Entry(Entry::TYPE_QUERY, substr(hash('xxh3', 'SELECT slow'), 0, 16), $startedAt, 150.0, ['n' => 1, 'm' => 150.0, 'sl' => 1]),
+        new Entry(Entry::TYPE_HTTP, 'api0.example.com', $startedAt, 30.0, ['n' => 1, 'm' => 30.0, 'cf' => 1]),
+        new Entry(Entry::TYPE_CACHE, 'cache.cold', $startedAt, 0.0, ['n' => 25, 'h' => 2, 'mi' => 23]),
+    ])];
+    $hour = array_filter((new Aggregator(500))->aggregate($units), static fn(Aggregate $aggregate): bool => $aggregate->period === Period::OneHour);
+    $storage = new DbalStorage($connection, 31_536_000);
+    foreach (Period::cases() as $period) {
+        $storage->store(array_map(static fn(Aggregate $aggregate): Aggregate => new Aggregate($period, $period->bucketFor($now), $aggregate->type, $aggregate->key, $aggregate->count, $aggregate->sum, $aggregate->max), array_values($hour)), $now, []);
+    }
+}
+
+/** @param list<string> $kept the types of CHECK_TYPES left in the table */
+function keepCheckTypes(Connection $connection, array $kept): void
+{
+    $removed = array_values(array_diff(CHECK_TYPES, $kept));
+    $connection->executeStatement('DELETE FROM ' . AggregatesTable::NAME . ' WHERE metric_type IN (' . implode(', ', array_fill(0, \count($removed), '?')) . ')', $removed);
+}
+
+/**
+ * @return array{float, int, array{totals: float, requests: float, culprits: float}} median milliseconds of the whole screen, checks raised, milliseconds of each kind of read in the median run
+ */
+function overviewDisplayMillis(Connection $connection, int $now, OverviewScreen $screen, Period $period): array
+{
+    $runs = [];
+    for ($run = 0; $run < DISPLAY_RUNS; ++$run) {
+        $reader = new TimedReader(new DbalReader($connection));
+        $builder = new ScreenBuilder($reader, true, new MockClock('@' . $now));
+        $start = hrtime(true);
+        $page = $builder->create($screen, $period->label(), null, null);
+        $runs[] = [(hrtime(true) - $start) / 1_000_000, $page, $reader->millis];
+    }
+    usort($runs, static fn(array $a, array $b): int => $a[0] <=> $b[0]);
+    [$milliseconds, $page, $reads] = $runs[intdiv(DISPLAY_RUNS, 2)];
+    $raised = 0;
+    foreach (['requests', 'queries', 'cache-http', 'background'] as $screenId) {
+        $raised += (int) ($page->raised?->badge($screenId)?->text ?? 0);
+    }
+
+    return [$milliseconds, $raised, $reads];
+}
+
 $dir = workDir();
 $clock = new NativeClock();
 $buffer = new FileBuffer(new BufferDirectory($dir, 'bench'), 10, $clock);
@@ -733,6 +837,29 @@ foreach ($bases as $name => $connection) {
     }
     [$milliseconds, $deleted] = purgeMillis($connection, $now);
     report(sprintf('purge, five one-minute buckets, loaded database (%s)', $name), $milliseconds, 'ms', null, sprintf('(%d of %d rows deleted)', $deleted, $stored));
+    $overview = new OverviewScreen(
+        $checks,
+        new DeclaredTasks(),
+        [new MessagesSection(true, true, null, $checks), new TasksSection(true, new DeclaredTasks(), $checks), new CommandsSection(true, $checks), new CacheSection(true, $checks), new HttpSection(true, $checks)],
+        [new QueriesScreen(true, $checks, 100, 10), new ExceptionsScreen(true, $checks), new UsersScreen(true, $checks, 1000)],
+    );
+    fillPeriods($connection, $now, DISPLAYED);
+    raiseEveryCheck($connection, $now);
+    foreach (['ten checks raised' => null, 'three checks raised' => THREE_CHECK_TYPES, 'no check raised' => []] as $case => $kept) {
+        if ($kept !== null) {
+            keepCheckTypes($connection, $kept);
+        }
+        foreach ([Period::OneHour, Period::SevenDays] as $period) {
+            [$milliseconds, $raised, $reads] = overviewDisplayMillis($connection, $now, $overview, $period);
+            report(
+                sprintf('display, overview, %s, %s (%s)', $case, $period === Period::OneHour ? 'last hour' : 'last 7 days', $name),
+                $milliseconds,
+                'ms',
+                100,
+                sprintf('(%d raised; totals %.1f ms, requests %.1f ms, culprits %.1f ms)', $raised, $reads['totals'], $reads['requests'], $reads['culprits']),
+            );
+        }
+    }
     $connection->close();
 }
 @unlink($loadedPath);

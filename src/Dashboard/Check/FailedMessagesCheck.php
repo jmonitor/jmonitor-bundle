@@ -33,6 +33,11 @@ final class FailedMessagesCheck implements CheckInterface
         return 'Background';
     }
 
+    public function passed(): string
+    {
+        return 'no failed message';
+    }
+
     public function metrics(): array
     {
         return [Metric::MESSAGE_FAILED];

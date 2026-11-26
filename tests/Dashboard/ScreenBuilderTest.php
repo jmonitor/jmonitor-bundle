@@ -10,10 +10,13 @@ use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
@@ -25,6 +28,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
+use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
 use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
@@ -37,12 +41,14 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Places;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
+use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Storage\Read\Totals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -1120,6 +1126,128 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame([Block::LEAD, Block::CHECKS, Block::MAP, Block::TABLE, Block::GUIDE, Block::PLACES], self::types($page->blocks));
         static::assertSame($places, $page->blocks[5]->content);
         static::assertSame([Block::LEAD, Block::MAP, Block::TABLE, Block::PLACES], self::types($this->builder()->create($view(new ScreenView([], [$table], new Lead('Sentence'), map: $map, places: $places)), null, null, null)->blocks));
+    }
+
+    public function testTheOverviewReadsTheApplicationThenTheStack(): void
+    {
+        $journal = [];
+        $report = new Report([self::requestRow()], null, 1, array_fill(0, 60, 0), self::requestRow()->metrics);
+        $reader = new FixedReader(static function (ReportQuery $query) use (&$journal, $report): Report {
+            $journal[] = 'read ' . $query->family->value;
+
+            return $report;
+        });
+        $glance = new FixedGlance(static function () use (&$journal, $reader): StackGlance {
+            $journal[] = 'stack after ' . \count($reader->totalRequests) . ' totals';
+
+            return new StackGlance([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'))]);
+        });
+
+        $page = $this->builder($reader)->create(self::overview($glance), '6h', 'total', 'asc');
+
+        static::assertSame(['read request', 'stack after 1 totals'], $journal);
+        static::assertSame([Block::LEAD, Block::CHECKS, Block::MAP, Block::TABLE, Block::GUIDE], self::types($page->blocks));
+        static::assertSame(Period::SixHours, $page->period);
+        static::assertSame('', $page->sort);
+        static::assertSame([], $page->sorts);
+        static::assertSame(1, $glance->calls);
+        $map = $page->blocks[2]->content;
+        static::assertInstanceOf(Map::class, $map);
+        static::assertNotNull($map->runsOn);
+    }
+
+    /**
+     * @return iterable<string, array{\Throwable}>
+     */
+    public static function overviewFailures(): iterable
+    {
+        yield 'exception' => [new \RuntimeException('Storage is down')];
+        yield 'error' => [new \TypeError('Storage is down')];
+    }
+
+    #[DataProvider('overviewFailures')]
+    public function testAStorageReadThatThrowsKeepsTheStackOfTheOverview(\Throwable $failure): void
+    {
+        $reader = new FixedReader(static fn(): Report => throw $failure);
+        $logger = $this->logger();
+        $line = new CheckLine('php.memory', new Mark('warn', 'Warning'), 'Memory is nearly full.', 'Why.', 'Stack · PHP', 'stack/php');
+        $glance = new FixedGlance(new StackGlance([new ComponentCard('php', 'PHP', new Mark('warn', 'Warning'))], [$line]));
+
+        $page = (new ScreenBuilder($reader, true, new MockClock('@1800000000'), logger: $logger))->create(self::overview($glance), null, null, null);
+
+        static::assertSame(['table storage_error', 'checks ready', 'map ready'], self::shape($page));
+        static::assertSame(1, $glance->calls);
+        static::assertNull($page->raised);
+        $checks = $page->blocks[1]->content;
+        static::assertInstanceOf(CheckList::class, $checks);
+        static::assertSame([$line], $checks->lines);
+        static::assertSame(['error JMonitor could not read its data: Storage is down'], $logger->messages);
+    }
+
+    public function testWithoutConnectionOrAfterAFailedFlushTheOverviewStillShowsTheStack(): void
+    {
+        $glance = new FixedGlance(new StackGlance([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'))]));
+
+        static::assertSame(['table no_connection', 'map ready'], self::shape($this->builder(null)->create(self::overview($glance), null, null, null)));
+        static::assertSame(['table storage_error', 'map ready'], self::shape($this->builder()->create(self::overview($glance), null, null, null, true)));
+        static::assertSame(['table storage_error'], self::shape($this->builder()->create(self::overview(null), null, null, null, true)));
+    }
+
+    public function testAStackThatThrowsKeepsTheApplicationOfTheOverview(): void
+    {
+        $report = new Report([self::requestRow()], null, 1, array_fill(0, 60, 0), self::requestRow()->metrics);
+        $logger = $this->logger();
+        $glance = new FixedGlance(static fn(): StackGlance => throw new \LogicException('No reader of the live stack.'));
+
+        $page = (new ScreenBuilder(new FixedReader($report), true, new MockClock('@1800000000'), logger: $logger))->create(self::overview($glance), null, null, null);
+
+        static::assertSame([Block::LEAD, Block::CHECKS, Block::MAP, Block::TABLE, Block::GUIDE], self::types($page->blocks));
+        $map = $page->blocks[2]->content;
+        static::assertInstanceOf(Map::class, $map);
+        static::assertNull($map->runsOn);
+        static::assertSame(['Requests'], array_map(static fn(MapBox $box): string => $box->label, $map->incoming));
+        $guide = $page->blocks[4]->content;
+        static::assertInstanceOf(Guide::class, $guide);
+        static::assertCount(2, $guide->items);
+        static::assertSame(['error JMonitor could not read the stack: No reader of the live stack.'], $logger->messages);
+    }
+
+    public function testMessagesWithoutRequestShowTheMapOfTheOverviewWithoutTable(): void
+    {
+        $reader = new FixedReader(new Report(), totals: [Metric::MESSAGE_DURATION => new MetricValue(3, 30.0, 12.0), Metric::MESSAGE_SENT => new MetricValue(3, 0.0, 0.0)]);
+        $checks = new ApplicationChecks([new ServerErrorsCheck()]);
+        $screen = new OverviewScreen($checks, new DeclaredTasks(), [new MessagesSection(true, true, null, $checks)], [], null);
+
+        $page = $this->builder($reader)->create($screen, null, null, null);
+
+        static::assertSame([Block::LEAD, Block::CHECKS, Block::MAP, Block::GUIDE], self::types($page->blocks));
+        $map = $page->blocks[2]->content;
+        static::assertInstanceOf(Map::class, $map);
+        static::assertEquals(
+            [new MapBox('Requests', null, 'No request in the last hour. Open a page of your application, then come back.', path: 'requests'), new MapBox('Messages', '3', 'Handled by Messenger, 3 sent.', path: 'background', anchor: 'messages')],
+            $map->incoming,
+        );
+    }
+
+    public function testTheOverviewHandsItsRaisedChecksToThePage(): void
+    {
+        $reader = new FixedReader(new Report([self::requestRow()]), totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+
+        $page = $this->builder($reader)->create(self::overview(null), null, null, null);
+
+        static::assertNotNull($page->raised);
+        static::assertTrue($page->raised->has('requests.server_errors'));
+        static::assertCount(1, $reader->totalRequests);
+    }
+
+    private static function overview(?FixedGlance $glance): OverviewScreen
+    {
+        return new OverviewScreen(new ApplicationChecks([new ServerErrorsCheck()]), new DeclaredTasks(), [], [], $glance);
+    }
+
+    private static function requestRow(): ReportRow
+    {
+        return new ReportRow(md5('GET app_a'), 'GET app_a', 'GET app_a', [Metric::REQUEST_DURATION => new MetricValue(2, 20.0, 12.0)]);
     }
 
     private function builder(?ReaderInterface $reader = new FixedReader(), bool $recordingEnabled = true, ?BufferDirectory $bufferDirectory = null): ScreenBuilder

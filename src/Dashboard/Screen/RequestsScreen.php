@@ -31,7 +31,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 
 /**
- * @phpstan-type Route array{row: ReportRow, cell: Cell, requests: int, total: float, avg: float, p95: float, max: float, sql: float, queries: float, hasSql: bool, http: float, hasHttp: bool, errors: int, slow: int, nPlusOne: bool, memory: int}
+ * @phpstan-type Route array{row: ReportRow, cell: Cell, requests: int, total: float, avg: float, p95: float, max: float, errors: int, slow: int, nPlusOne: bool, memory: int}
  * @phpstan-type Totals array{requests: int, total: float, max: float, errors: int, slow: int, p95: float}
  */
 final class RequestsScreen implements StorageScreenInterface
@@ -291,22 +291,15 @@ final class RequestsScreen implements StorageScreenInterface
         $requests = $row->count(Metric::REQUEST_DURATION);
         $total = $row->sum(Metric::REQUEST_DURATION);
         $max = $row->max(Metric::REQUEST_DURATION);
-        $hasSql = $row->count(Metric::REQUEST_SQL_TIME) > 0;
-        $hasHttp = $row->count(Metric::REQUEST_HTTP_TIME) > 0;
 
         return [
             'row' => $row,
-            'cell' => Cell::route($row->key, true),
+            'cell' => RouteCells::route($row),
             'requests' => $requests,
             'total' => $total,
             'avg' => $total / $requests,
             'p95' => Percentile::estimate($row->countsByPrefix(Metric::REQUEST_DURATION_LE_PREFIX), 0.95, $max),
             'max' => $max,
-            'sql' => $hasSql ? $row->sum(Metric::REQUEST_SQL_TIME) / $requests : 0.0,
-            'queries' => $row->sum(Metric::REQUEST_SQL_COUNT) / $requests,
-            'hasSql' => $hasSql,
-            'http' => $hasHttp ? $row->sum(Metric::REQUEST_HTTP_TIME) / $requests : 0.0,
-            'hasHttp' => $hasHttp,
             'errors' => $row->count(Metric::REQUEST_STATUS_PREFIX . '5xx'),
             'slow' => $row->count(Metric::REQUEST_SLOW),
             'nPlusOne' => $nPlusOne,
@@ -319,12 +312,12 @@ final class RequestsScreen implements StorageScreenInterface
     {
         return new Row($route['row']->hash, [
             'route' => $other ? new Cell('Other routes') : $route['cell'],
-            'requests' => new Cell(Format::number($route['requests'])),
-            'total' => Cell::bar(Format::duration($route['total']), $largest > 0 ? $route['total'] / $largest : 0.0),
+            'requests' => RouteCells::requests($route['row']),
+            'total' => RouteCells::total($route['row'], $largest),
             'avg' => new Cell(Format::duration($route['avg'])),
             'p95' => new Cell(Format::duration($route['p95']), $route['slow'] * 20 > $route['requests'] ? 'warn' : null),
             'max' => new Cell(Format::duration($route['max']), $route['slow'] > 0 ? 'warn' : null),
-            'split' => Cell::averageSplit($route['avg'], $route['hasSql'] ? $route['sql'] : null, $route['queries'], $route['hasHttp'] ? $route['http'] : null),
+            'split' => RouteCells::split($route['row']),
             'problems' => Cell::tags(self::tags($route)),
             'memory' => new Cell(Format::bytes($route['memory'])),
         ], [

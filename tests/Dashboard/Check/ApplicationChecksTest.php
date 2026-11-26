@@ -144,6 +144,11 @@ final class ApplicationChecksTest extends TestCase
                 return new Finding('spy', Severity::Warning, '', '', '', '', 'cache-http');
             }
 
+            public function passed(): string
+            {
+                return 'no spy';
+            }
+
             public function raisedBy(array $keys): bool
             {
                 $this->received[] = $keys;
@@ -328,6 +333,85 @@ final class ApplicationChecksTest extends TestCase
     {
         static::assertSame('Critical', Severity::Critical->label());
         static::assertSame('Warning', Severity::Warning->label());
+    }
+
+    public function testRaisedReadsTheExtraTypesInTheSameStatement(): void
+    {
+        $reader = new FixedReader(totals: [
+            self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0),
+            Metric::MESSAGE_DURATION => new MetricValue(7, 70.0, 20.0),
+            Metric::QUERY_DURATION => new MetricValue(40, 120.0, 9.0),
+        ]);
+
+        $raised = self::checks()->raised($reader, Period::SixHours, self::NOW, [Metric::MESSAGE_DURATION, Metric::QUERY_DURATION, Metric::REQUEST_SLOW]);
+
+        static::assertSame([[Period::SixHours, self::NOW, [...array_keys(self::RAISED_BY), Metric::MESSAGE_DURATION, Metric::QUERY_DURATION]]], $reader->totalRequests);
+        static::assertSame([[]], $reader->keyedRequests);
+        static::assertSame([], $reader->queries);
+        static::assertEquals(new MetricValue(7, 70.0, 20.0), $raised->total(Metric::MESSAGE_DURATION));
+        static::assertEquals(new MetricValue(40, 120.0, 9.0), $raised->total(Metric::QUERY_DURATION));
+        static::assertEquals(new MetricValue(2, 0.0, 0.0), $raised->total(self::SERVER_ERRORS));
+        static::assertTrue($raised->has('requests.server_errors'));
+        static::assertFalse($raised->has('requests.slow'));
+    }
+
+    public function testAnExtraTypeRaisesNothing(): void
+    {
+        $reader = new FixedReader(totals: [Metric::EXCEPTION_COUNT => new MetricValue(3, 0.0, 0.0)]);
+
+        $raised = self::allChecks()->raised($reader, Period::OneHour, self::NOW, [Metric::EXCEPTION_COUNT]);
+
+        static::assertCount(1, $reader->totalRequests);
+        static::assertNull($raised->badge('requests', 'queries', 'cache-http', 'background', 'exceptions'));
+        static::assertEquals(new MetricValue(3, 0.0, 0.0), $raised->total(Metric::EXCEPTION_COUNT));
+    }
+
+    public function testWithoutChecksTheExtraTypesAreStillRead(): void
+    {
+        $reader = new FixedReader(totals: [Metric::USER_DURATION => new MetricValue(4, 40.0, 10.0)]);
+
+        $raised = (new ApplicationChecks([]))->raised($reader, Period::OneHour, self::NOW, [Metric::USER_DURATION]);
+
+        static::assertSame([[Period::OneHour, self::NOW, [Metric::USER_DURATION]]], $reader->totalRequests);
+        static::assertEquals(new MetricValue(4, 40.0, 10.0), $raised->total(Metric::USER_DURATION));
+    }
+
+    public function testPassedLeavesTheRaisedChecksOut(): void
+    {
+        $checks = self::allChecks();
+        $raised = $checks->raised(new FixedReader(totals: array_fill_keys([self::SERVER_ERRORS, Metric::MESSAGE_FAILED], new MetricValue(1, 0.0, 0.0))), Period::OneHour, self::NOW);
+
+        static::assertSame(
+            ['no slow request', 'no failed scheduled run', 'no failed command run'],
+            $checks->passed($raised, ['requests.server_errors', 'requests.slow', 'messages.failed', 'tasks.failed', 'commands.failed']),
+        );
+        static::assertSame(['no repeated query', 'no slow query'], $checks->passed($raised, ['queries.repeated', 'unknown', 'queries.slow', 'queries.repeated']));
+        static::assertSame([], $checks->passed($raised, []));
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function passedTexts(): iterable
+    {
+        yield 'requests.server_errors' => ['requests.server_errors', 'no server error'];
+        yield 'requests.slow' => ['requests.slow', 'no slow request'];
+        yield 'queries.slow' => ['queries.slow', 'no slow query'];
+        yield 'queries.repeated' => ['queries.repeated', 'no repeated query'];
+        yield 'http.failures' => ['http.failures', 'no call without an answer'];
+        yield 'http.errors' => ['http.errors', 'no error response'];
+        yield 'cache.low_hit_rate' => ['cache.low_hit_rate', 'no pool with a low hit rate'];
+        yield 'messages.failed' => ['messages.failed', 'no failed message'];
+        yield 'tasks.failed' => ['tasks.failed', 'no failed scheduled run'];
+        yield 'commands.failed' => ['commands.failed', 'no failed command run'];
+    }
+
+    #[DataProvider('passedTexts')]
+    public function testEachCheckSaysWhatPassedMeans(string $id, string $text): void
+    {
+        $checks = self::allChecks();
+
+        static::assertSame([$text], $checks->passed($checks->raised(new FixedReader(), Period::OneHour, self::NOW), [$id]));
     }
 
     private static function checks(): ApplicationChecks

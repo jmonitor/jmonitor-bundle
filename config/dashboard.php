@@ -23,6 +23,7 @@ use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
@@ -34,6 +35,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Section\HttpSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
+use Jmonitor\JmonitorBundle\Dashboard\StackGlanceInterface;
 use Jmonitor\JmonitorBundle\Embed\JmonitorPage;
 use Jmonitor\JmonitorBundle\Flush\Flusher;
 use Jmonitor\JmonitorBundle\Stack\Screen\QueuesBlocks;
@@ -153,6 +155,26 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(RequestsScreen::class)
         ->args([service(ApplicationChecks::class), param('jmonitor.recording.slow_threshold')])
         ->tag('jmonitor.screen', ['priority' => 100]);
+
+    $services->set(OverviewScreen::class)
+        ->args([
+            service(ApplicationChecks::class),
+            service(DeclaredTasks::class),
+            [
+                service(MessagesSection::class),
+                service(TasksSection::class),
+                service(CommandsSection::class),
+                service(CacheSection::class),
+                service(HttpSection::class)->ignoreOnInvalid(),
+            ],
+            [
+                service(QueriesScreen::class),
+                service(ExceptionsScreen::class),
+                service(UsersScreen::class)->ignoreOnInvalid(),
+            ],
+            service(StackGlanceInterface::class)->nullOnInvalid(),
+        ])
+        ->tag('jmonitor.screen', ['priority' => 95]);
 
     $services->set(QueriesScreen::class)
         ->args([
