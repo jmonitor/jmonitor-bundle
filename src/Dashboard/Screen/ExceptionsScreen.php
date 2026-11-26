@@ -158,7 +158,7 @@ final class ExceptionsScreen implements StorageScreenInterface
             $remaining,
             'class',
             'classes',
-            'and, under each class, where it was thrown',
+            'each with where it was thrown',
             footnote: 'JMonitor counts exceptions. It keeps no stack trace: the trace is in your logs or your error tracker.',
         );
     }
@@ -213,6 +213,8 @@ final class ExceptionsScreen implements StorageScreenInterface
 
         $sentence = match (true) {
             $count === 1 => sprintf('1 exception in the %s.', $periodText),
+            $report->other !== null && $report->keyCount === 0 => sprintf('%s exceptions in the %s.', Format::number($count), $periodText),
+            $report->other !== null => sprintf('%s exceptions in the %s, of %s classes or more.', Format::number($count), $periodText, Format::number($classCount)),
             $classCount === 1 => sprintf('%s exceptions in the %s, all of one class.', Format::number($count), $periodText),
             default => sprintf('%s exceptions in the %s, of %s classes.', Format::number($count), $periodText, Format::number($classCount)),
         };
@@ -237,7 +239,7 @@ final class ExceptionsScreen implements StorageScreenInterface
 
         return [
             new Card('Exceptions', Format::number($count), 'Errors your code did not recover from.'),
-            new Card('Classes', Format::number($classCount), 'Distinct kinds of error.'),
+            new Card('Classes', Format::number($classCount) . ($report->other === null ? '' : '+'), 'Distinct kinds of error.'),
             new Card(
                 'Places',
                 $where->other === null ? Format::number($where->keyCount) : Format::number($where->keyCount + 1) . '+',

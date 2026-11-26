@@ -108,7 +108,7 @@ final class ExceptionRecordingTest extends WebTestCase
 
         $table = $crawler->filter('section[aria-labelledby="jm-exceptions-title"]');
         static::assertSame('By class', $table->filter('.jm-panel__title')->text());
-        static::assertSame('1 class, and, under each class, where it was thrown', $table->filter('.jm-panel__meta')->text());
+        static::assertSame('1 class, each with where it was thrown', $table->filter('.jm-panel__meta')->text());
         static::assertSame('JMonitor counts exceptions. It keeps no stack trace: the trace is in your logs or your error tracker.', $table->filter('.jm-panel__footnote')->text());
         static::assertSame([null, 'jm-row--nested'], $table->filter('tbody tr')->each(static fn(Crawler $row): ?string => $row->attr('class')));
         static::assertSame(['RuntimeException', 'RuntimeException'], $table->filter('tbody tr')->each(static fn(Crawler $row): ?string => $row->attr('data-jm-exception')));

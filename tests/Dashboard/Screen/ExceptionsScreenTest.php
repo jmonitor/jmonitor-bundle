@@ -120,7 +120,7 @@ final class ExceptionsScreenTest extends TestCase
             array_map(static fn(Column $column): array => [$column->id, $column->label, $column->numeric, $column->sort], $table->columns),
         );
         static::assertSame(['class', 'classes'], [$table->nounFor(1), $table->nounFor(3)]);
-        static::assertSame('and, under each class, where it was thrown', $table->note);
+        static::assertSame('each with where it was thrown', $table->note);
         static::assertSame('JMonitor counts exceptions. It keeps no stack trace: the trace is in your logs or your error tracker.', $table->footnote);
         static::assertFalse($table->partsLegend);
 
@@ -285,8 +285,10 @@ final class ExceptionsScreenTest extends TestCase
         yield 'one exception' => [[self::exception('h1', \RuntimeException::class, 1)], null, '1 exception in the last hour.'];
         yield 'one class' => [[self::exception('h1', \RuntimeException::class, 4)], null, '4 exceptions in the last hour, all of one class.'];
         yield 'several classes' => [[self::exception('h1', \RuntimeException::class, 1200), self::exception('h2', \LogicException::class, 3)], null, '1,203 exceptions in the last hour, of 2 classes.'];
-        yield 'the other line counts as a class' => [[self::exception('h1', \RuntimeException::class, 2)], self::exception('ho', Aggregator::OTHER, 3), '5 exceptions in the last hour, of 2 classes.'];
-        yield 'the other line alone' => [[], self::exception('ho', Aggregator::OTHER, 3), '3 exceptions in the last hour, all of one class.'];
+        yield 'the other line counts as a class at least' => [[self::exception('h1', \RuntimeException::class, 2)], self::exception('ho', Aggregator::OTHER, 3), '5 exceptions in the last hour, of 2 classes or more.'];
+        yield 'several classes and the other line' => [[self::exception('h1', \RuntimeException::class, 2), self::exception('h2', \LogicException::class, 1)], self::exception('ho', Aggregator::OTHER, 1200), '1,203 exceptions in the last hour, of 3 classes or more.'];
+        yield 'the other line alone' => [[], self::exception('ho', Aggregator::OTHER, 3), '3 exceptions in the last hour.'];
+        yield 'one exception in the other line' => [[], self::exception('ho', Aggregator::OTHER, 1), '1 exception in the last hour.'];
     }
 
     /** @param list<ReportRow> $rows */
@@ -372,7 +374,7 @@ final class ExceptionsScreenTest extends TestCase
         ], whereKeyCount: 130, period: Period::OneDay);
 
         static::assertSame(['Exceptions', 'Classes', 'Places', 'Last one'], array_map(static fn(Card $card): string => $card->label, $view->cards));
-        static::assertSame(['9', '3', '130', '1 min ago'], array_map(static fn(Card $card): string => $card->value, $view->cards));
+        static::assertSame(['9', '3+', '130', '1 min ago'], array_map(static fn(Card $card): string => $card->value, $view->cards));
         static::assertSame(
             ['Errors your code did not recover from.', 'Distinct kinds of error.', 'Routes, commands, messages or tasks that threw one.', 'Still happening, or already over?'],
             array_map(static fn(Card $card): string => $card->hint, $view->cards),
@@ -387,6 +389,13 @@ final class ExceptionsScreenTest extends TestCase
         $view = self::build([self::exception('h1', \RuntimeException::class, 1, self::NOW - 600)], other: self::exception('ho', Aggregator::OTHER, 1, self::NOW - 120));
 
         static::assertSame('2 min ago', $view->cards[3]->value);
+    }
+
+    public function testTheClassesCardCountsTheClassesBehindTheOtherLine(): void
+    {
+        static::assertSame('2', self::build([self::exception('h1', 'A'), self::exception('h2', 'B')])->cards[1]->value);
+        static::assertSame('3+', self::build([self::exception('h1', 'A'), self::exception('h2', 'B')], other: self::exception('ho', Aggregator::OTHER))->cards[1]->value);
+        static::assertSame('1+', self::build([], other: self::exception('ho', Aggregator::OTHER, 2))->cards[1]->value);
     }
 
     public function testThePlacesCardCountsThePlacesBehindTheOtherLine(): void
