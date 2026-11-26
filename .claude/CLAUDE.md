@@ -61,6 +61,9 @@ The `/jmonitor` page, its screens and their blocks:
 - The Overview screen reads the application in two reads: the totals of the checks, widened to the types its map shows, and the Request family restricted to its types, the report it hands to both checks of Request. Each other raised check reads its own culprit.
 - A box of the map only exists while the section or the screen it opens is available, asked to itself (`isAvailable()`).
 - A box is framed by its tone only when it carries a tag of that tone: the tag tells the word.
+- On the Overview screen, the server errors and the slow requests are read in the totals that raise the checks, never in the report of Request: the sentence, the tags and the checks then say the same.
+- The `Messages` box only exists while the messages are recorded (`MessagesSection::recordsMessages()`).
+- The map is laid out by its own width, with container queries, and stacked by default: a browser without them still reads it.
 - A part of a split and a tag always carry their word: neither is told by colour alone.
 - The base rule of the links is `.jm :where(a)`, so that a class set on a link keeps its colour.
 - `public/jmonitor.js` has no test suite in the repository: a change to it is checked in a browser.
@@ -80,6 +83,7 @@ The engine that reads the server, PHP, Symfony, the web server, the databases an
 - A shared value is the same for every instance of its component: its cache keys name the component, never the instance.
 - `jmonitor.stack.cache` is not declared under `framework.cache.pools`, or its reads would be counted on the Cache & HTTP screen.
 - No test calls the network or `composer`: fake fetchers and process runners stand in for them, and the test kernel turns `stack.end_of_life`, `stack.symfony.flex` and `stack.symfony.messenger` off unless a test sets `stack` itself.
+- A test that displays the Overview screen or the header never asserts on what the stack reads of the machine it runs on: it turns the stack off, fakes its collectors, or only asserts on what it is about.
 - No PHPUnit test starts the console in a process: the test kernel plays the command counting the queues (`queuesOutput`) and the web servers with their status pages (`fakeWebServer`). Only the kernel of `TestKernel::fromEnvironment()`, used by the end-to-end runs, starts the real command.
 - Its screens live in `src/Stack/Screen/`: `StackScreen`, `ComponentScreen` and `OverviewGlance` get the reader, the checks and the summary through a service locator, read by `StackScreenParts`, so that the reader and the checks are only built when a Stack screen or the Overview screen is displayed.
 - The Overview screen reads the stack through `StackGlanceInterface` (`OverviewGlance`), always with `ReadMode::Page`, a refresh included: it never starts a slow collector.
