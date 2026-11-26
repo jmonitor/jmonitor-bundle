@@ -5,12 +5,17 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Screen;
 
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
+use Jmonitor\JmonitorBundle\Dashboard\Page;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
+use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
+use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
+use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
+use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
@@ -71,15 +76,97 @@ final class StackScreenTest extends TestCase
         self::assertSame('Stack', $screen->label());
         self::assertSame('What runs the application, read live', $screen->heading());
         self::assertTrue($screen->isAvailable());
-        self::assertSame(['refresh' => 'Refresh'], $screen->actions());
         self::assertSame([], $this->asked);
+    }
+
+    public function testTheActionIsNamedReadAgainNow(): void
+    {
+        self::assertSame(['refresh' => 'Read again now'], $this->screen(new FakeStackReader(self::healthy()))->actions());
+    }
+
+    /**
+     * @return iterable<string, array{StackState, string}>
+     */
+    public static function leads(): iterable
+    {
+        $php = Snapshots::php();
+        unset($php['fpm']);
+        $calm = Snapshots::of(Component::Php, ['php' => $php]);
+        $disk = Snapshots::system();
+        $disk['disk']['free'] = 10_000_000_000;
+        $full = $disk;
+        $full['ram']['available'] = 800_000_000;
+        $failed = static fn(Component $component): ComponentSnapshot => Snapshots::of($component, [], [$component->value => ResultState::Failed]);
+        $debug = Snapshots::of(Component::Symfony, ['symfony' => ['debug' => true] + Snapshots::symfony()]);
+
+        yield 'nothing' => [Snapshots::stack($calm), 'Everything that runs your application answers.'];
+        yield 'an info alone' => [self::healthy(), 'Everything that runs your application answers.'];
+        yield 'a warning' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $calm), 'Everything that runs your application answers. 1 warning, on Server.'];
+        yield 'two components' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $failed(Component::Php)), 'Everything that runs your application answers. 2 warnings, on Server and PHP.'];
+        yield 'a critical and warnings' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $full]), $calm, $debug), 'What runs your application needs attention. 1 critical and 2 warnings, on Server and Symfony.'];
+        yield 'three components' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $failed(Component::Php), $debug), 'What runs your application needs attention. 1 critical and 2 warnings, on Server, PHP and Symfony.'];
+        yield 'four components' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => $disk]), $failed(Component::Php), $debug, $failed(Component::Redis)), 'What runs your application needs attention. 1 critical and 3 warnings, on 4 components.'];
+        yield 'two critical' => [Snapshots::stack(Snapshots::of(Component::System, ['system' => ['disk' => ['total' => 100_000_000_000, 'free' => 1_000_000_000]] + Snapshots::system()]), $debug), 'What runs your application needs attention. 2 critical, on Server and Symfony.'];
+        yield 'reading' => [self::reading(), 'Reading what runs your application…'];
+    }
+
+    #[DataProvider('leads')]
+    public function testTheLeadSumsUpTheStack(StackState $state, string $sentence): void
+    {
+        $blocks = $this->screen(new FakeStackReader(self::withNode($state)))->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame(Block::LEAD, $blocks[1]->type);
+        self::assertEquals(new Lead($sentence, 'Read on your servers as you open this screen. Nothing is kept: it shows now, not the past.'), $blocks[1]->content);
+    }
+
+    public function testNoLeadWhenTheEngineFailedOrNothingIsRead(): void
+    {
+        $failed = new StackState('web-1', Snapshots::NOW, CacheState::Working, [], [], 'Cannot reach redis://cache:6379: Connection refused');
+        $off = new StackState('web-1', Snapshots::NOW, CacheState::Working, [], ['symfony' => 'No kernel']);
+        $offWithoutCache = new StackState('web-1', Snapshots::NOW, CacheState::OutOfOrder, [], []);
+
+        foreach ([$failed, $off, $offWithoutCache] as $state) {
+            $types = array_map(static fn(Block $block): string => $block->type, $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW)));
+
+            self::assertNotContains(Block::LEAD, $types);
+            self::assertNotContains(Block::GUIDE, $types);
+        }
+    }
+
+    public function testTheLeadTitlesThePage(): void
+    {
+        $screen = $this->screen(new FakeStackReader(new StackState('web-1', Snapshots::NOW, CacheState::OutOfOrder, self::healthy()->components, [])));
+        $blocks = $screen->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertSame([Block::SUBNAV, Block::LEAD, Block::NOTICE], array_map(static fn(Block $block): string => $block->type, array_slice($blocks, 0, 3)));
+
+        $body = (new Page($screen, $blocks, null, '', '', []))->body();
+
+        self::assertSame(Block::LEAD, $body[0]->type);
+        self::assertSame(BlockState::Ready, $body[0]->state);
+    }
+
+    public function testTheGuideClosesTheOverview(): void
+    {
+        foreach ([self::healthy(), self::troubled(), self::reading()] as $state) {
+            $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
+            $guide = end($blocks);
+
+            self::assertNotFalse($guide);
+            self::assertSame(Block::GUIDE, $guide->type);
+            self::assertEquals(new Guide([
+                new GuideItem('Four words.', 'Healthy: nothing to do. Info: good to know. Warning: act before it becomes a problem. Critical: it is a problem now.'),
+                new GuideItem('Found by itself.', 'The components come from your Symfony configuration: Doctrine connections, cache and session DSN. Nothing to declare.'),
+                new GuideItem('A check that does not apply to you.', 'Each one has a name, such as php.opcache_memory. Put it in stack.ignore_checks to silence it.'),
+            ]), $guide->content);
+        }
     }
 
     public function testTheOverviewShowsTheSecondNavigationTheChecksThenTheCards(): void
     {
         $blocks = $this->screen(new FakeStackReader(self::troubled()))->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertSame([Block::SUBNAV, Block::CHECKS, Block::COMPONENTS], array_map(static fn(Block $block): string => $block->type, $blocks));
+        self::assertSame([Block::SUBNAV, Block::LEAD, Block::CHECKS, Block::COMPONENTS, Block::GUIDE], array_map(static fn(Block $block): string => $block->type, $blocks));
 
         self::assertEquals(new SubNav('Stack', [
             new SubNavItem('All components', 'stack', true),
@@ -88,7 +175,7 @@ final class StackScreenTest extends TestCase
             new SubNavItem('Symfony', 'stack/symfony', false, new Mark('bad', 'Critical')),
         ], 'web-1'), $blocks[0]->content);
 
-        $checks = $blocks[1]->content;
+        $checks = $blocks[2]->content;
         self::assertInstanceOf(CheckList::class, $checks);
         self::assertSame(
             [
@@ -101,14 +188,14 @@ final class StackScreenTest extends TestCase
         self::assertSame('Debug mode is on in the prod environment', $checks->lines[0]->sentence);
         self::assertStringStartsWith('Debug mode slows down every request', $checks->lines[0]->explanation);
 
-        $cards = $blocks[2]->content;
+        $cards = $blocks[3]->content;
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame(['system', 'php', 'symfony'], array_map(static fn(ComponentCard $card): string => $card->id, $cards->cards));
         self::assertSame(['stack/system', 'stack/php', 'stack/symfony'], array_map(static fn(ComponentCard $card): ?string => $card->path, $cards->cards));
         self::assertSame('web-1', $cards->group);
         self::assertNull($cards->more);
         self::assertSame([], $cards->notDetected);
-        self::assertTrue($blocks[2]->reading, 'the disk read an hour ago is read again');
+        self::assertTrue($blocks[3]->reading, 'the disk read an hour ago is read again');
     }
 
     public function testACheckOfANamedInstanceSaysWhichOne(): void
@@ -117,7 +204,7 @@ final class StackScreenTest extends TestCase
         $system['disk']['free'] = 1_000_000_000;
         $state = self::withNode(Snapshots::state(['system' => [new InstanceState('data', null, null, Snapshots::of(Component::System, ['system' => $system]))]]));
 
-        $checks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[1]->content;
+        $checks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
 
         self::assertInstanceOf(CheckList::class, $checks);
         self::assertSame('Server · data', $checks->lines[0]->where);
@@ -130,10 +217,10 @@ final class StackScreenTest extends TestCase
         unset($php['fpm']);
         $state = self::withNode(Snapshots::stack(Snapshots::of(Component::Php, ['php' => $php])));
 
-        $checks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[1]->content;
+        $checks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
 
-        self::assertEquals(new CheckList([]), $checks);
-        self::assertSame('Nothing to check', $checks->emptyTitle);
+        self::assertEquals(new CheckList([], 'Nothing to flag', '', 'Worth a look'), $checks);
+        self::assertSame('Nothing to flag', $checks->emptyTitle);
     }
 
     public function testNothingToCheckIsProvisionalWhileSomethingIsStillRead(): void
@@ -145,11 +232,11 @@ final class StackScreenTest extends TestCase
             Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()], ['symfony.flex' => ResultState::Pending]),
         ));
 
-        $checks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[1]->content;
+        $checks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
 
         self::assertInstanceOf(CheckList::class, $checks);
         self::assertSame([], $checks->lines);
-        self::assertSame('Nothing to check so far', $checks->emptyTitle);
+        self::assertSame('Nothing to flag so far', $checks->emptyTitle);
     }
 
     public function testAStackWithoutComponentSaysSoInsteadOfNothingToCheck(): void
@@ -180,7 +267,7 @@ final class StackScreenTest extends TestCase
         ]));
 
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
-        $cards = $blocks[2]->content;
+        $cards = $blocks[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame('php', $cards->cards[0]->id);
@@ -197,7 +284,7 @@ final class StackScreenTest extends TestCase
             'symfony' => 'No kernel',
         ]);
 
-        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame(['Server: Server metrics are only read on Linux, this server runs on Darwin.', 'Symfony: No kernel'], $cards->notDetected);
@@ -212,7 +299,7 @@ final class StackScreenTest extends TestCase
         ]);
 
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
-        $cards = $blocks[2]->content;
+        $cards = $blocks[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame([], $cards->notDetected);
@@ -224,7 +311,7 @@ final class StackScreenTest extends TestCase
             'frankenphp' => 'FrankenPHP is not serving this page.',
             'apache' => 'Apache is not serving this page.',
         ]);
-        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame(['Server: Server metrics are only read on Linux, this server runs on Darwin.'], $cards->notDetected);
@@ -238,7 +325,7 @@ final class StackScreenTest extends TestCase
             'nginx' => 'Nginx is not serving this page.',
         ]);
 
-        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame(['Web server: FrankenPHP, Apache and Nginx were not found serving this page'], $cards->notDetected);
@@ -265,7 +352,7 @@ final class StackScreenTest extends TestCase
             'nginx' => 'Nginx is not serving this page.',
         ]);
 
-        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame(['Apache: Apache is not serving this page.', 'Nginx: Nginx is not serving this page.'], $cards->notDetected);
@@ -317,14 +404,14 @@ final class StackScreenTest extends TestCase
         $instances = [...array_map($read, range('a', 'h')), $unread('i'), $unread('j')];
         $state = self::withNode(Snapshots::state(['system' => $instances]));
 
-        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertCount(8, $cards->cards);
         self::assertSame('2 more connections', $cards->more);
 
         $state = self::withNode(Snapshots::state(['system' => [...array_map($read, range('a', 'h')), $unread('i')]]));
-        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame('1 more connection', $cards->more);
@@ -339,16 +426,16 @@ final class StackScreenTest extends TestCase
 
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertInstanceOf(CheckList::class, $blocks[1]->content);
+        self::assertInstanceOf(CheckList::class, $blocks[2]->content);
         self::assertSame(
             [['mysql.connections', 'stack/mysql', ['connection' => 'a/b é']]],
-            array_map(static fn(CheckLine $line): array => [$line->id, $line->path, $line->query], $blocks[1]->content->lines),
+            array_map(static fn(CheckLine $line): array => [$line->id, $line->path, $line->query], $blocks[2]->content->lines),
         );
-        self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
-        self::assertSame('stack/mysql', $blocks[2]->content->cards[0]->path);
-        self::assertSame(['connection' => 'a/b é'], $blocks[2]->content->cards[0]->query);
+        self::assertInstanceOf(ComponentCards::class, $blocks[3]->content);
+        self::assertSame('stack/mysql', $blocks[3]->content->cards[0]->path);
+        self::assertSame(['connection' => 'a/b é'], $blocks[3]->content->cards[0]->query);
 
-        $php = $this->screen(new FakeStackReader(self::healthy()))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+        $php = $this->screen(new FakeStackReader(self::healthy()))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $php);
         self::assertSame([[], [], []], array_map(static fn(ComponentCard $card): array => $card->query, $php->cards));
@@ -370,7 +457,7 @@ final class StackScreenTest extends TestCase
             new SubNavItem('All components', 'stack', true),
             new SubNavItem('MySQL', 'stack/mysql', false, new Mark('ok', 'Healthy')),
         ], 'web-1'), $blocks[0]->content);
-        $cards = $blocks[2]->content;
+        $cards = $blocks[3]->content;
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame(['mysql.main'], array_map(static fn(ComponentCard $card): string => $card->id, $cards->cards));
         self::assertSame('MySQL · main', $cards->cards[0]->name);
@@ -387,7 +474,7 @@ final class StackScreenTest extends TestCase
         foreach ([9 => '1 more server', 10 => '2 more servers'] as $servers => $more) {
             $state = self::withNode(Snapshots::state(['mysql' => [...array_map($read, range(1, 8)), ...array_map($unread, range(9, $servers))]]));
 
-            $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+            $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
             self::assertInstanceOf(ComponentCards::class, $cards);
             self::assertCount(8, $cards->cards);
@@ -404,7 +491,7 @@ final class StackScreenTest extends TestCase
             self::postgresql('spare', 'db1:5432', false),
         ]]));
 
-        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+        $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
         self::assertInstanceOf(ComponentCards::class, $cards);
         self::assertSame(['postgresql.main', 'postgresql.reports', 'postgresql.archive'], array_map(static fn(ComponentCard $card): string => $card->id, $cards->cards));
@@ -422,7 +509,7 @@ final class StackScreenTest extends TestCase
                 range(1, $connections),
             )]));
 
-            $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[2]->content;
+            $cards = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW))[3]->content;
 
             self::assertInstanceOf(ComponentCards::class, $cards);
             self::assertCount(8, $cards->cards);
@@ -439,18 +526,18 @@ final class StackScreenTest extends TestCase
 
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertSame([Block::SUBNAV, Block::NOTICE, Block::CHECKS, Block::COMPONENTS], array_map(static fn(Block $block): string => $block->type, $blocks));
-        self::assertEquals(new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.'), $blocks[1]->content);
-        self::assertSame([false, false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
-        self::assertInstanceOf(ComponentCards::class, $blocks[3]->content);
-        self::assertSame([false, false], array_map(static fn(ComponentCard $card): bool => $card->reading, $blocks[3]->content->cards));
+        self::assertSame([Block::SUBNAV, Block::LEAD, Block::NOTICE, Block::CHECKS, Block::COMPONENTS, Block::GUIDE], array_map(static fn(Block $block): string => $block->type, $blocks));
+        self::assertEquals(new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.'), $blocks[2]->content);
+        self::assertSame([false, false, false, false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+        self::assertInstanceOf(ComponentCards::class, $blocks[4]->content);
+        self::assertSame([false, false], array_map(static fn(ComponentCard $card): bool => $card->reading, $blocks[4]->content->cards));
 
-        foreach ($blocks[3]->content->cards as $card) {
+        foreach ($blocks[4]->content->cards as $card) {
             foreach ($card->vitals as $vital) {
                 self::assertNotSame('Reading…', $vital->value, $card->id . ' ' . $vital->label);
             }
         }
-        self::assertSame('—', $blocks[3]->content->cards[1]->vitals[2]->value);
+        self::assertSame('—', $blocks[4]->content->cards[1]->vitals[2]->value);
     }
 
     public function testAColdCacheIsNotTold(): void
@@ -459,7 +546,7 @@ final class StackScreenTest extends TestCase
 
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertSame([Block::SUBNAV, Block::CHECKS, Block::COMPONENTS], array_map(static fn(Block $block): string => $block->type, $blocks));
+        self::assertSame([Block::SUBNAV, Block::LEAD, Block::CHECKS, Block::COMPONENTS, Block::GUIDE], array_map(static fn(Block $block): string => $block->type, $blocks));
     }
 
     public function testACardStillReadingMarksTheBlock(): void
@@ -471,7 +558,7 @@ final class StackScreenTest extends TestCase
 
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertSame([false, false, true], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+        self::assertSame([false, false, false, true, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
     }
 
     public function testAnOutdatedValueIsReadAgainUnlessItsRenewalFailed(): void
@@ -483,11 +570,11 @@ final class StackScreenTest extends TestCase
 
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertSame([false, false, true], array_map(static fn(Block $block): bool => $block->reading, $blocks));
-        self::assertInstanceOf(ComponentCards::class, $blocks[2]->content);
-        self::assertSame([false, false], array_map(static fn(ComponentCard $card): bool => $card->reading, $blocks[2]->content->cards));
-        self::assertInstanceOf(CheckList::class, $blocks[1]->content);
-        self::assertSame('Nothing to check', $blocks[1]->content->emptyTitle);
+        self::assertSame([false, false, false, true, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+        self::assertInstanceOf(ComponentCards::class, $blocks[3]->content);
+        self::assertSame([false, false], array_map(static fn(ComponentCard $card): bool => $card->reading, $blocks[3]->content->cards));
+        self::assertInstanceOf(CheckList::class, $blocks[2]->content);
+        self::assertSame('Nothing to flag', $blocks[2]->content->emptyTitle);
 
         $failed = new ComponentSnapshot(Component::Symfony, [
             ...$outdated->results,
@@ -497,17 +584,17 @@ final class StackScreenTest extends TestCase
 
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertSame([false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+        self::assertSame([false, false, false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
 
         $outOfOrder = new StackState('web-1', Snapshots::NOW, CacheState::OutOfOrder, Snapshots::stack($outdated)->components, []);
 
         $blocks = $this->screen(new FakeStackReader($outOfOrder))->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertSame([false, false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+        self::assertSame([false, false, false, false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
 
         $blocks = $this->screen(new FakeStackReader(self::healthy()))->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertSame([false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
+        self::assertSame([false, false, false, false, false], array_map(static fn(Block $block): bool => $block->reading, $blocks));
     }
 
     public function testAnEngineFailureIsToldInsteadOfAnEmptyStack(): void

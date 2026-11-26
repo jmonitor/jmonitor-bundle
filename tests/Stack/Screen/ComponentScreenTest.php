@@ -76,7 +76,7 @@ final class ComponentScreenTest extends TestCase
 
         foreach ($screens as $screen) {
             self::assertTrue($screen->isAvailable());
-            self::assertSame(['refresh' => 'Refresh'], $screen->actions());
+            self::assertSame(['refresh' => 'Read again now'], $screen->actions());
         }
         self::assertSame([], $reader->calls);
     }
@@ -121,7 +121,30 @@ final class ComponentScreenTest extends TestCase
     {
         $blocks = $this->screen(new FakeStackReader(self::stack(Snapshots::of(Component::Symfony, ['symfony' => Snapshots::symfony()]))), Component::Symfony)->blocks(new ScreenRequest(Snapshots::NOW));
 
-        self::assertEquals(new CheckList([], 'Nothing to check on Symfony'), $blocks[2]->content);
+        self::assertEquals(new CheckList([], 'Nothing to flag on Symfony', '', 'Worth a look'), $blocks[2]->content);
+    }
+
+    public function testTheChecksOfTheDetailAreWorthALook(): void
+    {
+        $php = Snapshots::php();
+        $php['display_errors'] = '1';
+
+        $blocks = $this->screen(new FakeStackReader(self::stack(Snapshots::of(Component::Php, ['php' => $php]))), Component::Php)->blocks(new ScreenRequest(Snapshots::NOW));
+
+        self::assertInstanceOf(CheckList::class, $blocks[2]->content);
+        self::assertSame(['Worth a look', 'Nothing to flag on PHP'], [$blocks[2]->content->title, $blocks[2]->content->emptyTitle]);
+        self::assertCount(2, $blocks[2]->content->lines);
+    }
+
+    public function testTheDetailHasNeitherLeadNorGuide(): void
+    {
+        foreach ([Component::System, Component::Php, Component::Symfony] as $component) {
+            $state = self::stack(Snapshots::of(Component::System, ['system' => Snapshots::system()]), Snapshots::of(Component::Php, ['php' => Snapshots::php()]), Snapshots::of(Component::Symfony, ['symfony' => ['debug' => true] + Snapshots::symfony()]));
+            $types = array_map(static fn(Block $block): string => $block->type, $this->screen(new FakeStackReader($state), $component)->blocks(new ScreenRequest(Snapshots::NOW)));
+
+            self::assertNotContains(Block::LEAD, $types, $component->value);
+            self::assertNotContains(Block::GUIDE, $types, $component->value);
+        }
     }
 
     public function testTheDetailOnlyReadsItsComponent(): void

@@ -1,6 +1,6 @@
 {% autoescape 'html' %}
 {% set list = block.content %}
-{% set tones = list.lines|filter(line => line.action is not same as(''))|length > 0 ? list.lines|map(line => line.mark.tone) : [] %}
+{% set tones = list.lines|map(line => line.mark.tone) %}
 {% set frame = 'bad' in tones ? ' jm-checks--bad' : ('warn' in tones ? ' jm-checks--warn' : '') %}
 {% if list.lines is empty %}
     <section class="jm-checks jm-checks--empty" aria-label="{{ list.title }}">
@@ -32,12 +32,9 @@
                             <p class="jm-check__todo"><strong>What to do</strong> {{ line.action }}</p>
                         </div>
 {% else %}
-                        <p class="jm-check__sentence">{{ line.sentence }}</p>
+                        <p class="jm-check__sentence">{{ line.sentence }} <code class="jm-check__id">{{ line.id }}</code></p>
                         {% if line.explanation is not same as('') %}
-                            <details class="jm-check__more" data-jm-key="check-{{ line.id }}-{{ line.where }}">
-                                <summary>Why and what to do</summary>
-                                <p>{{ line.explanation }}</p>
-                            </details>
+                            <p class="jm-check__explanation">{{ line.explanation }}</p>
                         {% endif %}
 {% endif %}
                     </div>

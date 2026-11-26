@@ -77,40 +77,32 @@ final class TemplatesTest extends TestCase
     private const HOSTILE_SQL = '<script>alert(1)</script>';
     private const HOSTILE = '<b>&"x';
 
-    private const LEGACY_CHECKS = <<<'HTML'
-            <section class="jm-panel jm-checks" aria-label="To check">
+    private const APPLICATION_CHECKS = <<<'HTML'
+            <section class="jm-panel jm-checks jm-checks--bad" aria-label="Worth a look">
                 <div class="jm-panel__header">
-                    <h2 class="jm-panel__title">To check</h2>
+                    <h2 class="jm-panel__title">Worth a look</h2>
                 </div>
                 <ul class="jm-checks__list">
-                                    <li class="jm-check" data-jm-check="php.opcache_memory" data-jm-severity="bad">
-                            <div class="jm-check__mark"><span class="jm-mark jm-mark--bad">Critical</span></div>
-                            <div class="jm-check__body">
-                                <p class="jm-check__sentence">OPcache memory is full</p>
-                                                            <details class="jm-check__more" data-jm-key="check-php.opcache_memory-PHP">
-                                        <summary>Why and what to do</summary>
-                                        <p>Raise opcache.memory_consumption.</p>
-                                    </details>
-                                                    </div>
-                            <p class="jm-check__where"><a href="/host/page/stack/php?menu=3">PHP</a> <span class="jm-check__age">3 min ago</span></p>
-                        </li>
-                                    <li class="jm-check" data-jm-check="mysql.connections" data-jm-severity="warn">
+                                    <li class="jm-check jm-check--guided" data-jm-check="queries.slow" data-jm-severity="warn">
                             <div class="jm-check__mark"><span class="jm-mark jm-mark--warn">Warning</span></div>
                             <div class="jm-check__body">
-                                <p class="jm-check__sentence">Connections &lt;near&gt; the limit</p>
-                                                    </div>
-                            <p class="jm-check__where"><a href="/host/page/stack/mysql?menu=3&amp;connection=main">MySQL · main</a></p>
+                                <p class="jm-check__sentence"><strong>Slow queries</strong> · One query ran slower than 100 ms</p>
+                                                            <pre class="jm-check__code"><code>SELECT * FROM orders WHERE id = ?</code></pre>
+                                                        <div class="jm-check__advice">
+                                                                    <p class="jm-check__why"><strong>Why it matters</strong> A slow query holds &lt;its&gt; request.</p>
+                                                                <p class="jm-check__todo"><strong>What to do</strong> Add an index.</p>
+                                </div>
+                            </div>
+                            <p class="jm-check__where"><a href="/host/page/stack?menu=3&amp;period=1h">Queries</a> <span class="jm-check__age">3 min ago</span></p>
                         </li>
-                                    <li class="jm-check" data-jm-check="server.load" data-jm-severity="info">
-                            <div class="jm-check__mark"><span class="jm-mark jm-mark--info">Info</span></div>
+                                    <li class="jm-check jm-check--guided" data-jm-check="requests.server_errors" data-jm-severity="bad">
+                            <div class="jm-check__mark"><span class="jm-mark jm-mark--bad">Critical</span></div>
                             <div class="jm-check__body">
-                                <p class="jm-check__sentence">The load is high</p>
-                                                            <details class="jm-check__more" data-jm-key="check-server.load-Server">
-                                        <summary>Why and what to do</summary>
-                                        <p>Inside a container, the load is the one of the host node.</p>
-                                    </details>
-                                                    </div>
-                            <p class="jm-check__where">Server</p>
+                                <p class="jm-check__sentence">3 requests ended in a server error</p>
+                                                        <div class="jm-check__advice">
+                                                                <p class="jm-check__todo"><strong>What to do</strong> Open Exceptions.</p>
+                                </div>
+                            </div>
                         </li>
                             </ul>
             </section>
@@ -508,16 +500,54 @@ final class TemplatesTest extends TestCase
         static::assertStringContainsString('No check was raised.', $custom->filter('.jm-checks')->text());
     }
 
-    public function testACheckCarriesItsSeverityAndAKeyedExplanation(): void
+    public function testAStackLineShowsItsExplanationAndItsIdWithoutUnfolding(): void
     {
         $line = new CheckLine('php.opcache_memory', new Mark('bad', 'Critical'), 'OPcache memory is full', 'Raise opcache.memory_consumption.', 'PHP', 'stack/php', '3 min ago');
+        $bare = new CheckLine('mysql.connections', new Mark('warn', 'Warning'), 'Connections <near> the limit', '', 'MySQL · main');
 
-        $check = (new Crawler($this->screen(Block::checks(new CheckList([$line])))))->filter('[data-jm-check="php.opcache_memory"][data-jm-severity="bad"]');
+        $crawler = new Crawler($this->screen(Block::checks(new CheckList([$line, $bare]))));
+        $check = $crawler->filter('li.jm-check[data-jm-check="php.opcache_memory"][data-jm-severity="bad"]');
 
         static::assertCount(1, $check);
-        static::assertStringContainsString('OPcache memory is full', $check->text());
-        static::assertSame('Raise opcache.memory_consumption.', $check->filter('details[data-jm-key="check-php.opcache_memory-PHP"] p')->text());
-        static::assertStringContainsString('3 min ago', $check->text());
+        static::assertSame('jm-check', $check->attr('class'));
+        static::assertSame('OPcache memory is full php.opcache_memory', $check->filter('.jm-check__body > p.jm-check__sentence')->text());
+        static::assertSame('php.opcache_memory', $check->filter('.jm-check__sentence > code.jm-check__id')->text());
+        static::assertSame('Raise opcache.memory_consumption.', $check->filter('.jm-check__body > p.jm-check__explanation')->text());
+        static::assertSame('PHP 3 min ago', $check->filter('.jm-check__where')->text());
+        static::assertCount(0, $crawler->filter('details, summary, [data-jm-key]'));
+        static::assertStringNotContainsString('Why and what to do', $crawler->text());
+
+        $bareCheck = $crawler->filter('li[data-jm-check="mysql.connections"]');
+        static::assertSame('Connections <near> the limit mysql.connections', $bareCheck->filter('.jm-check__sentence')->text());
+        static::assertCount(0, $bareCheck->filter('.jm-check__explanation'));
+    }
+
+    public function testTheFrameOfTheChecksFollowsEveryLine(): void
+    {
+        $frame = fn(CheckLine ...$lines): ?string => (new Crawler($this->screen(Block::checks(new CheckList($lines)))))->filter('section.jm-checks')->attr('class');
+        $stack = static fn(string $tone): CheckLine => new CheckLine('php.x', new Mark($tone, ucfirst($tone)), 'Sentence', 'Why.', 'PHP');
+        $application = static fn(string $tone): CheckLine => new CheckLine('queries.slow', new Mark($tone, ucfirst($tone)), 'Sentence', 'Why.', 'Queries', action: 'What.');
+
+        static::assertSame('jm-panel jm-checks jm-checks--bad', $frame($stack('bad')));
+        static::assertSame('jm-panel jm-checks jm-checks--warn', $frame($stack('info'), $stack('warn')));
+        static::assertSame('jm-panel jm-checks', $frame($stack('info')));
+        static::assertSame('jm-panel jm-checks jm-checks--bad', $frame($application('warn'), $stack('bad')));
+        static::assertSame('jm-panel jm-checks jm-checks--bad', $frame($stack('warn'), $application('bad')));
+        static::assertSame('jm-panel jm-checks jm-checks--warn', $frame($application('warn'), $stack('info')));
+        static::assertSame('jm-panel jm-checks jm-checks--warn', $frame($application('warn')));
+    }
+
+    public function testACardShowsItsRoleUnderItsName(): void
+    {
+        $crawler = new Crawler($this->screen(Block::components(new ComponentCards([
+            new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), [new Vital('OPcache memory', '42 %')], '8.4.1', 'stack/php', role: 'Runs your code.'),
+            new ComponentCard('symfony', 'Symfony', new Mark('ok', 'Healthy')),
+        ]))));
+        $head = $crawler->filter('[data-jm-component="php"] > .jm-component__head');
+
+        static::assertSame(['h3', 'span', 'span', 'p'], $head->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertSame('Runs your code.', $head->filter('p.jm-component__role')->text());
+        static::assertCount(0, $crawler->filter('[data-jm-component="symfony"] .jm-component__role'));
     }
 
     public function testACardThatIsReadingSaysSoAndMarksItself(): void
@@ -796,16 +826,19 @@ final class TemplatesTest extends TestCase
         }
     }
 
-    public function testACheckWithoutActionIsRenderedAsBefore(): void
+    public function testAnEmptyCheckListIsRenderedAsBefore(): void
+    {
+        static::assertSame(self::LEGACY_EMPTY_CHECKS . "\n", $this->render('block/checks.html.twig', ['block' => Block::checks(new CheckList([], 'Nothing to check on PHP', 'No check was raised.'))]));
+    }
+
+    public function testAnApplicationLineIsRenderedAsBefore(): void
     {
         $list = new CheckList([
-            new CheckLine('php.opcache_memory', new Mark('bad', 'Critical'), 'OPcache memory is full', 'Raise opcache.memory_consumption.', 'PHP', 'stack/php', '3 min ago'),
-            new CheckLine('mysql.connections', new Mark('warn', 'Warning'), 'Connections <near> the limit', '', 'MySQL · main', 'stack/mysql', null, ['connection' => 'main']),
-            new CheckLine('server.load', new Mark('info', 'Info'), 'The load is high', 'Inside a container, the load is the one of the host node.', 'Server'),
-        ]);
+            new CheckLine('queries.slow', new Mark('warn', 'Warning'), 'One query ran slower than 100 ms', 'A slow query holds <its> request.', 'Queries', 'stack', '3 min ago', ['period' => '1h'], 'Slow queries', 'Add an index.', 'SELECT * FROM orders WHERE id = ?'),
+            new CheckLine('requests.server_errors', new Mark('bad', 'Critical'), '3 requests ended in a server error', '', '', action: 'Open Exceptions.'),
+        ], title: 'Worth a look');
 
-        static::assertSame(self::LEGACY_CHECKS . "\n", $this->render('block/checks.html.twig', ['block' => Block::checks($list)]));
-        static::assertSame(self::LEGACY_EMPTY_CHECKS . "\n", $this->render('block/checks.html.twig', ['block' => Block::checks(new CheckList([], 'Nothing to check on PHP', 'No check was raised.'))]));
+        static::assertSame(self::APPLICATION_CHECKS . "\n", $this->render('block/checks.html.twig', ['block' => Block::checks($list)]));
     }
 
     public function testACheckWithAnActionShowsWhyAndWhatToDoSideBySide(): void
@@ -838,9 +871,6 @@ final class TemplatesTest extends TestCase
         static::assertSame('jm-panel jm-checks jm-checks--bad', $warning->filter('section.jm-checks')->attr('class'));
         static::assertSame('jm-panel jm-checks jm-checks--warn', (new Crawler($this->screen(Block::checks(new CheckList([
             new CheckLine('queries.slow', new Mark('warn', 'Warning'), 'Sentence', 'Why.', 'Queries', action: 'What.'),
-        ])))))->filter('section.jm-checks')->attr('class'));
-        static::assertSame('jm-panel jm-checks', (new Crawler($this->screen(Block::checks(new CheckList([
-            new CheckLine('php.x', new Mark('bad', 'Critical'), 'Sentence', 'Why.', 'PHP'),
         ])))))->filter('section.jm-checks')->attr('class'));
     }
 

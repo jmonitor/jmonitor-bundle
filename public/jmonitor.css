@@ -1580,22 +1580,18 @@ body.jm .jm-section {
     overflow-wrap: anywhere;
 }
 
-.jm-check__more {
+.jm-check__sentence .jm-check__id {
+    margin-left: 4px;
+    color: var(--jm-faint);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.jm-check__explanation {
+    max-width: 72ch;
     margin-top: 2px;
     color: var(--jm-muted);
     font-size: 13.5px;
-}
-
-.jm-check__more summary {
-    width: fit-content;
-    color: var(--jm-primary-light);
-    font-size: 13px;
-    cursor: pointer;
-}
-
-.jm-check__more p {
-    max-width: 72ch;
-    margin-top: 4px;
     overflow-wrap: anywhere;
 }
 
@@ -1810,6 +1806,12 @@ body.jm .jm-section {
 .jm-component__link:focus-visible::after {
     outline: 2px solid var(--jm-focus);
     outline-offset: 2px;
+}
+
+.jm-component__role {
+    flex-basis: 100%;
+    color: var(--jm-muted);
+    font-size: 13px;
 }
 
 .jm-component__version {

@@ -73,6 +73,31 @@ final class StackScreenTest extends WebTestCase
         static::assertCount(1, $crawler->filter('form[action="/jmonitor/_action/stack"] button'));
     }
 
+    public function testTheStackScreenOpensOnASentenceThenWhatIsWorthALook(): void
+    {
+        $client = $this->client();
+
+        $crawler = $client->request('GET', '/jmonitor/stack');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame(['h1'], $crawler->filter('.jm-screen h1')->each(static fn(Crawler $title): string => $title->nodeName()));
+        static::assertMatchesRegularExpression('/^(Everything that runs your application answers\.|What runs your application needs attention\.|Reading what runs your application…)/', $crawler->filter('.jm-screen h1.jm-lead__title')->text());
+        static::assertSame('Read on your servers as you open this screen. Nothing is kept: it shows now, not the past.', $crawler->filter('.jm-lead__detail')->text());
+        static::assertCount(0, $crawler->filter('.jm-heading__text'));
+        static::assertSame('Worth a look', $crawler->filter('section.jm-checks')->attr('aria-label'));
+        static::assertSame('Read again now', $crawler->filter('form[action="/jmonitor/_action/stack"] button')->text());
+        static::assertSame(['Four words.', 'Found by itself.', 'A check that does not apply to you.'], $crawler->filter('.jm-guide li strong')->each(static fn(Crawler $term): string => $term->text()));
+        static::assertCount(0, $crawler->filter('.jm-screen details'));
+
+        $crawler = $client->request('GET', '/jmonitor/stack/php');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame('Worth a look', $crawler->filter('section.jm-checks')->attr('aria-label'));
+        static::assertSame('Read again now', $crawler->filter('form[action="/jmonitor/_action/stack/php"] button')->text());
+        static::assertSame('Runs your code.', $crawler->filter('[data-jm-component="php"] .jm-component__role')->text());
+        static::assertCount(0, $crawler->filter('.jm-lead, .jm-guide'));
+    }
+
     public function testTheOverviewListsTheComponentsOfTheStack(): void
     {
         $client = $this->client(['jmonitor' => ['recording' => ['flush_interval' => 1]]]);

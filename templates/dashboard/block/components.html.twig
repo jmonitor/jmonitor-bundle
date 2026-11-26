@@ -25,6 +25,9 @@
                             {{- include('@Jmonitor/dashboard/_mark.html.twig', {mark: card.mark}, with_context = false) -}}
                             {%- for badge in card.badges %} {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: badge}, with_context = false) }}{% endfor -%}
                         </span>
+                        {% if card.role is not null %}
+                            <p class="jm-component__role">{{ card.role }}</p>
+                        {% endif %}
                     </div>
                     {% if card.reason is not null %}
                         <p class="jm-component__reason">{{ card.reason }}</p>

@@ -29,6 +29,8 @@ use Psr\Container\ContainerInterface;
  */
 final class StackScreenParts
 {
+    public const READ_AGAIN = 'Read again now';
+
     private const ID = 'stack';
 
     /**
@@ -119,7 +121,7 @@ final class StackScreenParts
      * @param bool          $linked   whether each line links to the detail of its component
      * @param string        $prefix   put before the place of each line
      */
-    public function checkList(array $findings, bool $linked, ?string $emptyTitle = null, string $prefix = ''): CheckList
+    public function checkList(array $findings, bool $linked, string $emptyTitle = 'Nothing to flag', string $prefix = ''): CheckList
     {
         $now = $this->now();
         $lines = array_map(static fn(Finding $finding): CheckLine => new CheckLine(
@@ -133,7 +135,7 @@ final class StackScreenParts
             $linked && $finding->instance !== null ? [ScreenRequest::INSTANCE => $finding->instance] : [],
         ), $findings);
 
-        return $emptyTitle === null ? new CheckList($lines) : new CheckList($lines, $emptyTitle);
+        return new CheckList($lines, $emptyTitle, title: 'Worth a look');
     }
 
     /**
