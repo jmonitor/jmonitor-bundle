@@ -262,7 +262,7 @@ final class DisplayCostTest extends TestCase
         self::assertSame(['Immediate' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Network' => [1, 1, 1, 1, 1, 1, 1, 1, 1], 'Slow' => [0, 0, 0, 0, 0, 0, 0, 0, 0]], $this->calls());
     }
 
-    public function testAWarmGlanceCostsAtMostSixteenRoundTrips(): void
+    public function testAWarmGlanceCostsAtMostThreeRoundTripsPlusOnePerCard(): void
     {
         $cache = new CountingCachePool();
         $this->glance($this->stackServices($cache))->glance();
@@ -275,10 +275,10 @@ final class DisplayCostTest extends TestCase
         self::assertSame($calls, $this->calls(), 'warm: nothing is collected');
         self::assertCount(count(Component::cases()), $glance->cards);
         self::assertSame(1, $cache->calls['save'] ?? 0, 'the summary is written');
-        self::assertLessThanOrEqual(16, $cache->roundTrips(), json_encode($cache->calls, \JSON_THROW_ON_ERROR));
+        self::assertLessThanOrEqual(count($glance->cards) + 3, $cache->roundTrips(), json_encode($cache->calls, \JSON_THROW_ON_ERROR));
     }
 
-    public function testAGlanceAfterTheStackScreenCostsAtMostSixteenRoundTrips(): void
+    public function testAGlanceAfterTheStackScreenCostsAtMostThreeRoundTripsPlusOnePerCard(): void
     {
         $cache = new CountingCachePool();
         $this->renderer($cache)->page(Request::create('/'), 'stack', new FakeHostUrls());
@@ -286,10 +286,31 @@ final class DisplayCostTest extends TestCase
         $calls = $this->calls();
         $cache->reset();
 
-        $this->glance($this->stackServices($cache))->glance();
+        $glance = $this->glance($this->stackServices($cache))->glance();
 
         self::assertSame($calls, $this->calls(), 'warm: nothing is collected');
-        self::assertLessThanOrEqual(16, $cache->roundTrips(), json_encode($cache->calls, \JSON_THROW_ON_ERROR));
+        self::assertCount(count(Component::cases()), $glance->cards);
+        self::assertLessThanOrEqual(count($glance->cards) + 3, $cache->roundTrips(), json_encode($cache->calls, \JSON_THROW_ON_ERROR));
+    }
+
+    public function testAWarmGlanceAtEightConnectionsCostsAtMostThreeRoundTripsPlusOnePerCard(): void
+    {
+        $container = new Container();
+        $params = [];
+        foreach (range(1, 8) as $i) {
+            $params['c' . $i] = ['dbname' => 'shop' . $i] + self::POSTGRESQL;
+            $container->set('doctrine.dbal.c' . $i . '_connection', new FakeDatabase());
+        }
+        $cache = new CountingCachePool();
+        $reader = fn(): LocalStackReader => $this->postgresqlReader($container, $params, $cache);
+        $this->glance($this->stackServices($cache, $reader))->glance();
+        $this->glance($this->stackServices($cache, $reader))->glance();
+        $cache->reset();
+
+        $glance = $this->glance($this->stackServices($cache, $reader))->glance();
+
+        self::assertCount(8, $glance->cards);
+        self::assertLessThanOrEqual(count($glance->cards) + 3, $cache->roundTrips(), json_encode($cache->calls, \JSON_THROW_ON_ERROR));
     }
 
     public function testTheStackBadgeOfADisplayFollowsItsGlance(): void
