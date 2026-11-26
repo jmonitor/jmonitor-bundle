@@ -386,6 +386,38 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertSame('jm-guide', $crawler->filter('.jm-screen > section:last-of-type')->attr('class'));
     }
 
+    public function testTheGalleryShowsTheMapAndThePlaces(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+
+        static::assertResponseIsSuccessful();
+        $maps = $crawler->filter('.jm-screen > section.jm-map');
+        static::assertCount(3, $maps);
+        static::assertSame(['1 · What comes in', '2 · Your application', '3 · What it calls'], $maps->eq(0)->filter('.jm-map__title')->each(static fn(Crawler $h2): string => $h2->text()));
+        static::assertCount(2, $maps->eq(0)->filter('svg.jm-map__arrow[aria-hidden="true"]'));
+        static::assertSame(
+            ['/back-office/monitoring/gallery?menu=3#jm-full', '/back-office/monitoring/gallery?menu=3#jm-quiet', '/back-office/monitoring/gallery?menu=3'],
+            $maps->eq(0)->filter('.jm-map__column--incoming a.jm-box')->each(static fn(Crawler $a): string => (string) $a->attr('href')),
+        );
+        static::assertSame('Commands 12 Console runs.', $maps->eq(0)->filter('.jm-map__column--incoming div.jm-box')->text());
+        static::assertCount(2, $maps->eq(0)->filter('.jm-box--pending'));
+        static::assertSame(['Messages', 'Other sites and APIs'], $maps->eq(0)->filter('.jm-box--bad')->each(static fn(Crawler $box): string => $box->filter('.jm-box__label')->text()));
+        static::assertCount(1, $maps->eq(0)->filter('.jm-box--warn'));
+        static::assertCount(1, $maps->eq(0)->filter('.jm-box svg.jm-sparkline'));
+        static::assertCount(3, $maps->eq(0)->filter('.jm-map__average .jm-split rect'));
+        static::assertSame(['ok', 'warn', 'bad', 'unknown'], $maps->eq(0)->filter('.jm-runs__line .jm-mark')->each(static fn(Crawler $mark): string => substr((string) $mark->attr('class'), \strlen('jm-mark jm-mark--'))));
+        static::assertSame(['1 · Your application'], $maps->eq(1)->filter('.jm-map__title')->each(static fn(Crawler $h2): string => $h2->text()));
+        static::assertCount(2, $maps->eq(1)->filter('a.jm-runs__line'));
+        static::assertSame('Warning The live stack needs a working cache', $maps->eq(2)->filter('.jm-runs .jm-notice__title')->text());
+        $places = $crawler->filter('.jm-screen > section.jm-places');
+        static::assertSame(['Overview', 'Application', 'Stack'], $places->filter('a.jm-place__label')->each(static fn(Crawler $a): string => $a->text()));
+        static::assertStringStartsWith('/back-office/monitoring', (string) $places->filter('a.jm-place__label')->attr('href'));
+        static::assertSame('Checked and fine: no server error, no slow request, no failed message, 2 of 3 stack components healthy.', $crawler->filter('.jm-checks__footnote')->text());
+        static::assertDoesNotMatchRegularExpression('/<[^>]+\sstyle=/', (string) $client->getResponse()->getContent());
+    }
+
     public function testTheGalleryShowsTheSelectorOfAConnection(): void
     {
         $client = static::createClient(['gallery' => true]);

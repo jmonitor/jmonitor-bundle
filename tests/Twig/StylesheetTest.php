@@ -609,6 +609,51 @@ final class StylesheetTest extends TestCase
         static::assertContains(['margin', '8px 0 0'], $code);
     }
 
+    public function testTheMapAndThePlacesAreStyledUnderJm(): void
+    {
+        $selectors = [];
+        foreach (self::rules() as $rule) {
+            array_push($selectors, ...$rule['selectors']);
+        }
+
+        foreach (['.jm-map', '.jm-map__column', '.jm-map__column--app', '.jm-map__title', '.jm-map__text', '.jm-map__arrow', '.jm-map__boxes', '.jm-map__boxes--inside', '.jm-map__app', '.jm-map__average', '.jm-map__average--pending', '.jm-map__split', '.jm-map__legend', '.jm-map__phrase', '.jm-box', '.jm-box__head', '.jm-box__label', '.jm-box__value', '.jm-box__text', '.jm-box__tags', '.jm-box--small', '.jm-box--pending', '.jm-box--warn', '.jm-box--bad', '.jm-runs', '.jm-runs__title', '.jm-runs__line', '.jm-runs__name', '.jm-runs__figures', '.jm-runs__more', '.jm-runs__empty', '.jm-places__list', '.jm-place', '.jm-place__label', '.jm-place__question', '.jm-checks__footnote'] as $class) {
+            static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => preg_match('/' . preg_quote($class, '/') . '(?![a-z0-9_-])/', $selector) === 1), $class);
+        }
+    }
+
+    public function testAToneOnlyColoursTheFrameOfABox(): void
+    {
+        static::assertSame([['border-color', 'var(--jm-warn-border)']], self::declarationsOf('.jm-box--warn', null));
+        static::assertSame([['border-color', 'var(--jm-bad-border)']], self::declarationsOf('.jm-box--bad', null));
+    }
+
+    public function testAPendingBoxHasADashedFrameAndNoBackground(): void
+    {
+        $pending = self::declarationsOf('.jm-box--pending', null);
+
+        static::assertContains(['border-style', 'dashed'], $pending);
+        static::assertContains(['background', 'none'], $pending);
+    }
+
+    public function testTheColumnsOfTheMapStackAndLoseTheirArrowsOnANarrowScreen(): void
+    {
+        $at = '@media (max-width: 1080px)';
+
+        static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map', $at));
+        static::assertContains(['display', 'none'], self::declarationsOf('.jm-map__arrow', $at));
+        static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__boxes--inside', '@media (max-width: 400px)'));
+        static::assertNotContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__boxes--inside', $at));
+    }
+
+    public function testABoxThatIsALinkKeepsTheColoursOfItsText(): void
+    {
+        static::assertContains(['display', 'flex'], self::declarationsOf('.jm-box', null));
+        static::assertContains(['color', 'inherit'], self::declarationsOf('.jm-box', null));
+        static::assertContains(['text-decoration', 'none'], self::declarationsOf('.jm-box', null));
+        static::assertContains(['display', 'grid'], self::declarationsOf('.jm-runs__line', null));
+        static::assertContains(['text-overflow', 'ellipsis'], self::declarationsOf('.jm-runs__figures', null));
+    }
+
     private static function withoutHostAncestor(string $selector): string
     {
         foreach (self::HOST_ANCESTORS as $ancestor) {

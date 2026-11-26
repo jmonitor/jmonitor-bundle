@@ -1,0 +1,15 @@
+{% autoescape 'html' %}
+{% set shown = block.content.places|filter(place => place.path is same as('') or (place.path|split('/')|first) in screens) %}
+{% if shown is not empty %}
+<section class="jm-panel jm-places" aria-label="What you will find here">
+    <div class="jm-panel__header">
+        <h2 class="jm-panel__title">What you will find here</h2>
+    </div>
+    <ul class="jm-places__list">
+        {% for place in shown %}
+            <li class="jm-place"><a class="jm-place__label" href="{{ urls.page(place.path, page.period ? {period: page.period.label} : {}) }}">{{ place.label }}</a> <span class="jm-place__what">{{ place.what }}</span> <span class="jm-place__question">{{ place.question }}</span></li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+{% endautoescape %}

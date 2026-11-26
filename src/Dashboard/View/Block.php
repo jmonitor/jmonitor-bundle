@@ -18,6 +18,8 @@ final class Block
     public const SECTION = 'section';
     public const LEAD = 'lead';
     public const GUIDE = 'guide';
+    public const MAP = 'map';
+    public const PLACES = 'places';
 
     private function __construct(
         public readonly string $type,
@@ -82,6 +84,16 @@ final class Block
     public static function guide(Guide $guide): self
     {
         return new self(self::GUIDE, BlockState::Ready, $guide);
+    }
+
+    public static function map(Map $map): self
+    {
+        return new self(self::MAP, BlockState::Ready, $map);
+    }
+
+    public static function places(Places $places): self
+    {
+        return new self(self::PLACES, BlockState::Ready, $places);
     }
 
     public static function section(Section $section): self

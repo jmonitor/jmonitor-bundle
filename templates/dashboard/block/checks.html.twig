@@ -54,6 +54,9 @@
                 </li>
             {% endfor %}
         </ul>
+{% if list.footnote is not same as('') %}
+        <p class="jm-checks__footnote">{{ list.footnote }}</p>
+{% endif %}
     </section>
 {% endif %}
 {% endautoescape %}

@@ -28,8 +28,12 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Column;
 use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
 use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
+use Jmonitor\JmonitorBundle\Dashboard\View\Map;
+use Jmonitor\JmonitorBundle\Dashboard\View\MapBox;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
+use Jmonitor\JmonitorBundle\Dashboard\View\Place;
+use Jmonitor\JmonitorBundle\Dashboard\View\Places;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
@@ -1085,6 +1089,37 @@ final class ScreenBuilderTest extends TestCase
         $table = $this->table($rows);
 
         return new StubSection($id, static fn(): ScreenView => new ScreenView([new Card('Runs', '3')], [$table]), $available, $sorts);
+    }
+
+    public function testAMapTakesThePlaceOfTheCards(): void
+    {
+        $lead = new Lead('Sentence');
+        $checks = new CheckList([]);
+        $guide = new Guide([new GuideItem('Term', 'Text')]);
+        $map = new Map([new MapBox('Requests', '12', 'No server error.')]);
+        $table = $this->table(rows: 1);
+        $view = static fn(ScreenView $view): StubScreen => new StubScreen(view: static fn(ReaderInterface $reader): ScreenView => $view);
+
+        $page = $this->builder()->create($view(new ScreenView([new Card('Hits', '12')], [$table], $lead, $checks, $guide, map: $map)), null, null, null);
+
+        static::assertSame([Block::LEAD, Block::CHECKS, Block::MAP, Block::TABLE, Block::GUIDE], self::types($page->blocks));
+        static::assertSame($map, $page->blocks[2]->content);
+        static::assertSame([Block::MAP, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$table], map: $map)), null, null, null)->blocks), 'A map stands in for the cards, even without a lead.');
+    }
+
+    public function testThePlacesCloseThePage(): void
+    {
+        $guide = new Guide([new GuideItem('Term', 'Text')]);
+        $places = new Places([new Place('Overview', '', 'This page.', 'Is everything fine?')]);
+        $map = new Map([new MapBox('Requests', '12', 'No server error.')]);
+        $table = $this->table(rows: 1);
+        $view = static fn(ScreenView $view): StubScreen => new StubScreen(view: static fn(ReaderInterface $reader): ScreenView => $view);
+
+        $page = $this->builder()->create($view(new ScreenView([], [$table], new Lead('Sentence'), new CheckList([]), $guide, map: $map, places: $places)), null, null, null);
+
+        static::assertSame([Block::LEAD, Block::CHECKS, Block::MAP, Block::TABLE, Block::GUIDE, Block::PLACES], self::types($page->blocks));
+        static::assertSame($places, $page->blocks[5]->content);
+        static::assertSame([Block::LEAD, Block::MAP, Block::TABLE, Block::PLACES], self::types($this->builder()->create($view(new ScreenView([], [$table], new Lead('Sentence'), map: $map, places: $places)), null, null, null)->blocks));
     }
 
     private function builder(?ReaderInterface $reader = new FixedReader(), bool $recordingEnabled = true, ?BufferDirectory $bufferDirectory = null): ScreenBuilder
