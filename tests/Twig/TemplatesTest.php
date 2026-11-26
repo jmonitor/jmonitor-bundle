@@ -1311,16 +1311,42 @@ final class TemplatesTest extends TestCase
         static::assertSame(['8.0.36 · Connection refused', '7.4.0 · Reading…', 'Reading…', '1.2'], $figures->each(static fn(Crawler $line): string => $line->text()));
     }
 
-    public function testANoticeTakesThePlaceOfTheRunsOnLines(): void
+    public function testANoticeWithoutACardTakesThePlaceOfTheRunsOnLines(): void
+    {
+        $notice = new Notice('bad', 'The stack could not be read', 'Cannot reach redis://cache:6379: Connection refused');
+
+        $runs = (new Crawler($this->mapScreen(['stack'], Block::map(new Map(runsOn: new StackGlance(notice: $notice))))))->filter('.jm-runs');
+
+        static::assertSame(['p', 'div'], $runs->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertSame('Error The stack could not be read', $runs->filter('.jm-notice__title')->text());
+        static::assertSame('Cannot reach redis://cache:6379: Connection refused', $runs->filter('.jm-notice__text')->text());
+        static::assertCount(0, $runs->filter('.jm-runs__list, .jm-runs__more, .jm-runs__empty'));
+    }
+
+    public function testANoticeThatComesWithCardsShowsAboveTheirLines(): void
     {
         $card = new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), [new Vital('OPcache memory', '42 %')], '8.4.1', 'stack/php');
         $notice = new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown.');
 
         $runs = (new Crawler($this->mapScreen(['stack'], Block::map(new Map(runsOn: new StackGlance([$card], notice: $notice, more: '1 more connection'))))))->filter('.jm-runs');
 
-        static::assertCount(0, $runs->filter('.jm-runs__list, .jm-runs__more, .jm-runs__empty'));
+        static::assertSame(['p', 'div', 'ul', 'p'], $runs->children()->each(static fn(Crawler $child): string => $child->nodeName()));
         static::assertSame('Warning The live stack needs a working cache', $runs->filter('.jm-notice__title')->text());
-        static::assertSame('Only what PHP can read in its own process is shown.', $runs->filter('.jm-notice__text')->text());
+        static::assertCount(1, $runs->filter('.jm-notice + .jm-runs__list'));
+        static::assertSame(['PHP'], $runs->filter('.jm-runs__list .jm-runs__name')->each(static fn(Crawler $name): string => $name->text()));
+        static::assertSame('1 more connection', $runs->filter('.jm-runs__list + .jm-runs__more')->text());
+        static::assertCount(0, $runs->filter('.jm-runs__empty'));
+    }
+
+    public function testCardsWithoutANoticeShowOnlyTheirLines(): void
+    {
+        $card = new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), [new Vital('OPcache memory', '42 %')], '8.4.1', 'stack/php');
+
+        $runs = (new Crawler($this->mapScreen(['stack'], Block::map(new Map(runsOn: new StackGlance([$card]))))))->filter('.jm-runs');
+
+        static::assertSame(['p', 'ul'], $runs->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertSame(['PHP'], $runs->filter('.jm-runs__name')->each(static fn(Crawler $name): string => $name->text()));
+        static::assertCount(0, $runs->filter('.jm-notice, .jm-runs__more, .jm-runs__empty'));
 
         $empty = (new Crawler($this->mapScreen(['stack'], Block::map(new Map(runsOn: new StackGlance())))))->filter('.jm-runs');
 

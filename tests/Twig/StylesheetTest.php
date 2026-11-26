@@ -683,6 +683,12 @@ final class StylesheetTest extends TestCase
         static::assertSame([], array_filter(self::declarationsOf('.jm-runs__figures', null), static fn(array $declaration): bool => \in_array($declaration[0], ['white-space', 'text-overflow', 'overflow'], true)));
     }
 
+    public function testTheRunsOnLinesSitOnTheSurfaceOfACardOfTheStackScreen(): void
+    {
+        static::assertContains(['background', 'linear-gradient(var(--jm-surface), var(--jm-surface)), var(--jm-bg)'], self::declarationsOf('.jm-runs__list', null));
+        static::assertSame([['font-weight', '600']], self::declarationsOf('.jm-runs__version', null));
+    }
+
     private static function withoutHostAncestor(string $selector): string
     {
         foreach (self::HOST_ANCESTORS as $ancestor) {

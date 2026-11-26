@@ -265,7 +265,7 @@ body.jm .jm-header {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px 28px;
+    gap: 12px 16px;
     max-width: var(--jm-max-width);
     min-height: 60px;
     margin: 0 auto;
@@ -296,7 +296,7 @@ body.jm .jm-header {
 }
 
 .jm-nav__item {
-    padding: 6px 12px;
+    padding: 6px 10px;
     border-radius: var(--jm-radius-sm);
     color: var(--jm-muted);
     font-size: 14px;
@@ -318,7 +318,7 @@ body.jm .jm-header {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px 20px;
+    gap: 12px;
     margin-left: auto;
 }
 
@@ -2337,7 +2337,10 @@ body.jm .jm-section {
 
 .jm-runs__list {
     margin: 0;
-    padding: 0;
+    padding: 0 12px;
+    border: 1px solid var(--jm-border-subtle);
+    border-radius: var(--jm-radius);
+    background: linear-gradient(var(--jm-surface), var(--jm-surface)), var(--jm-bg);
     list-style: none;
 }
 
@@ -2379,7 +2382,7 @@ body.jm .jm-section {
 }
 
 .jm-runs__version {
-    color: var(--jm-faint);
+    font-weight: 600;
 }
 
 .jm-runs__value {

@@ -53,8 +53,11 @@
                 <p class="jm-runs__title"><strong>Runs on</strong> <span class="jm-runs__when">read right now, whatever the period</span></p>
 {% if glance.notice is not null %}
                 {{ include('@Jmonitor/dashboard/block/notice.html.twig', {block: {content: glance.notice}}, with_context = false) }}
-{% elseif glance.cards is empty %}
+{% endif %}
+{% if glance.cards is empty %}
+{% if glance.notice is null %}
                 <p class="jm-runs__empty">No component of the stack is read.</p>
+{% endif %}
 {% else %}
                 <ul class="jm-runs__list">
                     {% for card in glance.cards %}

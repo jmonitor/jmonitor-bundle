@@ -242,7 +242,10 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 new ComponentCard('php', 'PHP', $healthy, [new Vital('OPcache memory', '42 %')], '8.4.1', 'gallery'),
                 new ComponentCard('symfony', 'Symfony', $info, [new Vital('Environment', 'prod'), new Vital('Debug', 'off')], '7.4.0', 'gallery'),
             ]))),
-            Block::map(new Map(runsOn: new StackGlance([], notice: new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.')))),
+            Block::map(new Map(runsOn: new StackGlance([
+                new ComponentCard('php', 'PHP', $healthy, [new Vital('OPcache memory', '42 %')], '8.4.1', 'gallery'),
+            ], notice: new Notice('warn', 'The live stack needs a working cache', 'Only what PHP can read in its own process is shown. Check the cache.app pool of the application.')))),
+            Block::map(new Map(runsOn: new StackGlance(notice: new Notice('bad', 'The stack could not be read', 'Cannot reach redis://cache:6379: Connection refused')))),
             Block::places(new Places([
                 new Place('Overview', '', 'This page. What needs a look comes first.', 'Is everything fine?'),
                 new Place('Application', 'gallery', 'Requests, SQL queries, cache, outgoing HTTP, exceptions, users.', 'What is slow, and why?'),
