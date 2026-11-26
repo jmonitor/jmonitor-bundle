@@ -353,7 +353,7 @@ final class EmbeddedPageTest extends WebTestCase
         $crawler = $client->request('GET', '/back-office/monitoring/gallery');
 
         static::assertResponseIsSuccessful();
-        $cards = $crawler->filter('.jm-screen > .jm-cards:has(.jm-card__link) > .jm-card');
+        $cards = $crawler->filter('.jm-screen > .jm-cards')->reduce(static fn(Crawler $block): bool => $block->filter('.jm-card__link')->count() > 0)->children('.jm-card');
         static::assertCount(3, $cards);
         static::assertSame(['#jm-full', '#jm-quiet'], $cards->filter('h2 > a.jm-card__link')->each(static fn(Crawler $a): string => (string) $a->attr('href')));
         static::assertSame('jm-card jm-card--bad', $cards->eq(0)->attr('class'));
@@ -361,7 +361,7 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertCount(0, $cards->eq(2)->filter('a'));
         $table = $crawler->filter('#jm-gallery-nested-wrap');
         static::assertSame(['', 'jm-row--nested', 'jm-row--nested', ''], $table->filter('tbody tr')->each(static fn(Crawler $row): string => (string) $row->attr('class')));
-        static::assertSame('2 exceptions', $crawler->filter('.jm-panel:has(#jm-gallery-nested-wrap) .jm-panel__meta')->text());
+        static::assertSame('2 exceptions', $table->closest('.jm-panel')?->filter('.jm-panel__meta')->text());
     }
 
     public function testTheGalleryShowsAComposedScreenWithAnOutline(): void
