@@ -2092,10 +2092,15 @@ body.jm .jm-section {
 }
 
 .jm-map {
+    margin-bottom: 20px;
+    container-type: inline-size;
+    container-name: jm-map;
+}
+
+.jm-map__columns {
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    margin-bottom: 20px;
 }
 
 .jm-map__column {
@@ -2333,7 +2338,7 @@ body.jm .jm-section {
 .jm-runs__line {
     display: grid;
     grid-template-columns: 108px minmax(0, 1fr) auto;
-    align-items: center;
+    align-items: start;
     gap: 10px;
     padding: 7px 0;
     color: inherit;
@@ -2359,14 +2364,16 @@ body.jm .jm-section {
 
 .jm-runs__figures {
     min-width: 0;
-    overflow: hidden;
     color: var(--jm-muted);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 .jm-runs__version {
     color: var(--jm-faint);
+}
+
+.jm-runs__value {
+    white-space: nowrap;
 }
 
 .jm-runs__more,
@@ -2414,6 +2421,28 @@ body.jm .jm-section {
     color: var(--jm-muted);
 }
 
+@container jm-map (width < 960px) {
+    .jm-map__columns {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 20px;
+    }
+
+    .jm-map__column {
+        flex: none;
+    }
+
+    .jm-map__arrow {
+        display: none;
+    }
+}
+
+@container jm-map (width < 480px) {
+    .jm-map__boxes--inside {
+        flex-direction: column;
+    }
+}
+
 @media (max-width: 1080px) {
     body.jm .jm-section {
         scroll-margin-top: 128px;
@@ -2440,20 +2469,6 @@ body.jm .jm-section {
 
     .jm-components__grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .jm-map {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 20px;
-    }
-
-    .jm-map__column {
-        flex: none;
-    }
-
-    .jm-map__arrow {
-        display: none;
     }
 }
 
@@ -2696,10 +2711,6 @@ body.jm .jm-section {
 
     .jm-panel__note {
         text-align: left;
-    }
-
-    .jm-map__boxes--inside {
-        flex-direction: column;
     }
 
     .jm-place {

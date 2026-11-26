@@ -10,13 +10,16 @@
 } %}
 {% if columns is not empty %}
 <section class="jm-map" aria-label="Map of your application">
+<div class="jm-map__columns">
 {% for column in columns %}
 {% if not loop.first %}
     <svg class="jm-map__arrow" viewBox="0 0 16 10" aria-hidden="true" focusable="false"><line x1="1" y1="5" x2="14" y2="5"/><polyline points="10,1.5 14,5 10,8.5"/></svg>
 {% endif %}
     <div class="jm-map__column jm-map__column--{{ column }}">
+{% if columns|length > 1 %}
         <h2 class="jm-map__title">{{ loop.index }} · {{ heads[column][0] }}</h2>
         <p class="jm-map__text">{{ heads[column][1] }}</p>
+{% endif %}
 {% if column == 'app' %}
         <div class="jm-map__app">
 {% set average = map_view.average %}
@@ -27,11 +30,14 @@
                 <div class="jm-map__split">{{ include('@Jmonitor/dashboard/_split.html.twig', {cell: map_view.split, words: false}, with_context = false) }}</div>
                 <div class="jm-legend jm-map__legend">
                     {% for part, label in {php: 'your PHP code', sql: 'SQL', http: 'HTTP out'} %}
-                        <span class="jm-legend__item"><span class="jm-legend__swatch jm-legend__swatch--{{ part }}" aria-hidden="true"></span>{{ label }}</span>
+                        {% set ms = map_view.split.parts[part] ?? 0 %}
+                        <span class="jm-legend__item"><span class="jm-legend__swatch jm-legend__swatch--{{ part }}" aria-hidden="true"></span>{{ label }} {{ ms > 0 ? ms|jmonitor_duration : '0 ms' }}</span>
                     {% endfor %}
                 </div>
 {% endif %}
+{% if average.text is not same as('') %}
                 <p class="jm-map__phrase">{{ average.text }}</p>
+{% endif %}
             </div>
 {% endif %}
 {% if map_view.inside is not empty %}
@@ -53,11 +59,16 @@
                 <ul class="jm-runs__list">
                     {% for card in glance.cards %}
                         {% set linked = card.path is not null and (card.path|split('/')|first) in screens %}
-                        {% set figures = card.reason ?? (card.reading ? 'Reading…' : card.vitals|slice(0, 2)|map(vital => vital.label ~ ' ' ~ vital.value)|join(' · ')) %}
+                        {% set words = card.reason ?? (card.reading ? 'Reading…' : null) %}
+                        {% set vitals = words is null ? card.vitals|slice(0, 2) : [] %}
                         <li class="jm-runs__item">
                             <{{ linked ? 'a' : 'span' }} class="jm-runs__line"{% if linked %} href="{{ urls.page(card.path, card.query) }}"{% endif %}>
                                 <span class="jm-runs__name">{{ card.name }}</span>
-                                <span class="jm-runs__figures">{% if card.version is not null %}<span class="jm-runs__version">{{ card.version }}</span> {% endif %}{{ figures }}</span>
+                                <span class="jm-runs__figures">
+                                    {%- if card.version is not null %}<span class="jm-runs__version">{{ card.version }}</span>{% endif -%}
+                                    {%- if words is not null %}{{ card.version is not null ? ' · ' }}{{ words }}{% endif -%}
+                                    {%- for vital in vitals %}{{ card.version is not null or not loop.first ? ' · ' }}{{ vital.label }} <span class="jm-runs__value">{{ vital.value }}</span>{% endfor -%}
+                                </span>
                                 {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: card.mark}, with_context = false) }}
                             </{{ linked ? 'a' : 'span' }}>
                         </li>
@@ -79,6 +90,7 @@
 {% endif %}
     </div>
 {% endfor %}
+</div>
 </section>
 {% endif %}
 {% endautoescape %}

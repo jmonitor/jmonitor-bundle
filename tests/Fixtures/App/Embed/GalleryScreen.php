@@ -220,11 +220,11 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                     new MapBox('Scheduled tasks', null, '2 tasks declared, none ran in the last hour.', path: 'gallery'),
                     new MapBox('Commands', '12', 'Console runs.', path: 'missing'),
                 ],
-                new MapBox('An average request', '84 ms', 'your PHP code 42 ms · SQL 30 ms · 4.2 queries · HTTP out 12 ms'),
+                new MapBox('An average request', '84 ms', '4.2 SQL queries per request.'),
                 Cell::averageSplit(84.0, 30.0, 4.2, 12.0),
                 [
-                    new MapBox('Exceptions', '7', '7 exceptions thrown.', path: 'gallery'),
-                    new MapBox('Signed-in users', '140', '140 requests made by signed-in users.'),
+                    new MapBox('Exceptions', '7', 'exceptions thrown.', path: 'gallery'),
+                    new MapBox('Signed-in users', '140', 'requests made by signed-in users.'),
                 ],
                 new StackGlance([
                     new ComponentCard('server', 'Server', $healthy, [new Vital('Load', '0.42'), new Vital('Memory', '61 %'), new Vital('Disk', '48 %')], 'Ubuntu 24.04 LTS', 'gallery'),
@@ -233,7 +233,7 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                     new ComponentCard('redis', 'Redis', $unknown, [new Vital('Memory', '12 %')], reading: true),
                 ], more: '1 more connection'),
                 [
-                    new MapBox('SQL queries', '3,402', '3,402 in total.', [new Tag('12 slow', 'warn'), new Tag('N+1', 'warn')], 'gallery', 'full', 'warn'),
+                    new MapBox('SQL queries', '3,402', '2.6 s in total, 12 slow.', [new Tag('12 slow', 'warn'), new Tag('N+1', 'warn')], 'gallery', 'full', 'warn'),
                     new MapBox('Cache', null, 'No cache read in the last hour.', path: 'gallery'),
                     new MapBox('Other sites and APIs', '84', '120 ms per call on average.', [new Tag('2 no answer', 'bad'), new Tag('3 × 4xx', 'warn')], 'gallery', null, 'bad'),
                 ],

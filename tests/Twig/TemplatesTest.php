@@ -1168,8 +1168,8 @@ final class TemplatesTest extends TestCase
     public function testAColumnWithoutContentIsNotRendered(): void
     {
         $box = new MapBox('SQL queries', '3,402', '3,402 in total, none slow.');
-        $titles = fn(Map $map): array => (new Crawler($this->mapScreen([], Block::map($map))))->filter('.jm-map > .jm-map__column > h2')->each(static fn(Crawler $h2): string => $h2->text());
-        $arrows = fn(Map $map): int => (new Crawler($this->mapScreen([], Block::map($map))))->filter('.jm-map > svg.jm-map__arrow[aria-hidden="true"]')->count();
+        $titles = fn(Map $map): array => (new Crawler($this->mapScreen([], Block::map($map))))->filter('.jm-map > .jm-map__columns > .jm-map__column > h2')->each(static fn(Crawler $h2): string => $h2->text());
+        $arrows = fn(Map $map): int => (new Crawler($this->mapScreen([], Block::map($map))))->filter('.jm-map > .jm-map__columns > svg.jm-map__arrow[aria-hidden="true"]')->count();
 
         $full = new Map([$box], new MapBox('An average request', '84 ms', 'your PHP code 40 ms'), null, [$box], new StackGlance(), [$box]);
         $sides = new Map([$box], outgoing: [$box]);
@@ -1180,11 +1180,14 @@ final class TemplatesTest extends TestCase
         static::assertSame(2, $arrows($full));
         static::assertSame(['1 · What comes in', '2 · What it calls'], $titles($sides));
         static::assertSame(1, $arrows($sides));
-        static::assertSame(['1 · Your application'], $titles($runsOn));
+        static::assertSame([], $titles($runsOn));
         static::assertSame(0, $arrows($runsOn));
-        static::assertSame(['1 · Your application'], $titles($inside));
+        static::assertSame([], $titles($inside));
+        static::assertCount(0, (new Crawler($this->mapScreen([], Block::map($runsOn))))->filter('.jm-map__text'));
+        static::assertSame(['jm-runs'], (new Crawler($this->mapScreen([], Block::map($runsOn))))->filter('.jm-map__column--app')->children()->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
+        static::assertSame([], (new Crawler($this->mapScreen([], Block::map(new Map(outgoing: [$box])))))->filter('.jm-map h2')->each(static fn(Crawler $h2): string => $h2->text()));
         static::assertSame(['Every way your code gets started.', 'Where the time of a request goes, and what runs it.', 'What your code waits for.'], (new Crawler($this->mapScreen([], Block::map($full))))->filter('.jm-map__column > p.jm-map__text')->each(static fn(Crawler $p): string => $p->text()));
-        static::assertSame(['jm-map__column jm-map__column--incoming', 'svg', 'jm-map__column jm-map__column--app', 'svg', 'jm-map__column jm-map__column--outgoing'], (new Crawler($this->mapScreen([], Block::map($full))))->filter('.jm-map')->children()->each(static fn(Crawler $child): string => $child->nodeName() === 'svg' ? 'svg' : (string) $child->attr('class')));
+        static::assertSame(['jm-map__column jm-map__column--incoming', 'svg', 'jm-map__column jm-map__column--app', 'svg', 'jm-map__column jm-map__column--outgoing'], (new Crawler($this->mapScreen([], Block::map($full))))->filter('.jm-map > .jm-map__columns')->children()->each(static fn(Crawler $child): string => $child->nodeName() === 'svg' ? 'svg' : (string) $child->attr('class')));
         static::assertCount(0, (new Crawler($this->mapScreen([], Block::map($runsOn))))->filter('.jm-map__average, .jm-map__boxes'));
     }
 
@@ -1192,9 +1195,9 @@ final class TemplatesTest extends TestCase
     {
         $split = Cell::averageSplit(84.0, 30.0, 4.0, 12.0);
         $map = new Map(
-            average: new MapBox('An average request', '84 ms', 'your PHP code 42 ms · SQL 30 ms · 4 queries · HTTP out 12 ms'),
+            average: new MapBox('An average request', '84 ms', '4 SQL queries per request.'),
             split: $split,
-            inside: [new MapBox('Exceptions', '7', '7 exceptions thrown.', path: 'exceptions'), new MapBox('Signed-in users', '140', '140 requests made by signed-in users.')],
+            inside: [new MapBox('Exceptions', '7', 'exceptions thrown.', path: 'exceptions'), new MapBox('Signed-in users', '140', 'requests made by signed-in users.')],
             runsOn: new StackGlance([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), [new Vital('OPcache memory', '42 %')], '8.4.1')]),
         );
 
@@ -1204,8 +1207,14 @@ final class TemplatesTest extends TestCase
         static::assertSame(['jm-map__average', 'jm-map__boxes jm-map__boxes--inside', 'jm-runs'], $app->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
         $average = $app->filter('.jm-map__average');
         static::assertSame(['An average request', '84 ms'], [$average->filter('.jm-box__label')->text(), $average->filter('.jm-box__value')->text()]);
-        static::assertSame(['your PHP code', 'SQL', 'HTTP out'], $average->filter('.jm-legend .jm-legend__item')->each(static fn(Crawler $item): string => $item->text()));
-        static::assertSame('your PHP code 42 ms · SQL 30 ms · 4 queries · HTTP out 12 ms', $average->filter('.jm-map__phrase')->text());
+        static::assertSame(['your PHP code 42 ms', 'SQL 30 ms', 'HTTP out 12 ms'], $average->filter('.jm-legend .jm-legend__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame(['jm-map__head', 'jm-map__split', 'jm-legend jm-map__legend', 'jm-map__phrase'], $average->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
+        static::assertSame('4 SQL queries per request.', $average->filter('.jm-map__phrase')->text());
+
+        $alone = new Crawler($this->mapScreen([], Block::map(new Map(average: new MapBox('An average request', '120 ms', ''), split: Cell::averageSplit(120.0, 0.4, 1.0, null)))));
+
+        static::assertSame(['your PHP code 120 ms', 'SQL <1 ms', 'HTTP out 0 ms'], $alone->filter('.jm-map__legend .jm-legend__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertCount(0, $alone->filter('.jm-map__phrase'));
         static::assertSame(['jm-box jm-box--small', 'jm-box jm-box--small'], $app->filter('.jm-map__boxes--inside .jm-box')->each(static fn(Crawler $box): string => (string) $box->attr('class')));
         static::assertSame('/host/page/exceptions?menu=3&period=1h', $app->filter('.jm-map__boxes--inside a.jm-box')->attr('href'));
 
@@ -1241,13 +1250,14 @@ final class TemplatesTest extends TestCase
 
         static::assertSame('Runs on read right now, whatever the period', $runs->filter('.jm-runs__title')->text());
         static::assertSame(
-            ['Server Ubuntu 24.04 LTS Load 0.42 · Memory 41 % Healthy', 'PHP 8.4.1 OPcache memory 92 % Warning', 'MySQL · default Connections 98 % · Slow queries 12 Critical', 'Redis Memory 12 % Healthy'],
+            ['Server Ubuntu 24.04 LTS · Load 0.42 · Memory 41 % Healthy', 'PHP 8.4.1 · OPcache memory 92 % Warning', 'MySQL · default Connections 98 % · Slow queries 12 Critical', 'Redis Memory 12 % Healthy'],
             $lines->each(static fn(Crawler $line): string => $line->text()),
         );
         static::assertSame(['a', 'a', 'a', 'span'], $lines->each(static fn(Crawler $line): string => $line->nodeName()));
         static::assertSame(['/host/page/stack/server?menu=3', '/host/page/stack/php?menu=3', '/host/page/stack/mysql?menu=3&connection=default'], $runs->filter('a.jm-runs__line')->each(static fn(Crawler $a): string => (string) $a->attr('href')));
         static::assertSame(['jm-mark jm-mark--ok', 'jm-mark jm-mark--warn', 'jm-mark jm-mark--bad', 'jm-mark jm-mark--ok'], $lines->filter('.jm-mark')->each(static fn(Crawler $mark): string => (string) $mark->attr('class')));
         static::assertSame(['MySQL · default', 'Connections 98 % · Slow queries 12'], [$lines->eq(2)->filter('.jm-runs__name')->text(), $lines->eq(2)->filter('.jm-runs__figures')->text()]);
+        static::assertSame(['98 %', '12'], $lines->eq(2)->filter('.jm-runs__value')->each(static fn(Crawler $value): string => $value->text()));
         static::assertSame('2 more connections', $runs->filter('.jm-runs__more')->text());
         static::assertCount(0, $crawler->filter('.jm-runs__line p, .jm-runs__line div, .jm-runs__line a'));
 
@@ -1263,11 +1273,12 @@ final class TemplatesTest extends TestCase
             new ComponentCard('mysql', 'MySQL', new Mark('unknown', 'Unknown'), [new Vital('Connections', '98 %')], '8.0.36', 'stack/mysql', reason: 'Connection refused'),
             new ComponentCard('symfony', 'Symfony', new Mark('unknown', 'Unknown'), [new Vital('Environment', 'prod'), new Vital('Debug', 'off')], '7.4.0', 'stack/symfony', reading: true),
             new ComponentCard('redis', 'Redis', new Mark('unknown', 'Unknown'), reading: true),
+            new ComponentCard('frankenphp', 'FrankenPHP', new Mark('ok', 'Healthy'), version: '1.2'),
         ]);
 
         $figures = (new Crawler($this->mapScreen(['stack'], Block::map(new Map(runsOn: $glance)))))->filter('.jm-runs__figures');
 
-        static::assertSame(['8.0.36 Connection refused', '7.4.0 Reading…', 'Reading…'], $figures->each(static fn(Crawler $line): string => $line->text()));
+        static::assertSame(['8.0.36 · Connection refused', '7.4.0 · Reading…', 'Reading…', '1.2'], $figures->each(static fn(Crawler $line): string => $line->text()));
     }
 
     public function testANoticeTakesThePlaceOfTheRunsOnLines(): void
@@ -1347,7 +1358,7 @@ final class TemplatesTest extends TestCase
         static::assertStringContainsString('jm-split__part', $expected);
         static::assertStringNotContainsString('/host/page/exceptions', $expected);
         foreach (['a string', ['overview', 'requests', 'exceptions', 'queries'], new \ArrayObject(['id' => 'x', 'path' => 'exceptions', 'label' => 'x', 'value' => null, 'tags' => [], 'cards' => [], 'notice' => null]), new \stdClass(), true, false, null] as $global) {
-            static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['map', 'map_view', 'box', 'boxes', 'places', 'place', 'card', 'line', 'notice', 'glance', 'runs', 'column', 'columns', 'heads', 'split', 'cell', 'words', 'average', 'small', 'href', 'link', 'query', 'period_query', 'shown', 'list', 'section', 'page_title', 'screens', 'segments', 'tone', 'mark'], $global)));
+            static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['map', 'map_view', 'ms', 'vitals', 'vital', 'box', 'boxes', 'places', 'place', 'card', 'line', 'notice', 'glance', 'runs', 'column', 'columns', 'heads', 'split', 'cell', 'words', 'average', 'small', 'href', 'link', 'query', 'period_query', 'shown', 'list', 'section', 'page_title', 'screens', 'segments', 'tone', 'mark'], $global)));
         }
     }
 

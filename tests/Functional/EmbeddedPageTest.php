@@ -408,7 +408,9 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertCount(1, $maps->eq(0)->filter('.jm-box svg.jm-sparkline'));
         static::assertCount(3, $maps->eq(0)->filter('.jm-map__average .jm-split rect'));
         static::assertSame(['ok', 'warn', 'bad', 'unknown'], $maps->eq(0)->filter('.jm-runs__line .jm-mark')->each(static fn(Crawler $mark): string => substr((string) $mark->attr('class'), \strlen('jm-mark jm-mark--'))));
-        static::assertSame(['1 · Your application'], $maps->eq(1)->filter('.jm-map__title')->each(static fn(Crawler $h2): string => $h2->text()));
+        static::assertCount(0, $maps->eq(1)->filter('.jm-map__title, .jm-map__text'));
+        static::assertSame(['your PHP code 42 ms', 'SQL 30 ms', 'HTTP out 12 ms'], $maps->eq(0)->filter('.jm-map__legend .jm-legend__item')->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame('8.2.29 · OPcache memory 92 % · OPcache hit rate 99.8 %', $maps->eq(0)->filter('.jm-runs__figures')->eq(1)->text());
         static::assertCount(2, $maps->eq(1)->filter('a.jm-runs__line'));
         static::assertSame('Warning The live stack needs a working cache', $maps->eq(2)->filter('.jm-runs .jm-notice__title')->text());
         $places = $crawler->filter('.jm-screen > section.jm-places');
