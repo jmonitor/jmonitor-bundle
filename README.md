@@ -777,7 +777,7 @@ Set `stack.symfony.messenger: false` to turn the count off: the block goes, and 
 
 ### Showing the screens inside EasyAdmin
 
-If your application has EasyAdmin 5.10.2 or later, the screens can be shown inside its back office. Nothing else to install, and the `/jmonitor` route import is not needed for these pages. Turn the option on:
+If your application has EasyAdmin 5.10.4 or later, the screens can be shown inside its back office. Nothing else to install, and the `/jmonitor` route import is not needed for these pages. Turn the option on:
 
 ```yaml
 # config/packages/jmonitor.yaml
@@ -826,7 +826,7 @@ These pages are not recorded, even when access is refused. When your application
 
 #### Coming from jmonitor/easyadmin-bundle
 
-To show these screens in a back office that uses `jmonitor/easyadmin-bundle`, delete the `jmonitor_easyadmin` configuration first, since Symfony refuses to boot with a configuration no bundle reads, then swap the packages, update EasyAdmin to 5.10.2 or later if needed, and turn `jmonitor.easyadmin` on as above. The option refuses to work while `jmonitor/easyadmin-bundle` is installed, since both declare the same routes:
+To show these screens in a back office that uses `jmonitor/easyadmin-bundle`, delete the `jmonitor_easyadmin` configuration first, since Symfony refuses to boot with a configuration no bundle reads, then swap the packages, update EasyAdmin to 5.10.4 or later if needed, and turn `jmonitor.easyadmin` on as above. The option refuses to work while `jmonitor/easyadmin-bundle` is installed, since both declare the same routes:
 
 ```bash
 composer remove jmonitor/easyadmin-bundle

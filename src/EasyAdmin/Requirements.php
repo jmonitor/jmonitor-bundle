@@ -8,7 +8,7 @@ use EasyCorp\Bundle\EasyAdminBundle\EasyAdminBundle;
 
 final class Requirements
 {
-    public const MINIMUM_VERSION = '5.10.2';
+    public const MINIMUM_VERSION = '5.10.4';
 
     /**
      * @param array<string, class-string> $bundles
