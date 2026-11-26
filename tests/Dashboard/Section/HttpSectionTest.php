@@ -350,7 +350,7 @@ final class HttpSectionTest extends TestCase
         static::assertNotNull($guide);
         static::assertSame(
             [
-                ['Time in outgoing calls.', 'Your request waits while the other site answers. A slow host makes your own routes slow: see the HTTP part of their bars on Requests.', ['Requests' => 'requests']],
+                ['Time in outgoing calls.', 'Your request waits while the other site answers. A slow host makes your own routes slow: look at the HTTP part of their bars.', ['Requests' => 'requests']],
                 ['Three kinds of problem.', '4xx: the other side refused the call. 5xx: the other side failed. No answer: a timeout or a network error.', []],
             ],
             array_map(static fn(GuideItem $item): array => [$item->term, $item->text, $item->links], $guide->items),

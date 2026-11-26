@@ -528,6 +528,14 @@ final class StylesheetTest extends TestCase
         static::assertSame([['padding-left', '38px']], self::declarationsOf('.jm-table tbody .jm-row--nested > :first-child', null));
     }
 
+    public function testALongNameOfASectionTableWrapsInsteadOfWideningItsColumn(): void
+    {
+        static::assertSame([['overflow-wrap', 'anywhere']], self::declarationsOf('.jm-table .jm-code', null));
+        static::assertSame([['overflow-wrap', 'anywhere']], self::declarationsOf('.jm-table .jm-col-user', null));
+        static::assertSame([['white-space', 'normal']], self::declarationsOf('.jm-section .jm-table:has(.jm-split) td.jm-col-problems', null));
+        static::assertSame([['white-space', 'nowrap']], self::declarationsOf('.jm-table:has(.jm-split) td:has(> .jm-tag)', null), 'The problems of a route stay on one line.');
+    }
+
     public function testOnlyTheTitleOfAGuidedCheckIsBold(): void
     {
         static::assertContains(['font-weight', '600'], self::declarationsOf('.jm-check__sentence', null));

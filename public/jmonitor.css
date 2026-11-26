@@ -1015,6 +1015,11 @@ body.jm .jm-section {
     overflow-wrap: break-word;
 }
 
+.jm-table .jm-code,
+.jm-table .jm-col-user {
+    overflow-wrap: anywhere;
+}
+
 .jm-route--unmatched {
     color: var(--jm-muted);
     font-style: italic;
@@ -1168,6 +1173,10 @@ body.jm .jm-section {
 
 .jm-table:has(.jm-split) td:has(> .jm-tag) {
     white-space: nowrap;
+}
+
+.jm-section .jm-table:has(.jm-split) td.jm-col-problems {
+    white-space: normal;
 }
 
 .jm-table:has(.jm-split) .jm-route {

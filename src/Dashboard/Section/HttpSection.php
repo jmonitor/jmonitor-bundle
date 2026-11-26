@@ -118,7 +118,7 @@ final class HttpSection implements SectionInterface
             guide: new Guide([
                 new GuideItem(
                     'Time in outgoing calls.',
-                    'Your request waits while the other site answers. A slow host makes your own routes slow: see the HTTP part of their bars on Requests.',
+                    'Your request waits while the other site answers. A slow host makes your own routes slow: look at the HTTP part of their bars.',
                     ['Requests' => 'requests'],
                 ),
                 new GuideItem('Three kinds of problem.', '4xx: the other side refused the call. 5xx: the other side failed. No answer: a timeout or a network error.'),
