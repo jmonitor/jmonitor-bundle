@@ -42,14 +42,18 @@ The `/jmonitor` page, its screens and their blocks:
 - The reading order of a screen is set by `ScreenBuilder` alone: lead, checks, cards, tables, guide. A screen with nothing to show keeps its empty state, without lead nor guide.
 - A composed screen (`ComposedScreen`) is made of sections (`SectionInterface`, in `src/Dashboard/Section/`). It is available while one of its sections is; an unavailable section does not exist for the page.
 - A section never replaces the page. A cause that touches the whole page is told once, above the sections: no connection, a failed flush, a read that throws and, as soon as one section is empty, recording off or an unusable buffer directory.
-- A read of a section that throws stops the next ones: a database that does not answer makes the page wait once.
+- A composed screen reads its raised checks before its sections, which receive them. A read that throws, the checks or a section, stops the next ones: a database that does not answer makes the page wait once.
+- A section brings its part of the top of the page (`Brief`, its check lines, its guide items) and only renders its own blocks, its cards and its table.
+- `ScreenBuilder` alone assembles the sentence, the block of checks, the anchor cards and the guide of a composed screen.
 - The own blocks of a section (`BlockSourceInterface`) are read even without storage; one that throws only breaks its section.
 - One sort is chosen per page, named by its section (`sort=<section>.<column>`). The other sections keep their default sort, and an invalid sort chooses nothing.
 - A composed screen is a `RecordedScreenInterface`: it never opens `/jmonitor` when nothing is recorded, and `PageRenderer` flushes the buffer before it reads.
 - Every variable a block template reads is set by the bundle, by `PageRenderer` or by the `include()` of the block (`block`, `page_title`, and `section`, `null` outside a section), so that a Twig global of the host never stands in for one.
 - A link of a block to a screen (a check, a guide) is only rendered when that screen is available (`screens`, set by `PageRenderer`); otherwise its text stays without the link.
-- A check of the application (`src/Dashboard/Check/`) is raised by one entry of one of its metrics in the period, and only through `ApplicationChecks`. Its texts live in its class, the same wherever it shows.
-- A check of the application has one screen, whose tab carries its badge.
+- A check of the application (`src/Dashboard/Check/`) is raised by one entry of one of its metrics in the period, or by its keys when it is judged key by key, and only through `ApplicationChecks`. Its texts live in its class, the same wherever it shows.
+- A check judged key by key implements `KeyedCheckInterface`: its metrics are read key by key in the statement of the other totals, which stays one query.
+- The threshold of the cache hit rate lives in `CacheHitRateCheck`, which the check, the tag of a pool and the card share.
+- A check of the application has one screen, whose tab carries its badge. Shown on another screen, it carries the link to its own and does not count in the badge of that tab.
 - The totals behind the checks are read once per display, by the screen or else by `ScreenBuilder::raisedChecks()` for the badges, and never after a read of the storage failed in that display.
 - A part of a split and a tag always carry their word: neither is told by colour alone.
 - The base rule of the links is `.jm :where(a)`, so that a class set on a link keeps its colour.

@@ -258,14 +258,14 @@ The header of the page has three entries, `Application`, `Background` and `Stack
   - **Requests** (`/jmonitor/`, or `/jmonitor/requests` when nothing is recorded and the page opens on Stack): per route, requests, total time, response times (average, p95, max), where the average request goes between your PHP code, SQL and outgoing HTTP calls (`HTTP out`), with the number of SQL queries per request, its problems (5xx errors, slow requests, `N+1`) and peak memory. Its key figures are the average, p95 and slowest response times, the share of 5xx errors and the number of slow requests.
   - **Queries** (`/jmonitor/queries`): per SQL query, executions, total, average and maximum time, and its problems (slow executions, `N+1`); then the queries repeated within one request, command, message or task (N+1), with where they run. Its key figures are the number of queries, the SQL time, the slow executions and the repeated queries.
   - **Cache & HTTP** (`/jmonitor/cache-http`), in two sections:
-    - `Cache` (`#jm-cache`): hits, misses, hit rate, writes and deletes, per cache pool.
-    - `Outgoing HTTP` (`#jm-http`): calls, total, average and maximum time, 4xx and 5xx responses and network failures, per called host.
-  - **Exceptions** (`/jmonitor/exceptions`): count and last occurrence per exception class, and per class and route, command, message or task.
-  - **Users** (`/jmonitor/users`): requests, total and average time, slow requests and 5xx errors, per signed-in user.
-- **Background** (`/jmonitor/background`), in three sections:
-  - `Messages` (`#jm-messages`): the messages waiting in each transport, counted live (see [The queues of the Background screen](#the-queues-of-the-background-screen)), then messages sent and handled, handling time (average, p95, max), failures, retries and SQL time, per message class.
-  - `Scheduled tasks` (`#jm-tasks`): the scheduled tasks with their schedule, trigger, next run, last run, runs, average and maximum duration and failures.
-  - `Commands` (`#jm-commands`): runs, average and maximum duration, failures (non-zero exit code), peak memory, last run and SQL time, per console command.
+    - `Cache` (`#jm-cache`): per cache pool, reads, hit rate, misses, writes and deletes, and its problems (a low hit rate). Its key figures are the reads, the hit rate, the writes and the deletes.
+    - `Outgoing HTTP` (`#jm-http`): per called host, calls, total, average and maximum time, and its problems (calls without an answer, 5xx and 4xx responses). Its key figures are the calls, the time spent in them, the error responses and the calls without an answer.
+  - **Exceptions** (`/jmonitor/exceptions`): one table, with the count and last occurrence of each exception class and, under each class, the routes, commands, messages and tasks where it was thrown. Its key figures are the number of exceptions, of classes and of places, and the age of the last one.
+  - **Users** (`/jmonitor/users`): per signed-in user, requests with their share of the requests of signed-in users, total and average time, and problems (5xx errors, slow requests); under the table, how many requests came from visitors who were not signed in. Its key figures are the active users, their requests, the slow requests and the server errors.
+- **Background** (`/jmonitor/background`), in three sections, opened by one card per section that leads to it, with what the section counted in the period:
+  - `Messages` (`#jm-messages`): the messages waiting in each transport, counted live (see [The queues of the Background screen](#the-queues-of-the-background-screen)), then, per message class, messages sent and handled, handling time (average, p95, max), where the average message goes between your PHP code, SQL and outgoing HTTP calls, and its problems (failures, retries).
+  - `Scheduled tasks` (`#jm-tasks`): the scheduled tasks with their schedule (`every 1 day`, for example), next run, last run, runs, average duration and failures.
+  - `Commands` (`#jm-commands`): per console command, runs, average and maximum duration, last run, where the average run goes between your PHP code, SQL and outgoing HTTP calls, failures (non-zero exit code) and peak memory.
 - **Stack** (`/jmonitor/stack`): the server, PHP, Symfony, the web server (FrankenPHP, Apache or Nginx), the MySQL, MariaDB and PostgreSQL databases of your Doctrine connections and your Redis or Valkey servers, read live rather than recorded, with what to check; see [The live stack](#the-live-stack).
 
 A tab or a section only appears when its component is installed and its recording option is on: Outgoing HTTP needs the `http_client` service of the framework, Users needs the SecurityBundle, Messages needs `symfony/messenger` and Scheduled tasks needs `symfony/scheduler`, each enabled in the framework configuration. Messages also appears when its recording is off, as long as the queues are counted. A screen left without any section disappears, and its address answers 404: without Messenger, the Scheduler and the recording of commands, there is no `Background` entry.
@@ -392,9 +392,11 @@ What is recorded is buffered in files, in a subdirectory of the system temporary
 
 Recording is off by default in the `test` environment. Forcing it on with a test setup that keeps the connection inside a transaction (e.g. `dama/doctrine-test-bundle`) only logs refused flushes: nothing is written while a transaction is open.
 
-### Reading Requests and Queries
+### Reading the screens
 
-The Requests and Queries screens read from top to bottom: a sentence that sums up the period, with the curve of the requests or of the queries; `Worth a look`, where each check found says what happened, why it matters and what to do, or `Nothing to flag` with what was checked; the key figures, each with its definition; the table, sorted by total time by default, with a bar on the total time; then `How to read this screen`. A screen with nothing recorded only says so.
+Every screen of `Application` and `Background` reads from top to bottom: a sentence that sums up the period; `Worth a look`, where each check found says what happened, why it matters and what to do, or `Nothing to flag` with what was checked; the key figures, each with its definition; the tables; then `How to read this screen`. Requests, Queries, Exceptions and Users draw the curve of their requests, queries or exceptions under the sentence. The tables of Requests and Queries are sorted by total time by default, with a bar on the total time; most tables have a `Problems` column that names what went wrong on each row. A screen with nothing recorded only says so.
+
+Cache & HTTP and Background are made of sections. They open with one sentence for all their sections, such as `1,668 cache reads (96 % found) and 13 outgoing calls in the last hour.`, and one `Worth a look` block for the whole page, the critical checks first; then come the sections, each with its table, Cache and Outgoing HTTP with their key figures too, and one `How to read this screen` for the whole page. Under `Worth a look`, Background shows one card per section, with what the section counted in the period, that leads to it. A section with nothing in the period has no part in the sentence and no card.
 
 | Check | Severity | Shown on | Raised by | Threshold |
 |---|---|---|---|---|
@@ -402,10 +404,21 @@ The Requests and Queries screens read from top to bottom: a sentence that sums u
 | `requests.slow` | Warning | Requests | a request that took the threshold or more | `recording.slow_threshold` |
 | `queries.slow` | Warning | Queries | a query execution that took the threshold or more | `recording.sql.slow_threshold` |
 | `queries.repeated` | Warning | Queries | the same `SELECT` run the threshold number of times or more within one request, command, message or task (N+1) | `recording.sql.n_plus_one_threshold` |
+| `http.failures` | Critical | Cache & HTTP | an outgoing call that got no answer: a timeout or a network error | none |
+| `http.errors` | Warning | Cache & HTTP | an outgoing call answered with a 4xx or 5xx status | none |
+| `cache.low_hit_rate` | Warning | Cache & HTTP | a cache pool that found less than half of its reads | 20 reads or more in the period, not configurable |
+| `messages.failed` | Critical | Background | a message that failed in a worker and will not be retried | none |
+| `tasks.failed` | Critical | Background | a run of a scheduled task that ended with an exception | none |
+| `commands.failed` | Critical | Background | a command run that ended with a non-zero exit code | none |
 
-A check is raised as soon as one occurrence is recorded in the period shown. When it can, it names the route or query that counts the most occurrences, or, for `queries.repeated`, the route, command, message or task where a repeated query costs the most time. There is no option to silence one: `stack.ignore_checks` only applies to the checks of the Stack screen. `queries.repeated` also shows on Requests, with a link to Queries, when one of the routes listed there repeats a query, or when more queries are repeated than the 100 the screen reads.
+A check is raised as soon as one occurrence is recorded in the period shown; `cache.low_hit_rate` as soon as one pool is under its threshold, the pools added up on the `Other pools` row left aside. When it can, it names the route, query, host, pool, message class, task or command that counts the most occurrences, or, for `queries.repeated`, the route, command, message or task where a repeated query costs the most time, and for `cache.low_hit_rate`, the pool with the lowest hit rate. There is no option to silence one: `stack.ignore_checks` only applies to the checks of the Stack screen. `queries.repeated` also shows on Requests, with a link to Queries, when one of the routes listed there repeats a query, or when more queries are repeated than the 100 the screen reads.
 
-The `Requests` and `Queries` tabs carry a badge while one of their checks is raised: the number of checks and the highest severity, such as `1 warning` or `2 critical`, detailed when you hover it.
+Two screens also show the checks of another screen, with a link to it:
+
+- Exceptions shows `requests.server_errors`, `messages.failed`, `tasks.failed` and `commands.failed`, each one when it is raised and an exception was thrown in a place of its kind: a route for `requests.server_errors`, a message, a scheduled task or a command for the three others. When there are too many places to read them all, it shows every one of them that is raised. Without any, it has no `Worth a look` block.
+- Users shows `requests.server_errors` when a signed-in user received a response with a 5xx status, and `requests.slow` when a signed-in user made a slow request.
+
+The `Requests`, `Queries` and `Cache & HTTP` tabs carry a badge while one of their checks is raised: the number of checks and the highest severity, such as `1 warning` or `2 critical`, detailed when you hover it. A check shown on Exceptions or Users only counts in the badge of its own tab, and the checks of Background show on its screen, without a badge.
 
 ### The live stack
 
