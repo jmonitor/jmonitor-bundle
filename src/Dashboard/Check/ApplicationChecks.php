@@ -43,19 +43,33 @@ final class ApplicationChecks
     public function raised(ReaderInterface $reader, Period $period, int $now): RaisedChecks
     {
         $metrics = [];
+        $keyed = [];
 
         foreach ($this->checks as $check) {
             array_push($metrics, ...$check->metrics());
+
+            if ($check instanceof KeyedCheckInterface) {
+                array_push($keyed, ...$check->metrics());
+            }
         }
 
         if ($metrics === []) {
             return new RaisedChecks([], [], $period);
         }
 
-        $totals = $reader->totals($period, $now, array_values(array_unique($metrics)));
+        $read = $reader->totals($period, $now, array_values(array_unique($metrics)), array_values(array_unique($keyed)));
+        $totals = $read->types;
         $raised = [];
 
         foreach ($this->checks as $id => $check) {
+            if ($check instanceof KeyedCheckInterface) {
+                if ($check->raisedBy(array_intersect_key($read->keys, array_flip($check->metrics())))) {
+                    $raised[$id] = $check;
+                }
+
+                continue;
+            }
+
             foreach ($check->metrics() as $metric) {
                 if (($totals[$metric]->count ?? 0) > 0) {
                     $raised[$id] = $check;

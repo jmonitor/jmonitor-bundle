@@ -25,6 +25,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\Console\Tester\ApplicationTester;
+use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Messenger\MessageBusInterface;
@@ -32,6 +33,8 @@ use Symfony\Component\Messenger\Stamp\TransportNamesStamp;
 
 final class MessengerRecordingTest extends WebTestCase
 {
+    use PollsThePage;
+
     private string $bufferDir;
 
     /** @var list<string> */
@@ -98,6 +101,35 @@ final class MessengerRecordingTest extends WebTestCase
         static::assertSame(2, self::rowKeyed($this->read(Family::Exception), 'DomainException')->count(Metric::EXCEPTION_COUNT));
         $where = self::rowKeyed($this->read(Family::ExceptionWhere), (new EntryPointKey(Entry::TYPE_MESSAGE, Ping::class, 'DomainException'))->toString());
         static::assertSame(2, $where->count(Metric::EXCEPTION_WHERE_COUNT));
+    }
+
+    public function testAFailedMessageIsCriticalOnBackground(): void
+    {
+        $client = static::createClient($this->options(messenger: true));
+
+        $client->request('GET', '/dispatch', ['mode' => 'fail', 'count' => '1']);
+        static::assertResponseIsSuccessful();
+        static::assertSame(0, $this->consume(['receivers' => ['async'], '--limit' => '2']));
+        self::requestUntil($client, '/jmonitor/background', '[data-jm-check="messages.failed"]');
+        $crawler = self::requestUntil($client, '/jmonitor/background', 'section#jm-messages tr[data-jm-message][data-jm-sent="1"][data-jm-handled="2"]');
+
+        static::assertSame('2 messages handled in the last hour.', $crawler->filter('h1.jm-lead__title')->text());
+        static::assertSame('1 message failed.', $crawler->filter('.jm-lead__detail')->text());
+        static::assertSame(['messages.failed'], $crawler->filter('[data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        $check = $crawler->filter('[data-jm-check="messages.failed"]');
+        static::assertSame('bad', $check->attr('data-jm-severity'));
+        static::assertSame('Critical', $check->filter('.jm-check__mark')->text());
+        static::assertSame('1 message failed · ' . Ping::class . ' failed once.', $check->filter('.jm-check__sentence')->text());
+        static::assertCount(0, $check->filter('.jm-check__where'));
+
+        $card = $crawler->filter('.jm-screen > .jm-cards .jm-card');
+        static::assertSame(['Messages', '2', 'handled, 1 sent, 1 failed'], [$card->filter('.jm-card__label')->text(), $card->filter('.jm-card__value')->text(), $card->filter('.jm-card__hint')->text()]);
+        static::assertStringContainsString('jm-card--bad', (string) $card->attr('class'));
+        $row = $crawler->filter('section#jm-messages tr[data-jm-message][data-jm-handled="2"]');
+        static::assertSame(Ping::class, $row->attr('data-jm-message'));
+        static::assertSame(['1 failed', '1 retried'], $row->filter('.jm-tag')->each(static fn(Crawler $tag): string => $tag->text()));
+        static::assertSame(['jm-tag jm-tag--bad', 'jm-tag jm-tag--warn'], $row->filter('.jm-tag')->each(static fn(Crawler $tag): string => (string) $tag->attr('class')));
+        static::assertCount(0, $crawler->filter('.jm-nav__item[aria-current="page"] .jm-nav__badge'));
     }
 
     public function testAMessageSentWhileHandlingAnotherIsCounted(): void

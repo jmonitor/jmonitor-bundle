@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Check\Severity;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
@@ -32,9 +33,16 @@ final class SlowRequestsCheckTest extends TestCase
         static::assertSame([Metric::REQUEST_SLOW], $check->metrics());
     }
 
-    public function testItReadsEveryRoute(): void
+    public function testItReadsWhatBothChecksOfTheRequestsLookAt(): void
     {
-        static::assertEquals(new ReportQuery(Period::OneDay, self::NOW, Family::Request), (new SlowRequestsCheck(500))->query(Period::OneDay, self::NOW));
+        static::assertEquals(new ReportQuery(Period::OneDay, self::NOW, Family::Request, metrics: [Metric::REQUEST_STATUS_PREFIX . '5xx', Metric::REQUEST_SLOW, Metric::REQUEST_DURATION]), (new SlowRequestsCheck(500))->query(Period::OneDay, self::NOW));
+    }
+
+    public function testItReadsTheRoutesWithTheSameQueryAsTheServerErrorsCheck(): void
+    {
+        foreach (Period::cases() as $period) {
+            static::assertEquals((new ServerErrorsCheck())->query($period, self::NOW), (new SlowRequestsCheck(500))->query($period, self::NOW), $period->label());
+        }
     }
 
     /**

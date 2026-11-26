@@ -9,6 +9,7 @@ use Symfony\Component\HttpClient\Response\MockResponse;
 final class HttpResponses
 {
     public const FLAKY_BASE_URI = 'https://flaky.example.com/';
+    public const DOWN_URI = 'https://down.example.com/';
 
     private int $flakyCalls = 0;
 
@@ -17,6 +18,10 @@ final class HttpResponses
      */
     public function __invoke(string $method, string $url, array $options): MockResponse
     {
+        if (str_starts_with($url, self::DOWN_URI)) {
+            return new MockResponse('', ['error' => 'Connection refused']);
+        }
+
         if (str_starts_with($url, self::FLAKY_BASE_URI) && $this->flakyCalls++ % 2 === 0) {
             return new MockResponse('Busy', ['http_code' => 503]);
         }

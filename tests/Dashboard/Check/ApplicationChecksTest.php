@@ -10,7 +10,14 @@ use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\CacheHitRateCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedCommandsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedMessagesCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedTasksCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\Finding;
+use Jmonitor\JmonitorBundle\Dashboard\Check\HttpErrorsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\HttpFailuresCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\KeyedCheckInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\Severity;
@@ -49,6 +56,112 @@ final class ApplicationChecksTest extends TestCase
         static::assertSame([[Period::SixHours, self::NOW, array_keys(self::RAISED_BY)]], $reader->totalRequests);
         static::assertSame([], $reader->queries);
         static::assertTrue($raised->has('requests.server_errors'));
+    }
+
+    public function testRaisedStillReadsTheTotalsOnce(): void
+    {
+        $reader = new FixedReader();
+        $checks = self::allChecks();
+
+        $checks->raised($reader, Period::OneDay, self::NOW);
+
+        static::assertSame([[Period::OneDay, self::NOW, [
+            self::SERVER_ERRORS,
+            Metric::REQUEST_SLOW,
+            Metric::QUERY_SLOW,
+            Metric::NPLUS1_CALLS,
+            Metric::HTTP_FAILED,
+            Metric::HTTP_STATUS_PREFIX . '4xx',
+            Metric::HTTP_STATUS_PREFIX . '5xx',
+            Metric::CACHE_HIT,
+            Metric::CACHE_MISS,
+            Metric::MESSAGE_FAILED,
+            Metric::TASK_FAILED,
+            Metric::COMMAND_FAILED,
+        ]]], $reader->totalRequests);
+        static::assertSame([[Metric::CACHE_HIT, Metric::CACHE_MISS]], $reader->keyedRequests);
+        static::assertSame([], $reader->queries);
+        static::assertSame(['requests', 'queries', 'cache-http', 'background'], $checks->screens());
+    }
+
+    public function testAKeyedCheckIsRaisedByItsKeysNotByItsTotal(): void
+    {
+        $checks = new ApplicationChecks([new ServerErrorsCheck(), new CacheHitRateCheck()]);
+        $low = [Metric::CACHE_HIT => new MetricValue(1, 0.0, 0.0), Metric::CACHE_MISS => new MetricValue(40, 0.0, 0.0)];
+        $high = [Metric::CACHE_HIT => new MetricValue(500, 0.0, 0.0), Metric::CACHE_MISS => new MetricValue(11, 0.0, 0.0)];
+        $lowPool = [
+            Metric::CACHE_HIT => [md5('cache.users') => new MetricValue(9, 0.0, 0.0), md5('cache.app') => new MetricValue(491, 0.0, 0.0)],
+            Metric::CACHE_MISS => [md5('cache.users') => new MetricValue(11, 0.0, 0.0)],
+        ];
+
+        static::assertFalse($checks->raised(new FixedReader(totals: $low), Period::OneHour, self::NOW)->has('cache.low_hit_rate'));
+        static::assertTrue($checks->raised(new FixedReader(totals: $high, keyTotals: $lowPool), Period::OneHour, self::NOW)->has('cache.low_hit_rate'));
+
+        $raised = $checks->raised(new FixedReader(totals: $high + [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)], keyTotals: $lowPool), Period::OneHour, self::NOW);
+
+        static::assertEquals($high, $raised->totals('cache.low_hit_rate'));
+        static::assertTrue($raised->has('requests.server_errors'));
+    }
+
+    public function testAKeyedCheckOnlyReceivesTheKeysOfItsMetrics(): void
+    {
+        $spy = new class implements KeyedCheckInterface {
+            /** @var list<array<string, array<string, MetricValue>>> */
+            public array $received = [];
+
+            public function id(): string
+            {
+                return 'spy';
+            }
+
+            public function severity(): Severity
+            {
+                return Severity::Warning;
+            }
+
+            public function screen(): string
+            {
+                return 'cache-http';
+            }
+
+            public function screenLabel(): string
+            {
+                return 'Cache & HTTP';
+            }
+
+            public function metrics(): array
+            {
+                return [Metric::CACHE_MISS];
+            }
+
+            public function query(Period $period, int $now): ReportQuery
+            {
+                return new ReportQuery($period, $now, Family::Cache);
+            }
+
+            public function finding(Report $report, array $totals, Period $period): Finding
+            {
+                return new Finding('spy', Severity::Warning, '', '', '', '', 'cache-http');
+            }
+
+            public function raisedBy(array $keys): bool
+            {
+                $this->received[] = $keys;
+
+                return false;
+            }
+        };
+        $keys = [
+            Metric::CACHE_HIT => [md5('cache.app') => new MetricValue(3, 0.0, 0.0)],
+            Metric::CACHE_MISS => [md5('cache.app') => new MetricValue(30, 0.0, 0.0)],
+        ];
+        $reader = new FixedReader(totals: [Metric::CACHE_MISS => new MetricValue(30, 0.0, 0.0)], keyTotals: $keys);
+
+        $raised = (new ApplicationChecks([new CacheHitRateCheck(), $spy]))->raised($reader, Period::OneHour, self::NOW);
+
+        static::assertSame([[Metric::CACHE_MISS => $keys[Metric::CACHE_MISS]]], $spy->received);
+        static::assertFalse($raised->has('spy'));
+        static::assertTrue($raised->has('cache.low_hit_rate'));
     }
 
     public function testTheTotalsOfAMetricSharedByTwoChecksAreAskedOnce(): void
@@ -107,7 +220,7 @@ final class ApplicationChecksTest extends TestCase
         $findings = $checks->findings($reader, Period::OneHour, self::NOW, $raised, array_values(self::RAISED_BY));
 
         static::assertSame(['requests.server_errors'], array_map(static fn(Finding $finding): string => $finding->id, $findings));
-        static::assertEquals([new ReportQuery(Period::OneHour, self::NOW, Family::Request)], $reader->queries);
+        static::assertEquals([(new ServerErrorsCheck())->query(Period::OneHour, self::NOW)], $reader->queries);
     }
 
     public function testAKnownReportIsNotReadAgain(): void
@@ -220,6 +333,22 @@ final class ApplicationChecksTest extends TestCase
     private static function checks(): ApplicationChecks
     {
         return new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(500), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]);
+    }
+
+    private static function allChecks(): ApplicationChecks
+    {
+        return new ApplicationChecks([
+            new ServerErrorsCheck(),
+            new SlowRequestsCheck(500),
+            new SlowQueriesCheck(100),
+            new RepeatedQueriesCheck(10),
+            new HttpFailuresCheck(),
+            new HttpErrorsCheck(),
+            new CacheHitRateCheck(),
+            new FailedMessagesCheck(),
+            new FailedTasksCheck(),
+            new FailedCommandsCheck(),
+        ]);
     }
 
     private static function allRaised(): FixedReader

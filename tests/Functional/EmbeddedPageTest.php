@@ -346,6 +346,46 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertCount(1, $sections->eq(2)->filter('[data-jm-reading]'));
     }
 
+    public function testTheGalleryShowsAnchorCardsAndNestedRows(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+
+        static::assertResponseIsSuccessful();
+        $cards = $crawler->filter('.jm-screen > .jm-cards')->reduce(static fn(Crawler $block): bool => $block->filter('.jm-card__link')->count() > 0)->children('.jm-card');
+        static::assertCount(3, $cards);
+        static::assertSame(['#jm-full', '#jm-quiet'], $cards->filter('h2 > a.jm-card__link')->each(static fn(Crawler $a): string => (string) $a->attr('href')));
+        static::assertSame('jm-card jm-card--bad', $cards->eq(0)->attr('class'));
+        static::assertSame('runs, 3 failed', $cards->eq(0)->filter('.jm-card__hint')->text());
+        static::assertCount(0, $cards->eq(2)->filter('a'));
+        $table = $crawler->filter('#jm-gallery-nested-wrap');
+        static::assertSame(['', 'jm-row--nested', 'jm-row--nested', ''], $table->filter('tbody tr')->each(static fn(Crawler $row): string => (string) $row->attr('class')));
+        static::assertSame('2 exceptions', $table->closest('.jm-panel')?->filter('.jm-panel__meta')->text());
+    }
+
+    public function testTheGalleryShowsAComposedScreenWithAnOutline(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery-composed');
+
+        static::assertResponseIsSuccessful();
+        static::assertSame(['45 deliveries and 12 imports in the last hour.'], $crawler->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()));
+        static::assertSame('3 deliveries failed.', $crawler->filter('.jm-screen > section.jm-lead > .jm-lead__detail')->text());
+        static::assertSame(['deliveries.failed'], $crawler->filter('.jm-screen > section.jm-checks.jm-checks--bad[aria-label="Worth a look"] [data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        $anchors = $crawler->filter('.jm-screen > .jm-cards > .jm-card');
+        static::assertSame(['Deliveries', 'Imports'], $anchors->filter('a.jm-card__link')->each(static fn(Crawler $a): string => $a->text()));
+        static::assertSame(['#jm-failing', '#jm-steady'], $anchors->filter('a.jm-card__link')->each(static fn(Crawler $a): string => (string) $a->attr('href')));
+        static::assertSame(['jm-card jm-card--bad', 'jm-card'], $anchors->each(static fn(Crawler $card): string => (string) $card->attr('class')));
+        static::assertSame(['45', '12'], $anchors->filter('.jm-card__value')->each(static fn(Crawler $value): string => $value->text()));
+        static::assertSame(['jm-failing', 'jm-steady', 'jm-unbriefed'], $crawler->filter('.jm-screen > section.jm-section')->each(static fn(Crawler $section): string => (string) $section->attr('id')));
+        static::assertCount(0, $crawler->filter('.jm-section .jm-lead, .jm-section .jm-checks, .jm-section .jm-guide'));
+        static::assertCount(4, $crawler->filter('#jm-steady > .jm-cards > .jm-card'));
+        static::assertSame(['Deliveries.', 'Imports.', 'Rows.'], $crawler->filter('.jm-screen > .jm-guide li strong')->each(static fn(Crawler $term): string => $term->text()));
+        static::assertSame('jm-guide', $crawler->filter('.jm-screen > section:last-of-type')->attr('class'));
+    }
+
     public function testTheGalleryShowsTheSelectorOfAConnection(): void
     {
         $client = static::createClient(['gallery' => true]);

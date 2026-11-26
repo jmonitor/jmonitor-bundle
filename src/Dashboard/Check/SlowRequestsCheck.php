@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Dashboard\Check;
 
-use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
@@ -42,7 +41,7 @@ final class SlowRequestsCheck implements CheckInterface
 
     public function query(Period $period, int $now): ReportQuery
     {
-        return new ReportQuery($period, $now, Family::Request);
+        return RequestCulprit::query($period, $now);
     }
 
     public function finding(Report $report, array $totals, Period $period): Finding
@@ -63,7 +62,7 @@ final class SlowRequestsCheck implements CheckInterface
             );
 
             if ($culprit->others > 0) {
-                $sentence .= ' ' . Culprit::otherRoutes($culprit->others) . ' did too.';
+                $sentence .= ' ' . Culprit::others($culprit->others, 'other route', 'other routes') . ' did too.';
             }
         }
 

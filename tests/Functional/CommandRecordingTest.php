@@ -19,13 +19,17 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Console\Tester\ApplicationTester;
+use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\KernelInterface;
 
 final class CommandRecordingTest extends KernelTestCase
 {
+    use PollsThePage;
+
     private string $bufferDir;
 
     /** @var list<string> */
@@ -66,6 +70,32 @@ final class CommandRecordingTest extends KernelTestCase
         static::assertSame(1, self::rowKeyed($this->read(Family::Command), 'app:work')->count(Metric::COMMAND_FAILED));
         $where = self::rowKeyed($this->read(Family::ExceptionWhere), (new EntryPointKey(Entry::TYPE_COMMAND, 'app:work', 'RuntimeException'))->toString());
         static::assertSame(1, $where->count(Metric::EXCEPTION_WHERE_COUNT));
+    }
+
+    public function testAFailedCommandIsCriticalOnBackground(): void
+    {
+        $tester = $this->console();
+
+        static::assertSame(1, $tester->run(['command' => 'app:work', '--fail' => true]));
+        $client = static::getContainer()->get('test.client');
+        \assert($client instanceof KernelBrowser);
+        self::requestUntil($client, '/jmonitor/background', '[data-jm-check="commands.failed"]');
+        $crawler = self::requestUntil($client, '/jmonitor/background', 'section#jm-commands tr[data-jm-command="app:work"][data-jm-runs="1"]');
+
+        static::assertSame('1 command run in the last hour.', $crawler->filter('h1.jm-lead__title')->text());
+        static::assertSame('1 command run failed.', $crawler->filter('.jm-lead__detail')->text());
+        static::assertSame(['commands.failed'], $crawler->filter('[data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        $check = $crawler->filter('[data-jm-check="commands.failed"]');
+        static::assertSame('bad', $check->attr('data-jm-severity'));
+        static::assertSame('Critical', $check->filter('.jm-check__mark')->text());
+        static::assertSame('1 command run failed · app:work ended with a non-zero exit code once.', $check->filter('.jm-check__sentence')->text());
+
+        $card = $crawler->filter('.jm-screen > .jm-cards .jm-card');
+        static::assertSame(['Commands', '1', 'run of 1 command, 1 failed'], [$card->filter('.jm-card__label')->text(), $card->filter('.jm-card__value')->text(), $card->filter('.jm-card__hint')->text()]);
+        static::assertStringContainsString('jm-card--bad', (string) $card->attr('class'));
+        $row = $crawler->filter('section#jm-commands tr[data-jm-command="app:work"]');
+        static::assertSame(['1 failed'], $row->filter('.jm-tag--bad')->each(static fn(Crawler $tag): string => $tag->text()));
+        static::assertCount(1, $row->filter('.jm-split'));
     }
 
     public function testARepeatedQueryOfACommandIsListedAsNPlusOne(): void

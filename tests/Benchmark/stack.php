@@ -214,7 +214,7 @@ function screens(CacheItemPoolInterface $cache, ClockInterface $clock, KernelInt
             Component::Symfony->value => static fn(): SymfonyDetail => new SymfonyDetail(),
             Component::Mysql->value => static fn(): MysqlDetail => new MysqlDetail(),
         ])),
-        new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new MessagesSection(true, true, $web === null ? null : new QueuesBlocks($locator, $clock))]),
+        new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new MessagesSection(true, true, $web === null ? null : new QueuesBlocks($locator, $clock), new ApplicationChecks([]))]),
     ];
 }
 

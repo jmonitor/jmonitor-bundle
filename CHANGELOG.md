@@ -14,14 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Requests screen: where the average request goes, between your PHP code, SQL and outgoing HTTP calls.
 - `recording.sql` option: turns SQL recording off or changes its slow query and N+1 thresholds.
 - `/jmonitor` Cache & HTTP tab: outgoing calls of the `http_client` service and scoped clients, per host.
-- `/jmonitor` Cache & HTTP tab: hits, misses, writes and deletes per cache pool.
+- `/jmonitor` Cache & HTTP tab: reads, hit rate, misses, writes and deletes per cache pool.
 - `/jmonitor` Exceptions screen: the exceptions behind 5xx responses, per class and per route.
 - `/jmonitor` Users screen: requests, time and errors per signed-in user.
 - `recording.exceptions`, `recording.users`, `recording.http_client` and `recording.cache` options: each turns its recording off.
 - The `/jmonitor` page says when its buffer directory is unusable.
-- `/jmonitor` Background screen: runs, duration, failures, peak memory and SQL time per console command.
+- `/jmonitor` Background screen: runs, duration, failures and peak memory per console command.
 - `/jmonitor` Background screen: messages sent and handled per class, with duration, failures and retries.
-- `/jmonitor` Background screen: scheduled tasks with their trigger, next run, last run and failures.
+- `/jmonitor` Background screen: scheduled tasks with their schedule, next run, last run and failures.
 - Exceptions screen: exceptions thrown by console commands and message handlers.
 - `recording.commands`, `recording.messenger` and `recording.scheduler` options: each turns its recording off, and `recording.commands.ignore` lists commands that are not recorded.
 - `JmonitorPage` service: shows the `/jmonitor` screens inside another page, with the routes, frame and access control of that page.
@@ -42,9 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `stack` options `postgresql` and `redis`.
 - `/jmonitor` navigation: three entries, Application, Background and Stack, with tabs under the header.
 - Live indicator: says how old the figures are, and when a refresh failed.
-- Requests and Queries screens: a sentence that sums up the period, what is worth a look with why it matters and what to do, and a guide to read the screen.
-- Requests and Queries tabs: a badge when something is worth a look.
-- Requests and Queries tables: a bar on the total time and a Problems column.
+- `/jmonitor` screens: a sentence that sums up the period, what is worth a look with why it matters and what to do, and a guide to read the screen.
+- `/jmonitor` tabs: a badge when something is worth a look.
+- `/jmonitor` tables: a bar on what costs the most and a Problems column.
+- Background screen: where the average message and command go, between your PHP code, SQL and outgoing HTTP calls.
+- Exceptions screen: one table, with under each class where it was thrown.
 
 ### Changed
 - Requires PHP 8.2.

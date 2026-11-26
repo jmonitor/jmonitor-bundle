@@ -8,18 +8,24 @@ use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\FailedCommandsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Section\CommandsSection;
-use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
+use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
+use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 use Jmonitor\JmonitorBundle\Tests\Dashboard\FixedReader;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class CommandsSectionTest extends TestCase
@@ -28,14 +34,14 @@ final class CommandsSectionTest extends TestCase
 
     public function testTheSectionDeclaresItself(): void
     {
-        $screen = new CommandsSection(true);
+        $screen = self::section();
 
         static::assertSame('commands', $screen->id());
         static::assertSame('Commands', $screen->title());
         static::assertSame('Runs of bin/console, by cron, a deploy or by hand.', $screen->summary());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
-            ['last' => 'desc', 'command' => 'asc', 'runs' => 'desc', 'avg' => 'desc', 'max' => 'desc', 'failed' => 'desc', 'memory' => 'desc', 'sql' => 'desc'],
+            ['last' => 'desc', 'command' => 'asc', 'runs' => 'desc', 'avg' => 'desc', 'max' => 'desc', 'problems' => 'desc', 'memory' => 'desc'],
             $screen->sorts(),
         );
         static::assertSame([
@@ -47,41 +53,43 @@ final class CommandsSectionTest extends TestCase
 
     public function testTheScreenFollowsItsAvailability(): void
     {
-        static::assertFalse((new CommandsSection(false))->isAvailable());
-        static::assertTrue((new CommandsSection(true))->isAvailable());
+        static::assertFalse((new CommandsSection(false, self::checks()))->isAvailable());
+        static::assertTrue((new CommandsSection(true, self::checks()))->isAvailable());
     }
 
-    public function testTheScreenReadsTheCommandFamilyOnceWithItsSeries(): void
+    public function testTheScreenReadsTheCommandFamilyOnceWithoutASeries(): void
     {
-        foreach (array_keys((new CommandsSection(true))->sorts()) as $sort) {
+        foreach (array_keys(self::section()->sorts()) as $sort) {
             $reader = new FixedReader();
-            (new CommandsSection(true))->build($reader, Period::SixHours, self::NOW, $sort, 'asc');
+            self::section()->build($reader, Period::SixHours, self::NOW, $sort, 'asc', self::raised());
 
             static::assertCount(1, $reader->queries, $sort);
             $query = $reader->queries[0];
-            static::assertSame([Family::Command, Period::SixHours, self::NOW, Metric::COMMAND_DURATION], [$query->family, $query->period, $query->now, $query->seriesMetric]);
+            static::assertSame([Family::Command, Period::SixHours, self::NOW, null], [$query->family, $query->period, $query->now, $query->seriesMetric]);
             static::assertSame([], $reader->labelRequests);
+            static::assertSame([], $reader->totalRequests);
         }
     }
 
     public function testTheCellsOfACommand(): void
     {
-        $table = $this->table($this->build([self::command('h1', 'app:work', 4, 10000.0, 4000.0, failed: 1, memory: 2097152, lastRun: self::NOW - 90, sqlRuns: 2, sqlTime: 60.0, sqlCount: 3.0)]));
+        $table = $this->table($this->build([self::command('h1', 'app:work', 4, 10000.0, 4000.0, failed: 1, memory: 2097152, lastRun: self::NOW - 90, sqlRuns: 2, sqlTime: 60.0, sqlCount: 3.0, httpRuns: 1, httpTime: 2000.0)]));
         $row = $table->rows[0];
 
         static::assertSame('commands', $table->id);
         static::assertSame('Commands', $table->title);
         static::assertSame('command', $table->noun);
+        static::assertTrue($table->partsLegend);
         static::assertSame(
             [
                 ['command', 'Command', false, 'command'],
                 ['runs', 'Runs', true, 'runs'],
                 ['avg', 'Avg', true, 'avg'],
                 ['max', 'Max', true, 'max'],
-                ['failed', 'Failed', true, 'failed'],
-                ['memory', 'Peak memory', true, 'memory'],
                 ['last', 'Last run', true, 'last'],
-                ['sql', 'SQL', true, 'sql'],
+                ['split', 'Where the average goes', false, null],
+                ['problems', 'Problems', false, 'problems'],
+                ['memory', 'Memory', true, 'memory'],
             ],
             array_map(static fn(Column $column): array => [$column->id, $column->label, $column->numeric, $column->sort], $table->columns),
         );
@@ -89,29 +97,50 @@ final class CommandsSectionTest extends TestCase
         static::assertFalse($row->muted);
         static::assertSame(['data-jm-command' => 'app:work', 'data-jm-runs' => '4'], $row->attributes);
         static::assertSame(
-            ['command' => 'app:work', 'runs' => '4', 'avg' => '2.5 s', 'max' => '4.0 s', 'failed' => '1', 'memory' => '2 MB', 'last' => '1 min ago', 'sql' => '15 ms · 0.8 q'],
+            ['command' => 'app:work', 'runs' => '4', 'avg' => '2.5 s', 'max' => '4.0 s', 'last' => '1 min ago', 'split' => 'HTTP out 500 ms · 0.8 queries', 'problems' => '', 'memory' => '2 MB'],
             array_map(static fn(Cell $cell): string => $cell->text, $row->cells),
         );
         static::assertSame('code', $row->cells['command']->kind);
-        static::assertSame('bad', $row->cells['failed']->tone);
-        static::assertNull($row->cells['sql']->tone);
+        static::assertSame(['split', ['php' => 1985.0, 'sql' => 15.0, 'http' => 500.0]], [$row->cells['split']->kind, $row->cells['split']->parts]);
+        static::assertSame([['1 failed', 'bad']], self::tags($row));
     }
 
-    public function testACommandWithoutFailureOrSqlStaysNeutral(): void
+    /**
+     * @return iterable<string, array{ReportRow, string, array{php: float, sql: float, http: float}}>
+     */
+    public static function splits(): iterable
+    {
+        yield 'SQL and HTTP longer than the average' => [self::command('h', 'app:a', 2, 100.0, sqlRuns: 2, sqlTime: 80.0, sqlCount: 20.0, httpRuns: 2, httpTime: 60.0), 'SQL 40 ms · 10 queries', ['php' => 0.0, 'sql' => 40.0, 'http' => 30.0]];
+        yield 'neither SQL nor an outgoing call' => [self::command('h', 'app:a', 2, 100.0), 'PHP only', ['php' => 50.0, 'sql' => 0.0, 'http' => 0.0]];
+        yield 'an outgoing call only' => [self::command('h', 'app:a', 2, 100.0, httpRuns: 1, httpTime: 30.0), 'HTTP out 15 ms', ['php' => 35.0, 'sql' => 0.0, 'http' => 15.0]];
+    }
+
+    /**
+     * @param array{php: float, sql: float, http: float} $parts
+     */
+    #[DataProvider('splits')]
+    public function testWhereTheAverageRunGoes(ReportRow $command, string $text, array $parts): void
+    {
+        $split = $this->table($this->build([$command]))->rows[0]->cells['split'];
+
+        static::assertSame(['split', $text, $parts], [$split->kind, $split->text, $split->parts]);
+    }
+
+    public function testACommandWithoutFailureHasNoTag(): void
     {
         $row = $this->table($this->build([self::command('h1', 'app:import')]))->rows[0];
 
-        static::assertSame(['0', 'zero'], [$row->cells['failed']->text, $row->cells['failed']->tone]);
-        static::assertSame(['—', 'zero'], [$row->cells['sql']->text, $row->cells['sql']->tone]);
+        static::assertSame([], self::tags($row));
+        static::assertSame('PHP only', $row->cells['split']->text);
     }
 
     public function testTheLastRunComesFirstByDefault(): void
     {
-        $view = (new CommandsSection(true))->build($this->reader([
+        $view = self::section()->build($this->reader([
             self::command('h1', 'app:old', lastRun: self::NOW - 3600),
             self::command('h2', 'app:recent', lastRun: self::NOW - 10),
             self::command('h3', 'app:middle', lastRun: self::NOW - 600),
-        ]), Period::OneHour, self::NOW, array_key_first((new CommandsSection(true))->sorts()), 'desc');
+        ]), Period::OneHour, self::NOW, (string) array_key_first(self::section()->sorts()), 'desc', self::raised());
 
         static::assertSame(['app:recent', 'app:middle', 'app:old'], $this->names($view));
     }
@@ -129,12 +158,11 @@ final class CommandsSectionTest extends TestCase
             'runs' => ['app:a', 'app:c', 'app:b'],
             'avg' => ['app:b', 'app:c', 'app:a'],
             'max' => ['app:b', 'app:c', 'app:a'],
-            'failed' => ['app:b', 'app:c', 'app:a'],
+            'problems' => ['app:b', 'app:c', 'app:a'],
             'memory' => ['app:b', 'app:c', 'app:a'],
-            'sql' => ['app:c', 'app:a', 'app:b'],
         ];
 
-        static::assertSame(array_keys((new CommandsSection(true))->sorts()), array_keys($descending));
+        static::assertSame(array_keys(self::section()->sorts()), array_keys($descending));
 
         foreach ($descending as $sort => $expected) {
             static::assertSame($expected, $this->names($this->build($rows, $sort, 'desc')), $sort . ' desc');
@@ -142,12 +170,24 @@ final class CommandsSectionTest extends TestCase
         }
     }
 
-    public function testOtherCommandsComeLastMuted(): void
+    public function testARemovedSortFallsBackToTheDefault(): void
     {
-        $other = self::command('ho', Aggregator::OTHER, 7, 700.0, 200.0, lastRun: self::NOW);
+        $rows = [
+            self::command('ha', 'app:a', failed: 4, lastRun: self::NOW - 600, sqlRuns: 1, sqlTime: 900.0, sqlCount: 90.0),
+            self::command('hb', 'app:b', lastRun: self::NOW - 5),
+        ];
 
-        foreach ([['last', 'desc'], ['last', 'asc'], ['command', 'asc'], ['runs', 'desc']] as [$sort, $direction]) {
-            $table = $this->table($this->build([self::command('h1', 'app:a'), self::command('h2', 'app:b')], $sort, $direction, $other));
+        foreach (['failed', 'sql', 'unknown'] as $sort) {
+            static::assertSame(['app:b', 'app:a'], $this->names($this->build($rows, $sort, 'desc')), $sort);
+        }
+    }
+
+    public function testOtherCommandsComeLastMutedWithTheirCells(): void
+    {
+        $other = self::command('ho', Aggregator::OTHER, 7, 700.0, 200.0, failed: 3, lastRun: self::NOW, sqlRuns: 7, sqlTime: 35.0, sqlCount: 14.0);
+
+        foreach ([['last', 'desc'], ['last', 'asc'], ['command', 'asc'], ['runs', 'desc'], ['problems', 'desc']] as [$sort, $direction]) {
+            $table = $this->table($this->build([self::command('h1', 'app:a'), self::command('h2', 'app:b', failed: 9)], $sort, $direction, $other));
             $last = $table->rows[2];
 
             static::assertCount(3, $table->rows);
@@ -156,6 +196,8 @@ final class CommandsSectionTest extends TestCase
             static::assertSame('Other commands', $last->cells['command']->text);
             static::assertSame('text', $last->cells['command']->kind);
             static::assertSame('7', $last->cells['runs']->text);
+            static::assertSame('SQL 5 ms · 2.0 queries', $last->cells['split']->text);
+            static::assertSame([['3 failed', 'bad']], self::tags($last));
             static::assertSame(['data-jm-command' => Aggregator::OTHER, 'data-jm-runs' => '7'], $last->attributes);
         }
     }
@@ -175,51 +217,137 @@ final class CommandsSectionTest extends TestCase
         static::assertSame('app:006', $table->rows[99]->attributes['data-jm-command']);
     }
 
-    public function testTheCards(): void
+    public function testNoCardIsRenderedInTheSection(): void
     {
-        $view = $this->build([
-            self::command('h1', 'app:a', 3, 3000.0, 2000.0, 1),
-            self::command('h2', 'app:b', 1, 500.0, 500.0),
-        ], other: self::command('ho', Aggregator::OTHER, 1, 500.0, 500.0, 1), period: Period::OneDay, series: [1, 0, 3]);
+        $view = $this->build([self::command('h1', 'app:a', 3, 3000.0, 2000.0, 1)], other: self::command('ho', Aggregator::OTHER));
 
-        static::assertSame(['Runs', 'Failed runs', 'Avg duration', 'Commands'], array_map(static fn(Card $card): string => $card->label, $view->cards));
-        static::assertSame(['5', '2', '800 ms', '2'], array_map(static fn(Card $card): string => $card->value, $view->cards));
-        static::assertSame('Last 24 hours', $view->cards[0]->hint);
-        static::assertSame([1, 0, 3], $view->cards[0]->series);
-        static::assertTrue($view->cards[0]->wide);
-        static::assertSame([null, 'bad', null, null], array_map(static fn(Card $card): ?string => $card->tone, $view->cards));
+        static::assertSame([], $view->cards);
+        static::assertNull($view->lead);
     }
 
-    public function testCardsWithoutFailureStayNeutral(): void
+    /**
+     * @return iterable<string, array{list<ReportRow>, ?ReportRow, int, list<string|null>}>
+     */
+    public static function briefs(): iterable
     {
-        $view = $this->build([self::command('h1', 'app:a')]);
+        yield 'runs of commands' => [[self::command('h1', 'app:a', 3), self::command('h2', 'app:b', 1)], null, 2, ['4', '4 command runs', 'runs of 2 commands', '', null]];
+        yield 'one run of one command' => [[self::command('h1', 'app:a', 1)], null, 1, ['1', '1 command run', 'run of 1 command', '', null]];
+        yield 'runs of one command' => [[self::command('h1', 'app:a', 5)], null, 1, ['5', '5 command runs', 'runs of 1 command', '', null]];
+        yield 'one failed run' => [[self::command('h1', 'app:a', 3, failed: 1)], null, 1, ['3', '3 command runs', 'runs of 1 command, 1 failed', '1 command run failed.', 'bad']];
+        yield 'the other commands counted' => [
+            [self::command('h1', 'app:a', 1000, failed: 2)],
+            self::command('ho', Aggregator::OTHER, 234, failed: 1),
+            1,
+            ['1,234', '1,234 command runs', 'runs of 2 commands or more, 3 failed', '3 command runs failed.', 'bad'],
+        ];
+        yield 'a hundred commands and the other ones' => [
+            array_map(static fn(int $i): ReportRow => self::command('h' . $i, 'app:' . $i), range(1, 100)),
+            self::command('ho', Aggregator::OTHER, 1),
+            100,
+            ['101', '101 command runs', 'runs of 101 commands or more', '', null],
+        ];
+        yield 'only the other commands' => [[], self::command('ho', Aggregator::OTHER, 2, failed: 1), 0, ['2', '2 command runs', 'runs of 1 command or more, 1 failed', '1 command run failed.', 'bad']];
+        yield 'one run of the other commands' => [[], self::command('ho', Aggregator::OTHER, 1), 0, ['1', '1 command run', 'run of 1 command or more', '', null]];
+    }
 
-        static::assertSame('0', $view->cards[1]->value);
-        static::assertNull($view->cards[1]->tone);
+    /**
+     * @param list<ReportRow>   $rows
+     * @param list<string|null> $expected
+     */
+    #[DataProvider('briefs')]
+    public function testTheBrief(array $rows, ?ReportRow $other, int $keyCount, array $expected): void
+    {
+        $view = self::section()->build(
+            new FixedReader(static fn(ReportQuery $query): Report => new Report($rows, $other, $keyCount)),
+            Period::OneHour,
+            self::NOW,
+            'last',
+            'desc',
+            self::raised(),
+        );
+
+        static::assertNotNull($view->brief);
+        static::assertSame($expected, [$view->brief->count, $view->brief->clause, $view->brief->figures, $view->brief->standout, $view->brief->tone]);
+    }
+
+    public function testTheCheckLineIsReadInTheReportOfTheSection(): void
+    {
+        $reader = $this->reader([self::command('h1', 'app:import', 4, failed: 2), self::command('h2', 'app:sync', 2)]);
+        $check = new FailedCommandsCheck();
+        $raised = new RaisedChecks([$check->id() => $check], [Metric::COMMAND_FAILED => new MetricValue(2, 2.0, 1.0)], Period::OneHour);
+
+        $view = self::section()->build($reader, Period::OneHour, self::NOW, 'last', 'desc', $raised);
+
+        static::assertNotNull($view->checks);
+        static::assertSame('no failed command run', $view->checks->emptyText);
+        static::assertSame(
+            [['commands.failed', 'bad', '2 command runs failed', 'app:import ended with a non-zero exit code 2 times.', '', null]],
+            array_map(static fn(CheckLine $line): array => [$line->id, $line->mark->tone, $line->title, $line->sentence, $line->where, $line->path], $view->checks->lines),
+        );
+        static::assertCount(1, $reader->queries);
+        static::assertSame([], $reader->totalRequests);
+    }
+
+    public function testWithoutRaisedCheckThereIsNoLine(): void
+    {
+        $view = $this->build([self::command('h1', 'app:import', failed: 1)]);
+
+        static::assertNotNull($view->checks);
+        static::assertSame([], $view->checks->lines);
+        static::assertSame('no failed command run', $view->checks->emptyText);
+    }
+
+    public function testTheGuide(): void
+    {
+        $guide = $this->build([self::command('h1', 'app:a')])->guide;
+
+        static::assertNotNull($guide);
+        static::assertSame(
+            [['Commands.', 'Internal commands such as cache:clear and messenger:consume are not recorded.', []]],
+            array_map(static fn(GuideItem $item): array => [$item->term, $item->text, $item->links], $guide->items),
+        );
     }
 
     public function testAnEmptyPeriodShowsTheEmptyState(): void
     {
-        static::assertTrue($this->build([])->isEmpty());
+        $view = $this->build([]);
+
+        static::assertTrue($view->isEmpty());
+        static::assertNull($view->brief);
+        static::assertNull($view->checks);
+        static::assertNull($view->guide);
         static::assertFalse($this->build([], other: self::command('ho', Aggregator::OTHER))->isEmpty());
     }
 
-    /**
-     * @param list<ReportRow> $rows
-     * @param list<int>       $series
-     */
-    private function build(array $rows, string $sort = 'last', string $direction = 'desc', ?ReportRow $other = null, Period $period = Period::OneHour, array $series = []): ScreenView
+    private static function section(): CommandsSection
     {
-        return (new CommandsSection(true))->build($this->reader($rows, $other, $series), $period, self::NOW, $sort, $direction);
+        return new CommandsSection(true, self::checks());
+    }
+
+    private static function checks(): ApplicationChecks
+    {
+        return new ApplicationChecks([new FailedCommandsCheck()]);
+    }
+
+    private static function raised(): RaisedChecks
+    {
+        return new RaisedChecks([], [], Period::OneHour);
     }
 
     /**
      * @param list<ReportRow> $rows
-     * @param list<int>       $series
      */
-    private function reader(array $rows, ?ReportRow $other = null, array $series = []): FixedReader
+    private function build(array $rows, string $sort = 'last', string $direction = 'desc', ?ReportRow $other = null): ScreenView
     {
-        return new FixedReader(static fn(ReportQuery $query): Report => new Report($rows, $other, \count($rows), $series));
+        return self::section()->build($this->reader($rows, $other), Period::OneHour, self::NOW, $sort, $direction, self::raised());
+    }
+
+    /**
+     * @param list<ReportRow> $rows
+     */
+    private function reader(array $rows, ?ReportRow $other = null): FixedReader
+    {
+        return new FixedReader(static fn(ReportQuery $query): Report => new Report($rows, $other, \count($rows)));
     }
 
     private function table(ScreenView $view): Table
@@ -231,6 +359,12 @@ final class CommandsSectionTest extends TestCase
     private function names(ScreenView $view): array
     {
         return array_map(static fn(Row $row): string => $row->cells['command']->text, $this->table($view)->rows);
+    }
+
+    /** @return list<array{string, string}> */
+    private static function tags(Row $row): array
+    {
+        return array_map(static fn(Tag $tag): array => [$tag->text, $tag->tone], $row->cells['problems']->tags);
     }
 
     private static function command(
@@ -245,6 +379,8 @@ final class CommandsSectionTest extends TestCase
         int $sqlRuns = 0,
         float $sqlTime = 0.0,
         float $sqlCount = 0.0,
+        int $httpRuns = 0,
+        float $httpTime = 0.0,
     ): ReportRow {
         $metrics = [
             Metric::COMMAND_DURATION => new MetricValue($runs, $totalMs, $maxMs),
@@ -257,6 +393,9 @@ final class CommandsSectionTest extends TestCase
         if ($sqlRuns > 0) {
             $metrics[Metric::COMMAND_SQL_TIME] = new MetricValue($sqlRuns, $sqlTime, $sqlTime);
             $metrics[Metric::COMMAND_SQL_COUNT] = new MetricValue($sqlRuns, $sqlCount, $sqlCount);
+        }
+        if ($httpRuns > 0) {
+            $metrics[Metric::COMMAND_HTTP_TIME] = new MetricValue($httpRuns, $httpTime, $httpTime);
         }
 
         return new ReportRow($hash, $name, $name, $metrics);

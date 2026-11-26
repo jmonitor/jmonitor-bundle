@@ -18,14 +18,16 @@ final class Culprit
         public readonly int $others,
     ) {}
 
-    /** the row that counts the most entries of the metric, the smallest key on a tie */
-    public static function mostCounted(Report $report, string $metric): ?self
+    /** the row that counts the most entries of the metrics added together, the smallest key on a tie */
+    public static function mostCounted(Report $report, string $metric, string ...$metrics): ?self
     {
+        $metrics = [$metric, ...$metrics];
         $culprit = null;
+        $most = 0;
         $counting = 0;
 
         foreach ($report->rows as $row) {
-            $count = $row->count($metric);
+            $count = array_sum(array_map(static fn(string $type): int => $row->count($type), $metrics));
 
             if ($count < 1) {
                 continue;
@@ -33,12 +35,13 @@ final class Culprit
 
             ++$counting;
 
-            if ($culprit === null || $count > $culprit->count($metric) || ($count === $culprit->count($metric) && strcmp($row->key, $culprit->key) < 0)) {
+            if ($culprit === null || $count > $most || ($count === $most && strcmp($row->key, $culprit->key) < 0)) {
                 $culprit = $row;
+                $most = $count;
             }
         }
 
-        return $culprit === null ? null : new self($culprit, $culprit->count($metric), $counting - 1);
+        return $culprit === null ? null : new self($culprit, $most, $counting - 1);
     }
 
     public static function times(int $count): string
@@ -46,8 +49,8 @@ final class Culprit
         return $count === 1 ? 'once' : Format::number($count) . ' times';
     }
 
-    public static function otherRoutes(int $others): string
+    public static function others(int $count, string $singular, string $plural): string
     {
-        return $others === 1 ? '1 other route' : Format::number($others) . ' other routes';
+        return $count === 1 ? '1 ' . $singular : Format::number($count) . ' ' . $plural;
     }
 }

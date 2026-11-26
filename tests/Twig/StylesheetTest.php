@@ -472,6 +472,71 @@ final class StylesheetTest extends TestCase
         }
     }
 
+    public function testTheCardsOfASectionShareTheWidthLikeTheCardsOfTheScreen(): void
+    {
+        $equal = ':not(:has(> .jm-card--wide))';
+        $four = $equal . ':has(> .jm-card:nth-child(4):last-child)';
+        $five = $equal . ':has(> .jm-card:nth-child(5):last-child)';
+
+        foreach ([
+            [$equal, null],
+            [$equal, '@media (max-width: 1080px)'],
+            [$four, '@media (max-width: 1080px)'],
+            [$five, '@media (min-width: 721px) and (max-width: 1080px)'],
+            [$five . ' > .jm-card', '@media (min-width: 721px) and (max-width: 1080px)'],
+            [$five . ' > .jm-card:nth-child(n + 4)', '@media (min-width: 721px) and (max-width: 1080px)'],
+            [$equal, '@media (max-width: 720px)'],
+            [$equal, '@media (max-width: 380px)'],
+            [$four, '@media (max-width: 380px)'],
+        ] as [$rest, $at]) {
+            $screen = self::declarationsOf('.jm-screen > .jm-cards' . $rest, $at);
+
+            static::assertNotSame([], $screen, $rest . ' ' . $at);
+            static::assertSame($screen, self::declarationsOf('.jm-section > .jm-cards' . $rest, $at), $rest . ' ' . $at);
+        }
+    }
+
+    public function testOneOrTwoCardsFillTheirRowBetweenTheBreakpoints(): void
+    {
+        $at = '@media (min-width: 721px) and (max-width: 1080px)';
+
+        foreach (['.jm-screen', '.jm-section'] as $parent) {
+            static::assertSame([['grid-template-columns', 'none'], ['grid-auto-flow', 'column']], self::declarationsOf($parent . ' > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card:nth-child(-n + 2):last-child)', $at), $parent);
+        }
+        static::assertContains(['grid-auto-columns', 'minmax(0, 1fr)'], self::declarationsOf('.jm-screen > .jm-cards:not(:has(> .jm-card--wide))', null));
+    }
+
+    public function testTheGuideIsSpacedFromTheSectionAboveItLikeTwoSections(): void
+    {
+        static::assertSame([['margin-top', '20px']], self::declarationsOf('.jm-section + .jm-section', null));
+        static::assertSame([['margin-top', '20px']], self::declarationsOf('.jm-section + .jm-guide', null));
+    }
+
+    public function testAnAnchorCardKeepsTheColourOfItsLabelAndIsUnderlinedOnHoverAndFocus(): void
+    {
+        static::assertSame([['color', 'inherit'], ['text-decoration', 'none']], self::declarationsOf('.jm-card__link', null));
+        foreach (['.jm-card__link:hover', '.jm-card__link:focus-visible'] as $selector) {
+            static::assertSame([['color', 'inherit'], ['text-decoration', 'underline']], self::declarationsOf($selector, null), $selector);
+        }
+        static::assertSame([['grid-template-columns', 'minmax(0, 1fr)']], self::declarationsOf('.jm-screen > .jm-cards:not(:has(> .jm-card--wide)):has(> .jm-card > .jm-card__label > .jm-card__link)', '@media (max-width: 400px)'));
+    }
+
+    public function testANestedRowIsIndentedOnAFainterBackground(): void
+    {
+        static::assertSame([['background', 'var(--jm-surface-strong)']], self::declarationsOf('.jm-table tbody .jm-row--nested > *', null));
+        static::assertSame([['background', 'var(--jm-surface-hover)']], self::declarationsOf('.jm-table tbody tr:hover > *', null), 'A hovered nested row changes its background.');
+        static::assertSame([['padding-left', '38px']], self::declarationsOf('.jm-table tbody .jm-row--nested > :first-child', null));
+    }
+
+    public function testALongNameOfASectionTableWrapsInsteadOfWideningItsColumn(): void
+    {
+        static::assertSame([['overflow-wrap', 'anywhere']], self::declarationsOf('.jm-table .jm-code', null));
+        static::assertSame([['overflow-wrap', 'anywhere'], ['min-width', '140px']], self::declarationsOf('.jm-table .jm-col-user', null));
+        static::assertSame([['min-width', '140px']], self::declarationsOf('.jm-table tbody th:has(> .jm-code)', null), 'A name that wraps keeps a column wide enough to be read.');
+        static::assertSame([['white-space', 'normal']], self::declarationsOf('.jm-section .jm-table:has(.jm-split) td.jm-col-problems', null));
+        static::assertSame([['white-space', 'nowrap']], self::declarationsOf('.jm-table:has(.jm-split) td:has(> .jm-tag)', null), 'The problems of a route stay on one line.');
+    }
+
     public function testOnlyTheTitleOfAGuidedCheckIsBold(): void
     {
         static::assertContains(['font-weight', '600'], self::declarationsOf('.jm-check__sentence', null));

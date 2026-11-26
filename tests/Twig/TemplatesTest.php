@@ -7,6 +7,8 @@ namespace Jmonitor\JmonitorBundle\Tests\Twig;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
@@ -174,8 +176,8 @@ final class TemplatesTest extends TestCase
         ]);
         $reader = new FixedReader(new Report([$hostile], keyCount: 1));
 
-        foreach ([new CommandsSection(true), new MessagesSection(true, true)] as $section) {
-            $view = $section->build($reader, Period::OneHour, 1800000000, (string) array_key_first($section->sorts()), 'desc');
+        foreach ([new CommandsSection(true, new ApplicationChecks([])), new MessagesSection(true, true, null, new ApplicationChecks([]))] as $section) {
+            $view = $section->build($reader, Period::OneHour, 1800000000, (string) array_key_first($section->sorts()), 'desc', new RaisedChecks([], [], Period::OneHour));
             $page = $this->sectionPage($section, $view, (string) array_key_first($section->sorts()), 'desc');
 
             foreach ([
@@ -199,8 +201,8 @@ final class TemplatesTest extends TestCase
             Metric::TASK_DURATION => new MetricValue(1, 10.0, 10.0),
             Metric::TASK_LAST_RUN => new MetricValue(1, 0.0, 1799999990.0),
         ]);
-        $section = new TasksSection(true, $declared);
-        $view = $section->build(new FixedReader(new Report([$stored], keyCount: 1)), Period::OneHour, 1800000000, 'next', 'asc');
+        $section = new TasksSection(true, $declared, new ApplicationChecks([]));
+        $view = $section->build(new FixedReader(new Report([$stored], keyCount: 1)), Period::OneHour, 1800000000, 'next', 'asc', new RaisedChecks([], [], Period::OneHour));
         $page = $this->sectionPage($section, $view, 'next', 'asc');
 
         static::assertCount(2, $view->tables[0]->rows);
@@ -1022,6 +1024,69 @@ final class TemplatesTest extends TestCase
             foreach (['a string', ['stub', 'stack', 'queries'], new \ArrayObject(['id' => 'x', 'sort' => 'name', 'items' => [], 'lines' => []]), new \stdClass(), true] as $global) {
                 static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['screens', 'lead', 'guide', 'checks', 'legend', 'section', 'subnav', 'list', 'table', 'cell', 'page_title'], $global)), $kind);
             }
+        }
+    }
+
+    public function testAnAnchorCardLinksToItsSection(): void
+    {
+        $html = $this->render('block/cards.html.twig', ['block' => Block::cards([
+            new Card('Messages', '42', 'handled, 45 sent, 3 failed', 'bad', anchor: 'messages'),
+            new Card('Runs', '3', 'in the last hour'),
+        ])]);
+        $cards = (new Crawler($html))->filter('.jm-card');
+
+        static::assertSame('jm-card jm-card--bad', $cards->eq(0)->attr('class'));
+        static::assertSame('<h2 class="jm-card__label"><a class="jm-card__link" href="#jm-messages">Messages</a></h2>', $cards->eq(0)->filter('h2')->outerHtml());
+        static::assertSame(['42', 'handled, 45 sent, 3 failed'], $cards->eq(0)->filter('p')->each(static fn(Crawler $p): string => $p->text()));
+        static::assertStringContainsString("<article class=\"jm-card\">\n            <h2 class=\"jm-card__label\">Runs</h2>\n                            <p class=\"jm-card__value\">3</p>\n", $html);
+        static::assertCount(1, (new Crawler($html))->filter('a'));
+    }
+
+    public function testANestedRowIsMarkedAndNotCounted(): void
+    {
+        $table = new Table('exceptions', 'Exceptions', [new Column('name', 'Name', false), new Column('count', 'Count')], [
+            new Row('k1', ['name' => new Cell('RuntimeException'), 'count' => new Cell('3')]),
+            new Row('k1-a', ['name' => new Cell('GET app_home'), 'count' => new Cell('2')], ['data-jm-place' => 'a'], nested: true),
+            new Row('k1-b', ['name' => new Cell('app:import'), 'count' => new Cell('1')], nested: true),
+            new Row('k2', ['name' => new Cell('LogicException'), 'count' => new Cell('1')]),
+            new Row('other', ['name' => new Cell('Other places'), 'count' => new Cell('4')], muted: true, nested: true),
+            new Row('rest', ['name' => new Cell('Other exceptions'), 'count' => new Cell('5')], muted: true),
+        ], 1, 'exception');
+
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]);
+        $rows = (new Crawler($html))->filter('tbody tr');
+
+        static::assertSame('3 exceptions', (new Crawler($html))->filter('.jm-panel__meta')->text());
+        static::assertSame([null, 'jm-row--nested', 'jm-row--nested', null, 'jm-row--muted jm-row--nested', 'jm-row--muted'], $rows->each(static fn(Crawler $row): ?string => $row->attr('class')));
+        static::assertStringContainsString('<tr class="jm-row--nested" data-jm-place="a">', $html);
+        static::assertSame(3, substr_count($html, '<tr>'), 'The row of the header and the two rows that are neither nested nor muted.');
+        static::assertSame(1, substr_count($html, '<tr class="jm-row--muted">'));
+    }
+
+    public function testAHostGlobalDoesNotStandInForTheVariablesOfTheTopOfAComposedPage(): void
+    {
+        $table = new Table('exceptions', 'Exceptions', [new Column('name', 'Name', false, 'name'), new Column('count', 'Count', sort: 'count')], [
+            new Row('k1', ['name' => new Cell('RuntimeException'), 'count' => new Cell('3')]),
+            new Row('k1-a', ['name' => new Cell('GET app_home'), 'count' => new Cell('3')], nested: true),
+        ]);
+        $checks = new CheckList([], 'Nothing to flag', 'No failed message in the last hour.', 'Worth a look');
+        $section = new Section('messages', 'Messages', 'Work handed to Messenger.', [Block::cards([new Card('Sent', '4'), new Card('Failed', '1', tone: 'bad')]), Block::table($table)], 'count', 'desc', ['count' => 'desc', 'name' => 'asc']);
+        $blocks = [
+            Block::lead(new Lead('4 messages handled in the last hour.', '1 message failed.')),
+            Block::checks($checks),
+            Block::cards([new Card('Messages', '4', 'handled, 4 sent, 1 failed', 'bad', anchor: 'messages'), new Card('Tasks', '2', anchor: 'tasks')]),
+            Block::section($section),
+            Block::guide(new Guide([new GuideItem('Sent and handled.', 'Text.')])),
+        ];
+        $page = new Page(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('messages')], true), $blocks, Period::OneHour, '', '', []);
+        $context = ['page' => $page, 'path' => 'background', 'badges' => [], 'screens' => ['background']];
+        $expected = $this->render('_screen.html.twig', $context);
+
+        static::assertStringContainsString('href="#jm-messages"', $expected);
+        static::assertStringContainsString('class="jm-row--nested"', $expected);
+        static::assertStringContainsString('1 row', $expected);
+        foreach (['a string', new \ArrayObject(['id' => 'x', 'anchor' => 'x', 'nested' => true, 'muted' => true]), new \stdClass(), true, false, null] as $global) {
+            static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['brief', 'anchor', 'outline', 'nested', 'card', 'row', 'block', 'section', 'page_title'], $global)));
         }
     }
 

@@ -107,12 +107,31 @@ status="$(printf '%s\n' "$admin" | tail -n 1)"
 printf '%s\n' "$admin" | grep -q 'class="jm-heading__title jm-lead__title">38 requests in the last hour, ' || fail "the Requests screen inside EasyAdmin does not sum up 38 requests in its lead"
 
 expect_page /jmonitor/cache-http 'data-jm-pool="cache.app" data-jm-reads="3"' 'the Cache & HTTP screen did not list 3 reads of cache.app'
+printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">3 cache reads (67 % found) in the last hour.<' || fail "the Cache & HTTP screen does not sum up 3 cache reads in its lead"
+printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-title">Nothing to flag<' || fail 'the Cache & HTTP screen does not say "Nothing to flag" without a low hit rate, a call without answer or an error response'
+printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-text">No pool with a low hit rate in the last hour.<' || fail "the Cache & HTTP screen does not say that no pool has a low hit rate"
+if printf '%s\n' "$page" | grep -q 'data-jm-check='; then
+    fail "the Cache & HTTP screen flags a check without a low hit rate, a call without answer or an error response"
+fi
 expect_page /jmonitor/exceptions 'data-jm-exception="RuntimeException" data-jm-count="2"' 'the Exceptions screen did not list 2 RuntimeException'
+printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">2 exceptions in the last hour' || fail "the Exceptions screen does not sum up 2 exceptions in its lead"
+printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "the Exceptions screen does not show the server errors of the route that threw"
+printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "the Exceptions screen does not name GET app_boom as the route that answered 2 server errors"
 
 $COMPOSE exec -T -u www-data php php tests/Fixtures/App/bin/console app:work || fail "app:work failed as the PHP-FPM pool user"
 expect_page /jmonitor/background 'data-jm-command="app:work" data-jm-runs="1"' 'the Background screen did not list 1 run of app:work'
 curl -sf -o /dev/null "$BASE/dispatch?count=1" || fail "GET /dispatch did not return 2xx"
 expect_page /jmonitor/background 'data-jm-message="[^"]*\\Ping"[^>]*data-jm-sent="1"' 'the Background screen did not list 1 sent Ping message'
+printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">1 message sent and 1 command run in the last hour.<' || fail "the Background screen does not sum up 1 message sent and 1 command run in its lead"
+printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-title">Nothing to flag<' || fail 'the Background screen does not say "Nothing to flag" without a failed message, scheduled run or command run'
+printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-text">No failed message, no failed command run in the last hour.<' || fail "the Background screen does not say that no message and no command run failed"
+if printf '%s\n' "$page" | grep -q 'data-jm-check='; then
+    fail "the Background screen flags a check without a failed message, scheduled run or command run"
+fi
+admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/background")" || fail "GET /admin/jmonitor/background failed"
+status="$(printf '%s\n' "$admin" | tail -n 1)"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor/background answered $status instead of 200"
+printf '%s\n' "$admin" | grep -q 'class="jm-heading__title jm-lead__title">1 message sent and 1 command run in the last hour.<' || fail "the Background screen inside EasyAdmin does not sum up 1 message sent and 1 command run in its lead"
 
 expect_page /back-office/monitoring/requests 'data-jm-route="GET app_hello"' 'the embedded Requests screen did not list "GET app_hello"' "$ADMIN"
 
@@ -249,4 +268,4 @@ if printf '%s\n' "$commands" | grep -q 'jmonitor:stack:queues'; then
     fail "the Background screen lists jmonitor:stack:queues"
 fi
 
-echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; the Requests and Queries screens sum up the period and flag the server errors and the repeated query, also inside EasyAdmin; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"
+echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; the Requests, Queries, Cache & HTTP, Exceptions and Background screens sum up the period, flag the server errors, also on Exceptions, and the repeated query, and have nothing else to flag, also inside EasyAdmin; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"

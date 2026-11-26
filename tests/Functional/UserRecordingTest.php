@@ -92,8 +92,63 @@ final class UserRecordingTest extends WebTestCase
         $rows = self::userRows($crawler);
         static::assertSame(['admin', 'user'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-user')));
         static::assertSame(['3', '1'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-requests')));
-        static::assertSame(['0', '1'], $rows->each(static fn(Crawler $row): string => trim($row->filter('td')->eq(4)->text())));
+        static::assertSame(['', '1 × 5xx'], $rows->each(static fn(Crawler $row): string => trim($row->filter('td')->eq(3)->text())));
         static::assertSame('1', $crawler->filter('.jm-card')->eq(3)->filter('.jm-card__value')->text());
+    }
+
+    public function testAUserWhoMetAServerErrorIsTaggedAndBringsTheCheckOfRequests(): void
+    {
+        $client = static::createClient(['jmonitor' => $this->recording()]);
+
+        $client->request('GET', '/hello/world');
+        static::assertResponseIsSuccessful();
+        for ($i = 0; $i < 3; ++$i) {
+            $client->request('GET', '/hello/world', server: self::ADMIN);
+            static::assertResponseIsSuccessful();
+        }
+        $client->request('GET', '/boom', server: self::USER);
+        static::assertResponseStatusCodeSame(500);
+        self::requestUntil($client, '/jmonitor/users', 'tr[data-jm-user="admin"][data-jm-requests="3"]');
+        $crawler = self::requestUntil($client, '/jmonitor/users', 'tr[data-jm-user="user"][data-jm-requests="1"]');
+
+        static::assertSame(
+            ['jm-lead', 'jm-panel', 'jm-cards', 'jm-panel', 'jm-guide'],
+            $crawler->filter('.jm-screen > section')->each(static fn(Crawler $block): string => explode(' ', (string) $block->attr('class'))[0]),
+        );
+        static::assertSame('2 signed-in users made 4 of the 5 requests in the last hour.', $crawler->filter('h1.jm-lead__title')->text());
+        static::assertSame('They met 1 server error. The most active one made 75 % of their requests.', $crawler->filter('.jm-lead__detail')->text());
+
+        static::assertSame(['requests.server_errors'], $crawler->filter('[data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
+        $check = $crawler->filter('[data-jm-check="requests.server_errors"]');
+        static::assertSame('bad', $check->attr('data-jm-severity'));
+        static::assertSame('1 server error · GET app_boom answered with a 5xx status once.', $check->filter('.jm-check__sentence')->text());
+        static::assertSame(['Requests', '/jmonitor/requests?period=1h'], [$check->filter('.jm-check__where a')->text(), $check->filter('.jm-check__where a')->attr('href')]);
+
+        static::assertSame(['Active users', 'Their requests', 'Slow requests', 'Server errors'], $crawler->filter('.jm-card__label')->each(static fn(Crawler $label): string => $label->text()));
+        static::assertSame(['2', '4', '0', '1'], $crawler->filter('.jm-card__value')->each(static fn(Crawler $value): string => $value->text()));
+        static::assertSame('80 % of all the requests of the last hour.', $crawler->filter('.jm-card__hint')->eq(1)->text());
+        static::assertStringContainsString('jm-card--bad', (string) $crawler->filter('.jm-card')->eq(3)->attr('class'));
+
+        $table = $crawler->filter('section[aria-labelledby="jm-users-title"]');
+        static::assertSame('2 users, the most active first', $table->filter('.jm-panel__meta')->text());
+        static::assertSame('The other request came from a visitor who was not signed in.', $table->filter('.jm-panel__footnote')->text());
+        static::assertSame(['3 · 75 %', '1 · 25 %'], $table->filter('tbody .jm-bar__value')->each(static fn(Crawler $value): string => $value->text()));
+        static::assertSame(['1 × 5xx'], $table->filter('tr[data-jm-user="user"] .jm-tag--bad')->each(static fn(Crawler $tag): string => $tag->text()));
+        static::assertCount(0, $table->filter('tr[data-jm-user="admin"] .jm-tag'));
+
+        static::assertSame(
+            ['One user far above the others.', 'A user with errors or slow pages.', 'Who is counted.'],
+            $crawler->filter('.jm-guide li strong')->each(static fn(Crawler $term): string => $term->text()),
+        );
+        static::assertSame('1 critical in the last hour', $crawler->filter('.jm-subnav__item')->eq(0)->filter('.jm-nav__badge')->attr('title'));
+        static::assertCount(0, $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge'));
+
+        foreach (['slow', 'errors'] as $removed) {
+            $old = $client->request('GET', '/jmonitor/users', ['sort' => $removed, 'dir' => 'asc']);
+
+            static::assertResponseIsSuccessful($removed);
+            static::assertSame(['Requests'], $old->filter('th.is-sorted .jm-sort span:first-child')->each(static fn(Crawler $span): string => $span->text()), $removed);
+        }
     }
 
     public function testAnImpersonatedRequestCountsForTheImpersonatedUser(): void

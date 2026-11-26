@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
+use Jmonitor\JmonitorBundle\Storage\Read\Totals;
 
 final class FixedReader implements ReaderInterface
 {
@@ -21,15 +22,20 @@ final class FixedReader implements ReaderInterface
     /** @var list<array{Period, int, list<string>}> */
     public array $totalRequests = [];
 
+    /** @var list<list<string>> */
+    public array $keyedRequests = [];
+
     /**
-     * @param Report|\Closure(ReportQuery): Report $report
-     * @param array<string, string>                $labels key => label
-     * @param array<string, MetricValue>           $totals metric type => total
+     * @param Report|\Closure(ReportQuery): Report       $report
+     * @param array<string, string>                     $labels    key => label
+     * @param array<string, MetricValue>                $totals    metric type => total
+     * @param array<string, array<string, MetricValue>> $keyTotals metric type => key hash => total
      */
     public function __construct(
         private readonly Report|\Closure $report = new Report(),
         private readonly array $labels = [],
         private readonly array $totals = [],
+        private readonly array $keyTotals = [],
     ) {}
 
     public function read(ReportQuery $query): Report
@@ -46,10 +52,11 @@ final class FixedReader implements ReaderInterface
         return array_intersect_key($this->labels, array_flip($keys));
     }
 
-    public function totals(Period $period, int $now, array $metricTypes): array
+    public function totals(Period $period, int $now, array $metricTypes, array $keyed = []): Totals
     {
         $this->totalRequests[] = [$period, $now, $metricTypes];
+        $this->keyedRequests[] = $keyed;
 
-        return array_intersect_key($this->totals, array_flip($metricTypes));
+        return new Totals(array_intersect_key($this->totals, array_flip($metricTypes)), array_intersect_key($this->keyTotals, array_flip($keyed)));
     }
 }

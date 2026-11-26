@@ -6,6 +6,7 @@ namespace Jmonitor\JmonitorBundle\Tests\Fixtures\App\Controller;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception as DbalException;
+use Jmonitor\JmonitorBundle\Tests\Fixtures\App\HttpResponses;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\Message\Ping;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -14,6 +15,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Contracts\Cache\CacheInterface;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 final class DemoController
@@ -112,11 +114,36 @@ final class DemoController
         return new Response($client->request('GET', 'status')->getContent());
     }
 
+    public function callDown(): Response
+    {
+        $client = $this->httpClient ?? throw new \LogicException('This route needs the HTTP client.');
+
+        try {
+            return new Response($client->request('GET', HttpResponses::DOWN_URI)->getContent());
+        } catch (TransportExceptionInterface) {
+            return new Response('No answer');
+        }
+    }
+
     public function cached(): Response
     {
         $cache = $this->cache ?? throw new \LogicException('This route needs the application cache.');
 
         return new Response($cache->get('demo', static fn(): string => 'Computed once'));
+    }
+
+    public function cacheMisses(Request $request): Response
+    {
+        if (!$this->cache instanceof CacheItemPoolInterface) {
+            throw new \LogicException('This route needs the application cache.');
+        }
+
+        $count = $request->query->getInt('count', 1);
+        for ($i = 0; $i < $count; ++$i) {
+            $this->cache->getItem('missing-' . $i);
+        }
+
+        return new Response('Missed');
     }
 
     public function stackCached(): Response
