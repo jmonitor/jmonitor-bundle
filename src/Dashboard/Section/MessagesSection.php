@@ -70,6 +70,11 @@ final class MessagesSection implements SectionInterface, BlockSourceInterface
         return $this->messenger && ($this->recorded || $this->queues !== null);
     }
 
+    public function recordsMessages(): bool
+    {
+        return $this->messenger && $this->recorded;
+    }
+
     public function sorts(): array
     {
         return [

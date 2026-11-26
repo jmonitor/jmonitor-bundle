@@ -12,6 +12,7 @@ use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\RecordedScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StackGlanceInterface;
@@ -195,12 +196,10 @@ final class OverviewScreen implements RecordedScreenInterface
             }
         }
         $servers = $stack !== null && $stack->cards !== [];
-        if ($servers) {
-            $checked[] = self::healthy($stack->cards);
-        }
+        $healthy = $servers ? self::healthy($stack->cards) : null;
 
         $lines = self::ordered($this->checks->lines($read->findings, $this->id(), $period), $stack->lines ?? []);
-        $requests = $read->count(Metric::REQUEST_DURATION);
+        $requests = $read->requestCount();
         $empty = $read->isEmpty();
 
         return new ScreenView(
@@ -210,9 +209,9 @@ final class OverviewScreen implements RecordedScreenInterface
             $empty && $lines === [] && !$servers ? null : new CheckList(
                 $lines,
                 'Nothing to flag',
-                $checked === [] || $lines !== [] ? '' : ucfirst(implode(', ', $checked)) . ' in the ' . $periodText . '.',
+                $lines !== [] ? '' : self::checkedNow($checked, $healthy, $periodText),
                 'Worth a look',
-                $checked === [] || $lines === [] ? '' : 'Checked and fine: ' . implode(', ', $checked) . '.',
+                $lines === [] || ($checked === [] && $healthy === null) ? '' : 'Checked and fine: ' . implode(', ', [...$checked, ...($healthy === null ? [] : [$healthy])]) . '.',
             ),
             $empty ? null : self::guide($stack !== null),
             $read->raised,
@@ -256,6 +255,25 @@ final class OverviewScreen implements RecordedScreenInterface
         return $lines;
     }
 
+    /**
+     * @param list<string> $checked what the application passed in the period
+     * @param ?string      $healthy the healthy components, read now
+     */
+    private static function checkedNow(array $checked, ?string $healthy, string $periodText): string
+    {
+        $sentences = [];
+
+        if ($checked !== []) {
+            $sentences[] = ucfirst(implode(', ', $checked)) . ' in the ' . $periodText . '.';
+        }
+
+        if ($healthy !== null) {
+            $sentences[] = ucfirst($healthy) . ' right now.';
+        }
+
+        return implode(' ', $sentences);
+    }
+
     /** @param non-empty-list<ComponentCard> $cards */
     private static function healthy(array $cards): string
     {
@@ -268,7 +286,7 @@ final class OverviewScreen implements RecordedScreenInterface
     private static function lead(OverviewRead $read, int $lines, Period $period, string $periodText): Lead
     {
         $errors = $read->count(self::SERVER_ERRORS);
-        $requests = max($read->count(Metric::REQUEST_DURATION), $errors);
+        $requests = max($read->requestCount(), $errors);
 
         if ($errors > 0) {
             $first = sprintf('%s in %s.', self::plural($errors, 'server error', 'server errors'), self::plural($requests, 'request', 'requests'));
@@ -342,7 +360,7 @@ final class OverviewScreen implements RecordedScreenInterface
             ]), $shown),
             $remaining,
             'route',
-            note: $remaining > 0 ? 'the ' . self::ROUTES . ' routes that cost the most in total' : 'the most expensive first',
+            note: 'the most expensive first',
             partsLegend: true,
         )];
     }
@@ -369,7 +387,11 @@ final class OverviewScreen implements RecordedScreenInterface
 
         if (($totals[Metric::REQUEST_SQL_TIME]->count ?? 0) > 0) {
             $queries = round(($totals[Metric::REQUEST_SQL_COUNT]->sum ?? 0.0) / $requests, 1);
-            $text = $queries === 1.0 ? '1 SQL query per request.' : Format::number($queries, $queries < 10 ? 1 : 0) . ' SQL queries per request.';
+            $text = match (true) {
+                $queries <= 0.0 => '',
+                $queries === 1.0 => '1 SQL query per request.',
+                default => Format::number($queries, $queries < 10 ? 1 : 0) . ' SQL queries per request.',
+            };
         }
 
         return new MapBox('An average request', Format::duration(($totals[Metric::REQUEST_DURATION]->sum ?? 0.0) / $requests), $text);
@@ -378,7 +400,7 @@ final class OverviewScreen implements RecordedScreenInterface
     /** @return Box */
     private function requestsBox(OverviewRead $read, string $periodText): array
     {
-        $requests = $read->count(Metric::REQUEST_DURATION);
+        $requests = $read->requestCount();
         $errors = $read->count(self::SERVER_ERRORS);
         $slow = $read->count(Metric::REQUEST_SLOW);
         $tags = [
@@ -403,7 +425,9 @@ final class OverviewScreen implements RecordedScreenInterface
     /** @return ?Box */
     private function messagesBox(OverviewRead $read, string $periodText): ?array
     {
-        if (!$this->hasSection('messages')) {
+        $messages = $this->sections['messages'] ?? null;
+
+        if (!$messages instanceof MessagesSection || !$messages->recordsMessages()) {
             return null;
         }
 
@@ -436,7 +460,7 @@ final class OverviewScreen implements RecordedScreenInterface
             self::box(
                 'Scheduled tasks',
                 $runs,
-                sprintf('%s of %s declared %s.', $runs === 1 ? 'Run' : 'Runs', Format::number($declared), $tasks),
+                $declared === 0 ? 'Scheduled runs.' : sprintf('%s of %s declared %s.', $runs === 1 ? 'Run' : 'Runs', Format::number($declared), $tasks),
                 $declared === 0 ? 'No scheduled run in the ' . $periodText . '.' : sprintf('%s %s declared, none ran in the %s.', Format::number($declared), $tasks, $periodText),
                 self::failed($read->count(Metric::TASK_FAILED)),
                 'background',

@@ -19,6 +19,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Check\RequestCulprit;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\BlockSourceInterface;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewRead;
@@ -31,6 +32,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Section\CommandsSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\HttpSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StackGlanceInterface;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
@@ -233,6 +235,30 @@ final class OverviewScreenTest extends TestCase
         static::assertSame([], $view->lead->series);
     }
 
+    public function testServerErrorsAndSlowRequestsAreReadInTheTotalsOnly(): void
+    {
+        $reader = $this->reader([self::route('GET app_a', 9, errors: 2, slow: 2)]);
+
+        $view = $this->view($reader);
+
+        static::assertSame('Your application answers normally. Nothing is worth a look.', $view->lead?->sentence);
+        static::assertEquals(new MapBox('Requests', '9', 'No server error, no slow request.', [], 'requests', null, null, array_fill(0, 60, 0)), self::box($view, 'Requests'));
+        static::assertSame([], self::lines($view));
+        static::assertSame('No server error, no slow request in the last hour.', $view->checks?->emptyText);
+    }
+
+    public function testTheLinesOfRequestsLeadToRequests(): void
+    {
+        $reader = $this->reader([self::route('GET app_a', 3, 3000.0, max: 2000.0, errors: 1, slow: 1)], [self::SERVER_ERRORS => self::counted(1), Metric::REQUEST_SLOW => self::counted(1)]);
+
+        $lines = self::lines($this->view($reader, Period::SixHours));
+
+        static::assertSame(
+            [['requests.server_errors', 'Requests', 'requests', ['period' => '6h']], ['requests.slow', 'Requests', 'requests', ['period' => '6h']]],
+            array_map(static fn(CheckLine $line): array => [$line->id, $line->where, $line->path, $line->query], $lines),
+        );
+    }
+
     public function testTheLeadNamesThePeriod(): void
     {
         $view = $this->view($this->reader([], [Metric::EXCEPTION_COUNT => self::counted(1)]), Period::SevenDays);
@@ -307,7 +333,41 @@ final class OverviewScreenTest extends TestCase
 
         $checks = $this->view($this->reader([self::route('GET app_a')]), stack: new StackGlance([self::card('php', 'warn')]))->checks;
 
-        static::assertSame('No server error, no slow request, 0 of 1 stack component healthy in the last hour.', $checks?->emptyText);
+        static::assertSame('No server error, no slow request in the last hour. 0 of 1 stack component healthy right now.', $checks?->emptyText);
+    }
+
+    public function testOnlyAHealthyCardCountsAsHealthy(): void
+    {
+        $stack = new StackGlance([self::card('php', 'ok'), self::card('mysql', 'bad'), self::card('redis', 'unknown'), self::card('symfony', 'info'), self::card('server', 'warn')]);
+
+        $checks = $this->view($this->reader([self::route('GET app_a')], [self::SERVER_ERRORS => self::counted(1)]), stack: $stack)->checks;
+
+        static::assertSame('Checked and fine: no slow request, 1 of 5 stack components healthy.', $checks?->footnote);
+    }
+
+    public function testWithNothingOfTheApplicationToCiteTheStackSentenceStandsAlone(): void
+    {
+        $checks = $this->view($this->reader([], [Metric::EXCEPTION_COUNT => self::counted(3)]), stack: new StackGlance([self::card('php', 'ok'), self::card('symfony', 'ok')]))->checks;
+
+        static::assertSame([], $checks->lines ?? null);
+        static::assertSame('2 of 2 stack components healthy right now.', $checks?->emptyText);
+        static::assertSame('', $checks?->footnote);
+    }
+
+    public function testTheMessagesBoxNeedsTheMessagesRecorded(): void
+    {
+        $checks = self::checks();
+        $queues = new class implements BlockSourceInterface {
+            public function blocks(ScreenRequest $request): array
+            {
+                return [];
+            }
+        };
+        $unrecorded = new MessagesSection(true, false, $queues, $checks);
+        $screen = new OverviewScreen($checks, new DeclaredTasks(), [$unrecorded], [], null);
+
+        static::assertTrue($unrecorded->isAvailable());
+        static::assertNull(self::box($this->view($this->reader([self::route('GET app_a')], [Metric::MESSAGE_DURATION => self::counted(2)]), screen: $screen, withStack: false), 'Messages'));
     }
 
     public function testNothingCheckedLeavesNeitherFootnoteNorText(): void
@@ -344,6 +404,8 @@ final class OverviewScreenTest extends TestCase
 
         yield 'one run of one task' => ['Scheduled tasks', [], [Metric::TASK_DURATION => self::counted(1)], 1, new MapBox('Scheduled tasks', '1', 'Run of 1 declared task.', [], 'background', 'tasks')];
         yield 'runs of tasks' => ['Scheduled tasks', [], [Metric::TASK_DURATION => self::counted(12), Metric::TASK_FAILED => self::counted(2)], 3, new MapBox('Scheduled tasks', '12', 'Runs of 3 declared tasks.', [new Tag('2 failed', 'bad')], 'background', 'tasks', 'bad')];
+        yield 'runs without a declared task' => ['Scheduled tasks', [], [Metric::TASK_DURATION => self::counted(3)], 0, new MapBox('Scheduled tasks', '3', 'Scheduled runs.', [], 'background', 'tasks')];
+        yield 'one run without a declared task' => ['Scheduled tasks', [], [Metric::TASK_DURATION => self::counted(1), Metric::TASK_FAILED => self::counted(1)], 0, new MapBox('Scheduled tasks', '1', 'Scheduled runs.', [new Tag('1 failed', 'bad')], 'background', 'tasks', 'bad')];
         yield 'one task, no run' => ['Scheduled tasks', [], [], 1, new MapBox('Scheduled tasks', null, '1 task declared, none ran in the last hour.', [], 'background', 'tasks')];
         yield 'tasks, no run' => ['Scheduled tasks', [], [], 2, new MapBox('Scheduled tasks', null, '2 tasks declared, none ran in the last hour.', [], 'background', 'tasks')];
         yield 'no task' => ['Scheduled tasks', [], [], 0, new MapBox('Scheduled tasks', null, 'No scheduled run in the last hour.', [], 'background', 'tasks')];
@@ -487,6 +549,7 @@ final class OverviewScreenTest extends TestCase
     public static function averages(): iterable
     {
         yield 'one query per request' => [self::route('GET app_a', 2, 20.0, sqlRequests: 2, sqlTime: 4.0, sqlCount: 2.0), '1 SQL query per request.', ['php' => 8.0, 'sql' => 2.0, 'http' => 0.0]];
+        yield 'fewer queries than one in twenty requests' => [self::route('GET app_a', 40, 800.0, sqlRequests: 1, sqlTime: 20.0, sqlCount: 1.0), '', ['php' => 19.5, 'sql' => 0.5, 'http' => 0.0]];
         yield 'PHP only' => [self::route('GET app_a', 2, 20.0), '', ['php' => 10.0, 'sql' => 0.0, 'http' => 0.0]];
         yield 'HTTP only' => [self::route('GET app_a', 2, 20.0, httpRequests: 1, httpTime: 8.0), '', ['php' => 6.0, 'sql' => 0.0, 'http' => 4.0]];
         yield 'SQL and HTTP longer than the average' => [self::route('GET app_a', 1, 10.0, sqlRequests: 1, sqlTime: 8.0, sqlCount: 12.0, httpRequests: 1, httpTime: 6.0), '12 SQL queries per request.', ['php' => 0.0, 'sql' => 8.0, 'http' => 6.0]];
@@ -535,7 +598,7 @@ final class OverviewScreenTest extends TestCase
         static::assertCount(1, $view->tables);
         $table = $view->tables[0];
         static::assertSame('Where the time goes', $table->title);
-        static::assertSame('the 5 routes that cost the most in total', $table->note);
+        static::assertSame('the most expensive first', $table->note);
         static::assertSame([['route', 'Route', false, null], ['requests', 'Requests', true, null], ['total', 'Total time', true, null], ['split', 'Where the average goes', false, null]], array_map(static fn($column): array => [$column->id, $column->label, $column->numeric, $column->sort], $table->columns));
         static::assertTrue($table->partsLegend);
         static::assertSame(2, $table->remaining);
@@ -666,7 +729,7 @@ final class OverviewScreenTest extends TestCase
         static::assertNull($view->guide);
         static::assertEquals(self::places(), $view->places);
         static::assertSame([], self::lines($view));
-        static::assertSame('1 of 1 stack component healthy in the last hour.', $view->checks?->emptyText);
+        static::assertSame('1 of 1 stack component healthy right now.', $view->checks?->emptyText);
         static::assertNotNull($view->raised);
     }
 

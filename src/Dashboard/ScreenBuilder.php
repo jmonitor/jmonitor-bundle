@@ -155,7 +155,12 @@ final class ScreenBuilder
             $stack = null;
         }
 
-        $blocks = self::figures($screen->view($cause === null ? $read : null, $stack, $period));
+        try {
+            $blocks = self::figures($screen->view($cause === null ? $read : null, $stack, $period));
+        } catch (\Throwable $e) {
+            $this->logger?->error(sprintf('JMonitor could not display the "%s" screen: %s', $screen->id(), $e->getMessage()), ['exception' => $e]);
+            $blocks = [Block::unavailable(Block::TABLE, BlockState::Error)];
+        }
 
         if ($cause !== null) {
             $blocks = [Block::unavailable(Block::TABLE, $cause), ...$blocks];

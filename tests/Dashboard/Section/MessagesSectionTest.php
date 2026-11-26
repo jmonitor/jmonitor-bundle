@@ -86,6 +86,22 @@ final class MessagesSectionTest extends TestCase
         static::assertSame($available, (new MessagesSection($messenger, $recorded, $counted ? self::queues() : null, self::checks()))->isAvailable());
     }
 
+    /**
+     * @return iterable<string, array{bool, bool, bool, bool}>
+     */
+    public static function recording(): iterable
+    {
+        foreach (self::presence() as $name => [$messenger, $recorded, $counted]) {
+            yield $name => [$messenger, $recorded, $counted, $messenger && $recorded];
+        }
+    }
+
+    #[DataProvider('recording')]
+    public function testItSaysWhetherTheMessagesAreRecorded(bool $messenger, bool $recorded, bool $counted, bool $recording): void
+    {
+        static::assertSame($recording, (new MessagesSection($messenger, $recorded, $counted ? self::queues() : null, self::checks()))->recordsMessages());
+    }
+
     public function testWithoutRecordingItReadsNoStorageAndSaysSo(): void
     {
         $reader = new FixedReader();

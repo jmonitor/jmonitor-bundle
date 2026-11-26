@@ -9,6 +9,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Buffer\BufferDirectory;
 use Jmonitor\JmonitorBundle\Dashboard\BlockScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
+use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\Page;
@@ -1219,6 +1220,68 @@ final class ScreenBuilderTest extends TestCase
             [new MapBox('Requests', null, 'No request in the last hour. Open a page of your application, then come back.', path: 'requests'), new MapBox('Messages', '3', 'Handled by Messenger, 3 sent.', path: 'background', anchor: 'messages')],
             $map->incoming,
         );
+    }
+
+    public function testAnErrorOfTheStackKeepsTheApplicationOfTheOverview(): void
+    {
+        $report = new Report([self::requestRow()], null, 1, array_fill(0, 60, 0), self::requestRow()->metrics);
+        $logger = $this->logger();
+        $glance = new FixedGlance(static fn(): StackGlance => throw new \Error('Call to a member function on null'));
+
+        $page = (new ScreenBuilder(new FixedReader($report), true, new MockClock('@1800000000'), logger: $logger))->create(self::overview($glance), null, null, null);
+
+        static::assertSame([Block::LEAD, Block::CHECKS, Block::MAP, Block::TABLE, Block::GUIDE], self::types($page->blocks));
+        static::assertSame(['error JMonitor could not read the stack: Call to a member function on null'], $logger->messages);
+    }
+
+    public function testAViewThatThrowsLeavesTheErrorStateOfTheOverview(): void
+    {
+        $logger = $this->logger();
+        $broken = new class implements SectionInterface {
+            public function id(): string
+            {
+                return 'commands';
+            }
+
+            public function title(): string
+            {
+                return 'Commands';
+            }
+
+            public function summary(): string
+            {
+                return '';
+            }
+
+            public function isAvailable(): bool
+            {
+                throw new \LogicException('Broken section');
+            }
+
+            public function sorts(): array
+            {
+                return ['runs' => 'desc'];
+            }
+
+            public function emptyState(Period $period): array
+            {
+                return ['title' => '', 'text' => ''];
+            }
+
+            public function build(ReaderInterface $reader, Period $period, int $now, string $sort, string $direction, RaisedChecks $raised): ScreenView
+            {
+                return new ScreenView();
+            }
+        };
+        $screen = new OverviewScreen(new ApplicationChecks([new ServerErrorsCheck()]), new DeclaredTasks(), [$broken], [], new FixedGlance());
+        $reader = new FixedReader(new Report([self::requestRow()], null, 1, [], self::requestRow()->metrics), totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+
+        $page = (new ScreenBuilder($reader, true, new MockClock('@1800000000'), logger: $logger))->create($screen, null, null, null);
+
+        static::assertSame(['table error'], self::shape($page));
+        static::assertSame(['error JMonitor could not display the "overview" screen: Broken section'], $logger->messages);
+        static::assertNotNull($page->raised);
+        static::assertTrue($page->raised->has('requests.server_errors'));
     }
 
     public function testTheOverviewHandsItsRaisedChecksToThePage(): void

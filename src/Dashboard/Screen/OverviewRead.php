@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
 
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Dashboard\Check\Finding;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
@@ -53,9 +54,15 @@ final class OverviewRead
         return $this->total($metric)->count;
     }
 
-    /** the total of a type read by either read, zero when it counted nothing */
+    /** the total of a type in the read that raised the checks, zero when it counted nothing */
     public function total(string $metric): MetricValue
     {
-        return $this->raised->total($metric) ?? $this->requests->totals[$metric] ?? new MetricValue(0, 0.0, 0.0);
+        return $this->raised->total($metric) ?? new MetricValue(0, 0.0, 0.0);
+    }
+
+    /** the requests of the Request family read for the routes */
+    public function requestCount(): int
+    {
+        return $this->requests->totals[Metric::REQUEST_DURATION]->count ?? 0;
     }
 }
