@@ -7,6 +7,8 @@ namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
+use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
+use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Check\Finding;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
@@ -14,6 +16,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
+use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\UsersScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
@@ -32,7 +35,9 @@ use Jmonitor\JmonitorBundle\Tests\Storage\Dbal\StatementRecorder;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\KernelInterface;
+use Twig\Environment;
 
 final class ReadCostTest extends KernelTestCase
 {
@@ -489,6 +494,43 @@ final class ReadCostTest extends KernelTestCase
         static::assertStringStartsWith('GET app_boom ', $read->findings[0]->sentence);
         static::assertStringStartsWith('GET app_slow ', $read->findings[5]->sentence);
         static::assertCount(self::OVERVIEW_BUDGET_WITH_TEN_CHECKS, $recorder->statements, implode("\n", array_column($recorder->statements, 'sql')));
+    }
+
+    public function testAStackScreenReadsNoStatement(): void
+    {
+        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
+        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate(self::units()), self::NOW, self::LABELS);
+        $twig = static::getContainer()->get('twig');
+        \assert($twig instanceof Environment);
+        $renderer = new PageRenderer(
+            static::getContainer()->get(ScreenRegistry::class),
+            new ScreenBuilder(new DbalReader($connection), true, new MockClock('@' . self::NOW), checks: self::checks()),
+            null,
+            $twig,
+            new Assets(),
+            new ActionGuard(),
+            null,
+        );
+        $urls = new FakeHostUrls();
+
+        $requests = $renderer->page(Request::create('/'), 'requests', $urls)->html;
+
+        static::assertNotSame([], $recorder->statements);
+        static::assertStringContainsString('data-jm-slot="nav-application"><span class="jm-nav__badge', $requests);
+
+        $displays = [
+            'stack' => static fn(): string => $renderer->page(Request::create('/'), 'stack', $urls)->html,
+            'the fragment of stack' => static fn(): string => (string) $renderer->fragment(Request::create('/'), 'stack', $urls)->getContent(),
+            'stack/php' => static fn(): string => $renderer->page(Request::create('/'), 'stack/php', $urls)->html,
+        ];
+        foreach ($displays as $display => $render) {
+            $recorder->statements = [];
+
+            $html = $render();
+
+            static::assertStringContainsString('data-jm-component="php"', $html, $display);
+            static::assertSame([], array_column($recorder->statements, 'sql'), $display);
+        }
     }
 
     private static function overview(): OverviewScreen

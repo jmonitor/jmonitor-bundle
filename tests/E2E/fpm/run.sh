@@ -24,6 +24,19 @@ fail() {
     exit 1
 }
 
+expect_page() {
+    found=0
+    for _ in $(seq 1 30); do
+        page="$(curl -sf ${4:+-u "$4"} "$BASE$1")" || fail "GET $1 did not return 2xx"
+        if printf '%s\n' "$page" | grep -q "$2"; then
+            found=1
+            break
+        fi
+        sleep 1
+    done
+    [ "$found" = 1 ] || fail "$3 within 30 s"
+}
+
 $COMPOSE up --detach --quiet-pull
 
 ready=0
@@ -42,19 +55,37 @@ done
 
 listed=0
 for _ in $(seq 1 30); do
-    page="$(curl -sf "$BASE/jmonitor/")" || fail "GET /jmonitor/ did not return 2xx"
+    page="$(curl -sf "$BASE/jmonitor/requests")" || fail "GET /jmonitor/requests did not return 2xx"
     if printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"'; then
         listed=1
         break
     fi
     sleep 1
 done
-[ "$listed" = 1 ] || fail 'the page did not list 30 requests for "GET app_hello" within 30 s'
+[ "$listed" = 1 ] || fail 'the Requests screen did not list 30 requests for "GET app_hello" within 30 s'
 
 css_path="$(printf '%s\n' "$page" | sed -n 's|.*href="\(/bundles/jmonitor/jmonitor\.css?v=[0-9a-f]*\)".*|\1|p' | head -n 1)"
 [ -n "$css_path" ] || fail "the page links no /bundles/jmonitor/jmonitor.css?v=..."
 css="$(curl -s -o /dev/null -w '%{http_code}' "$BASE$css_path")"
 [ "$css" = 200 ] || fail "$css_path answered $css"
+
+runs_of() {
+    printf '%s\n' "$1" | grep -o 'class="jm-runs__name">[^<]*<' | sed 's/.*>\(.*\)</\1/' | sort | tr '\n' ' '
+}
+
+overview_lead='class="jm-heading__title jm-lead__title">Your application answers normally\. \(Nothing is\|1 thing is\|[0-9]* things are\) worth a look\.<'
+expect_page /jmonitor/ '<span class="jm-box__label">Requests</span> <span class="jm-box__value">30</span>' 'the Overview did not count 30 requests in its Requests box'
+printf '%s\n' "$page" | grep -q "$overview_lead" || fail "the Overview does not open on its lead sentence"
+printf '%s\n' "$page" | grep -q 'class="jm-nav__item" href="/jmonitor/?period=1h" aria-current="page">Overview</a>' || fail "the navigation of the Overview has no current Overview entry"
+[ "$(runs_of "$page")" = 'PHP Server Symfony ' ] || fail "the \"Runs on\" lines of the Overview are: $(runs_of "$page")"
+printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Overview does not list 30 requests for "GET app_hello" where the time goes'
+page="$(curl -sf "$BASE/jmonitor/overview")" || fail "GET /jmonitor/overview did not return 2xx"
+printf '%s\n' "$page" | grep -q "$overview_lead" || fail "/jmonitor/overview does not answer the Overview"
+admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor")" || fail "GET /admin/jmonitor failed"
+status="$(printf '%s\n' "$admin" | tail -n 1)"
+[ "$status" = 200 ] || fail "GET /admin/jmonitor answered $status instead of 200"
+printf '%s\n' "$admin" | grep -q "$overview_lead" || fail "/admin/jmonitor does not open on the lead sentence of the Overview"
+printf '%s\n' "$admin" | grep -q '<span class="jm-box__label">Requests</span> <span class="jm-box__value">30</span>' || fail "the Overview inside EasyAdmin does not count 30 requests in its Requests box"
 
 for _ in 1 2 3; do
     curl -sf -o /dev/null "$BASE/n-plus-one" || fail "GET /n-plus-one did not return 2xx"
@@ -70,19 +101,6 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 [ "$repeated" = 1 ] || fail 'the Queries screen did not list the N+1 of "GET app_n_plus_one" within 30 s'
-
-expect_page() {
-    found=0
-    for _ in $(seq 1 30); do
-        page="$(curl -sf ${4:+-u "$4"} "$BASE$1")" || fail "GET $1 did not return 2xx"
-        if printf '%s\n' "$page" | grep -q "$2"; then
-            found=1
-            break
-        fi
-        sleep 1
-    done
-    [ "$found" = 1 ] || fail "$3 within 30 s"
-}
 
 expect_page /jmonitor/queries 'class="jm-heading__title jm-lead__title">39 SQL queries in the last hour, ' 'the Queries screen did not sum up 39 SQL queries in its lead'
 printf '%s\n' "$page" | grep -q 'aria-label="Worth a look"' || fail 'the Queries screen has no "Worth a look" block with a repeated query'
@@ -101,6 +119,7 @@ expect_page /jmonitor/requests 'class="jm-heading__title jm-lead__title">38 requ
 printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "the Requests screen does not flag the server errors"
 printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "the Requests screen does not name GET app_boom as the route that answered 2 server errors"
 printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Requests screen does not flag the query that GET app_n_plus_one repeats"
+printf '%s\n' "$page" | grep -q 'data-jm-slot="nav-application"><span class="jm-nav__badge jm-nav__badge--bad"' || fail "the Application entry of the Requests screen carries no critical badge with the server errors"
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/requests")" || fail "GET /admin/jmonitor/requests failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/requests answered $status instead of 200"
@@ -174,6 +193,11 @@ for _ in $(seq 1 30); do
 done
 [ "$complete" = 1 ] || fail 'the Stack screen did not show the system, php and symfony cards without data-jm-reading within 30 s'
 printf '%s\n' "$page" | grep -q 'class="jm-components__absent-item">Web server: FrankenPHP, Apache and Nginx were not found serving this page<' || fail 'the "Not detected" line of the Stack screen does not say that no web server was found'
+printf '%s\n' "$page" | grep -q 'aria-label="Worth a look"' || fail 'the Stack screen has no "Worth a look" block'
+printf '%s\n' "$page" | grep -q '<button type="submit" class="jm-button">Read again now</button>' || fail 'the Stack screen has no "Read again now" button'
+for space in application background; do
+    printf '%s\n' "$page" | grep -q "data-jm-slot=\"nav-$space\"></span>" || fail "the $space entry of the Stack screen is not an empty slot, while the Requests screen badges the server errors"
+done
 
 first="$(php_read_at)"
 sleep 1
@@ -268,4 +292,4 @@ if printf '%s\n' "$commands" | grep -q 'jmonitor:stack:queues'; then
     fail "the Background screen lists jmonitor:stack:queues"
 fi
 
-echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; the Requests, Queries, Cache & HTTP, Exceptions and Background screens sum up the period, flag the server errors, also on Exceptions, and the repeated query, and have nothing else to flag, also inside EasyAdmin; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"
+echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; the Overview opens /jmonitor, also inside EasyAdmin, with its sentence, its count of requests and the components it runs on; the Requests, Queries, Cache & HTTP, Exceptions and Background screens sum up the period, flag the server errors, also on Exceptions, and the repeated query, and have nothing else to flag, also inside EasyAdmin; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, worth a look, without the badges of the application, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"
