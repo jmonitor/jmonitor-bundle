@@ -1,0 +1,10 @@
+{% autoescape 'html' %}
+{% set status_view = block.content %}
+{% set heading = page_title ? 'h1' : 'h2' %}
+<div class="jm-status">
+    <{{ heading }} class="jm-heading__title">{{ status_view.title }}</{{ heading }}>
+{% if status_view.mark is not null %}
+    <span class="jm-status__pill jm-status__pill--{{ status_view.mark.tone }}"><span class="jm-status__dot" aria-hidden="true"></span>{{ status_view.mark.label }}</span>
+{% endif %}
+</div>
+{% endautoescape %}

@@ -53,6 +53,11 @@ final class RepeatedQueriesCheck implements CheckInterface
         return new ReportQuery($period, $now, Family::NPlusOne, Metric::NPLUS1_DURATION, 'sum', true, 100);
     }
 
+    public function headline(array $totals): string
+    {
+        return 'Repeated queries (N+1)';
+    }
+
     public function finding(Report $report, array $totals, Period $period): Finding
     {
         $count = self::count($report);
@@ -85,7 +90,7 @@ final class RepeatedQueriesCheck implements CheckInterface
             $this->id(),
             $this->severity(),
             match ($count) {
-                0 => 'Repeated queries (N+1)',
+                0 => $this->headline($totals),
                 1 => 'Repeated query (N+1)',
                 default => Format::number($count) . ' repeated queries (N+1)',
             },

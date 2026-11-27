@@ -49,9 +49,15 @@ final class ServerErrorsCheck implements CheckInterface
         return RequestCulprit::query($period, $now);
     }
 
-    public function finding(Report $report, array $totals, Period $period): Finding
+    public function headline(array $totals): string
     {
         $count = $totals[self::METRIC]->count ?? 0;
+
+        return $count === 1 ? '1 server error' : Format::number($count) . ' server errors';
+    }
+
+    public function finding(Report $report, array $totals, Period $period): Finding
+    {
         $culprit = Culprit::mostCounted($report, self::METRIC);
 
         if ($culprit === null) {
@@ -67,7 +73,7 @@ final class ServerErrorsCheck implements CheckInterface
         return new Finding(
             $this->id(),
             $this->severity(),
-            $count === 1 ? '1 server error' : Format::number($count) . ' server errors',
+            $this->headline($totals),
             $sentence,
             'A 5xx status means your code or a server failed: the visitor got an error instead of an answer.',
             'Open Exceptions to see what was thrown, then look for it in your logs.',

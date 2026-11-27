@@ -18,6 +18,8 @@ use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Section\TasksSection;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alerts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -47,6 +49,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
+use Jmonitor\JmonitorBundle\Dashboard\View\Status;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
@@ -1438,6 +1441,132 @@ final class TemplatesTest extends TestCase
             static::assertStringNotContainsString('<b>', $html);
             static::assertStringNotContainsString('&"x', $html);
             static::assertDoesNotMatchRegularExpression('/\sstyle=/', $html);
+        }
+    }
+
+    public function testAStatusThatOpensThePageIsItsOnlyTitle(): void
+    {
+        $crawler = new Crawler($this->mapScreen(['overview'], Block::status(new Status('Overview', new Mark('ok', 'Answers normally'))), Block::unavailable(Block::TABLE, BlockState::NoConnection)));
+
+        static::assertSame(['Overview'], $crawler->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()));
+        static::assertCount(0, $crawler->filter('.jm-heading'));
+        static::assertSame('Overview', $crawler->filter('.jm-screen > .jm-status > h1.jm-heading__title')->text());
+        static::assertSame('Answers normally', $crawler->filter('.jm-status__pill.jm-status__pill--ok')->text());
+        static::assertSame('true', $crawler->filter('.jm-status__pill > .jm-status__dot')->attr('aria-hidden'));
+        static::assertSame('', $crawler->filter('.jm-status__dot')->text());
+    }
+
+    public function testAStatusWithoutMarkShowsItsTitleAlone(): void
+    {
+        $crawler = new Crawler($this->mapScreen(['overview'], Block::status(new Status('Overview'))));
+
+        static::assertSame('Overview', $crawler->filter('h1')->text());
+        static::assertCount(0, $crawler->filter('.jm-status__pill'));
+    }
+
+    public function testEachToneOfTheStatusCarriesItsWord(): void
+    {
+        foreach (['ok' => 'Answers normally', 'bad' => '12 server errors', 'warn' => 'Slow', 'unknown' => 'No data yet'] as $tone => $word) {
+            $crawler = new Crawler($this->mapScreen(['overview'], Block::status(new Status('Overview', new Mark($tone, $word)))));
+
+            static::assertSame($word, $crawler->filter('.jm-status__pill--' . $tone)->text(), $tone);
+        }
+    }
+
+    public function testAStatusThatDoesNotOpenThePageIsASecondLevelHeading(): void
+    {
+        $status = Block::status(new Status('Overview', new Mark('ok', 'Answers normally')));
+        $crawler = new Crawler($this->mapScreen(['overview'], Block::notice(new Notice('info', 'Note')), $status));
+
+        static::assertSame(['Overview'], $crawler->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()));
+        static::assertSame('Overview', $crawler->filter('.jm-heading > h1')->text());
+        static::assertSame('Overview', $crawler->filter('.jm-status > h2.jm-heading__title')->text());
+
+        $section = new Crawler($this->composed(Block::section(new Section('commands', 'Commands', 'Runs of bin/console.', [$status]))));
+
+        static::assertSame(['Background'], $section->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()));
+        static::assertSame('Overview', $section->filter('section#jm-commands .jm-status > h2')->text());
+    }
+
+    public function testAnAlertLinksToItsScreenWhenItIsAvailable(): void
+    {
+        $alerts = Block::alerts(new Alerts([
+            new Alert('requests.server_errors', new Mark('bad', 'Critical'), '12 server errors', 'Requests', 'requests', ['period' => '6h']),
+            new Alert('stack.redis.memory', new Mark('warn', 'Warning'), 'Memory is nearly full', 'Redis', 'stack/redis', ['instance' => 'cache']),
+        ]));
+        $crawler = new Crawler($this->mapScreen(['requests', 'stack'], $alerts));
+        $cards = $crawler->filter('.jm-alerts .jm-alert');
+
+        static::assertSame('Worth a look', $crawler->filter('section.jm-alerts')->attr('aria-label'));
+        static::assertSame('Worth a look', $crawler->filter('section.jm-alerts > h2.jm-alerts__title')->text());
+        static::assertSame(['a', 'a'], $cards->each(static fn(Crawler $card): string => $card->nodeName()));
+        static::assertSame(['/host/page/requests?menu=3&period=6h', '/host/page/stack/redis?menu=3&instance=cache'], $cards->each(static fn(Crawler $card): string => (string) $card->attr('href')));
+        static::assertSame(['requests.server_errors', 'stack.redis.memory'], $cards->each(static fn(Crawler $card): string => (string) $card->attr('data-jm-check')));
+        static::assertSame(['bad', 'warn'], $cards->each(static fn(Crawler $card): string => (string) $card->attr('data-jm-severity')));
+        static::assertSame(['jm-alert jm-alert--bad', 'jm-alert jm-alert--warn'], $cards->each(static fn(Crawler $card): string => (string) $card->attr('class')));
+        static::assertSame('Critical Requests → 12 server errors', $cards->eq(0)->text());
+        static::assertSame('Critical', $cards->eq(0)->filter('.jm-alert__top > .jm-mark.jm-mark--bad')->text());
+        static::assertSame('12 server errors', $cards->eq(0)->filter('.jm-alert__title')->text());
+        static::assertSame(['true', 'true'], $crawler->filter('.jm-alert__arrow')->each(static fn(Crawler $arrow): string => (string) $arrow->attr('aria-hidden')));
+        static::assertSame([], $crawler->filter('.jm-alert *')->reduce(static fn(Crawler $node): bool => $node->nodeName() !== 'span')->each(static fn(Crawler $node): string => $node->nodeName()));
+    }
+
+    public function testAnAlertWhoseScreenIsMissingKeepsItsTextWithoutLink(): void
+    {
+        $alerts = Block::alerts(new Alerts([
+            new Alert('messages.failed', new Mark('bad', 'Critical'), '3 messages failed', 'Background', 'background', ['period' => '1h']),
+            new Alert('stack.php.opcache', new Mark('warn', 'Warning'), 'OPcache is nearly full', 'PHP'),
+        ]));
+        $crawler = new Crawler($this->mapScreen(['requests'], $alerts));
+        $cards = $crawler->filter('.jm-alerts .jm-alert');
+
+        static::assertSame(['div', 'div'], $cards->each(static fn(Crawler $card): string => $card->nodeName()));
+        static::assertCount(0, $crawler->filter('.jm-alerts a'));
+        static::assertCount(0, $crawler->filter('.jm-alert__arrow'));
+        static::assertSame('Critical Background 3 messages failed', $cards->eq(0)->text());
+        static::assertSame(['messages.failed', 'stack.php.opcache'], $cards->each(static fn(Crawler $card): string => (string) $card->attr('data-jm-check')));
+    }
+
+    public function testAnEmptyListOfAlertsRendersNothing(): void
+    {
+        $html = $this->mapScreen(['requests'], Block::alerts(new Alerts([])));
+
+        static::assertStringNotContainsString('jm-alert', $html);
+        static::assertStringNotContainsString('Worth a look', $html);
+    }
+
+    public function testTheStatusAndTheAlertsAreEscapedAndWriteNoStyleAttribute(): void
+    {
+        $h = self::HOSTILE;
+        $html = $this->mapScreen(
+            ['requests'],
+            Block::status(new Status($h, new Mark('bad', $h))),
+            Block::alerts(new Alerts([new Alert($h, new Mark('warn', $h), $h, $h, 'requests', [$h => $h]), new Alert($h, new Mark('bad', $h), $h, $h)])),
+        );
+
+        static::assertStringContainsString('&lt;b&gt;&amp;&quot;x', $html);
+        static::assertStringNotContainsString('<b>', $html);
+        static::assertStringNotContainsString('&"x', $html);
+        static::assertDoesNotMatchRegularExpression('/\sstyle=/', $html);
+    }
+
+    public function testAHostGlobalDoesNotStandInForAVariableOfTheStatusOrTheAlerts(): void
+    {
+        $blocks = [
+            Block::status(new Status('Overview', new Mark('bad', '12 server errors'))),
+            Block::alerts(new Alerts([
+                new Alert('requests.server_errors', new Mark('bad', 'Critical'), '12 server errors', 'Requests', 'requests', ['period' => '1h']),
+                new Alert('cache.low_hit_rate', new Mark('warn', 'Warning'), 'Low cache hit rate', 'Cache & HTTP', 'cache-http', ['period' => '1h']),
+            ])),
+        ];
+        $page = new Page(new StubBlockScreen('overview'), $blocks, Period::OneHour, '', '', []);
+        $context = ['page' => $page, 'path' => 'overview', 'badges' => [], 'screens' => ['overview', 'requests']];
+        $expected = $this->render('_screen.html.twig', $context);
+
+        static::assertStringContainsString('/host/page/requests?menu=3&amp;period=1h', $expected);
+        static::assertStringNotContainsString('/host/page/cache-http', $expected);
+        foreach (['a string', ['overview', 'requests', 'cache-http'], new \ArrayObject(['title' => 'x', 'mark' => null, 'alerts' => [], 'path' => 'cache-http', 'query' => []]), new \stdClass(), true, false, null] as $global) {
+            static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['status', 'status_view', 'alerts', 'alert', 'alert_list', 'linked', 'heading', 'map', 'box', 'mark', 'section', 'page_title', 'screens'], $global)));
         }
     }
 

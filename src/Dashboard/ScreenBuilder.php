@@ -372,8 +372,16 @@ final class ScreenBuilder
     {
         $blocks = [];
 
+        if ($view->status !== null) {
+            $blocks[] = Block::status($view->status);
+        }
+
         if ($view->lead !== null) {
             $blocks[] = Block::lead($view->lead);
+        }
+
+        if ($view->alerts !== null) {
+            $blocks[] = Block::alerts($view->alerts);
         }
 
         if ($view->checks !== null) {
@@ -382,7 +390,7 @@ final class ScreenBuilder
 
         if ($view->map !== null) {
             $blocks[] = Block::map($view->map);
-        } elseif ($view->cards !== [] || ($view->lead === null && $view->places === null)) {
+        } elseif ($view->cards !== [] || ($view->status === null && $view->lead === null && $view->places === null)) {
             $blocks[] = Block::cards($view->cards);
         }
 

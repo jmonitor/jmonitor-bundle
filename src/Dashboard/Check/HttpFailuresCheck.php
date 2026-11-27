@@ -48,9 +48,15 @@ final class HttpFailuresCheck implements CheckInterface
         return new ReportQuery($period, $now, Family::Http, Metric::HTTP_FAILED, 'count', true, 100);
     }
 
-    public function finding(Report $report, array $totals, Period $period): Finding
+    public function headline(array $totals): string
     {
         $count = $totals[Metric::HTTP_FAILED]->count ?? 0;
+
+        return $count === 1 ? '1 call without an answer' : Format::number($count) . ' calls without an answer';
+    }
+
+    public function finding(Report $report, array $totals, Period $period): Finding
+    {
         $culprit = Culprit::mostCounted($report, Metric::HTTP_FAILED);
 
         if ($culprit === null) {
@@ -66,7 +72,7 @@ final class HttpFailuresCheck implements CheckInterface
         return new Finding(
             $this->id(),
             $this->severity(),
-            $count === 1 ? '1 call without an answer' : Format::number($count) . ' calls without an answer',
+            $this->headline($totals),
             $sentence,
             'No answer means a timeout or a network error: your code waited, then had to do without the other site.',
             'Check that the host can be reached from your server, and set a timeout on the client so that a slow host cannot hold your requests.',

@@ -22,6 +22,8 @@ final class ScreenView
         public readonly ?Brief $brief = null,
         public readonly ?Map $map = null,
         public readonly ?Places $places = null,
+        public readonly ?Status $status = null,
+        public readonly ?Alerts $alerts = null,
     ) {}
 
     public function isEmpty(): bool

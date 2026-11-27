@@ -50,9 +50,15 @@ final class SlowQueriesCheck implements CheckInterface
         return new ReportQuery($period, $now, Family::Query, Metric::QUERY_SLOW, 'count', true, 1);
     }
 
-    public function finding(Report $report, array $totals, Period $period): Finding
+    public function headline(array $totals): string
     {
         $count = $totals[Metric::QUERY_SLOW]->count ?? 0;
+
+        return $count === 1 ? '1 slow query' : Format::number($count) . ' slow queries';
+    }
+
+    public function finding(Report $report, array $totals, Period $period): Finding
+    {
         $culprit = ($report->rows[0] ?? null)?->count(Metric::QUERY_SLOW) > 0 ? $report->rows[0] : null;
 
         if ($culprit === null) {
@@ -73,7 +79,7 @@ final class SlowQueriesCheck implements CheckInterface
         return new Finding(
             $this->id(),
             $this->severity(),
-            $count === 1 ? '1 slow query' : Format::number($count) . ' slow queries',
+            $this->headline($totals),
             $sentence,
             'A query counts as slow from ' . $this->thresholdMs . ' ms (recording.sql.slow_threshold). Every request that runs it waits for it.',
             'Run it with EXPLAIN and look at the indexes of the tables in its WHERE and ORDER BY.',

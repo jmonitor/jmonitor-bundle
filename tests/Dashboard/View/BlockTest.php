@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard\View;
 
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alerts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -11,8 +13,10 @@ use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCards;
 use Jmonitor\JmonitorBundle\Dashboard\View\Facts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Gauges;
+use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
+use Jmonitor\JmonitorBundle\Dashboard\View\Status;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -113,6 +117,27 @@ final class BlockTest extends TestCase
         static::assertTrue(Block::section(new Section('messages', 'Messages', '', [Block::cards([]), Block::unavailable(Block::FACTS, BlockState::Reading)]))->reading);
         static::assertTrue(Block::section(new Section('messages', 'Messages', '', [Block::cards([])->withReading()]))->reading);
         static::assertFalse(Block::section(new Section('messages', 'Messages', '', [], empty: ['title' => 'Nothing', 'text' => '']))->reading);
+    }
+
+    public function testAStatusAndAlertsAreReadyWithTheirContentAndNameTheirTemplate(): void
+    {
+        $status = new Status('Overview', new Mark('ok', 'Answers normally'));
+        $alerts = new Alerts([new Alert('requests.server_errors', new Mark('bad', 'Critical'), '12 server errors', 'Requests', 'requests', ['period' => '1h'])]);
+
+        foreach ([[Block::STATUS, Block::status($status), $status], [Block::ALERTS, Block::alerts($alerts), $alerts]] as [$type, $block, $content]) {
+            static::assertSame([$type, BlockState::Ready, $content, false], [$block->type, $block->state, $block->content, $block->reading]);
+            static::assertFileExists(__DIR__ . '/../../../templates/dashboard/block/' . $type . '.html.twig');
+        }
+
+        static::assertSame(['status', 'alerts'], [Block::STATUS, Block::ALERTS]);
+    }
+
+    public function testAStatusMayGoWithoutMark(): void
+    {
+        $status = new Status('Overview');
+
+        static::assertSame('Overview', $status->title);
+        static::assertNull($status->mark);
     }
 
     public function testAFactListMayCarryANote(): void

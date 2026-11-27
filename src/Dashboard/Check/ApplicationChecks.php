@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Dashboard\Check;
 
 use Jmonitor\JmonitorBundle\Aggregation\Period;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
@@ -109,6 +110,42 @@ final class ApplicationChecks
     }
 
     /**
+     * @param list<string> $ids the checks wanted
+     *
+     * @return list<Alert> one per raised check, the critical ones first, then in the order of $ids
+     */
+    public function alerts(RaisedChecks $raised, array $ids, Period $period): array
+    {
+        $critical = [];
+        $others = [];
+
+        foreach (array_values(array_unique($ids)) as $id) {
+            $check = $this->checks[$id] ?? null;
+
+            if ($check === null || !$raised->has($id)) {
+                continue;
+            }
+
+            $alert = new Alert(
+                $id,
+                self::mark($check->severity()),
+                $check->headline($raised->totals($id)),
+                $check->screenLabel(),
+                $check->screen(),
+                ['period' => $period->label()],
+            );
+
+            if ($check->severity() === Severity::Critical) {
+                $critical[] = $alert;
+            } else {
+                $others[] = $alert;
+            }
+        }
+
+        return [...$critical, ...$others];
+    }
+
+    /**
      * @param list<string> $ids
      *
      * @return list<string> what the checks among $ids that are not raised say, in the order of $ids
@@ -138,7 +175,7 @@ final class ApplicationChecks
 
             return new CheckLine(
                 $finding->id,
-                new Mark($finding->severity === Severity::Critical ? 'bad' : 'warn', $finding->severity->label()),
+                self::mark($finding->severity),
                 $finding->sentence,
                 $finding->why,
                 $elsewhere ? $this->screenLabel($finding) : '',
@@ -150,6 +187,11 @@ final class ApplicationChecks
                 $finding->code,
             );
         }, $findings);
+    }
+
+    private static function mark(Severity $severity): Mark
+    {
+        return new Mark($severity === Severity::Critical ? 'bad' : 'warn', $severity->label());
     }
 
     private function screenLabel(Finding $finding): string

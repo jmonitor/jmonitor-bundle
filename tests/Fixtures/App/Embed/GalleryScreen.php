@@ -9,6 +9,8 @@ use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadgeScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alerts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Card;
@@ -37,6 +39,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Places;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
+use Jmonitor\JmonitorBundle\Dashboard\View\Status;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
@@ -45,8 +48,8 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Symfony\Contracts\Service\ResetInterface;
 
 /**
- * Every block of the live stack in every state, the blocks that guide the reading of a screen, cards that lead to the
- * sections below, a section in each of its states, then the map of an application and what to find where. Each request
+ * Every block of the live stack in every state, the blocks that guide the reading of a screen, a status in each tone and
+ * cards of checks worth a look, cards that lead to the sections below, a section in each of its states, then the map of an application and what to find where. Each request
  * moves a counter kept in a file: the badge shows it, and its tone and the web server named by the second navigation
  * alternate with its parity.
  */
@@ -156,6 +159,32 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 new Fact('async', '1,234'),
                 new Fact('failed', 'Uncountable', hint: 'An exception occurred in the driver: SQLSTATE[HY000] [2002] Connection refused while counting the messages waiting in doctrine://default?queue_name=failed'),
             ], "Messages waiting in each transport, counted 12\u{00A0}s ago")),
+            Block::status(new Status('Overview', new Mark('ok', 'Answers normally'))),
+            Block::status(new Status('Overview', new Mark('bad', '12 server errors'))),
+            Block::status(new Status('Overview', new Mark('warn', '1 slow request'))),
+            Block::status(new Status('Overview', new Mark('unknown', 'No data yet'))),
+            Block::status(new Status('Overview')),
+            Block::alerts(new Alerts([
+                new Alert('requests.slow', $warning, '1 slow request', 'Requests', 'gallery', ['period' => '1h']),
+            ])),
+            Block::alerts(new Alerts([
+                new Alert('requests.server_errors', $critical, '12 server errors', 'Requests', 'gallery', ['period' => '1h']),
+                new Alert('messages.failed', $critical, '3 messages failed', 'Background', 'missing', ['period' => '1h']),
+                new Alert('stack.redis.memory', $critical, self::LONG, 'Redis', 'gallery', ['instance' => 'cache']),
+                new Alert('queries.repeated', $warning, 'Repeated queries (N+1)', 'Queries', 'gallery', ['period' => '1h']),
+            ])),
+            Block::alerts(new Alerts([
+                new Alert('requests.server_errors', $critical, '1,234 server errors', 'Requests', 'gallery', ['period' => '1h']),
+                new Alert('messages.failed', $critical, '1 message failed', 'Background', 'gallery', ['period' => '1h']),
+                new Alert('tasks.failed', $critical, '2 scheduled runs failed', 'Background', 'gallery', ['period' => '1h']),
+                new Alert('commands.failed', $critical, '1 command run failed', 'Background', 'gallery', ['period' => '1h']),
+                new Alert('http.failures', $critical, '4 calls without an answer', 'Cache & HTTP', 'gallery', ['period' => '1h']),
+                new Alert('requests.slow', $warning, '38 slow requests', 'Requests', 'gallery', ['period' => '1h']),
+                new Alert('queries.slow', $warning, '1 slow query', 'Queries', 'gallery', ['period' => '1h']),
+                new Alert('queries.repeated', $warning, 'Repeated queries (N+1)', 'Queries', 'gallery', ['period' => '1h']),
+                new Alert('cache.low_hit_rate', $warning, 'Low cache hit rate', 'Cache & HTTP', 'gallery', ['period' => '1h']),
+                new Alert('http.errors', $warning, '7 error responses', 'Cache & HTTP', 'gallery', ['period' => '1h']),
+            ])),
             Block::lead(new Lead('1,284 requests in the last hour, 3 of them ended in a server error', 'The busiest minute served 64 requests.', [12, 18, 15, 22, 40, 64, 31, 20, 18, 25, 19, 16], 'requests per minute', '1 hour ago')),
             Block::lead(new Lead('Nothing ran slower than 100 ms', self::LONG)),
             Block::checks(new CheckList([

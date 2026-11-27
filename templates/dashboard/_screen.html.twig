@@ -1,6 +1,6 @@
 {% autoescape 'html' %}
 {% set opening = page.body[0] ?? null %}
-{% set lead_titles = opening is not null and opening.type == 'lead' and opening.state.value == 'ready' %}
+{% set lead_titles = opening is not null and opening.type in ['lead', 'status'] and opening.state.value == 'ready' %}
 <div class="jm-screen" data-jm-state="{{ page.state }}"{% if page.reading %} data-jm-reading{% endif %}>
 {% if page.tabs %}
     {{ include('@Jmonitor/dashboard/block/subnav.html.twig', {block: {content: page.tabs}}) }}

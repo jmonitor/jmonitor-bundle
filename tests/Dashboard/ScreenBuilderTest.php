@@ -21,6 +21,8 @@ use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alerts;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\BlockState;
 use Jmonitor\JmonitorBundle\Dashboard\View\Brief;
@@ -43,6 +45,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
+use Jmonitor\JmonitorBundle\Dashboard\View\Status;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
@@ -1119,6 +1122,25 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame([Block::LEAD, Block::CHECKS, Block::MAP, Block::TABLE, Block::GUIDE, Block::PLACES], self::types($page->blocks));
         static::assertSame($places, $page->blocks[5]->content);
         static::assertSame([Block::LEAD, Block::MAP, Block::TABLE, Block::PLACES], self::types($this->builder()->create($view(new ScreenView([], [$table], new Lead('Sentence'), map: $map, places: $places)), null, null, null)->blocks));
+    }
+
+    public function testTheStatusAndTheAlertsOpenThePageBeforeTheChecks(): void
+    {
+        $status = new Status('Overview', new Mark('ok', 'Answers normally'));
+        $alerts = new Alerts([new Alert('requests.slow', new Mark('warn', 'Warning'), '3 slow requests', 'Requests', 'requests')]);
+        $lead = new Lead('Sentence');
+        $checks = new CheckList([]);
+        $map = new Map([new MapBox('Requests', '12', 'No server error.')]);
+        $places = new Places([new Place('Overview', '', 'This page.', 'Is everything fine?')]);
+        $table = $this->table(rows: 1);
+        $view = static fn(ScreenView $view): StubScreen => new StubScreen(view: static fn(ReaderInterface $reader): ScreenView => $view);
+
+        $page = $this->builder()->create($view(new ScreenView([], [$table], checks: $checks, map: $map, places: $places, status: $status, alerts: $alerts)), null, null, null);
+
+        static::assertSame([Block::STATUS, Block::ALERTS, Block::CHECKS, Block::MAP, Block::TABLE, Block::PLACES], self::types($page->blocks));
+        static::assertSame([$status, $alerts], [$page->blocks[0]->content, $page->blocks[1]->content]);
+        static::assertSame([Block::STATUS, Block::LEAD, Block::ALERTS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$table], $lead, status: $status, alerts: $alerts)), null, null, null)->blocks), 'A status takes the place of an empty list of cards, as a lead does.');
+        static::assertSame([Block::ALERTS, Block::CARDS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$table], alerts: $alerts)), null, null, null)->blocks));
     }
 
     public function testTheOverviewReadsTheApplicationThenTheStack(): void

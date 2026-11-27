@@ -702,6 +702,61 @@ final class StylesheetTest extends TestCase
         static::assertSame([['font-weight', '600']], self::declarationsOf('.jm-runs__version', null));
     }
 
+    public function testTheStatusAndTheAlertsAreStyledUnderJm(): void
+    {
+        $selectors = [];
+        foreach (self::rules() as $rule) {
+            array_push($selectors, ...$rule['selectors']);
+        }
+
+        foreach (['.jm-status', '.jm-status__pill', '.jm-status__dot', '.jm-status__pill--ok', '.jm-status__pill--warn', '.jm-status__pill--bad', '.jm-status__pill--unknown', '.jm-alerts', '.jm-alerts__title', '.jm-alerts__list', '.jm-alerts__item', '.jm-alert', '.jm-alert--warn', '.jm-alert--bad', '.jm-alert__top', '.jm-alert__where', '.jm-alert__title'] as $class) {
+            static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => preg_match('/' . preg_quote($class, '/') . '(?![a-z0-9_-])/', $selector) === 1), $class);
+        }
+    }
+
+    public function testEachToneOfTheStatusIsDrawnWithItsColours(): void
+    {
+        foreach (['ok' => ['--jm-ok-border', '--jm-ok-bg', '--jm-ok-text'], 'warn' => ['--jm-warn-border', '--jm-warn-bg', '--jm-warn'], 'bad' => ['--jm-bad-border', '--jm-bad-bg', '--jm-bad'], 'unknown' => ['--jm-border', '--jm-surface-strong', '--jm-muted']] as $tone => [$border, $background, $colour]) {
+            static::assertSame([['border-color', 'var(' . $border . ')'], ['background', 'var(' . $background . ')'], ['color', 'var(' . $colour . ')']], self::declarationsOf('.jm-status__pill--' . $tone, null), $tone);
+        }
+
+        static::assertContains(['width', '8px'], self::declarationsOf('.jm-status__dot', null));
+        static::assertContains(['height', '8px'], self::declarationsOf('.jm-status__dot', null));
+        static::assertContains(['font-size', '13px'], self::declarationsOf('.jm-status__pill', null));
+    }
+
+    public function testTheAlertsWrapAndFillTheWidthOfANarrowBox(): void
+    {
+        $wide = '@container jm-alerts (width >= 480px)';
+
+        static::assertContains(['container-type', 'inline-size'], self::declarationsOf('.jm-alerts', null));
+        static::assertContains(['container-name', 'jm-alerts'], self::declarationsOf('.jm-alerts', null));
+        static::assertContains(['display', 'flex'], self::declarationsOf('.jm-alerts__list', null));
+        static::assertContains(['flex-wrap', 'wrap'], self::declarationsOf('.jm-alerts__list', null));
+        static::assertContains(['gap', '12px'], self::declarationsOf('.jm-alerts__list', null));
+        static::assertContains(['flex', '1 1 100%'], self::declarationsOf('.jm-alerts__item', null));
+        static::assertSame([['flex', '0 1 300px']], self::declarationsOf('.jm-alerts__item', $wide));
+        static::assertContains(['min-width', '0'], self::declarationsOf('.jm-alert', null));
+        static::assertContains(['overflow-wrap', 'anywhere'], self::declarationsOf('.jm-alert', null));
+        static::assertContains(['color', 'inherit'], self::declarationsOf('.jm-alert', null));
+        static::assertContains(['text-decoration', 'none'], self::declarationsOf('.jm-alert', null));
+    }
+
+    public function testTheFrameOfAnAlertFollowsItsTone(): void
+    {
+        static::assertSame([['border-color', 'var(--jm-warn-border)']], self::declarationsOf('.jm-alert--warn', null));
+        static::assertSame([['border-color', 'var(--jm-bad-border)']], self::declarationsOf('.jm-alert--bad', null));
+    }
+
+    public function testForcedColorsKeepTheFrameAndTheDotOfTheStatus(): void
+    {
+        $forced = '@media (forced-colors: active)';
+
+        static::assertContains(['border-color', 'CanvasText'], self::declarationsOf('.jm-status__pill', $forced));
+        static::assertContains(['background', 'CanvasText'], self::declarationsOf('.jm-status__dot', $forced));
+        static::assertContains(['forced-color-adjust', 'none'], self::declarationsOf('.jm-status__dot', $forced));
+    }
+
     private static function withoutHostAncestor(string $selector): string
     {
         foreach (self::HOST_ANCESTORS as $ancestor) {
