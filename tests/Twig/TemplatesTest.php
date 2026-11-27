@@ -515,7 +515,7 @@ final class TemplatesTest extends TestCase
             static::assertSame('jm-icon jm-icon--' . $size, $svg->attr('class'), $name);
             static::assertSame('true', $svg->attr('aria-hidden'), $name);
             static::assertSame('false', $svg->attr('focusable'), $name);
-            static::assertSame($box, $svg->attr('viewBox'), $name);
+            static::assertStringContainsString(' viewBox="' . $box . '"', $html, $name);
             static::assertSame($strokeWidth === null ? 'currentColor' : 'none', $svg->attr('fill'), $name);
             static::assertSame($strokeWidth === null ? null : 'currentColor', $svg->attr('stroke'), $name);
             static::assertSame($strokeWidth, $svg->attr('stroke-width'), $name);
