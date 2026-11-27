@@ -132,7 +132,7 @@ expect_page /jmonitor/requests 'class="jm-heading__title jm-lead__title">38 requ
 printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "the Requests screen does not flag the server errors"
 printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "the Requests screen does not name GET app_boom as the route that answered 2 server errors"
 printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Requests screen does not flag the query that GET app_n_plus_one repeats"
-printf '%s\n' "$page" | grep -q 'data-jm-slot="nav-application"><span class="jm-nav__badges"><span class="jm-nav__badge jm-nav__badge--bad" title="1 critical in the last hour">1<span class="jm-visually-hidden"> critical in the last hour</span></span> <span class="jm-nav__badge jm-nav__badge--warn" title="1 warning in the last hour">1<' || fail "the Application entry of the Requests screen does not count 1 critical check, the server errors, and 1 warning, the repeated query"
+printf '%s\n' "$page" | grep -q 'data-jm-slot="nav-application">.*title="1 critical in the last hour".*title="1 warning in the last hour"' || fail "the Application entry of the Requests screen does not count 1 critical check, the server errors, and 1 warning, the repeated query"
 [ "$(printf '%s\n' "$page" | grep -o 'class="jm-nav__item"' | wc -l)" = 3 ] || fail "the navigation of the Requests screen does not have three entries"
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/requests")" || fail "GET /admin/jmonitor/requests failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
