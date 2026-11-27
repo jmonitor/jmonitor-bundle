@@ -11,6 +11,7 @@ final class ScreenView
     /**
      * @param list<Card>  $cards
      * @param list<Table> $tables
+     * @param list<Tile>  $tiles  shown in place of the cards
      */
     public function __construct(
         public readonly array $cards = [],
@@ -24,6 +25,7 @@ final class ScreenView
         public readonly ?Places $places = null,
         public readonly ?Status $status = null,
         public readonly ?Alerts $alerts = null,
+        public readonly array $tiles = [],
     ) {}
 
     public function isEmpty(): bool

@@ -882,6 +882,71 @@ final class StylesheetTest extends TestCase
         static::assertContains(['forced-color-adjust', 'none'], self::declarationsOf('.jm-status__dot', $forced));
     }
 
+    public function testTheTilesAndTheBareTableAreStyledUnderJm(): void
+    {
+        $selectors = [];
+        foreach (self::rules() as $rule) {
+            array_push($selectors, ...$rule['selectors']);
+        }
+
+        foreach (['.jm-tiles', '.jm-tile', '.jm-tile--series', '.jm-tile--zero', '.jm-tile--warn', '.jm-tile--bad', '.jm-tile__figure', '.jm-tile__line', '.jm-tile__label', '.jm-tile__value'] as $class) {
+            static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => preg_match('/' . preg_quote($class, '/') . '(?![a-z0-9_-])/', $selector) === 1), $class);
+        }
+    }
+
+    public function testTheTilesWrapAndFillTheirRow(): void
+    {
+        static::assertSame([['display', 'flex'], ['flex-wrap', 'wrap'], ['gap', '12px'], ['margin-bottom', '20px']], self::declarationsOf('.jm-tiles', null));
+        static::assertContains(['flex', '1 0 auto'], self::declarationsOf('.jm-tile', null), 'a tile takes the width of its content and shares what its row leaves');
+        static::assertContains(['min-width', '132px'], self::declarationsOf('.jm-tile', null));
+        static::assertSame([['flex', '1000 1 200px']], self::declarationsOf('.jm-tile--series', null), 'the tile with a curve takes nearly all the room left on its row; five tiles stand on one row of 917 px');
+        static::assertContains(['min-width', '168px'], self::declarationsOf('.jm-tile--warn', null));
+        static::assertContains(['min-width', '168px'], self::declarationsOf('.jm-tile--bad', null));
+        static::assertContains(['flex', '1 1 0'], self::declarationsOf('.jm-tile .jm-sparkline', null));
+        static::assertContains(['max-width', 'none'], self::declarationsOf('.jm-tile .jm-sparkline', null));
+    }
+
+    public function testTheLabelOfATileIsInMutedSmallCapitalsAndItsValueInTabularFigures(): void
+    {
+        $label = self::declarationsOf('.jm .jm-tile__label', null);
+        $value = self::declarationsOf('.jm .jm-tile__value', null);
+
+        static::assertContains(['color', 'var(--jm-muted)'], $label);
+        static::assertContains(['font-size', '11px'], $label);
+        static::assertContains(['text-transform', 'uppercase'], $label);
+        static::assertContains(['color', 'var(--jm-text-strong)'], $value);
+        static::assertContains(['font-size', '22px'], $value);
+        static::assertContains(['font-variant-numeric', 'tabular-nums'], $value);
+        static::assertSame([['color', 'var(--jm-muted)']], self::declarationsOf('.jm-tile--zero .jm-tile__value', null));
+        foreach (['.jm-tile__label', '.jm-tile__value'] as $class) {
+            static::assertSame([], self::declarationsOf($class, null), $class . ' sits on a heading or a paragraph: its rules go through .jm');
+        }
+    }
+
+    public function testAToneOnlyColoursTheFrameOfATile(): void
+    {
+        static::assertSame([['min-width', '168px'], ['border-color', 'var(--jm-warn-border)']], self::declarationsOf('.jm-tile--warn', null));
+        static::assertSame([['min-width', '168px'], ['border-color', 'var(--jm-bad-border)']], self::declarationsOf('.jm-tile--bad', null));
+    }
+
+    public function testATileOrATagThatIsALinkKeepsItsColours(): void
+    {
+        static::assertContains(['color', 'inherit'], self::declarationsOf('.jm-tile', null));
+        static::assertContains(['text-decoration', 'none'], self::declarationsOf('.jm-tile', null));
+        static::assertContains(['color', 'inherit'], self::declarationsOf('.jm-tile[href]:hover', null));
+        static::assertSame(self::declarationsOf('.jm-tag--warn', null), self::declarationsOf('.jm a.jm-tag--warn', null));
+        static::assertSame(self::declarationsOf('.jm-tag--bad', null), self::declarationsOf('.jm a.jm-tag--bad', null));
+        static::assertContains(['color', 'var(--jm-warn)'], self::declarationsOf('.jm a.jm-tag--warn', null));
+        static::assertContains(['color', 'var(--jm-bad)'], self::declarationsOf('.jm a.jm-tag--bad', null));
+        static::assertSame([['text-decoration', 'none']], self::declarationsOf('.jm a.jm-tag', null));
+        static::assertSame([['text-decoration', 'underline']], self::declarationsOf('.jm a.jm-tag:hover', null));
+    }
+
+    public function testTheLegendInAHeaderStaysOnOneLineInTheLettersOfTheHeader(): void
+    {
+        static::assertSame([['flex-wrap', 'nowrap'], ['gap', '12px'], ['margin', '0'], ['color', 'inherit'], ['font-size', 'inherit']], self::declarationsOf('.jm-table .jm-legend', null));
+    }
+
     private static function withoutHostAncestor(string $selector): string
     {
         foreach (self::HOST_ANCESTORS as $ancestor) {

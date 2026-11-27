@@ -1,0 +1,7 @@
+{% autoescape 'html' %}
+<span class="jm-visually-hidden">{{ label }}</span> <span class="jm-legend" aria-hidden="true">
+{%- for part, word in {php: 'PHP', sql: 'SQL', http: 'HTTP'} -%}
+    {{ loop.first ? '' : ' ' }}<span class="jm-legend__item"><span class="jm-legend__swatch jm-legend__swatch--{{ part }}"></span>{{ word }}</span>
+{%- endfor -%}
+</span>
+{%- endautoescape %}

@@ -44,12 +44,13 @@ use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tile;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * Every block of the live stack in every state, the blocks that guide the reading of a screen, a status in each tone and
- * cards of checks worth a look, cards that lead to the sections below, a section in each of its states, then the map of an application and what to find where. Each request
+ * cards of checks worth a look, tiles and a table without its line of title, cards that lead to the sections below, a section in each of its states, then the map of an application and what to find where. Each request
  * moves a counter kept in a file: the badge shows it, and its tone and the web server named by the second navigation
  * alternate with its parity.
  */
@@ -226,6 +227,25 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
                 new Row('runtime-import', ['exception' => new Cell('app:import', kind: 'code'), 'count' => new Cell('3'), 'last' => new Cell('1 h ago')], nested: true),
                 new Row('logic', ['exception' => new Cell('LogicException', kind: 'code'), 'count' => new Cell('1'), 'last' => new Cell('40 min ago')]),
             ], noun: 'exception')),
+            Block::tiles([
+                new Tile('Requests', '1,536', series: [12, 18, 15, 22, 40, 64, 31, 20, 18, 25, 19, 16], namesPage: true),
+                new Tile('Average', '29 ms', 'The mean response time.'),
+                new Tile('Server errors', '12', 'Responses with a 5xx status.', new Tag('Critical', 'bad'), sort: 'problems'),
+                new Tile('Slow requests', '4', '1 s or more.', new Tag('Warning', 'warn'), sort: 'problems'),
+                new Tile('Failed', '3', tag: new Tag('Warning', 'warn')),
+                new Tile('Timeouts', '0', 'Calls that got no answer.'),
+            ]),
+            Block::table(new Table('gallery-slim', 'Routes without their line of title', [
+                new Column('route', 'Route', false),
+                new Column('requests', 'Requests', sort: 'requests'),
+                new Column('p95', 'p95', definition: '95 % of the requests are faster.'),
+                new Column('split', 'Where the average goes', false, legend: true),
+                new Column('problems', 'Problems', false),
+            ], [
+                new Row('checkout', ['route' => Cell::route('POST app_checkout'), 'requests' => new Cell('52'), 'p95' => new Cell('224 ms'), 'split' => Cell::split(['php' => 34.0, 'sql' => 56.0, 'http' => 0.0], 'SQL 56 ms'), 'problems' => Cell::tags([new Tag('12 × 5xx', 'bad', 'gallery'), new Tag('N+1', 'warn', 'missing')])]),
+                new Row('search', ['route' => Cell::route('GET app_search'), 'requests' => new Cell('68'), 'p95' => new Cell('1.1 s', 'warn'), 'split' => Cell::split(['php' => 78.0, 'sql' => 10.0, 'http' => 98.0], 'HTTP 98 ms'), 'problems' => Cell::tags([new Tag('4 slow', 'warn')])]),
+                new Row('unmatched', ['route' => Cell::route('GET (unmatched)', definition: 'Requests that matched no route.'), 'requests' => new Cell('590'), 'p95' => new Cell('25 ms'), 'split' => Cell::split(['php' => 9.0, 'sql' => 0.0, 'http' => 0.0], ''), 'problems' => Cell::tags([])]),
+            ], 3, 'route', titled: false)),
             Block::guide(new Guide([
                 new GuideItem('Total time', 'adds up the time of every request of the route: a route called often can weigh more than a slow one.'),
                 new GuideItem('Time split', 'shows where an average request spends its time: your PHP code, SQL queries, outgoing HTTP calls.', ['See the gallery' => 'gallery', 'See a missing screen' => 'missing']),

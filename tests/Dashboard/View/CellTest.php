@@ -68,6 +68,13 @@ final class CellTest extends TestCase
         static::assertSame(['method' => 'GET'], Cell::route('GET app_home')->data);
     }
 
+    public function testARouteCanCarryADefinitionInPlaceOfItsRepeatedName(): void
+    {
+        static::assertSame(['method' => 'GET', 'title' => 'Requests that matched no route.'], Cell::route('GET (unmatched)', definition: 'Requests that matched no route.')->data);
+        static::assertSame(['method' => 'GET', 'title' => 'Requests that matched no route.'], Cell::route('GET (unmatched)', true, 'Requests that matched no route.')->data);
+        static::assertSame('(unmatched)', Cell::route('GET (unmatched)', definition: 'Requests that matched no route.')->text);
+    }
+
     public function testANoteOfASplitIsReadAfterItsThreeParts(): void
     {
         static::assertSame('PHP 1 ms, SQL 1 ms, HTTP out 0 ms, 13 queries', Cell::split(['php' => 1.0, 'sql' => 1.0, 'http' => 0.0], 'SQL 1 ms · 13 queries', '13 queries')->data['spoken']);

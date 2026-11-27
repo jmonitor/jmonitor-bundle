@@ -7,6 +7,7 @@ namespace Jmonitor\JmonitorBundle\Dashboard\View;
 final class Block
 {
     public const CARDS = 'cards';
+    public const TILES = 'tiles';
     public const TABLE = 'table';
     public const SUBNAV = 'subnav';
     public const NOTICE = 'notice';
@@ -36,6 +37,12 @@ final class Block
     public static function cards(array $cards): self
     {
         return new self(self::CARDS, BlockState::Ready, $cards);
+    }
+
+    /** @param list<Tile> $tiles */
+    public static function tiles(array $tiles): self
+    {
+        return new self(self::TILES, BlockState::Ready, $tiles);
     }
 
     public static function table(Table $table): self
