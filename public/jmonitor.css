@@ -2376,6 +2376,8 @@ body.jm .jm-section {
 }
 
 .jm-runs {
+    container-type: inline-size;
+    container-name: jm-runs;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -2409,19 +2411,9 @@ body.jm .jm-section {
 }
 
 .jm-runs__list {
-    display: grid;
-    grid-template-columns: fit-content(50%) minmax(0, 1fr) auto;
-    column-gap: 10px;
     margin: 0;
     padding: 0;
     list-style: none;
-}
-
-.jm-runs__item {
-    display: grid;
-    grid-template-columns: fit-content(50%) minmax(0, 1fr) auto;
-    grid-template-columns: subgrid;
-    grid-column: 1 / -1;
 }
 
 .jm-runs__item + .jm-runs__item {
@@ -2431,8 +2423,6 @@ body.jm .jm-section {
 .jm-runs__line {
     display: grid;
     grid-template-columns: fit-content(50%) minmax(0, 1fr) auto;
-    grid-template-columns: subgrid;
-    grid-column: 1 / -1;
     align-items: start;
     gap: 2px 10px;
     padding: 7px 0;
@@ -2519,6 +2509,12 @@ body.jm .jm-section {
 @container jm-alerts (width >= 480px) {
     .jm-alerts__item {
         flex: 0 1 290px;
+    }
+}
+
+@container jm-runs (width >= 340px) {
+    .jm-runs__line {
+        grid-template-columns: 108px minmax(0, 1fr) auto;
     }
 }
 
