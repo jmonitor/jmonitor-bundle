@@ -700,14 +700,26 @@ final class StylesheetTest extends TestCase
         static::assertContains(['align-items', 'start'], self::declarationsOf('.jm-runs__line', null));
     }
 
+    public function testTheLinesOfRunsOnShareOneGridSoThatTheirVersionsLineUp(): void
+    {
+        $columns = ['grid-template-columns', 'fit-content(50%) minmax(0, 1fr) auto'];
+
+        static::assertContains(['display', 'grid'], self::declarationsOf('.jm-runs__list', null));
+        static::assertContains($columns, self::declarationsOf('.jm-runs__list', null), 'the names take the width of the longest one, at most half of the line');
+        foreach (['.jm-runs__item', '.jm-runs__line'] as $selector) {
+            $declarations = self::declarationsOf($selector, null);
+            $templates = array_values(array_filter($declarations, static fn(array $declaration): bool => $declaration[0] === 'grid-template-columns'));
+
+            static::assertContains(['display', 'grid'], $declarations, $selector);
+            static::assertContains(['grid-column', '1 / -1'], $declarations, $selector);
+            static::assertSame([$columns, ['grid-template-columns', 'subgrid']], $templates, $selector . ': a browser without subgrid keeps a grid of its own');
+        }
+        static::assertSame([], self::selectorsIn(self::rules(), '@container jm-runs (width >= 340px)'));
+        static::assertSame([], array_filter(self::declarationsOf('.jm-runs', null), static fn(array $declaration): bool => str_starts_with($declaration[0], 'container')));
+    }
+
     public function testALineOfRunsOnKeepsItsVersionOnOneLineAndPutsItsReasonUnderItsName(): void
     {
-        $wide = '@container jm-runs (width >= 340px)';
-
-        static::assertContains(['container-type', 'inline-size'], self::declarationsOf('.jm-runs', null));
-        static::assertContains(['container-name', 'jm-runs'], self::declarationsOf('.jm-runs', null));
-        static::assertContains(['grid-template-columns', 'fit-content(50%) minmax(0, 1fr) auto'], self::declarationsOf('.jm-runs__line', null), 'in a narrow box the name only takes what it needs');
-        static::assertSame([['grid-template-columns', '108px minmax(0, 1fr) auto']], self::declarationsOf('.jm-runs__line', $wide), 'the versions line up when the box has the room');
         static::assertSame(
             [['min-width', '0'], ['overflow', 'hidden'], ['color', 'var(--jm-muted)'], ['text-overflow', 'ellipsis'], ['white-space', 'nowrap']],
             self::declarationsOf('.jm-runs__version', null),
