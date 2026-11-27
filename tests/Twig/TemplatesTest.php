@@ -1864,6 +1864,15 @@ final class TemplatesTest extends TestCase
         static::assertStringNotContainsString('jm-legend', $html);
     }
 
+    public function testATableWhoseColumnsOnlyCarryADefinitionKeepsItsPlainClass(): void
+    {
+        $table = new Table('routes', 'Routes', [new Column('route', 'Route', false), new Column('p95', 'p95', definition: '95 % of the requests are faster.')], [new Row('k1', ['route' => new Cell('a'), 'p95' => new Cell('12 ms')])]);
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]);
+
+        static::assertStringContainsString('<table class="jm-table">', $html);
+        static::assertStringNotContainsString('jm-table--legend', $html);
+    }
+
     public function testATableWithoutItsLineOfTitleKeepsItsNameForAssistiveTechnologyAndItsFooter(): void
     {
         $table = self::slimTable();
