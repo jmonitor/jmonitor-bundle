@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` opens on an Overview: what is worth a look, then a map of your application, from what comes in to what it calls.
 - Navigation: a badge on Application and Background when something is worth a look.
 - Stack screen: a sentence that sums it up, every point with its explanation in view, and what each component is for.
+- Overview: fits on one screen, with a status pill, a short card per thing worth a look and a box per part of the application.
 
 ### Changed
 - Requires PHP 8.2.
