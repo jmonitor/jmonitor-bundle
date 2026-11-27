@@ -24,6 +24,10 @@ final class OverviewRead
 
     public function isEmpty(): bool
     {
+        if ($this->raised->any()) {
+            return false;
+        }
+
         foreach ($this->counted as $type) {
             if ($this->count($type) > 0) {
                 return false;

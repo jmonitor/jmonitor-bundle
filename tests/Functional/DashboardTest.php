@@ -309,6 +309,7 @@ final class DashboardTest extends WebTestCase
         static::assertSame('/jmonitor/', $crawler->filter('a.jm-brand')->attr('href'));
         static::assertSame('Overview', $crawler->filter('h1')->text());
         static::assertSame('Answers normally', $crawler->filter('.jm-status__pill')->text());
+        static::assertSame('3', $crawler->filter('a.jm-box[href^="/jmonitor/requests"] .jm-box__value')->text());
 
         $same = $client->request('GET', '/jmonitor/overview');
 
@@ -322,7 +323,7 @@ final class DashboardTest extends WebTestCase
         static::assertResponseIsSuccessful();
         static::assertStringNotContainsString('<html', (string) $client->getResponse()->getContent());
         static::assertCount(1, $fragment->filter('.jm-screen > section.jm-map'));
-        static::assertCount(1, $fragment->filter('a.jm-box[href^="/jmonitor/requests"] .jm-box__value:contains("3")'));
+        static::assertSame(['3'], $fragment->filter('a.jm-box[href^="/jmonitor/requests"] .jm-box__value')->each(static fn(Crawler $value): string => $value->text()));
     }
 
     public function testAFreshInstallSaysItIsRecordingAndShowsWhatToFindHere(): void

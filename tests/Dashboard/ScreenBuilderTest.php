@@ -1383,6 +1383,26 @@ final class ScreenBuilderTest extends TestCase
         }
     }
 
+    public function testServerErrorsCountedWithoutRequestsHideNoCauseOfAnEmptyPeriod(): void
+    {
+        $file = $this->path();
+        touch($file);
+        $reader = static fn(): FixedReader => new FixedReader(totals: [self::SERVER_ERRORS => new MetricValue(2, 0.0, 0.0)]);
+
+        foreach ([
+            'recording off' => $this->builder($reader(), false),
+            'buffer directory unusable' => $this->builder($reader(), bufferDirectory: new BufferDirectory($file, 'test')),
+        ] as $case => $builder) {
+            $page = $builder->create(self::overview(null), null, null, null);
+
+            static::assertSame(['status ready', 'alerts ready', 'map ready'], self::shape($page), $case);
+            static::assertEquals(new Status('Overview', new Mark('bad', '2 server errors')), $page->blocks[0]->content, $case);
+            $alerts = $page->blocks[1]->content;
+            static::assertInstanceOf(Alerts::class, $alerts);
+            static::assertSame(['requests.server_errors'], array_map(static fn(Alert $alert): string => $alert->id, $alerts->alerts), $case);
+        }
+    }
+
     public function testWithoutStackACauseLeavesTheStateAndThePlaces(): void
     {
         static::assertSame(['status ready', 'table no_connection', 'places ready'], self::shape($this->builder(null)->create(self::overview(null), null, null, null)));

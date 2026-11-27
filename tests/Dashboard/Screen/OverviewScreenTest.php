@@ -449,6 +449,8 @@ final class OverviewScreenTest extends TestCase
         yield 'a cache read' => [[], [Metric::CACHE_MISS => self::counted(1)], false];
         yield 'an exception' => [[], [Metric::EXCEPTION_COUNT => self::counted(1)], false];
         yield 'a message sent' => [[], [Metric::MESSAGE_SENT => self::counted(1)], false];
+        yield 'server errors alone' => [[], [self::SERVER_ERRORS => self::counted(2)], false];
+        yield 'a slow query alone' => [[], [Metric::QUERY_SLOW => self::counted(1)], false];
         yield 'a count at zero' => [[], [Metric::MESSAGE_DURATION => new MetricValue(0, 0.0, 0.0)], true];
     }
 
@@ -504,6 +506,26 @@ final class OverviewScreenTest extends TestCase
         static::assertSame(['php.memory'], array_map(static fn(Alert $alert): string => $alert->id, $view->alerts->alerts ?? []));
         static::assertEquals(self::places(), $view->places);
         static::assertNotNull($view->raised);
+    }
+
+    public function testServerErrorsCountedWithoutRequestsAreNotAnEmptyPeriod(): void
+    {
+        $view = $this->view($this->reader([], [self::SERVER_ERRORS => self::counted(2)]));
+
+        static::assertNull($view->places);
+        static::assertEquals(new Status('Overview', new Mark('bad', '2 server errors')), $view->status);
+        static::assertSame(['requests.server_errors'], array_map(static fn(Alert $alert): string => $alert->id, $view->alerts->alerts ?? []));
+    }
+
+    public function testNoDataYetNeverComesWithACardOfTheApplication(): void
+    {
+        foreach (self::ALL_RAISED as $metric => $count) {
+            $view = $this->view($this->reader([], [$metric => self::counted($count)], $metric === Metric::CACHE_MISS ? self::lowHitRate() : []));
+
+            static::assertNotNull($view->alerts, $metric);
+            static::assertNotSame('No data yet', $view->status?->mark?->label, $metric);
+            static::assertNull($view->places, $metric);
+        }
     }
 
     public function testAPageWithDataDoesNotShowThePlaces(): void
