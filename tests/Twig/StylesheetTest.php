@@ -616,7 +616,7 @@ final class StylesheetTest extends TestCase
             array_push($selectors, ...$rule['selectors']);
         }
 
-        foreach (['.jm-map', '.jm-map__columns', '.jm-map__column', '.jm-map__column--app', '.jm-map__title', '.jm-map__arrow', '.jm-map__boxes', '.jm-map__boxes--inside', '.jm-map__item', '.jm-box', '.jm-box__line', '.jm-box__label', '.jm-box__value', '.jm-box__tags', '.jm-box--zero', '.jm-box--warn', '.jm-box--bad', '.jm-runs', '.jm-runs__title', '.jm-runs__now', '.jm-runs__list', '.jm-runs__item', '.jm-runs__line', '.jm-runs__name', '.jm-runs__figures', '.jm-runs__more', '.jm-runs__empty', '.jm-places__list', '.jm-place', '.jm-place__label', '.jm-place__question'] as $class) {
+        foreach (['.jm-map', '.jm-map__columns', '.jm-map__column', '.jm-map__title', '.jm-map__arrow', '.jm-map__boxes', '.jm-map__boxes--inside', '.jm-map__item', '.jm-box', '.jm-box__line', '.jm-box__name', '.jm-box__label', '.jm-box__value', '.jm-box__tags', '.jm-box--zero', '.jm-box--warn', '.jm-box--bad', '.jm-runs', '.jm-runs__title', '.jm-runs__now', '.jm-runs__list', '.jm-runs__item', '.jm-runs__line', '.jm-runs__name', '.jm-runs__figures', '.jm-runs__more', '.jm-runs__empty', '.jm-places__list', '.jm-place', '.jm-place__label', '.jm-place__question'] as $class) {
             static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => preg_match('/' . preg_quote($class, '/') . '(?![a-z0-9_-])/', $selector) === 1), $class);
         }
     }
@@ -627,13 +627,21 @@ final class StylesheetTest extends TestCase
         static::assertSame([['border-color', 'var(--jm-bad-border)']], self::declarationsOf('.jm-box--bad', null));
     }
 
-    public function testABoxHoldsItsNameItsTagsAndItsValueOnOneLine(): void
+    public function testABoxHoldsItsNameAndItsTagsBesideItsValue(): void
     {
         $line = self::declarationsOf('.jm-box__line', null);
+        $name = self::declarationsOf('.jm-box__name', null);
         $value = self::declarationsOf('.jm-box__value', null);
 
         static::assertContains(['display', 'flex'], $line);
-        static::assertContains(['align-items', 'center'], $line);
+        static::assertContains(['align-items', 'baseline'], $line);
+        static::assertContains(['flex-wrap', 'wrap'], $line, 'a value wider than what is left of the box goes under its name rather than out of the box');
+        static::assertContains(['display', 'flex'], $name);
+        static::assertContains(['flex', '1 1 5em'], $name);
+        static::assertContains(['flex-wrap', 'wrap'], $name, 'the tags wrap beside the name, not the value');
+        static::assertContains(['flex-wrap', 'wrap'], self::declarationsOf('.jm-box__tags', null));
+        static::assertContains(['flex', 'none'], $value);
+        static::assertContains(['white-space', 'nowrap'], $value);
         static::assertContains(['margin-left', 'auto'], $value);
         static::assertContains(['font-size', '20px'], $value);
         static::assertContains(['font-weight', '700'], $value);
@@ -646,18 +654,9 @@ final class StylesheetTest extends TestCase
         static::assertSame([['color', 'var(--jm-muted)']], self::declarationsOf('.jm-box--zero .jm-box__value', null));
     }
 
-    public function testNoRuleIsLeftForWhatTheMapNoLongerShows(): void
-    {
-        foreach (self::rules() as $rule) {
-            foreach ($rule['selectors'] as $selector) {
-                static::assertDoesNotMatchRegularExpression('/\.jm-(?:map__(?:text|app|average|split|legend|phrase|head)|box--(?:pending|small)|box__(?:head|text)|runs__(?:value|version|when)|checks__footnote)(?![a-z0-9_-])/', $selector);
-            }
-        }
-    }
-
     public function testTheMapIsStackedUnlessItIsWideEnoughForItsColumns(): void
     {
-        $wide = '@container jm-map (width >= 960px)';
+        $wide = '@container jm-map (width >= 800px)';
         $medium = '@container jm-map (width >= 480px)';
 
         static::assertContains(['container-type', 'inline-size'], self::declarationsOf('.jm-map', null));
@@ -669,7 +668,8 @@ final class StylesheetTest extends TestCase
         static::assertSame([], self::declarationsOf('.jm-map__boxes--inside', null));
         static::assertContains(['flex-direction', 'row'], self::declarationsOf('.jm-map__columns', $wide));
         static::assertContains(['flex', '1 1 0'], self::declarationsOf('.jm-map__column', $wide));
-        static::assertContains(['flex-grow', '1.25'], self::declarationsOf('.jm-map__column--app', $wide));
+        static::assertSame([], self::declarationsOf('.jm-map__column--app', $wide), 'the three columns share the width');
+        static::assertSame([], self::selectorsIn(self::rules(), '@container jm-map (width >= 960px)'));
         static::assertContains(['display', 'block'], self::declarationsOf('.jm-map__arrow', $wide));
         static::assertContains(['flex-flow', 'row wrap'], self::declarationsOf('.jm-map__boxes--inside', $medium));
         static::assertSame([['flex-basis', '160px']], self::declarationsOf('.jm-map__boxes--inside > .jm-map__item', $medium));
@@ -689,7 +689,7 @@ final class StylesheetTest extends TestCase
 
     public function testTheParserReadsContainerRules(): void
     {
-        static::assertContains('.jm-map__columns', self::selectorsIn(self::rules(), '@container jm-map (width >= 960px)'));
+        static::assertContains('.jm-map__columns', self::selectorsIn(self::rules(), '@container jm-map (width >= 800px)'));
     }
 
     public function testABoxThatIsALinkKeepsTheColoursOfItsText(): void

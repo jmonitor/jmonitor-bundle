@@ -136,7 +136,7 @@ overview_status='<h1 class="jm-heading__title">Overview</h1> <span class="jm-sta
 counted=0
 for _ in $(seq 1 30); do
     page="$(curl -sf "$BASE/jmonitor/")" || fail "GET /jmonitor/ did not return 2xx"
-    if flat "$page" | grep -q '<span class="jm-box__label">Requests</span> <span class="jm-box__value">30</span>'; then
+    if flat "$page" | grep -q '<span class="jm-box__label">Requests</span> </span> <span class="jm-box__value">30</span>'; then
         counted=1
         break
     fi

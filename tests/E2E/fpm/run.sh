@@ -78,7 +78,7 @@ flat() {
 }
 
 overview_status='<h1 class="jm-heading__title">Overview</h1> <span class="jm-status__pill jm-status__pill--ok"><span class="jm-status__dot" aria-hidden="true"></span>Answers normally</span>'
-requests_box='<span class="jm-box__label">Requests</span> <span class="jm-box__value">30</span>'
+requests_box='<span class="jm-box__label">Requests</span> </span> <span class="jm-box__value">30</span>'
 counted=0
 for _ in $(seq 1 30); do
     page="$(curl -sf "$BASE/jmonitor/")" || fail "GET /jmonitor/ did not return 2xx"

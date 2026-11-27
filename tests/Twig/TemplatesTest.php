@@ -1145,7 +1145,9 @@ final class TemplatesTest extends TestCase
         );
         static::assertSame('Requests 1,284', $boxes->eq(0)->text());
         static::assertSame('Messages 3 failed 42', $boxes->eq(1)->text());
-        static::assertSame(['jm-box__label', 'jm-box__tags', 'jm-box__value'], $boxes->eq(1)->filter('.jm-box__line')->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
+        static::assertSame(['jm-box__name', 'jm-box__value'], $boxes->eq(1)->filter('.jm-box__line')->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
+        static::assertSame(['jm-box__label', 'jm-box__tags'], $boxes->eq(1)->filter('.jm-box__name')->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
+        static::assertSame(['jm-box__label'], $boxes->eq(0)->filter('.jm-box__name')->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
         static::assertSame(['span', 'svg'], $boxes->eq(0)->children()->each(static fn(Crawler $child): string => $child->nodeName()));
         static::assertSame(['span'], $boxes->eq(1)->children()->each(static fn(Crawler $child): string => $child->nodeName()));
         static::assertCount(2, (new Crawler($html))->filter('.jm-map a'));
@@ -1476,7 +1478,7 @@ final class TemplatesTest extends TestCase
         static::assertSame('Critical Requests → 12 server errors', $cards->eq(0)->text());
         static::assertSame('Critical', $cards->eq(0)->filter('.jm-alert__top > .jm-mark.jm-mark--bad')->text());
         static::assertSame('12 server errors', $cards->eq(0)->filter('.jm-alert__title')->text());
-        static::assertSame(['true', 'true'], $crawler->filter('.jm-alert__arrow')->each(static fn(Crawler $arrow): string => (string) $arrow->attr('aria-hidden')));
+        static::assertSame(['true', 'true'], $crawler->filter('.jm-alert__where > span')->each(static fn(Crawler $arrow): string => (string) $arrow->attr('aria-hidden')));
         static::assertSame([], $crawler->filter('.jm-alert *')->reduce(static fn(Crawler $node): bool => $node->nodeName() !== 'span')->each(static fn(Crawler $node): string => $node->nodeName()));
     }
 
@@ -1491,7 +1493,7 @@ final class TemplatesTest extends TestCase
 
         static::assertSame(['div', 'div'], $cards->each(static fn(Crawler $card): string => $card->nodeName()));
         static::assertCount(0, $crawler->filter('.jm-alerts a'));
-        static::assertCount(0, $crawler->filter('.jm-alert__arrow'));
+        static::assertCount(0, $crawler->filter('.jm-alert__where > span'));
         static::assertSame('Critical Background 3 messages failed', $cards->eq(0)->text());
         static::assertSame(['messages.failed', 'stack.php.opcache'], $cards->each(static fn(Crawler $card): string => (string) $card->attr('data-jm-check')));
     }

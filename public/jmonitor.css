@@ -2319,12 +2319,20 @@ body.jm .jm-section {
 .jm-box__line {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 6px 10px;
+    align-items: baseline;
+    gap: 4px 8px;
+}
+
+.jm-box__name {
+    display: flex;
+    flex: 1 1 5em;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 8px;
+    overflow-wrap: normal;
 }
 
 .jm-box__label {
-    min-width: 0;
     color: var(--jm-text-strong);
     font-weight: 600;
 }
@@ -2496,7 +2504,7 @@ body.jm .jm-section {
     }
 }
 
-@container jm-map (width >= 960px) {
+@container jm-map (width >= 800px) {
     .jm-map__columns {
         flex-direction: row;
         align-items: flex-start;
@@ -2505,10 +2513,6 @@ body.jm .jm-section {
 
     .jm-map__column {
         flex: 1 1 0;
-    }
-
-    .jm-map__column--app {
-        flex-grow: 1.25;
     }
 
     .jm-map__arrow {
