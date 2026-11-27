@@ -28,6 +28,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalStorage;
@@ -132,8 +133,11 @@ final class ReadCostTest extends KernelTestCase
 
         $view = $screen->build(new DbalReader($connection), Period::OneHour, self::NOW, 'total', 'desc');
 
-        static::assertNotNull($view->checks);
-        static::assertSame(['queries.repeated'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
+        $tags = [];
+        foreach ($view->tables[0]->rows as $row) {
+            $tags[$row->attributes['data-jm-route']] = array_map(static fn(Tag $tag): string => $tag->text, $row->cells['problems']->tags);
+        }
+        static::assertSame(['N+1'], $tags['GET app_list']);
         static::assertCount(self::BUDGET['requests'], $recorder->statements);
     }
 

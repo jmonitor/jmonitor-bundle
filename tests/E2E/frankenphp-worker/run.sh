@@ -132,6 +132,35 @@ flat() {
     printf '%s\n' "$1" | tr -s '\n ' '  '
 }
 
+tile() {
+    flat "$1" | sed -n 's|.*<section class="jm-tiles"\(.*\)|\1|p' | sed 's|</section>.*||' | sed 's/<[a-z]* class="jm-tile[ "]/\n&/g' | grep "class=\"jm-tile__label\">$2<" || true
+}
+
+tile_value() {
+    printf '%s\n' "$1" | sed -n 's|.*class="jm-tile__value">\([^<]*\)<.*|\1|p'
+}
+
+tags_of() {
+    printf '%s\n' "$1" | grep -o 'class="jm-tag[^"]*"[^>]*>[^<]*<' | sed 's/.*>\(.*\)</\1/' || true
+}
+
+route_row() {
+    flat "$1" | sed 's/<tr[ >]/\n&/g' | grep "data-jm-route=\"$2\"" || true
+}
+
+expect_tile() {
+    found=0
+    for _ in $(seq 1 30); do
+        page="$(curl -sf "$BASE$1")" || fail "GET $1 did not return 2xx"
+        if [ "$(tile_value "$(tile "$page" "$2")")" = "$3" ]; then
+            found=1
+            break
+        fi
+        sleep 1
+    done
+    [ "$found" = 1 ] || fail "$4 within 30 s"
+}
+
 overview_status='<h1 class="jm-heading__title">Overview</h1> <span class="jm-status__pill jm-status__pill--ok"><span class="jm-status__dot" aria-hidden="true"></span>Answers normally</span>'
 counted=0
 for _ in $(seq 1 30); do
@@ -328,10 +357,13 @@ printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requ
 if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen after the stopped MySQL server"
 fi
-printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">31 requests in the last hour, ' || fail "the Requests screen does not sum up 31 requests in its lead after the stopped MySQL server"
-printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-title">Nothing to flag<' || fail 'the Requests screen does not say "Nothing to flag" without a server error, a slow request or a repeated query'
-if printf '%s\n' "$page" | grep -q 'data-jm-check='; then
-    fail "the Requests screen flags a check without a server error, a slow request or a repeated query"
+[ "$(tile_value "$(tile "$page" Requests)")" = 31 ] || fail "the Requests tile of the Requests screen does not count 31 requests after the stopped MySQL server"
+for label in 'Server errors' 'Slow requests'; do
+    problem="$(tile "$page" "$label")"
+    [ "$(tile_value "$problem")" = 0 ] || fail "the $label tile of the Requests screen does not show 0 without a server error or a slow request: $problem"
+done
+if [ -n "$(tags_of "$(flat "$page" | sed -n 's|.*<section class="jm-tiles"\(.*\)|\1|p')")" ]; then
+    fail "the Requests screen carries a tag without a server error, a slow request or a repeated query"
 fi
 
 $COMPOSE up --detach --wait mysql >/dev/null 2>&1 || fail "the MySQL server could not be started again"
@@ -487,10 +519,17 @@ printf '%s\n' "$page" | grep -q '<strong>Repeated query (N+1)</strong> · GET ap
 
 # The first round runs in a worker that has already served the requests above, the second in a new one.
 captures_round 1
-expect_page /jmonitor/requests 'class="jm-heading__title jm-lead__title">40 requests in the last hour, ' 'the Requests screen did not sum up 40 requests in its lead'
-printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "the Requests screen does not flag the server errors"
-printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "the Requests screen does not name GET app_boom as the route that answered 2 server errors"
-printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Requests screen does not flag the query that GET app_n_plus_one repeats"
+expect_tile /jmonitor/requests Requests 40 'the Requests tile of the Requests screen did not count 40 requests'
+tile "$page" Requests | grep -q '<h1[ >]' || fail "the Requests tile does not title the Requests screen"
+server_errors="$(tile "$page" 'Server errors')"
+[ "$(tile_value "$server_errors")" = 2 ] || fail "the Server errors tile of the Requests screen does not count 2 server errors: $server_errors"
+[ "$(tags_of "$server_errors")" = Critical ] || fail "the Server errors tile of the Requests screen is not tagged Critical: $server_errors"
+boom="$(route_row "$page" 'GET app_boom')"
+[ "$(tags_of "$boom")" = '2 × 5xx' ] || fail "the route GET app_boom of the Requests screen is not tagged 2 × 5xx: $boom"
+printf '%s\n' "$boom" | grep -q '<a [^>]*href="/jmonitor/exceptions[?"][^>]*>2 × 5xx<' || fail "the 2 × 5xx tag of GET app_boom does not lead to the Exceptions screen: $boom"
+n_plus_one="$(route_row "$page" 'GET app_n_plus_one')"
+tags_of "$n_plus_one" | grep -qxF 'N+1' || fail "the route GET app_n_plus_one of the Requests screen is not tagged N+1: $n_plus_one"
+printf '%s\n' "$n_plus_one" | grep -q '<a [^>]*href="/jmonitor/queries[?"][^>]*>N+1<' || fail "the N+1 tag of GET app_n_plus_one does not lead to the Queries screen: $n_plus_one"
 printf '%s\n' "$page" | grep -q 'data-jm-slot="nav-application">.*title="1 critical in the last hour".*title="1 warning in the last hour"' || fail "the Application entry of the Requests screen does not count 1 critical check, the server errors, and 1 warning, the repeated query"
 [ "$(printf '%s\n' "$page" | grep -o 'class="jm-nav__item"' | wc -l)" = 3 ] || fail "the navigation of the Requests screen does not have three entries"
 stack="$(curl -sf "$BASE/jmonitor/stack")" || fail "GET /jmonitor/stack did not return 2xx"
@@ -498,7 +537,8 @@ printf '%s\n' "$stack" | grep -q 'data-jm-slot="nav-application"></span>' || fai
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/requests")" || fail "GET /admin/jmonitor/requests failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/requests answered $status instead of 200"
-printf '%s\n' "$admin" | grep -q 'class="jm-heading__title jm-lead__title">40 requests in the last hour, ' || fail "the Requests screen inside EasyAdmin does not sum up 40 requests in its lead"
+[ "$(tile_value "$(tile "$admin" Requests)")" = 40 ] || fail "the Requests tile of the Requests screen inside EasyAdmin does not count 40 requests"
+[ "$(tags_of "$(tile "$admin" 'Server errors')")" = Critical ] || fail "the Server errors tile of the Requests screen inside EasyAdmin is not tagged Critical"
 
 # The Redis server is also the one of cache.app, so of the cache of the Stack screen.
 $COMPOSE stop redis >/dev/null 2>&1 || fail "the Redis server could not be stopped"
@@ -587,4 +627,4 @@ if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; the Overview opens /jmonitor, also inside EasyAdmin, with its pill, its count of requests and the components it runs on, and ten displays of it start no slow read of the stack; the Requests and Queries screens sum up the period, have nothing to flag, then flag the server errors and the repeated query, also inside EasyAdmin; the Cache & HTTP, Exceptions and Background screens sum up the period, Exceptions with the server errors of the route that threw, the others with nothing to flag, Background also inside EasyAdmin; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, worth a look, without the badges of the application, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; the Overview opens /jmonitor, also inside EasyAdmin, with its pill, its count of requests and the components it runs on, and ten displays of it start no slow read of the stack; the Requests screen counts the period in its tiles, tags nothing, then tags the server errors in its tiles, also inside EasyAdmin, and the server errors and the repeated query on their routes; the Queries screen sums up the period and flags the repeated query; the Cache & HTTP, Exceptions and Background screens sum up the period, Exceptions with the server errors of the route that threw, the others with nothing to flag, Background also inside EasyAdmin; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, worth a look, without the badges of the application, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"

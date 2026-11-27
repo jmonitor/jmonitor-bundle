@@ -35,6 +35,12 @@ final class ApplicationChecks
         return isset($this->checks[$id]) ? $this->checks[$id]->query($period, $now) : null;
     }
 
+    /** null when no check has this id */
+    public function severity(string $id): ?Severity
+    {
+        return isset($this->checks[$id]) ? $this->checks[$id]->severity() : null;
+    }
+
     /**
      * @param list<string> $more metric types read in the same statement, whose totals the result gives too
      */
@@ -173,7 +179,7 @@ final class ApplicationChecks
 
     private static function mark(Severity $severity): Mark
     {
-        return new Mark($severity === Severity::Critical ? 'bad' : 'warn', $severity->label());
+        return new Mark($severity->tone(), $severity->label());
     }
 
     private function screenLabel(Finding $finding): string

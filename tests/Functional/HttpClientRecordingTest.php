@@ -56,13 +56,13 @@ final class HttpClientRecordingTest extends WebTestCase
         static::assertStringNotContainsString('secret', (string) $client->getResponse()->getContent());
 
         $crawler = $client->request('GET', '/jmonitor/requests');
-        $headers = $crawler->filter('section[aria-labelledby="jm-routes-title"] thead th')->each(
-            static fn(Crawler $th): string => trim(($th->filter('span')->count() > 0 ? $th->filter('span')->first() : $th)->text()),
+        $headers = $crawler->filter('#jm-routes-wrap thead th')->each(
+            static fn(Crawler $th): string => trim(($th->filter('.jm-visually-hidden')->count() > 0 ? $th->filter('.jm-visually-hidden') : $th)->text()),
         );
         $column = array_search('Where the average goes', $headers, true);
         static::assertIsInt($column, 'The Requests screen does not split the average of a route.');
         $cell = $crawler->filter('tr[data-jm-route="GET app_call"]')->filter('th, td')->eq($column);
-        static::assertMatchesRegularExpression('/^HTTP out \S+ ms/', trim($cell->filter('.jm-split__text')->text()));
+        static::assertMatchesRegularExpression('/^HTTP \S+ ms$/', trim($cell->filter('.jm-split__text')->text()));
         static::assertMatchesRegularExpression('/, HTTP out \S+ ms$/', trim($cell->filter('.jm-visually-hidden')->text()));
     }
 

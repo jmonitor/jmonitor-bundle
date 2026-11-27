@@ -77,6 +77,35 @@ flat() {
     printf '%s\n' "$1" | tr -s '\n ' '  '
 }
 
+tile() {
+    flat "$1" | sed -n 's|.*<section class="jm-tiles"\(.*\)|\1|p' | sed 's|</section>.*||' | sed 's/<[a-z]* class="jm-tile[ "]/\n&/g' | grep "class=\"jm-tile__label\">$2<" || true
+}
+
+tile_value() {
+    printf '%s\n' "$1" | sed -n 's|.*class="jm-tile__value">\([^<]*\)<.*|\1|p'
+}
+
+tags_of() {
+    printf '%s\n' "$1" | grep -o 'class="jm-tag[^"]*"[^>]*>[^<]*<' | sed 's/.*>\(.*\)</\1/' || true
+}
+
+route_row() {
+    flat "$1" | sed 's/<tr[ >]/\n&/g' | grep "data-jm-route=\"$2\"" || true
+}
+
+expect_tile() {
+    found=0
+    for _ in $(seq 1 30); do
+        page="$(curl -sf "$BASE$1")" || fail "GET $1 did not return 2xx"
+        if [ "$(tile_value "$(tile "$page" "$2")")" = "$3" ]; then
+            found=1
+            break
+        fi
+        sleep 1
+    done
+    [ "$found" = 1 ] || fail "$4 within 30 s"
+}
+
 overview_status='<h1 class="jm-heading__title">Overview</h1> <span class="jm-status__pill jm-status__pill--ok"><span class="jm-status__dot" aria-hidden="true"></span>Answers normally</span>'
 requests_box='<span class="jm-box__label">Requests</span> </span> <span class="jm-box__value">30</span>'
 counted=0
@@ -128,16 +157,24 @@ for _ in 1 2; do
     [ "$status" = 500 ] || fail "GET /boom answered $status instead of 500"
 done
 
-expect_page /jmonitor/requests 'class="jm-heading__title jm-lead__title">38 requests in the last hour, ' 'the Requests screen did not sum up 38 requests in its lead'
-printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "the Requests screen does not flag the server errors"
-printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "the Requests screen does not name GET app_boom as the route that answered 2 server errors"
-printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Requests screen does not flag the query that GET app_n_plus_one repeats"
+expect_tile /jmonitor/requests Requests 38 'the Requests tile of the Requests screen did not count 38 requests'
+tile "$page" Requests | grep -q '<h1[ >]' || fail "the Requests tile does not title the Requests screen"
+server_errors="$(tile "$page" 'Server errors')"
+[ "$(tile_value "$server_errors")" = 2 ] || fail "the Server errors tile of the Requests screen does not count 2 server errors: $server_errors"
+[ "$(tags_of "$server_errors")" = Critical ] || fail "the Server errors tile of the Requests screen is not tagged Critical: $server_errors"
+boom="$(route_row "$page" 'GET app_boom')"
+[ "$(tags_of "$boom")" = '2 × 5xx' ] || fail "the route GET app_boom of the Requests screen is not tagged 2 × 5xx: $boom"
+printf '%s\n' "$boom" | grep -q '<a [^>]*href="/jmonitor/exceptions[?"][^>]*>2 × 5xx<' || fail "the 2 × 5xx tag of GET app_boom does not lead to the Exceptions screen: $boom"
+n_plus_one="$(route_row "$page" 'GET app_n_plus_one')"
+tags_of "$n_plus_one" | grep -qxF 'N+1' || fail "the route GET app_n_plus_one of the Requests screen is not tagged N+1: $n_plus_one"
+printf '%s\n' "$n_plus_one" | grep -q '<a [^>]*href="/jmonitor/queries[?"][^>]*>N+1<' || fail "the N+1 tag of GET app_n_plus_one does not lead to the Queries screen: $n_plus_one"
 printf '%s\n' "$page" | grep -q 'data-jm-slot="nav-application">.*title="1 critical in the last hour".*title="1 warning in the last hour"' || fail "the Application entry of the Requests screen does not count 1 critical check, the server errors, and 1 warning, the repeated query"
 [ "$(printf '%s\n' "$page" | grep -o 'class="jm-nav__item"' | wc -l)" = 3 ] || fail "the navigation of the Requests screen does not have three entries"
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/requests")" || fail "GET /admin/jmonitor/requests failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/requests answered $status instead of 200"
-printf '%s\n' "$admin" | grep -q 'class="jm-heading__title jm-lead__title">38 requests in the last hour, ' || fail "the Requests screen inside EasyAdmin does not sum up 38 requests in its lead"
+[ "$(tile_value "$(tile "$admin" Requests)")" = 38 ] || fail "the Requests tile of the Requests screen inside EasyAdmin does not count 38 requests"
+[ "$(tags_of "$(tile "$admin" 'Server errors')")" = Critical ] || fail "the Server errors tile of the Requests screen inside EasyAdmin is not tagged Critical"
 
 expect_page /jmonitor/cache-http 'data-jm-pool="cache.app" data-jm-reads="3"' 'the Cache & HTTP screen did not list 3 reads of cache.app'
 printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">3 cache reads (67 % found) in the last hour.<' || fail "the Cache & HTTP screen does not sum up 3 cache reads in its lead"
@@ -306,4 +343,4 @@ if printf '%s\n' "$commands" | grep -q 'jmonitor:stack:queues'; then
     fail "the Background screen lists jmonitor:stack:queues"
 fi
 
-echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; the Overview opens /jmonitor, also inside EasyAdmin, with its pill, its count of requests and the components it runs on; the Requests, Queries, Cache & HTTP, Exceptions and Background screens sum up the period, flag the server errors, also on Exceptions, and the repeated query, and have nothing else to flag, also inside EasyAdmin; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, worth a look, without the badges of the application, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"
+echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; the Overview opens /jmonitor, also inside EasyAdmin, with its pill, its count of requests and the components it runs on; the Requests screen counts the period and tags the server errors in its tiles, also inside EasyAdmin, and tags the server errors and the repeated query on their routes; the Queries, Cache & HTTP, Exceptions and Background screens sum up the period, flag the server errors on Exceptions and the repeated query on Queries, and have nothing else to flag, also inside EasyAdmin; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, worth a look, without the badges of the application, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"

@@ -8,5 +8,8 @@
             {%- endfor -%}
         </svg>
     {%- endif -%}
-    <span class="jm-split__text" aria-hidden="true" title="{{ cell.text }}">{{ cell.text }}</span><span class="jm-visually-hidden">{{ cell.data.spoken }}</span></span>
+    {%- if cell.text is not same as('') -%}
+    <span class="jm-split__text" aria-hidden="true" title="{{ cell.text }}">{{ cell.text }}</span>
+    {%- endif -%}
+    <span class="jm-visually-hidden">{{ cell.data.spoken }}</span></span>
 {%- endautoescape %}

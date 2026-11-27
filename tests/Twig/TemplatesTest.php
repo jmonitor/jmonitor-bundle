@@ -54,6 +54,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tile;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Jmonitor\JmonitorBundle\Embed\PageContent;
 use Jmonitor\JmonitorBundle\Stack\Component;
@@ -1681,6 +1682,274 @@ final class TemplatesTest extends TestCase
         foreach (['a string', ['overview', 'requests', 'cache-http'], new \ArrayObject(['title' => 'x', 'mark' => null, 'alerts' => [], 'path' => 'cache-http', 'query' => []]), new \stdClass(), true, false, null] as $global) {
             static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['status', 'status_view', 'alerts', 'alert', 'alert_list', 'linked', 'heading', 'map', 'box', 'mark', 'section', 'page_title', 'screens'], $global)));
         }
+    }
+
+    public function testTilesThatOpenThePageNameItWithTheLabelOfOneTile(): void
+    {
+        $crawler = new Crawler($this->tilesPage([Block::tiles(self::requestTiles()), Block::table(self::slimTable())]));
+
+        static::assertSame(['Requests'], $crawler->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()));
+        static::assertCount(0, $crawler->filter('.jm-heading'));
+        static::assertSame('Requests', $crawler->filter('.jm-screen > section.jm-tiles[aria-label="Summary"] > .jm-tile--series h1.jm-tile__label')->text());
+        static::assertCount(0, $crawler->filter('.jm-tiles h2'));
+        static::assertSame(['Average', 'Server errors', 'Slow requests', 'Failed'], $crawler->filter('.jm-tiles span.jm-tile__label')->each(static fn(Crawler $label): string => $label->text()));
+    }
+
+    public function testTilesThatDoNotOpenThePageLeaveItsTitleAndNameNothing(): void
+    {
+        $notice = Block::notice(new Notice('info', 'Note'));
+        $crawler = new Crawler($this->tilesPage([$notice, Block::tiles(self::requestTiles()), Block::table(self::slimTable())]));
+
+        static::assertSame(['Stub'], $crawler->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()));
+        static::assertSame('Stub heading, last hour.', $crawler->filter('.jm-heading > .jm-heading__text')->text());
+        static::assertSame('Requests', $crawler->filter('.jm-tiles h2.jm-tile__label')->text());
+
+        $unnamed = new Crawler($this->tilesPage([Block::tiles([new Tile('Average', '7 ms'), new Tile('p95', '12 ms')]), Block::table(self::slimTable())]));
+
+        static::assertSame(['Stub'], $unnamed->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()));
+        static::assertCount(0, $unnamed->filter('.jm-tiles h1, .jm-tiles h2'));
+
+        $twice = new Crawler($this->tilesPage([Block::tiles([new Tile('Requests', '12', namesPage: true), new Tile('Runs', '3', namesPage: true)])]));
+
+        static::assertSame(['Requests'], $twice->filter('h1')->each(static fn(Crawler $h1): string => $h1->text()));
+        static::assertSame('Runs', $twice->filter('.jm-tiles h2.jm-tile__label')->text());
+    }
+
+    public function testATileShowsItsLabelItsValueItsTagAndItsCurve(): void
+    {
+        $tiles = (new Crawler($this->tilesPage([Block::tiles(self::requestTiles()), Block::table(self::slimTable())])))->filter('.jm-tiles > .jm-tile');
+
+        static::assertSame(
+            ['jm-tile jm-tile--series', 'jm-tile', 'jm-tile jm-tile--bad', 'jm-tile jm-tile--zero', 'jm-tile jm-tile--warn'],
+            $tiles->each(static fn(Crawler $tile): string => (string) $tile->attr('class')),
+        );
+        static::assertSame(['Requests 1,284', 'Average 7 ms', 'Server errors 12 Critical', 'Slow requests 0', 'Failed 3 Warning'], $tiles->each(static fn(Crawler $tile): string => $tile->text()));
+        static::assertSame([null, 'The mean response time.', 'Responses with a 5xx status.', '1 s or more.', null], $tiles->each(static fn(Crawler $tile): ?string => $tile->attr('title')));
+        static::assertSame(['div', 'svg'], $tiles->eq(0)->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertSame('img', $tiles->eq(0)->filter('svg.jm-sparkline')->attr('role'));
+        static::assertCount(1, $tiles->filter('svg'));
+        static::assertSame(['jm-tile__value', 'jm-tag jm-tag--bad'], $tiles->eq(2)->filter('.jm-tile__line')->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
+        static::assertSame('Warning', $tiles->eq(4)->filter('.jm-tag.jm-tag--warn')->text());
+        static::assertCount(2, $tiles->filter('.jm-tag'));
+    }
+
+    public function testATileWithATagAndASortLeadsToTheTableSortedThatWay(): void
+    {
+        $crawler = new Crawler($this->tilesPage([Block::tiles(self::requestTiles()), Block::table(self::slimTable())]));
+        $tiles = $crawler->filter('.jm-tiles > .jm-tile');
+
+        static::assertSame(['div', 'div', 'a', 'div', 'div'], $tiles->each(static fn(Crawler $tile): string => $tile->nodeName()));
+        static::assertSame('/host/page/stub?menu=3&period=1h&sort=problems&dir=desc#jm-routes-wrap', $tiles->eq(2)->attr('href'));
+        static::assertCount(1, $crawler->filter('#jm-routes-wrap'));
+        static::assertCount(0, $crawler->filter('.jm-tile a, .jm-tile h1 a'));
+    }
+
+    public function testWithoutPeriodATileLeadsToThePageLikeTheSortLinksOfTheTable(): void
+    {
+        $crawler = new Crawler($this->tilesPage([Block::tiles([new Tile('Server errors', '12', tag: new Tag('Critical', 'bad'), sort: 'problems')]), Block::table(self::slimTable())], null));
+
+        static::assertSame('/host/page/stub?menu=3', $crawler->filter('#jm-routes-wrap a.jm-sort')->attr('href'));
+        static::assertSame('/host/page/stub?menu=3#jm-routes-wrap', $crawler->filter('a.jm-tile')->attr('href'));
+    }
+
+    public function testATileLeadsToTheFirstTableThatIsReady(): void
+    {
+        $linked = new Tile('Server errors', '12', tag: new Tag('Critical', 'bad'), sort: 'problems');
+        $crawler = new Crawler($this->tilesPage([Block::tiles([$linked]), Block::unavailable(Block::TABLE, BlockState::Error), Block::table(self::slimTable())]));
+
+        static::assertSame('/host/page/stub?menu=3&period=1h&sort=problems&dir=desc#jm-routes-wrap', $crawler->filter('a.jm-tile')->attr('href'));
+
+        $none = new Crawler($this->tilesPage([Block::tiles([$linked]), Block::unavailable(Block::TABLE, BlockState::Empty, 'Nothing yet')]));
+
+        static::assertSame('/host/page/stub?menu=3&period=1h&sort=problems&dir=desc', $none->filter('a.jm-tile')->attr('href'));
+    }
+
+    public function testATileLeadsToThePathOfThePageRatherThanToTheIdOfItsScreen(): void
+    {
+        $page = new Page(new StubScreen(), [Block::tiles([new Tile('Server errors', '12', tag: new Tag('Critical', 'bad'), sort: 'problems')])], Period::OneHour, 'count', 'desc', (new StubScreen())->sorts());
+        $crawler = new Crawler($this->render('_screen.html.twig', ['page' => $page, 'path' => 'stub/mirror', 'badges' => [], 'screens' => ['stub']]));
+
+        static::assertSame('/host/page/stub/mirror?menu=3&period=1h&sort=problems&dir=desc', $crawler->filter('a.jm-tile')->attr('href'));
+    }
+
+    public function testOnlyAValueOfZeroIsMuted(): void
+    {
+        $tiles = (new Crawler($this->tilesPage([Block::tiles([new Tile('Errors', '0'), new Tile('Average', '0 ms'), new Tile('p95', '0.4 s'), new Tile('Slow', '00')])])))->filter('.jm-tile');
+
+        static::assertSame(['jm-tile jm-tile--zero', 'jm-tile', 'jm-tile', 'jm-tile'], $tiles->each(static fn(Crawler $tile): string => (string) $tile->attr('class')));
+    }
+
+    public function testATileWithASortButNoTagIsNotALink(): void
+    {
+        foreach ([null, Period::OneHour] as $period) {
+            $crawler = new Crawler($this->tilesPage([Block::tiles([new Tile('Slow requests', '0', sort: 'problems')]), Block::table(self::slimTable())], $period));
+
+            static::assertSame('div', $crawler->filter('.jm-tile')->nodeName());
+            static::assertNull($crawler->filter('.jm-tile')->attr('href'));
+        }
+    }
+
+    public function testATileWithATagButNoSortIsNotALink(): void
+    {
+        foreach ([null, Period::OneHour] as $period) {
+            $crawler = new Crawler($this->tilesPage([Block::tiles([new Tile('Failed', '3', tag: new Tag('Warning', 'warn'))]), Block::table(self::slimTable())], $period));
+
+            static::assertSame('div', $crawler->filter('.jm-tile')->nodeName());
+            static::assertNull($crawler->filter('.jm-tile')->attr('href'));
+        }
+    }
+
+    public function testASplitWithoutTextOnlySpeaksItsParts(): void
+    {
+        $html = $this->render('_split.html.twig', ['cell' => Cell::split(['php' => 12.0, 'sql' => 0.0, 'http' => 0.0], '')]);
+        $split = (new Crawler($html))->filter('.jm-split');
+
+        static::assertCount(0, $split->filter('.jm-split__text'));
+        static::assertStringNotContainsString('title=', $html);
+        static::assertSame('PHP 12 ms, SQL 0 ms, HTTP out 0 ms', $split->filter('.jm-visually-hidden')->text());
+    }
+
+    public function testASplitWithATextIsRenderedAsBefore(): void
+    {
+        $html = $this->render('_split.html.twig', ['cell' => Cell::averageSplit(40.0, 10.0, 2.0, null)]);
+
+        static::assertSame(
+            '<span class="jm-split"><svg viewBox="0 0 96 8" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="jm-split__part jm-split__part--php" x="0" width="70.5" height="8"/><rect class="jm-split__part jm-split__part--sql" x="72.5" width="23.5" height="8"/></svg><span class="jm-split__text" aria-hidden="true" title="SQL 10 ms · 2.0 queries">SQL 10 ms · 2.0 queries</span><span class="jm-visually-hidden">PHP 30 ms, SQL 10 ms, HTTP out 0 ms, 2.0 queries</span></span>',
+            $html,
+        );
+    }
+
+    public function testATagLeadsToItsScreenOnlyWhenItIsAvailable(): void
+    {
+        $tags = Cell::tags([new Tag('12 × 5xx', 'bad', 'exceptions'), new Tag('N+1', 'warn', 'queries'), new Tag('slow', 'warn'), new Tag('3 × 5xx', 'bad', 'stack/php')]);
+        $table = new Table('routes', 'Routes', [new Column('name', 'Name', false), new Column('problems', 'Problems', false)], [new Row('k1', ['name' => new Cell('a'), 'problems' => $tags])]);
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table), 'screens' => ['exceptions', 'stack']]);
+        $cell = (new Crawler($html))->filter('td.jm-col-problems');
+
+        static::assertSame(['a', 'span', 'span', 'a'], $cell->children()->each(static fn(Crawler $tag): string => $tag->nodeName()));
+        static::assertSame(['/host/page/exceptions?menu=3&period=1h', '/host/page/stack/php?menu=3&period=1h'], $cell->filter('a')->each(static fn(Crawler $a): string => (string) $a->attr('href')));
+        static::assertSame(['jm-tag jm-tag--bad', 'jm-tag jm-tag--warn', 'jm-tag jm-tag--warn', 'jm-tag jm-tag--bad'], $cell->children()->each(static fn(Crawler $tag): string => (string) $tag->attr('class')));
+        static::assertSame('12 × 5xx N+1 slow 3 × 5xx', $cell->text());
+    }
+
+    public function testAColumnCanCarryADefinitionOrTheLegendOfTheParts(): void
+    {
+        $columns = [
+            new Column('route', 'Route', false),
+            new Column('p95', 'p95', definition: '95 % of the requests are faster.'),
+            new Column('split', 'Where the average goes', false, legend: true),
+            new Column('parts', 'Parts', false, 'parts', legend: true),
+        ];
+        $table = new Table('routes', 'Routes', $columns, [new Row('k1', ['route' => new Cell('a'), 'split' => Cell::split(['php' => 1.0, 'sql' => 1.0, 'http' => 0.0], 'SQL 1 ms')])]);
+        $crawler = new Crawler($this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]));
+        $heads = $crawler->filter('thead th');
+
+        static::assertSame([null, '95 % of the requests are faster.', null, null], $heads->each(static fn(Crawler $th): ?string => $th->attr('title')));
+        static::assertSame('p95', trim($heads->eq(1)->text()));
+        foreach ([$heads->eq(2), $heads->eq(3)->filter('a.jm-sort')] as $i => $head) {
+            static::assertSame(['Where the average goes', 'Parts'][$i], $head->filter('.jm-visually-hidden')->text());
+            $legend = $head->filter('.jm-legend[aria-hidden="true"]');
+            static::assertSame(['PHP', 'SQL', 'HTTP'], $legend->filter('.jm-legend__item')->each(static fn(Crawler $item): string => $item->text()));
+            static::assertSame('PHP SQL HTTP', $legend->text());
+            static::assertSame(['jm-legend__swatch jm-legend__swatch--php', 'jm-legend__swatch jm-legend__swatch--sql', 'jm-legend__swatch jm-legend__swatch--http'], $legend->filter('.jm-legend__swatch')->each(static fn(Crawler $swatch): string => (string) $swatch->attr('class')));
+        }
+        static::assertCount(0, $crawler->filter('.jm-panel__header .jm-legend'));
+        static::assertSame('jm-table jm-table--legend', $crawler->filter('table')->attr('class'));
+        static::assertCount(2, $crawler->filter('thead th .jm-legend-heading > .jm-visually-hidden + .jm-legend'));
+
+        $plain = new Table('routes', 'Routes', [new Column('route', 'Route', false), new Column('split', 'Where the average goes', false)], [new Row('k1', ['route' => new Cell('a')])]);
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$plain])), 'block' => Block::table($plain)]);
+
+        static::assertStringContainsString('<table class="jm-table">', $html);
+        static::assertStringNotContainsString('jm-legend', $html);
+    }
+
+    public function testATableWhoseColumnsOnlyCarryADefinitionKeepsItsPlainClass(): void
+    {
+        $table = new Table('routes', 'Routes', [new Column('route', 'Route', false), new Column('p95', 'p95', definition: '95 % of the requests are faster.')], [new Row('k1', ['route' => new Cell('a'), 'p95' => new Cell('12 ms')])]);
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]);
+
+        static::assertStringContainsString('<table class="jm-table">', $html);
+        static::assertStringNotContainsString('jm-table--legend', $html);
+    }
+
+    public function testATableWithoutItsLineOfTitleKeepsItsNameForAssistiveTechnologyAndItsFooter(): void
+    {
+        $table = self::slimTable();
+        $crawler = new Crawler($this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$table])), 'block' => Block::table($table)]));
+        $panel = $crawler->filter('.jm-panel');
+
+        static::assertSame('div', $panel->nodeName());
+        static::assertNull($panel->attr('aria-labelledby'));
+        static::assertCount(0, $crawler->filter('.jm-panel__header, h2, .jm-panel__meta, .jm-legend'));
+        static::assertSame(['region', 'Routes', null], [$crawler->filter('#jm-routes-wrap')->attr('role'), $crawler->filter('#jm-routes-wrap')->attr('aria-label'), $crawler->filter('#jm-routes-wrap')->attr('aria-labelledby')]);
+        static::assertSame(['3 more routes not shown', 'A note under the table.'], $panel->children('p')->each(static fn(Crawler $p): string => $p->text()));
+
+        $section = new Section('routes', 'Routes', 'Pages.', [Block::table($table)]);
+        $inSection = new Crawler($this->composed(Block::section($section)));
+
+        static::assertSame('jm-section-routes-title', $inSection->filter('.jm-table-wrap')->attr('aria-labelledby'));
+        static::assertCount(0, $inSection->filter('.jm-panel__header'));
+    }
+
+    public function testTheTextsOfTheTilesAndOfTheBareTableAreEscaped(): void
+    {
+        $h = self::HOSTILE;
+        $table = new Table('routes', $h, [new Column('route', $h, false), new Column('p95', $h, definition: $h), new Column('split', $h, false, legend: true), new Column('problems', $h, false)], [
+            new Row('k1', ['route' => Cell::route('GET ' . $h, definition: $h), 'problems' => Cell::tags([new Tag($h, 'bad', 'stub'), new Tag($h, 'warn')])]),
+        ], 2, titled: false);
+        $html = $this->tilesPage([Block::tiles([new Tile($h, $h, $h, new Tag($h, 'bad'), [1, 2], 'problems', true), new Tile($h, '0', $h)]), Block::table($table)]);
+
+        static::assertStringContainsString('&lt;b&gt;&amp;&quot;x', $html);
+        static::assertStringNotContainsString('<b>', $html);
+        static::assertStringNotContainsString('&"x', $html);
+        static::assertDoesNotMatchRegularExpression('/\sstyle=/', $html);
+        static::assertSame($h, (new Crawler($html))->filter('#jm-routes-wrap')->attr('aria-label'));
+        static::assertSame($h, (new Crawler($html))->filter('code.jm-route')->attr('title'));
+    }
+
+    public function testAHostGlobalDoesNotStandInForAVariableOfTheTilesOrOfTheBareTable(): void
+    {
+        $context = ['page' => new Page(new StubScreen(), [Block::tiles(self::requestTiles()), Block::table(self::slimTable())], Period::OneHour, 'count', 'desc', (new StubScreen())->sorts()), 'path' => 'stub', 'badges' => [], 'screens' => ['stub', 'exceptions']];
+        $expected = $this->render('_screen.html.twig', $context);
+
+        static::assertStringContainsString('<h1 class="jm-tile__label">Requests</h1>', $expected);
+        static::assertStringContainsString('href="/host/page/exceptions?menu=3&amp;period=1h"', $expected);
+        static::assertStringContainsString('#jm-routes-wrap', $expected);
+        foreach (['a string', ['stub', 'exceptions', 'queries'], new \ArrayObject(['id' => 'x', 'path' => 'queries', 'sort' => 'name', 'tone' => 'bad', 'text' => 'x', 'legend' => true, 'definition' => 'x', 'namesPage' => true]), new \stdClass(), true, false, null] as $global) {
+            static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['tile', 'tag', 'column', 'title', 'label', 'chip', 'chip_linked', 'linked', 'element', 'heading', 'titled', 'target', 'period_query', 'part', 'word', 'section', 'page_title', 'screens'], $global)));
+        }
+    }
+
+    /** @return list<Tile> */
+    private static function requestTiles(): array
+    {
+        return [
+            new Tile('Requests', '1,284', series: [1, 4, 2, 6], namesPage: true),
+            new Tile('Average', '7 ms', 'The mean response time.'),
+            new Tile('Server errors', '12', 'Responses with a 5xx status.', new Tag('Critical', 'bad'), sort: 'problems'),
+            new Tile('Slow requests', '0', '1 s or more.', sort: 'problems'),
+            new Tile('Failed', '3', tag: new Tag('Warning', 'warn')),
+        ];
+    }
+
+    private static function slimTable(): Table
+    {
+        return new Table('routes', 'Routes', [
+            new Column('route', 'Route', false, 'route'),
+            new Column('problems', 'Problems', false),
+        ], [
+            new Row('k1', ['route' => Cell::route('GET app_checkout'), 'problems' => Cell::tags([new Tag('12 × 5xx', 'bad', 'exceptions'), new Tag('N+1', 'warn', 'queries')])]),
+            new Row('k2', ['route' => Cell::route('GET (unmatched)', definition: 'Requests that matched no route.'), 'problems' => Cell::tags([])]),
+        ], 3, 'route', footnote: 'A note under the table.', titled: false);
+    }
+
+    /** @param list<Block> $blocks */
+    private function tilesPage(array $blocks, ?Period $period = Period::OneHour): string
+    {
+        $page = new Page(new StubScreen(), $blocks, $period, $period === null ? '' : 'count', $period === null ? '' : 'desc', $period === null ? [] : (new StubScreen())->sorts());
+
+        return $this->render('_screen.html.twig', ['page' => $page, 'path' => 'stub', 'badges' => [], 'screens' => ['stub', 'exceptions']]);
     }
 
     /** @param list<string> $screens */

@@ -392,6 +392,8 @@ final class ScreenBuilder
 
         if ($view->map !== null) {
             $blocks[] = Block::map($view->map);
+        } elseif ($view->tiles !== []) {
+            $blocks[] = Block::tiles($view->tiles);
         } elseif ($view->cards !== [] || ($view->status === null && $view->lead === null && $view->places === null)) {
             $blocks[] = Block::cards($view->cards);
         }

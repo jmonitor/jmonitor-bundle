@@ -882,6 +882,136 @@ final class StylesheetTest extends TestCase
         static::assertContains(['forced-color-adjust', 'none'], self::declarationsOf('.jm-status__dot', $forced));
     }
 
+    public function testTheTilesAndTheBareTableAreStyledUnderJm(): void
+    {
+        $selectors = [];
+        foreach (self::rules() as $rule) {
+            array_push($selectors, ...$rule['selectors']);
+        }
+
+        foreach (['.jm-tiles', '.jm-tile', '.jm-tile--series', '.jm-tile--zero', '.jm-tile--warn', '.jm-tile--bad', '.jm-tile__figure', '.jm-tile__line', '.jm-tile__label', '.jm-tile__value'] as $class) {
+            static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => preg_match('/' . preg_quote($class, '/') . '(?![a-z0-9_-])/', $selector) === 1), $class);
+        }
+    }
+
+    public function testTheTilesWrapAndFillTheirRow(): void
+    {
+        static::assertSame([['display', 'flex'], ['flex-wrap', 'wrap'], ['gap', '12px'], ['margin-bottom', '20px']], self::declarationsOf('.jm-tiles', null));
+        static::assertContains(['flex', '1 0 auto'], self::declarationsOf('.jm-tile', null), 'a tile takes the width of its content and shares what its row leaves');
+        static::assertContains(['min-width', '132px'], self::declarationsOf('.jm-tile', null));
+        static::assertSame([['flex', '1000 1 200px']], self::declarationsOf('.jm-tile--series', null), 'the tile with a curve takes nearly all the room left on its row; five tiles stand on one row of 917 px');
+        static::assertContains(['min-width', '168px'], self::declarationsOf('.jm-tile--warn', null));
+        static::assertContains(['min-width', '168px'], self::declarationsOf('.jm-tile--bad', null));
+        static::assertContains(['flex', '1 1 0'], self::declarationsOf('.jm-tile .jm-sparkline', null));
+        static::assertContains(['max-width', 'none'], self::declarationsOf('.jm-tile .jm-sparkline', null));
+    }
+
+    public function testTheLabelOfATileIsInMutedSmallCapitalsAndItsValueInTabularFigures(): void
+    {
+        $label = self::declarationsOf('.jm .jm-tile__label', null);
+        $value = self::declarationsOf('.jm .jm-tile__value', null);
+
+        static::assertContains(['color', 'var(--jm-muted)'], $label);
+        static::assertContains(['font-size', '11px'], $label);
+        static::assertContains(['text-transform', 'uppercase'], $label);
+        static::assertContains(['color', 'var(--jm-text-strong)'], $value);
+        static::assertContains(['font-size', '22px'], $value);
+        static::assertContains(['font-variant-numeric', 'tabular-nums'], $value);
+        static::assertSame([['color', 'var(--jm-muted)']], self::declarationsOf('.jm-tile--zero .jm-tile__value', null));
+        foreach (['.jm-tile__label', '.jm-tile__value'] as $class) {
+            static::assertSame([], self::declarationsOf($class, null), $class . ' sits on a heading or a paragraph: its rules go through .jm');
+        }
+    }
+
+    public function testAToneOnlyColoursTheFrameOfATile(): void
+    {
+        static::assertSame([['min-width', '168px'], ['border-color', 'var(--jm-warn-border)']], self::declarationsOf('.jm-tile--warn', null));
+        static::assertSame([['min-width', '168px'], ['border-color', 'var(--jm-bad-border)']], self::declarationsOf('.jm-tile--bad', null));
+    }
+
+    public function testATileOrATagThatIsALinkKeepsItsColours(): void
+    {
+        static::assertContains(['color', 'inherit'], self::declarationsOf('.jm-tile', null));
+        static::assertContains(['text-decoration', 'none'], self::declarationsOf('.jm-tile', null));
+        static::assertContains(['color', 'inherit'], self::declarationsOf('.jm-tile[href]:hover', null));
+        static::assertSame(self::declarationsOf('.jm-tag--warn', null), self::declarationsOf('.jm a.jm-tag--warn', null));
+        static::assertSame(self::declarationsOf('.jm-tag--bad', null), self::declarationsOf('.jm a.jm-tag--bad', null));
+        static::assertContains(['color', 'var(--jm-warn)'], self::declarationsOf('.jm a.jm-tag--warn', null));
+        static::assertContains(['color', 'var(--jm-bad)'], self::declarationsOf('.jm a.jm-tag--bad', null));
+        static::assertSame([['text-decoration', 'none']], self::declarationsOf('.jm a.jm-tag', null));
+        static::assertSame([['text-decoration', 'underline']], self::declarationsOf('.jm a.jm-tag:hover', null));
+    }
+
+    public function testTheLegendInAHeaderStaysOnOneLineInTheLettersOfTheHeader(): void
+    {
+        static::assertSame([['flex-wrap', 'nowrap'], ['gap', '12px'], ['margin', '0'], ['color', 'inherit'], ['font-size', 'inherit']], self::declarationsOf('.jm-table .jm-legend', null));
+    }
+
+    public function testTheHiddenNameOfAHeaderStaysInsideTheScrollingBoxOfItsTable(): void
+    {
+        static::assertContains(['position', 'absolute'], self::declarationsOf('.jm-visually-hidden', null));
+        static::assertSame([['position', 'relative'], ['display', 'block']], self::declarationsOf('.jm-legend-heading', null), 'the name of a legend header is placed against its heading, not against the page');
+        static::assertContains(['position', 'relative'], self::declarationsOf('.jm-sort', null), 'the name of a sortable legend header is placed against its link');
+    }
+
+    public function testTheTableATileLeadsToStopsUnderTheStickyHeaderAtEachStep(): void
+    {
+        $steps = [];
+        foreach (self::rules() as $rule) {
+            if (\in_array('body.jm .jm-section', $rule['selectors'], true)) {
+                foreach ($rule['declarations'] as [$property, $value]) {
+                    if ($property === 'scroll-margin-top') {
+                        $steps[$rule['at'] ?? ''] = $value;
+                    }
+                }
+            }
+        }
+
+        static::assertCount(4, $steps);
+        foreach ($steps as $at => $margin) {
+            static::assertSame([['scroll-margin-top', $margin]], self::declarationsOf('body.jm .jm-table-wrap', $at === '' ? null : $at), $at);
+        }
+
+        foreach (self::rules() as $rule) {
+            foreach ($rule['selectors'] as $selector) {
+                if (str_contains($selector, '.jm-table-wrap') && \in_array('scroll-margin-top', array_column($rule['declarations'], 0), true)) {
+                    static::assertStringStartsWith('body.jm ', $selector, 'without the sticky header of the standalone page, nothing holds the table back');
+                }
+            }
+        }
+    }
+
+    public function testATableWithTheLegendInItsHeaderSparesItsRoomToFitTheBoxOfEasyAdmin(): void
+    {
+        static::assertSame([['padding-right', '6px'], ['padding-left', '6px']], self::declarationsOf('.jm-table.jm-table--legend :is(th, td).jm-num:not(:first-child)', null));
+        static::assertSame([['min-width', '220px']], self::declarationsOf('.jm-table.jm-table--legend .jm-col-route', null));
+        static::assertSame([['width', '140px']], self::declarationsOf('.jm-table--legend .jm-bar', null));
+        static::assertSame([['white-space', 'normal']], self::declarationsOf('.jm-table.jm-table--legend tbody td.jm-col-problems', null), 'the tags of a route wrap rather than widen the table');
+        static::assertContains(['white-space', 'nowrap'], self::declarationsOf('.jm-tag', null), 'a tag never breaks inside itself');
+        static::assertSame([['padding-left', '10px']], self::declarationsOf('.jm-table:has(.jm-split) :is(th, td):not(:first-child)', null), 'the tables of Background keep their room');
+        static::assertContains(['width', '160px'], self::declarationsOf('.jm-bar', null));
+    }
+
+    public function testTheTilesAndTheTableWithTheLegendKeepTheirWidthWithoutHas(): void
+    {
+        $has = [];
+        foreach (self::rules() as $rule) {
+            foreach ($rule['selectors'] as $selector) {
+                if (str_contains($selector, ':has(')) {
+                    $has[] = $selector;
+                }
+            }
+        }
+
+        static::assertNotEmpty($has);
+        foreach ($has as $selector) {
+            static::assertDoesNotMatchRegularExpression('/jm-tiles?\b|jm-tile_|jm-tile-|jm-legend-heading|jm-table--legend|jm-table-wrap/', $selector, 'a browser without :has() would let the page or the table grow');
+            if (str_contains($selector, 'jm-legend')) {
+                static::assertSame('.jm-panel__header:has(> .jm-legend)', $selector, 'the legend in a header of a table holds without :has()');
+            }
+        }
+    }
+
     private static function withoutHostAncestor(string $selector): string
     {
         foreach (self::HOST_ANCESTORS as $ancestor) {

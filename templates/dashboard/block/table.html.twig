@@ -3,8 +3,9 @@
 {% set section = section ?? null %}
 {% set title_id = section ? 'jm-section-' ~ section.id ~ '-title' : 'jm-' ~ table.id ~ '-title' %}
 {% set shown = table.rows|filter(row => not row.muted and not row.nested)|length + table.remaining %}
-{% set panel = section ? 'div' : 'section' %}
-<{{ panel }} class="jm-panel"{% if not section %} aria-labelledby="{{ title_id }}"{% endif %}>
+{% set panel = section or not table.titled ? 'div' : 'section' %}
+<{{ panel }} class="jm-panel"{% if panel == 'section' %} aria-labelledby="{{ title_id }}"{% endif %}>
+{% if table.titled %}
     <div class="jm-panel__header">
 {% if not section %}
         <h2 class="jm-panel__title" id="{{ title_id }}">{{ table.title }}</h2>
@@ -18,24 +19,33 @@
         </div>
 {% endif %}
     </div>
-    <div class="jm-table-wrap" id="jm-{{ table.id }}-wrap" role="region" aria-labelledby="{{ title_id }}" tabindex="0">
-        <table class="jm-table">
+{% endif %}
+    <div class="jm-table-wrap" id="jm-{{ table.id }}-wrap" role="region" {% if section or table.titled %}aria-labelledby="{{ title_id }}"{% else %}aria-label="{{ table.title }}"{% endif %} tabindex="0">
+        <table class="jm-table{{ table.columns|filter(column => column.legend) is not empty ? ' jm-table--legend' }}">
             <thead>
                 <tr>
                     {% for column in table.columns %}
                         {% set active = column.sort is not null and column.sort == (section ? section.sort : page.sort) %}
                         {%~ set direction = active ? (section ? section.direction : page.direction) : '' %}
-                        <th scope="col" class="{{ column.numeric ? 'jm-num' : 'jm-col-' ~ column.id }}{{ active ? ' is-sorted' }}"
+                        <th scope="col"{% if column.definition is not null %} title="{{ column.definition }}"{% endif %} class="{{ column.numeric ? 'jm-num' : 'jm-col-' ~ column.id }}{{ active ? ' is-sorted' }}"
                             {% if active %}aria-sort="{{ direction == 'asc' ? 'ascending' : 'descending' }}"{% endif %}>
                             {% if column.sort is not null %}
                                 <a class="jm-sort" href="{{ section
                                     ? urls.page(path ?? page.screen.id, (page.period ? {period: page.period.label} : {})|merge({sort: section.id ~ '.' ~ column.sort, dir: section.directionFor(column.sort)})) ~ '#jm-' ~ section.id
                                     : urls.page(path ?? page.screen.id, page.period ? {period: page.period.label, sort: column.sort, dir: page.directionFor(column.sort)} : {}) }}">
+{% if column.legend %}
+                                    {{ include('@Jmonitor/dashboard/_legend.html.twig', {label: column.label}, with_context = false) }}
+{% else %}
                                     <span>{{ column.label }}</span>
+{% endif %}
                                     <span class="jm-sort__icon" aria-hidden="true">{{ active ? (direction == 'asc' ? '↑' : '↓') : '↕' }}</span>
                                 </a>
                             {% else %}
+{% if column.legend %}
+                                {{ include('@Jmonitor/dashboard/_legend.html.twig', {label: column.label}, with_context = false) }}
+{% else %}
                                 {{ column.label }}
+{% endif %}
                             {% endif %}
                         </th>
                     {% endfor %}
@@ -67,7 +77,8 @@
                                     {{ include('@Jmonitor/dashboard/_split.html.twig', {cell: cell}, with_context = false) }}
                                 {%- elseif cell.kind == 'tags' -%}
                                     {%- for chip in cell.tags -%}
-                                        {{ loop.first ? '' : ' ' }}<span class="jm-tag jm-tag--{{ chip.tone }}">{{ chip.text }}</span>
+                                        {%- set chip_linked = chip.path is not null and (chip.path|split('/')|first) in screens -%}
+                                        {{ loop.first ? '' : ' ' }}{% if chip_linked %}<a class="jm-tag jm-tag--{{ chip.tone }}" href="{{ urls.page(chip.path, page.period ? {period: page.period.label} : {}) }}">{{ chip.text }}</a>{% else %}<span class="jm-tag jm-tag--{{ chip.tone }}">{{ chip.text }}</span>{% endif %}
                                     {%- endfor -%}
                                 {%- else -%}
                                     {{ cell.text }}

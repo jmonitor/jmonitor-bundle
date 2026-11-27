@@ -19,6 +19,8 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Section;
 use Jmonitor\JmonitorBundle\Dashboard\View\Status;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tile;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -35,6 +37,29 @@ final class BlockTest extends TestCase
         $table = new Table('stubs', 'Stubs', [], []);
         $block = Block::table($table);
         static::assertSame([Block::TABLE, BlockState::Ready, $table], [$block->type, $block->state, $block->content]);
+    }
+
+    public function testTilesAreReadyWithTheirContentAndNameTheirTemplate(): void
+    {
+        $tiles = [new Tile('Requests', '1,284', series: [1, 3, 2], namesPage: true), new Tile('Server errors', '3', 'Responses with a 5xx status.', new Tag('Critical', 'bad'), sort: 'problems')];
+        $block = Block::tiles($tiles);
+
+        static::assertSame([Block::TILES, BlockState::Ready, $tiles, false], [$block->type, $block->state, $block->content, $block->reading]);
+        static::assertSame('tiles', Block::TILES);
+        static::assertFileExists(__DIR__ . '/../../../templates/dashboard/block/tiles.html.twig');
+        static::assertSame(['', null, [], null, false], [(new Tile('Average', '7 ms'))->definition, (new Tile('Average', '7 ms'))->tag, (new Tile('Average', '7 ms'))->series, (new Tile('Average', '7 ms'))->sort, (new Tile('Average', '7 ms'))->namesPage]);
+    }
+
+    public function testATagLeadsToNoScreenUnlessItNamesOne(): void
+    {
+        static::assertNull((new Tag('N+1', 'warn'))->path);
+        static::assertSame('queries', (new Tag('N+1', 'warn', 'queries'))->path);
+    }
+
+    public function testATableShowsItsLineOfTitleUnlessToldNot(): void
+    {
+        static::assertTrue((new Table('routes', 'Routes', [], []))->titled);
+        static::assertFalse((new Table('routes', 'Routes', [], [], titled: false))->titled);
     }
 
     public function testAnUnavailableBlockHasNoContent(): void

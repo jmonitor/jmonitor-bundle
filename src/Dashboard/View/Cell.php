@@ -32,13 +32,15 @@ final class Cell
     ) {}
 
     /**
-     * @param bool $titled whether the name is repeated as its title, for a column that cuts it
+     * @param bool    $titled     whether the name is repeated as its title, for a column that cuts it
+     * @param ?string $definition what the name means, read on hover in place of the repeated name
      */
-    public static function route(string $methodAndName, bool $titled = false): self
+    public static function route(string $methodAndName, bool $titled = false, ?string $definition = null): self
     {
         [$method, $name] = array_pad(explode(' ', $methodAndName, 2), 2, '');
+        $title = $definition ?? ($titled ? $name : null);
 
-        return new self($name, kind: 'route', data: ['method' => $method] + ($titled ? ['title' => $name] : []));
+        return new self($name, kind: 'route', data: ['method' => $method] + ($title === null ? [] : ['title' => $title]));
     }
 
     public static function entryPoint(string $unitType, string $unitKey): self

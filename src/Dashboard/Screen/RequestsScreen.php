@@ -13,17 +13,13 @@ use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
-use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
-use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
-use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
-use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
-use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tile;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
@@ -31,8 +27,8 @@ use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 
 /**
- * @phpstan-type Route array{row: ReportRow, cell: Cell, requests: int, total: float, avg: float, p95: float, max: float, errors: int, slow: int, nPlusOne: bool, memory: int}
- * @phpstan-type Totals array{requests: int, total: float, max: float, errors: int, slow: int, p95: float}
+ * @phpstan-type Route array{row: ReportRow, cell: Cell, requests: int, total: float, avg: float, p95: float, errors: int, slow: int, nPlusOne: bool}
+ * @phpstan-type Totals array{requests: int, total: float, errors: int, slow: int, p95: float}
  */
 final class RequestsScreen implements StorageScreenInterface
 {
@@ -40,7 +36,7 @@ final class RequestsScreen implements StorageScreenInterface
     private const SERVER_ERRORS = 'requests.server_errors';
     private const SLOW = 'requests.slow';
     private const REPEATED = 'queries.repeated';
-    private const UNMATCHED = '(unmatched)';
+    private const FASTER = '95 % of the requests are faster.';
 
     public function __construct(
         private readonly ApplicationChecks $checks,
@@ -80,9 +76,7 @@ final class RequestsScreen implements StorageScreenInterface
             'requests' => 'desc',
             'avg' => 'desc',
             'p95' => 'desc',
-            'max' => 'desc',
             'problems' => 'desc',
-            'memory' => 'desc',
         ];
     }
 
@@ -102,38 +96,22 @@ final class RequestsScreen implements StorageScreenInterface
         $otherRow = $report->other !== null && $report->other->count(Metric::REQUEST_DURATION) > 0 ? $report->other : null;
 
         if ($listed === [] && $otherRow === null) {
-            return new ScreenView([], [new Table('routes', 'Routes', self::columns(), [], 0, 'route')]);
+            return new ScreenView([], [self::table([], 0)]);
         }
 
         $raised = $this->checks->raised($reader, $period, $now);
         $repeating = [];
-        $repeats = null;
 
         if ($raised->has(self::REPEATED)) {
             $query = $this->checks->query(self::REPEATED, $period, $now);
 
             if ($query !== null) {
-                $repeats = $reader->read($query);
-                $repeating = self::repeatingRoutes($repeats);
+                $repeating = self::repeatingRoutes($reader->read($query));
             }
         }
 
         $routes = array_map(static fn(ReportRow $row): array => self::route($row, isset($repeating[$row->key])), $listed);
         $other = $otherRow === null ? null : self::route($otherRow, false);
-
-        $ids = [self::SERVER_ERRORS, self::SLOW];
-        $reports = [self::SERVER_ERRORS => $report, self::SLOW => $report];
-
-        $unread = $repeats !== null && ($repeats->other !== null || $repeats->keyCount > \count($repeats->rows));
-
-        if ($repeats !== null && ($unread || array_filter($routes, static fn(array $route): bool => $route['nPlusOne']) !== [])) {
-            $ids[] = self::REPEATED;
-            $reports[self::REPEATED] = $repeats;
-        }
-
-        $findings = $this->checks->findings($reader, $period, $now, $raised, $ids, $reports);
-        $totals = self::totals([...$report->rows, ...($report->other === null ? [] : [$report->other])]);
-        $periodText = strtolower(Format::period($period));
 
         $top = \array_slice(self::sorted($routes, $sort, $direction), 0, self::LIMIT);
         $largest = max(array_map(static fn(array $route): float => $route['total'], [...$top, ...($other === null ? [] : [$other])]));
@@ -141,47 +119,26 @@ final class RequestsScreen implements StorageScreenInterface
         if ($other !== null) {
             $rows[] = self::row($other, $largest, true);
         }
-        $unmatched = array_filter($top, static fn(array $route): bool => $route['cell']->text === self::UNMATCHED) !== [];
 
         return new ScreenView(
-            $this->cards($totals, $periodText),
-            [new Table(
-                'routes',
-                'Routes',
-                self::columns(),
-                $rows,
-                max(0, \count($routes) - self::LIMIT),
-                'route',
-                note: $sort === 'total' && $direction === 'desc' ? 'the most expensive first' : null,
-                partsLegend: true,
-                footnote: $unmatched ? self::UNMATCHED . ': requests that matched no route.' : null,
-            )],
-            self::lead($totals, $routes, $report->series, $period, $periodText),
-            new CheckList(
-                $this->checks->lines($findings, $this->id(), $period),
-                'Nothing to flag',
-                'No server error, no slow request and no route that repeats a query in the ' . $periodText . '.',
-                'Worth a look',
-            ),
-            self::guide(),
-            $raised,
+            tables: [self::table($rows, max(0, \count($routes) - self::LIMIT))],
+            raised: $raised,
+            tiles: $this->tiles(self::totals([...$report->rows, ...($report->other === null ? [] : [$report->other])]), $report->series),
         );
     }
 
-    /** @return list<Column> */
-    private static function columns(): array
+    /** @param list<Row> $rows */
+    private static function table(array $rows, int $remaining): Table
     {
-        return [
+        return new Table('routes', 'Routes', [
             new Column('route', 'Route', false, 'route'),
             new Column('requests', 'Requests', sort: 'requests'),
-            new Column('total', 'Total time', sort: 'total'),
+            new Column('total', 'Total time', sort: 'total', definition: 'Requests × average.'),
             new Column('avg', 'Avg', sort: 'avg'),
-            new Column('p95', 'p95', sort: 'p95'),
-            new Column('max', 'Max', sort: 'max'),
-            new Column('split', 'Where the average goes', false),
+            new Column('p95', 'p95', sort: 'p95', definition: self::FASTER),
+            new Column('split', 'Where the average goes', false, legend: true),
             new Column('problems', 'Problems', false, 'problems'),
-            new Column('memory', 'Memory', sort: 'memory'),
-        ];
+        ], $rows, $remaining, 'route', titled: false);
     }
 
     /**
@@ -209,13 +166,14 @@ final class RequestsScreen implements StorageScreenInterface
      */
     private static function totals(array $rows): array
     {
-        $totals = ['requests' => 0, 'total' => 0.0, 'max' => 0.0, 'errors' => 0, 'slow' => 0];
+        $totals = ['requests' => 0, 'total' => 0.0, 'errors' => 0, 'slow' => 0];
+        $max = 0.0;
         $counts = [];
 
         foreach ($rows as $row) {
             $totals['requests'] += $row->count(Metric::REQUEST_DURATION);
             $totals['total'] += $row->sum(Metric::REQUEST_DURATION);
-            $totals['max'] = max($totals['max'], $row->max(Metric::REQUEST_DURATION));
+            $max = max($max, $row->max(Metric::REQUEST_DURATION));
             $totals['errors'] += $row->count(Metric::REQUEST_STATUS_PREFIX . '5xx');
             $totals['slow'] += $row->count(Metric::REQUEST_SLOW);
             foreach ($row->countsByPrefix(Metric::REQUEST_DURATION_LE_PREFIX) as $bound => $count) {
@@ -223,66 +181,37 @@ final class RequestsScreen implements StorageScreenInterface
             }
         }
 
-        return $totals + ['p95' => Percentile::estimate($counts, 0.95, $totals['max'])];
+        return $totals + ['p95' => Percentile::estimate($counts, 0.95, $max)];
     }
 
     /**
-     * @param Totals $totals
+     * @param Totals    $totals
+     * @param list<int> $series
      *
-     * @return list<Card>
+     * @return list<Tile>
      */
-    private function cards(array $totals, string $periodText): array
+    private function tiles(array $totals, array $series): array
     {
-        $errorRate = $totals['requests'] === 0 ? 0.0 : $totals['errors'] / $totals['requests'];
-
         return [
-            new Card('Average', Format::duration($totals['requests'] === 0 ? 0 : $totals['total'] / $totals['requests']), 'The mean response time.'),
-            new Card('p95', Format::duration($totals['p95']), '95 % of requests are faster. What the unlucky visitors feel.'),
-            new Card('Slowest', Format::duration($totals['max']), 'The single worst request of the ' . $periodText . '.'),
-            new Card('Server errors', Format::percent($errorRate), 'Responses with a 5xx status: your code or a server failed.', $errorRate > 0 ? 'bad' : null),
-            new Card('Slow requests', Format::number($totals['slow']), 'Took ' . Format::duration($this->slowThresholdMs) . ' or more. The limit is yours to set.', $totals['slow'] > 0 ? 'warn' : null),
+            new Tile('Requests', Format::number($totals['requests']), series: $series, namesPage: true),
+            new Tile('Average', Format::duration($totals['total'] / $totals['requests']), 'The mean response time.'),
+            new Tile('p95', Format::duration($totals['p95']), self::FASTER),
+            $this->problem('Server errors', $totals['errors'], 'Responses with a 5xx status.', self::SERVER_ERRORS),
+            $this->problem('Slow requests', $totals['slow'], Format::duration($this->slowThresholdMs) . ' or more.', self::SLOW),
         ];
     }
 
-    /**
-     * @param Totals      $totals
-     * @param list<Route> $routes
-     * @param list<int>   $series
-     */
-    private static function lead(array $totals, array $routes, array $series, Period $period, string $periodText): Lead
+    private function problem(string $label, int $count, string $definition, string $check): Tile
     {
-        $sentence = $totals['requests'] === 1
-            ? sprintf('1 request in the %s, answered in %s.', $periodText, Format::duration($totals['total']))
-            : sprintf('%s requests in the %s, 95 %% answered in under %s.', Format::number($totals['requests']), $periodText, Format::duration($totals['p95']));
+        $severity = $count > 0 ? $this->checks->severity($check) : null;
 
-        $detail = match ($totals['errors']) {
-            0 => 'No server error',
-            1 => '1 server error',
-            default => Format::number($totals['errors']) . ' server errors',
-        } . ', ' . match ($totals['slow']) {
-            0 => 'no slow request',
-            1 => '1 slow request',
-            default => Format::number($totals['slow']) . ' slow requests',
-        } . '.';
-
-        if (\count($routes) >= 2 && $totals['total'] > 0) {
-            $detail .= ' The most expensive route takes ' . Format::percent(max(array_map(static fn(array $route): float => $route['total'], $routes)) / $totals['total']) . ' of the total time.';
-        }
-
-        return new Lead($sentence, $detail, $series, 'requests', Format::periodStart($period));
-    }
-
-    private static function guide(): Guide
-    {
-        return new Guide([
-            new GuideItem('Total time.', 'Requests × average. The table is sorted by it because it shows where an improvement pays the most.'),
-            new GuideItem('Avg, p95, max.', 'The average hides the bad moments. p95 leaves out the slowest 5 %, max is the single worst request.'),
-            new GuideItem(
-                'Where the average goes.',
-                'What an average request of the route waits for: your PHP code, SQL, then calls to other sites. A long SQL part sends you to Queries, a long HTTP part to Cache & HTTP.',
-                ['Queries' => 'queries', 'Cache & HTTP' => 'cache-http'],
-            ),
-        ]);
+        return new Tile(
+            $label,
+            Format::number($count),
+            $definition,
+            $severity === null ? null : new Tag($severity->label(), $severity->tone()),
+            sort: $severity === null ? null : 'problems',
+        );
     }
 
     /** @return Route */
@@ -290,7 +219,6 @@ final class RequestsScreen implements StorageScreenInterface
     {
         $requests = $row->count(Metric::REQUEST_DURATION);
         $total = $row->sum(Metric::REQUEST_DURATION);
-        $max = $row->max(Metric::REQUEST_DURATION);
 
         return [
             'row' => $row,
@@ -298,12 +226,10 @@ final class RequestsScreen implements StorageScreenInterface
             'requests' => $requests,
             'total' => $total,
             'avg' => $total / $requests,
-            'p95' => Percentile::estimate($row->countsByPrefix(Metric::REQUEST_DURATION_LE_PREFIX), 0.95, $max),
-            'max' => $max,
+            'p95' => Percentile::estimate($row->countsByPrefix(Metric::REQUEST_DURATION_LE_PREFIX), 0.95, $row->max(Metric::REQUEST_DURATION)),
             'errors' => $row->count(Metric::REQUEST_STATUS_PREFIX . '5xx'),
             'slow' => $row->count(Metric::REQUEST_SLOW),
             'nPlusOne' => $nPlusOne,
-            'memory' => (int) $row->max(Metric::REQUEST_MEMORY),
         ];
     }
 
@@ -316,10 +242,8 @@ final class RequestsScreen implements StorageScreenInterface
             'total' => RouteCells::total($route['row'], $largest),
             'avg' => new Cell(Format::duration($route['avg'])),
             'p95' => new Cell(Format::duration($route['p95']), $route['slow'] * 20 > $route['requests'] ? 'warn' : null),
-            'max' => new Cell(Format::duration($route['max']), $route['slow'] > 0 ? 'warn' : null),
             'split' => RouteCells::split($route['row']),
             'problems' => Cell::tags(self::tags($route)),
-            'memory' => new Cell(Format::bytes($route['memory'])),
         ], [
             'data-jm-route' => $route['row']->key,
             'data-jm-requests' => (string) $route['requests'],
@@ -336,7 +260,7 @@ final class RequestsScreen implements StorageScreenInterface
         $tags = [];
 
         if ($route['errors'] > 0) {
-            $tags[] = new Tag(Format::number($route['errors']) . ' × 5xx', 'bad');
+            $tags[] = new Tag(Format::number($route['errors']) . ' × 5xx', 'bad', 'exceptions');
         }
 
         if ($route['slow'] > 0) {
@@ -344,7 +268,7 @@ final class RequestsScreen implements StorageScreenInterface
         }
 
         if ($route['nPlusOne']) {
-            $tags[] = new Tag('N+1', 'warn');
+            $tags[] = new Tag('N+1', 'warn', 'queries');
         }
 
         return $tags;
@@ -373,7 +297,7 @@ final class RequestsScreen implements StorageScreenInterface
     {
         return match ($sort) {
             'route' => strcmp($a['cell']->text, $b['cell']->text),
-            'requests', 'avg', 'p95', 'max', 'memory' => $a[$sort] <=> $b[$sort],
+            'requests', 'avg', 'p95' => $a[$sort] <=> $b[$sort],
             'problems' => [$a['errors'], $a['slow'], $a['nPlusOne']] <=> [$b['errors'], $b['slow'], $b['nPlusOne']],
             default => $a['total'] <=> $b['total'],
         };

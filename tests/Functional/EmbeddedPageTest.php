@@ -348,6 +348,36 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertSame(['See the gallery'], $crawler->filter('.jm-guide a')->each(static fn(Crawler $a): string => $a->text()));
     }
 
+    public function testTheGalleryShowsTilesAndATableWithoutItsLineOfTitle(): void
+    {
+        $client = static::createClient(['gallery' => true]);
+
+        $crawler = $client->request('GET', '/back-office/monitoring/gallery');
+
+        static::assertResponseIsSuccessful();
+        static::assertCount(1, $crawler->filter('h1'));
+        $tiles = $crawler->filter('.jm-screen > section.jm-tiles > .jm-tile');
+        static::assertSame(
+            ['jm-tile jm-tile--series', 'jm-tile', 'jm-tile jm-tile--bad', 'jm-tile jm-tile--warn', 'jm-tile jm-tile--warn', 'jm-tile jm-tile--zero'],
+            $tiles->each(static fn(Crawler $tile): string => (string) $tile->attr('class')),
+        );
+        static::assertSame('Requests', $tiles->eq(0)->filter('h2.jm-tile__label')->text());
+        static::assertSame(['div', 'div', 'a', 'a', 'div', 'div'], $tiles->each(static fn(Crawler $tile): string => $tile->nodeName()));
+        static::assertSame('/back-office/monitoring/gallery?menu=3#jm-gallery-routes-wrap', $tiles->eq(2)->attr('href'));
+        $table = $crawler->filter('#jm-gallery-slim-wrap');
+        static::assertSame('Routes without their line of title', $table->attr('aria-label'));
+        $panel = $table->closest('.jm-panel');
+        static::assertNotNull($panel);
+        static::assertSame('div', $panel->nodeName());
+        static::assertCount(0, $panel->filter('.jm-panel__header'));
+        static::assertSame('3 more routes not shown', $panel->filter('.jm-panel__footer')->text());
+        static::assertSame('95 % of the requests are faster.', $table->filter('thead th')->eq(2)->attr('title'));
+        static::assertSame('Where the average goes PHP SQL HTTP', $table->filter('thead th')->eq(3)->text());
+        static::assertSame(['a', 'span', 'span'], $table->filter('.jm-tag')->each(static fn(Crawler $tag): string => $tag->nodeName()));
+        static::assertStringStartsWith('/back-office/monitoring/gallery?', (string) $table->filter('a.jm-tag')->attr('href'));
+        static::assertSame('Requests that matched no route.', $table->filter('code.jm-route--unmatched')->attr('title'));
+    }
+
     public function testTheGalleryShowsASectionInEachState(): void
     {
         $client = static::createClient(['gallery' => true]);

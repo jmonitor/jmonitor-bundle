@@ -47,6 +47,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
 use Jmonitor\JmonitorBundle\Dashboard\View\Status;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tile;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
@@ -303,6 +304,43 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame([Block::LEAD, Block::TABLE, Block::GUIDE], self::types($this->builder()->create($view(new ScreenView([], [$first], $lead, guide: $guide)), null, null, null)->blocks), 'A lead takes the place of an empty list of cards.');
         static::assertSame([Block::CHECKS, Block::CARDS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$first], checks: $checks)), null, null, null)->blocks), 'Without a lead, an empty list of cards keeps its block.');
         static::assertSame([Block::CARDS, Block::TABLE, Block::GUIDE], self::types($this->builder()->create($view(new ScreenView([$card], [$first], guide: $guide)), null, null, null)->blocks));
+    }
+
+    public function testTilesTakeThePlaceOfTheCards(): void
+    {
+        $tiles = [new Tile('Requests', '12', namesPage: true), new Tile('Average', '7 ms')];
+        $first = $this->table(rows: 1);
+        $view = static fn(ScreenView $view): StubScreen => new StubScreen(view: static fn(ReaderInterface $reader): ScreenView => $view);
+
+        $page = $this->builder()->create($view(new ScreenView([], [$first], tiles: $tiles)), null, null, null);
+
+        static::assertSame([Block::TILES, Block::TABLE], self::types($page->blocks));
+        static::assertSame([$tiles, $first], array_map(static fn(Block $block): mixed => $block->content, $page->blocks));
+        static::assertSame([Block::TILES, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([new Card('Hits', '12')], [$first], tiles: $tiles)), null, null, null)->blocks), 'The cards of a view that has tiles are not shown.');
+        static::assertSame([Block::CHECKS, Block::TILES, Block::TABLE, Block::GUIDE], self::types($this->builder()->create($view(new ScreenView([], [$first], checks: new CheckList([]), guide: new Guide([new GuideItem('Term', 'Text')]), tiles: $tiles)), null, null, null)->blocks));
+        static::assertSame([Block::CARDS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$first])), null, null, null)->blocks), 'A view without tiles keeps its block of cards.');
+    }
+
+    public function testAMapStandsInForTheTiles(): void
+    {
+        $map = new Map([new MapBox('Requests', '12')]);
+        $first = $this->table(rows: 1);
+        $screen = new StubScreen(view: static fn(ReaderInterface $reader): ScreenView => new ScreenView([], [$first], map: $map, tiles: [new Tile('Requests', '12', namesPage: true)]));
+
+        $page = $this->builder()->create($screen, null, null, null);
+
+        static::assertSame([Block::MAP, Block::TABLE], self::types($page->blocks));
+        static::assertSame([$map, $first], array_map(static fn(Block $block): mixed => $block->content, $page->blocks));
+    }
+
+    public function testAnEmptyScreenWithTilesShowsItsStateAlone(): void
+    {
+        $screen = new StubScreen(view: fn(ReaderInterface $reader): ScreenView => new ScreenView([], [$this->table(rows: 0)], tiles: [new Tile('Requests', '0', namesPage: true)]));
+
+        $page = $this->builder()->create($screen, null, null, null);
+
+        static::assertSame([Block::TABLE], self::types($page->blocks));
+        static::assertSame(BlockState::Empty, $page->blocks[0]->state);
     }
 
     public function testAnEmptyScreenShowsItsStateWithoutLeadNorGuide(): void

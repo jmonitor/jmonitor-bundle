@@ -7,17 +7,20 @@ namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Dashboard\Format;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
-use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
 
 /**
- * @internal the cells of a route read in the Request family, the same on every screen that lists routes
+ * @internal the cells of a route read in the Request family
  */
 final class RouteCells
 {
+    private const UNMATCHED = '(unmatched)';
+
     public static function route(ReportRow $row): Cell
     {
-        return Cell::route($row->key, true);
+        [, $name] = array_pad(explode(' ', $row->key, 2), 2, '');
+
+        return Cell::route($row->key, true, $name === self::UNMATCHED ? 'Requests that matched no route.' : null);
     }
 
     public static function requests(ReportRow $row): Cell
@@ -33,27 +36,22 @@ final class RouteCells
         return Cell::bar(Format::duration($total), $largest > 0 ? $total / $largest : 0.0);
     }
 
+    /**
+     * Where an average request of the route goes, PHP being what SQL and HTTP leave, over the requests that counted at least one; its text names the larger of SQL and HTTP.
+     */
     public static function split(ReportRow $row): Cell
     {
-        return self::averageSplit($row->metrics);
-    }
+        $requests = $row->count(Metric::REQUEST_DURATION);
+        $per = static fn(string $type): float => $requests === 0 ? 0.0 : $row->sum($type) / $requests;
+        $sql = $per(Metric::REQUEST_SQL_TIME);
+        $http = $per(Metric::REQUEST_HTTP_TIME);
 
-    /**
-     * Where an average request goes, from the totals of the Request family over requests that counted at least one.
-     *
-     * @param array<string, MetricValue> $metrics metric type => total
-     */
-    public static function averageSplit(array $metrics): Cell
-    {
-        $requests = $metrics[Metric::REQUEST_DURATION]->count ?? 0;
-        $per = static fn(string $type): float => $requests === 0 ? 0.0 : ($metrics[$type]->sum ?? 0.0) / $requests;
-        $has = static fn(string $type): bool => ($metrics[$type]->count ?? 0) > 0;
+        $text = match (true) {
+            $sql > 0 && $sql >= $http => 'SQL ' . Format::duration($sql),
+            $http > 0 => 'HTTP ' . Format::duration($http),
+            default => '',
+        };
 
-        return Cell::averageSplit(
-            $per(Metric::REQUEST_DURATION),
-            $has(Metric::REQUEST_SQL_TIME) ? $per(Metric::REQUEST_SQL_TIME) : null,
-            $per(Metric::REQUEST_SQL_COUNT),
-            $has(Metric::REQUEST_HTTP_TIME) ? $per(Metric::REQUEST_HTTP_TIME) : null,
-        );
+        return Cell::split(['php' => max(0.0, $per(Metric::REQUEST_DURATION) - $sql - $http), 'sql' => $sql, 'http' => $http], $text);
     }
 }
