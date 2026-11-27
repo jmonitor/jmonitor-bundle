@@ -135,11 +135,35 @@ final class MessagesQueuesTest extends WebTestCase
         self::assertSame(['No storage configured'], $crawler->filter('.jm-state__title')->each(static fn(Crawler $title): string => $title->text()));
         self::assertCount(1, $crawler->filter('.jm-screen > .jm-state'));
         self::assertSame([['async', '12'], ['batch', 'Uncountable']], self::facts($crawler));
-        self::assertSame('Background', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        self::assertSame('Application', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
 
         $home = $client->request('GET', '/jmonitor/');
         self::assertResponseIsSuccessful();
         self::assertSame('JMonitor — Overview', $home->filter('title')->text());
+    }
+
+    public function testWithoutStorageTheApplicationEntryOpensRequestsAndItsBackgroundCardLeadsToTheQueues(): void
+    {
+        $client = $this->client(['doctrine' => false]);
+
+        $home = $client->request('GET', '/jmonitor/');
+        self::assertResponseIsSuccessful();
+        $entry = $home->filter('.jm-nav__item')->reduce(static fn(Crawler $item): bool => $item->text() === 'Application');
+        self::assertSame('/jmonitor/requests?period=1h', $entry->attr('href'));
+
+        $requests = $client->request('GET', '/jmonitor/requests?period=1h');
+        self::assertResponseIsSuccessful();
+        self::assertSame('Application', $requests->filter('.jm-nav__item[aria-current="page"]')->text());
+        self::assertSame('Requests', $requests->filter('.jm-subnav__item[aria-current="page"]')->text());
+        self::assertSame(['No storage configured'], $requests->filter('.jm-state__title')->each(static fn(Crawler $title): string => $title->text()));
+        self::assertCount(0, $requests->filter('.jm-nav__badge'));
+        $background = $requests->filter('nav.jm-subnav[aria-label="Application"] .jm-subnav__item')->last();
+        self::assertSame('Background', $background->text());
+        self::assertSame('/jmonitor/background?period=1h', $background->attr('href'));
+
+        $crawler = self::countTheQueues($client);
+        self::assertSame([['async', '12'], ['batch', 'Uncountable']], self::facts($crawler));
+        self::assertSame('Background', $client->request('GET', '/jmonitor/background?period=1h')->filter('.jm-subnav__item[aria-current="page"]')->text());
     }
 
     public function testMessagesWithRecordingOffStillShowsTheQueues(): void
@@ -171,7 +195,7 @@ final class MessagesQueuesTest extends WebTestCase
         self::assertSame([['async', '12'], ['batch', 'Uncountable']], self::facts($crawler));
         self::assertCount(0, $crawler->filter('section#jm-messages .jm-cards'));
         self::assertCount(0, $crawler->filter('.jm-state'));
-        self::assertSame('Background', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        self::assertSame('Application', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
     }
 
     public function testWithNeitherRecordingNorCountingThereIsNoMessagesScreen(): void

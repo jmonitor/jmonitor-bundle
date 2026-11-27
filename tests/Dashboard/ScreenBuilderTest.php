@@ -796,7 +796,7 @@ final class ScreenBuilderTest extends TestCase
             $this->briefed('commands', new Brief('3', '3 command runs', 'runs of 2 commands')),
         ];
 
-        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, $sections, true), null, null, null);
+        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, $sections, true), null, null, null);
 
         static::assertSame(['lead ready', 'checks ready', 'cards ready', 'section messages', 'section plain', 'section commands', 'guide ready'], self::shape($page));
         static::assertEquals([
@@ -833,7 +833,7 @@ final class ScreenBuilderTest extends TestCase
         $guide = new Guide([new GuideItem('Term', 'Text')]);
         $guided = new StubSection('guided', fn(): ScreenView => new ScreenView([new Card('Runs', '3')], [$this->table(rows: 1)], checks: $checks, guide: $guide));
 
-        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [$this->section('first', rows: 1), $guided, $this->section('quiet', rows: 0)], true), null, null, null);
+        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [$this->section('first', rows: 1), $guided, $this->section('quiet', rows: 0)], true), null, null, null);
 
         static::assertSame(['section first', 'section guided', 'section quiet'], self::shape($page));
         static::assertSame('mixed', $page->state());
@@ -846,7 +846,7 @@ final class ScreenBuilderTest extends TestCase
         $quiet = new StubSection('quiet', fn(): ScreenView => new ScreenView([new Card('Runs', '0')], [$this->table(rows: 0)]), brief: new Brief('0', '0 quiet runs', 'runs', 'Nothing ran.', 'bad'), checks: $checks, guide: $guide);
         $sections = [$this->briefed('first', new Brief('2', '2 runs')), $quiet];
 
-        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, $sections, true), null, null, null);
+        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, $sections, true), null, null, null);
 
         static::assertSame(['lead ready', 'checks ready', 'cards ready', 'section first', 'section quiet'], self::shape($page));
         static::assertEquals(new Lead('2 runs in the last hour.'), $page->blocks[0]->content);
@@ -854,7 +854,7 @@ final class ScreenBuilderTest extends TestCase
         static::assertEquals([new Card('First', '2', anchor: 'first')], $page->blocks[2]->content);
         static::assertNotNull(self::sectionOf($page, 'quiet')->empty);
 
-        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [$quiet, $this->section('plain', rows: 1)], true), null, null, null);
+        $page = $this->builder()->create(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [$quiet, $this->section('plain', rows: 1)], true), null, null, null);
 
         static::assertSame(['section quiet', 'section plain'], self::shape($page));
     }
@@ -1036,7 +1036,7 @@ final class ScreenBuilderTest extends TestCase
 
     private static function composed(SectionInterface ...$sections): ComposedScreen
     {
-        return new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, $sections);
+        return new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, $sections);
     }
 
     /**
@@ -1438,7 +1438,7 @@ final class ScreenBuilderTest extends TestCase
         static::assertEquals(new Map(runsOn: $stack), $page->blocks[3]->content);
         $places = $page->blocks[4]->content;
         static::assertInstanceOf(Places::class, $places);
-        static::assertSame(['Overview', 'Application', 'Background', 'Stack'], array_map(static fn(Place $place): string => $place->label, $places->places));
+        static::assertSame(['Overview', 'Application', 'Stack'], array_map(static fn(Place $place): string => $place->label, $places->places));
     }
 
     private static function overview(?FixedGlance $glance): OverviewScreen

@@ -560,8 +560,7 @@ final class OverviewScreenTest extends TestCase
     {
         return new Places([
             new Place('Overview', '', 'This page. What needs a look comes first.', 'Is everything fine?'),
-            new Place('Application', 'requests', 'Requests, SQL queries, cache, outgoing HTTP, exceptions, users.', 'What is slow, and why?'),
-            new Place('Background', 'background', 'Messenger messages, scheduled tasks and console commands.', 'Did the work behind the scenes run?'),
+            new Place('Application', 'requests', 'Requests, SQL queries, cache, outgoing HTTP, exceptions, users, background work.', 'What is slow, and why?'),
             new Place('Stack', 'stack', 'The server, PHP, Symfony, the web server, the databases and Redis.', 'Are the servers healthy right now?'),
         ]);
     }

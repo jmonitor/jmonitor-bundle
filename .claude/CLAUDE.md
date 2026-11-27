@@ -37,7 +37,8 @@ The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboar
 
 The `/jmonitor` page, its screens and their blocks:
 
-- Every screen says its space (`ScreenInterface::space()`): `Overview`, `Application`, `Background` or `Stack`. The header lists the spaces that have an available screen, and a space with more than one available screen gets tabs, built by `PageRenderer`.
+- Every screen says its space (`ScreenInterface::space()`): `Overview`, `Application` or `Stack`. The header lists the spaces that have an available screen, and a space with more than one available screen gets tabs, built by `PageRenderer`.
+- A tab is a card whose icon is decorative and found by its name (`SubNavItem::$icon`, `_icon.html.twig`); a card without a known icon shows without one.
 - The tabs and the title of a screen are in the refreshed part (`_screen.html.twig`), never in `page.html.twig`. A lead or a status that comes first is the `h1` of the page, in place of the title.
 - The Overview screen (`OverviewScreen`) is the default screen, the first available one, whatever the storage. It is addressed by the empty path, which stays the path of the page: the links of a page opened by `/jmonitor` stay on `/jmonitor`, its actions post to the id of the screen, and `/jmonitor/overview` answers the same page.
 - The reading order of a screen is set by `ScreenBuilder` alone: status, lead, cards worth a look, checks, map or cards, tables, guide, places. A screen with nothing to show keeps its empty state, without lead nor guide.
@@ -56,7 +57,8 @@ The `/jmonitor` page, its screens and their blocks:
 - A check judged key by key implements `KeyedCheckInterface`: its metrics are read key by key in the statement of the other totals, which stays one query.
 - The threshold of the cache hit rate lives in `CacheHitRateCheck`, which the check, the tag of a pool and the card share.
 - A check of the application has one screen, whose tab carries its badge. Shown on another screen, it carries the link to its own and does not count in the badge of that tab.
-- The badge of the `Application` or `Background` entry counts the checks of the available screens of its space, so it is the sum of the badges of its tabs. The `Overview` entry has none.
+- The badge of the `Application` entry counts the checks of the available screens of its space, so it is, count by count, the sum of the badges of its tabs. The `Overview` entry has none.
+- A badge (`NavBadge`) tells its critical checks and its warnings apart, one pill each, never their sum.
 - The totals behind the checks are read once per display, for the tabs and the entries, by the screen or else by `ScreenBuilder::raisedChecks()`; never on a screen of the stack, which has no period, and never after a read of the storage failed in that display.
 - The Overview screen reads the application in two reads: the totals of the checks, widened to the types its map shows, and the Request family restricted to its duration, only for the curve of the `Requests` box. Its pill, the values and the tags of its boxes and whether it is empty are read in the totals alone: the period is empty only when no type is counted and no check is raised. It reads no culprit.
 - A card of the Overview tells a check by its severity, its title (`CheckInterface::headline()`, read from the totals alone) and the link to its screen, nothing else. Only the critical and warning checks have one: the `Info` checks of the stack stay on their screen.

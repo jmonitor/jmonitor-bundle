@@ -639,7 +639,8 @@ function overviewDisplayMillis(Connection $connection, int $now, OverviewScreen 
     [$milliseconds, $page, $reads] = $runs[intdiv(DISPLAY_RUNS, 2)];
     $raised = 0;
     foreach (['requests', 'queries', 'cache-http', 'background'] as $screenId) {
-        $raised += (int) ($page->raised?->badge($screenId)?->text ?? 0);
+        $badge = $page->raised?->badge($screenId);
+        $raised += $badge === null ? 0 : $badge->critical + $badge->warning;
     }
 
     return [$milliseconds, $raised, $reads];
@@ -827,7 +828,7 @@ foreach ($bases as $name => $connection) {
     }
     foreach ([
         new ComposedScreen('cache-http', 'Cache & HTTP', '', Space::Application, [new CacheSection(true, $checks), new HttpSection(true, $checks)]),
-        new ComposedScreen('background', 'Background', '', Space::Background, [new MessagesSection(true, true, null, $checks), new TasksSection(true, new DeclaredTasks(), $checks), new CommandsSection(true, $checks)], true),
+        new ComposedScreen('background', 'Background', '', Space::Application, [new MessagesSection(true, true, null, $checks), new TasksSection(true, new DeclaredTasks(), $checks), new CommandsSection(true, $checks)], true),
     ] as $screen) {
         [$milliseconds, $rows] = composedDisplayMillis($connection, $now, $screen, $checks);
         report(sprintf('display, %s screen, loaded database (%s)', $screen->id(), $name), $milliseconds, 'ms', 100 * \count($screen->sections()), sprintf('(%d rows shown, %d rows stored)', $rows, $stored));

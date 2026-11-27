@@ -1,0 +1,1 @@
+{% autoescape 'html' %}{% if name is not null and name matches '/^[a-z0-9-]+$/D' %}{{ include('@Jmonitor/dashboard/icon/' ~ name ~ '.html.twig', {}, with_context = false, ignore_missing = true) }}{% endif %}{% endautoescape %}

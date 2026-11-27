@@ -87,11 +87,11 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
         return Space::Application;
     }
 
-    public function navBadge(): NavBadge
+    public function navBadge(): ?NavBadge
     {
         $requests = $this->requests();
 
-        return new NavBadge((string) $requests, $requests % 2 === 1 ? 'warn' : 'bad', 'Requests seen by the gallery');
+        return $requests % 2 === 1 ? NavBadge::of(0, $requests, 'seen by the gallery') : NavBadge::of($requests, 0, 'seen by the gallery');
     }
 
     public function blocks(ScreenRequest $request): array
@@ -103,13 +103,26 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
         $info = new Mark('info', 'Info');
 
         return [
-            Block::subnav(new SubNav('Gallery', [
-                new SubNavItem('Overview', 'gallery', true),
-                new SubNavItem('Server', 'gallery', false, $healthy),
-                new SubNavItem('PHP', 'gallery', false, $warning),
-                new SubNavItem('Symfony', 'gallery', false, $critical),
-                new SubNavItem('MySQL', 'gallery', false, $unknown),
-                new SubNavItem('Redis', 'gallery', false, $info),
+            Block::subnav(new SubNav('Screens', [
+                new SubNavItem('Requests', 'gallery', true, badge: NavBadge::of(2, 5, 'in the last 6 hours'), icon: 'requests'),
+                new SubNavItem('Queries', 'gallery', false, badge: NavBadge::of(0, 1, 'in the last 6 hours'), icon: 'queries'),
+                new SubNavItem('Cache & HTTP', 'gallery', icon: 'cache-http'),
+                new SubNavItem('Exceptions', 'gallery', false, badge: NavBadge::of(3, 0, 'in the last 6 hours'), icon: 'exceptions'),
+                new SubNavItem('Users', 'gallery', icon: 'users'),
+                new SubNavItem('Background', 'gallery', icon: 'background'),
+            ])),
+            Block::subnav(new SubNav('Stack', [
+                new SubNavItem('All components', 'gallery', icon: 'stack'),
+                new SubNavItem('Server', 'gallery', icon: 'system'),
+                new SubNavItem('PHP', 'gallery', true, $warning, icon: 'php'),
+                new SubNavItem('Symfony', 'gallery', false, $critical, icon: 'symfony'),
+                new SubNavItem('FrankenPHP', 'gallery', icon: 'frankenphp'),
+                new SubNavItem('Apache', 'gallery', false, $unknown, icon: 'apache'),
+                new SubNavItem('Nginx', 'gallery', icon: 'nginx'),
+                new SubNavItem('MySQL', 'gallery', false, $critical, icon: 'mysql'),
+                new SubNavItem('PostgreSQL', 'gallery', false, $warning, icon: 'postgresql'),
+                new SubNavItem('Redis', 'gallery', icon: 'redis'),
+                new SubNavItem('Memcached', 'gallery', icon: 'memcached'),
             ], $this->requests() % 2 === 1 ? 'web-1' : 'web-2')),
             Block::instances(new InstanceNav([
                 new InstanceNavRow('Servers', [

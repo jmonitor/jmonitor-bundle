@@ -56,6 +56,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Jmonitor\JmonitorBundle\Embed\PageContent;
+use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
@@ -371,15 +372,49 @@ final class TemplatesTest extends TestCase
     public function testABadgeIsEscaped(): void
     {
         $page = new Page(new StubBlockScreen(), [], null, '', '', []);
-        $badges = ['stack' => new NavBadge('"><script>', 'warn', '"><script>')];
+        $badges = ['stack' => NavBadge::of(0, 2, '"><script>')];
         $context = ['page' => $page, 'path' => 'probe', 'badges' => $badges, 'spaces' => [['id' => 'stack', 'label' => 'Stack', 'path' => 'stack', 'current' => false]], 'periods' => Period::cases()];
 
         foreach (['page.html.twig', '_screen.html.twig'] as $template) {
             $html = $this->render($template, $context);
 
-            static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--warn" title="&quot;&gt;&lt;script&gt;">&quot;&gt;&lt;script&gt;<span class="jm-visually-hidden"> — &quot;&gt;&lt;script&gt;</span></span>', $html, $template);
+            static::assertStringContainsString('<span class="jm-nav__badges"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings &quot;&gt;&lt;script&gt;">2<span class="jm-visually-hidden"> warnings &quot;&gt;&lt;script&gt;</span></span></span>', $html, $template);
             static::assertStringNotContainsString('<script>', $html, $template);
         }
+    }
+
+    public function testABadgeShowsOnePillPerCountTheCriticalFirstEachWithItsWordAndMoment(): void
+    {
+        $page = new Page(new StubBlockScreen(), [], null, '', '', []);
+        $context = [
+            'page' => $page,
+            'path' => 'probe',
+            'badges' => ['application' => NavBadge::of(2, 5, 'in the last 6 hours'), 'stack' => NavBadge::of(0, 1, 'at the last read of the stack, 12 s ago')],
+            'spaces' => [['id' => 'application', 'label' => 'Application', 'path' => 'probe', 'current' => true], ['id' => 'stack', 'label' => 'Stack', 'path' => 'stack', 'current' => false]],
+            'periods' => Period::cases(),
+        ];
+        $application = '<span class="jm-nav__badges">'
+            . '<span class="jm-nav__badge jm-nav__badge--bad" title="2 critical in the last 6 hours">2<span class="jm-visually-hidden"> critical in the last 6 hours</span></span>'
+            . ' <span class="jm-nav__badge jm-nav__badge--warn" title="5 warnings in the last 6 hours">5<span class="jm-visually-hidden"> warnings in the last 6 hours</span></span>'
+            . '</span>';
+        $stack = '<span class="jm-nav__badges"><span class="jm-nav__badge jm-nav__badge--warn" title="1 warning at the last read of the stack, 12 s ago">1<span class="jm-visually-hidden"> warning at the last read of the stack, 12 s ago</span></span></span>';
+
+        foreach (['page.html.twig' => '<span data-jm-slot="nav-%s">%s</span>', '_screen.html.twig' => '<template data-jm-slot-content="nav-%s">%s</template>'] as $template => $slot) {
+            $html = $this->render($template, $context);
+
+            static::assertStringContainsString(sprintf($slot, 'application', $application), $html, $template);
+            static::assertStringContainsString(sprintf($slot, 'stack', $stack), $html, $template);
+
+            foreach (['a string', new \ArrayObject(['pills' => [], 'tone' => 'bad', 'count' => 9, 'words' => 'x', 'mention' => 'x']), new \stdClass(), true, null] as $global) {
+                static::assertSame($html, $this->render($template, $context, array_fill_keys(['badge', 'pill', 'pills'], $global)), $template);
+            }
+        }
+
+        $nav = (new Crawler($this->render('page.html.twig', $context)))->filter('.jm-nav__item');
+
+        static::assertSame(['2', '5'], $nav->eq(0)->filter('.jm-nav__badge')->each(static fn(Crawler $badge): string => (string) $badge->getNode(0)?->firstChild?->textContent));
+        static::assertSame('Application 2 critical in the last 6 hours 5 warnings in the last 6 hours', $nav->eq(0)->text());
+        static::assertSame('Stack 1 warning at the last read of the stack, 12 s ago', $nav->eq(1)->text());
     }
 
     public function testTheToolbarOfAScreenWithoutPeriodHoldsNoParagraph(): void
@@ -428,7 +463,7 @@ final class TemplatesTest extends TestCase
     public function testATabLabelAndItsBadgeAreEscaped(): void
     {
         $h = self::HOSTILE;
-        $tabs = new SubNav($h, [new SubNavItem($h, 'probe', true, null, ['period' => $h], new NavBadge($h, 'warn', $h)), new SubNavItem('Other', 'other')]);
+        $tabs = new SubNav($h, [new SubNavItem($h, 'probe', true, null, ['period' => $h], NavBadge::of(1, 0, $h)), new SubNavItem('Other', 'other')]);
         $page = (new Page(new StubBlockScreen(), [], null, '', '', []))->withTabs($tabs);
 
         $html = $this->render('_screen.html.twig', ['page' => $page, 'path' => 'probe', 'badges' => []]);
@@ -437,9 +472,113 @@ final class TemplatesTest extends TestCase
         static::assertSame($h, (new Crawler($html))->filter('nav.jm-subnav')->attr('aria-label'));
         static::assertSame($h, $tab->filter('span')->eq(0)->text());
         static::assertSame('/host/page/probe?menu=3&period=%3Cb%3E%26%22x', $tab->attr('href'));
-        static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--warn" title="&lt;b&gt;&amp;&quot;x">&lt;b&gt;&amp;&quot;x<span class="jm-visually-hidden"> — &lt;b&gt;&amp;&quot;x</span></span>', $html);
+        static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--bad" title="1 critical &lt;b&gt;&amp;&quot;x">1<span class="jm-visually-hidden"> critical &lt;b&gt;&amp;&quot;x</span></span>', $html);
         static::assertStringNotContainsString('<b>', $html);
         static::assertStringNotContainsString('&"x', $html);
+    }
+
+    public function testEveryIconIsADecorativeDrawingInTheColourOfItsText(): void
+    {
+        $line = ['line', '0 0 24 24', '1.8', false];
+        $expected = [
+            'requests' => $line,
+            'queries' => $line,
+            'cache-http' => $line,
+            'exceptions' => $line,
+            'users' => $line,
+            'background' => $line,
+            'stack' => $line,
+            'system' => $line,
+            'php' => ['logo', '0 0 128 128', null, false],
+            'symfony' => ['logo', '0 0 24 24', null, false],
+            'frankenphp' => ['logo', '0 0 128 128', null, false],
+            'apache' => ['logo', '0 0 128 128', null, true],
+            'nginx' => ['logo', '0 0 24 24', null, false],
+            'mysql' => ['logo', '0 0 24 24', '2', false],
+            'postgresql' => ['logo', '0 0 128 128', null, true],
+            'redis' => ['logo', '0 0 128 128', null, false],
+        ];
+        $names = array_map(static fn(string $file): string => basename($file, '.html.twig'), glob(__DIR__ . '/../../templates/dashboard/icon/*.html.twig') ?: []);
+        $known = array_keys($expected);
+        sort($names);
+        sort($known);
+
+        static::assertSame($known, $names);
+        static::assertSame([], array_diff(array_map(static fn(Component $component): string => $component->value, Component::cases()), $known));
+
+        foreach ($expected as $name => [$size, $box, $strokeWidth, $evenOdd]) {
+            $html = $this->render('_icon.html.twig', ['name' => $name]);
+            $svg = (new Crawler($html))->filter('svg');
+            $path = $svg->filter('path');
+
+            static::assertCount(1, $svg, $name);
+            static::assertSame('jm-icon jm-icon--' . $size, $svg->attr('class'), $name);
+            static::assertSame('true', $svg->attr('aria-hidden'), $name);
+            static::assertSame('false', $svg->attr('focusable'), $name);
+            static::assertStringContainsString(' viewBox="' . $box . '"', $html, $name);
+            static::assertSame($strokeWidth === null ? 'currentColor' : 'none', $svg->attr('fill'), $name);
+            static::assertSame($strokeWidth === null ? null : 'currentColor', $svg->attr('stroke'), $name);
+            static::assertSame($strokeWidth, $svg->attr('stroke-width'), $name);
+            static::assertSame($strokeWidth === null ? null : 'round', $svg->attr('stroke-linecap'), $name);
+            static::assertSame($strokeWidth === null ? null : 'round', $svg->attr('stroke-linejoin'), $name);
+            static::assertCount(1, $path, $name);
+            static::assertSame($evenOdd ? 'evenodd' : null, $path->attr('fill-rule'), $name);
+            static::assertSame($evenOdd ? 'evenodd' : null, $path->attr('clip-rule'), $name);
+            static::assertSame(0, substr_count($html, 'evenodd') - ($evenOdd ? 2 : 0), $name);
+            static::assertNotSame('', (string) $path->attr('d'), $name);
+            static::assertSame('', $svg->text(), $name);
+            static::assertSame(1, substr_count($html, '<svg'), $name);
+        }
+    }
+
+    public function testAnIconThatIsNotKnownDrawsNothing(): void
+    {
+        foreach ([null, '', 'memcached', 'Requests', '../page', "requests\n", 'icon/requests'] as $name) {
+            static::assertSame('', $this->render('_icon.html.twig', ['name' => $name]), var_export($name, true));
+        }
+    }
+
+    public function testACardShowsItsIconItsNameThenItsMarkOrItsBadges(): void
+    {
+        $html = $this->screen(Block::subnav(new SubNav('Stack', [
+            new SubNavItem('All components', 'stack', true, icon: 'stack'),
+            new SubNavItem('PHP', 'stack/php', false, new Mark('warn', 'Warning'), icon: 'php'),
+            new SubNavItem('Memcached', 'stack/memcached', false, icon: 'memcached'),
+            new SubNavItem('Requests', 'requests', false, badge: NavBadge::of(2, 5, 'in the last 6 hours'), icon: 'requests'),
+            new SubNavItem('Plain', 'plain'),
+        ], 'web-1')));
+        $crawler = new Crawler($html);
+        $items = $crawler->filter('.jm-subbar > nav.jm-subnav > a.jm-subnav__item');
+
+        static::assertSame(
+            [['svg', 'span'], ['svg', 'span', 'span'], ['span'], ['svg', 'span', 'span'], ['span']],
+            $items->each(static fn(Crawler $item): array => $item->children()->each(static fn(Crawler $child): string => $child->nodeName())),
+        );
+        static::assertSame(['All components', 'PHP Warning', 'Memcached', 'Requests 2 critical in the last 6 hours 5 warnings in the last 6 hours', 'Plain'], $items->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame(['page', null, null, null, null], $items->each(static fn(Crawler $item): ?string => $item->attr('aria-current')));
+        static::assertSame('jm-mark jm-mark--warn', $items->eq(1)->children()->eq(2)->attr('class'));
+        static::assertSame('jm-nav__badges', $items->eq(3)->children()->eq(2)->attr('class'));
+        static::assertCount(2, $items->eq(3)->filter('.jm-nav__badge'));
+        static::assertSame(['jm-icon jm-icon--line', 'jm-icon jm-icon--logo', 'jm-icon jm-icon--line'], $crawler->filter('.jm-subnav svg')->each(static fn(Crawler $svg): string => (string) $svg->attr('class')));
+        static::assertSame(['nav', 'p'], $crawler->filter('.jm-subbar')->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertSame('web-1', $crawler->filter('.jm-subbar > p.jm-node strong')->text());
+    }
+
+    public function testGlobalsOfTheHostNamedLikeTheVariablesOfACardChangeNothing(): void
+    {
+        $stack = Block::subnav(new SubNav('Stack', [
+            new SubNavItem('All components', 'stack', icon: 'stack'),
+            new SubNavItem('PHP', 'stack/php', true, new Mark('warn', 'Warning'), icon: 'php'),
+            new SubNavItem('Memcached', 'stack/memcached'),
+        ], 'web-1'));
+        $tabs = new SubNav('Application', [new SubNavItem('Requests', 'requests', true, badge: NavBadge::of(1, 2, 'in the last hour'), icon: 'requests'), new SubNavItem('Other', 'other')]);
+        $context = ['page' => (new Page(new StubBlockScreen('stack'), [$stack], null, '', '', []))->withTabs($tabs), 'path' => 'stack', 'badges' => []];
+        $expected = $this->render('_screen.html.twig', $context);
+
+        static::assertSame(3, substr_count($expected, '<svg class="jm-icon'));
+        foreach (['a string', 'requests', 'redis', new \ArrayObject(['icon' => 'redis', 'label' => 'x', 'path' => 'x', 'current' => true, 'mark' => null, 'query' => [], 'badge' => null]), new \stdClass(), true, null] as $global) {
+            static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['icon', 'name', 'item', 'badge'], $global)), get_debug_type($global));
+        }
     }
 
     /**
@@ -816,7 +955,7 @@ final class TemplatesTest extends TestCase
         $tabs = new SubNav('Application', [new SubNavItem('Stub', 'stub', true), new SubNavItem('Other', 'other')]);
         $screen = new Page(new StubScreen(), [Block::cards([]), Block::table($table), $stack], Period::OneHour, 'name', 'asc', (new StubScreen())->sorts());
         $section = new Section('commands', 'Commands', 'Runs of bin/console.', [Block::table($table)], 'count', 'desc', ['count' => 'desc', 'name' => 'asc']);
-        $composed = new Page(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]), [Block::section($section)], Period::OneHour, '', '', []);
+        $composed = new Page(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [new StubSection('commands')]), [Block::section($section)], Period::OneHour, '', '', []);
 
         foreach (['screen' => [$screen->withTabs($tabs), 'stub'], 'composed' => [$composed, 'background']] as $kind => [$page, $path]) {
             $context = ['page' => $page, 'path' => $path, 'badges' => []];
@@ -1050,7 +1189,7 @@ final class TemplatesTest extends TestCase
         $tabs = new SubNav('Application', [new SubNavItem('Stub', 'stub', true), new SubNavItem('Other', 'other')]);
         $screen = (new Page(new StubScreen(), $blocks, Period::OneHour, 'name', 'asc', (new StubScreen())->sorts()))->withTabs($tabs);
         $section = new Section('commands', 'Commands', 'Runs of bin/console.', $blocks, 'total', 'desc', ['total' => 'desc', 'name' => 'asc']);
-        $composed = new Page(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]), [Block::section($section)], Period::OneHour, '', '', []);
+        $composed = new Page(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [new StubSection('commands')]), [Block::section($section)], Period::OneHour, '', '', []);
 
         foreach (['screen' => [$screen, 'stub'], 'composed' => [$composed, 'background']] as $kind => [$page, $path]) {
             $context = ['page' => $page, 'path' => $path, 'badges' => [], 'screens' => ['stub', 'stack']];
@@ -1116,7 +1255,7 @@ final class TemplatesTest extends TestCase
             Block::section($section),
             Block::guide(new Guide([new GuideItem('Sent and handled.', 'Text.')])),
         ];
-        $page = new Page(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('messages')], true), $blocks, Period::OneHour, '', '', []);
+        $page = new Page(new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [new StubSection('messages')], true), $blocks, Period::OneHour, '', '', []);
         $context = ['page' => $page, 'path' => 'background', 'badges' => [], 'screens' => ['background']];
         $expected = $this->render('_screen.html.twig', $context);
 
@@ -1343,7 +1482,7 @@ final class TemplatesTest extends TestCase
     {
         $places = new Places([
             new Place('Overview', '', 'This page. What needs a look comes first.', 'Is everything fine?'),
-            new Place('Application', 'requests', 'Requests, SQL queries, cache, outgoing HTTP, exceptions, users.', 'What is slow, and why?'),
+            new Place('Application', 'requests', 'Requests, SQL queries, cache, outgoing HTTP, exceptions, users, background work.', 'What is slow, and why?'),
             new Place('Stack', 'stack', 'The server, PHP, Symfony, the web server, the databases and Redis.', 'Are the servers healthy right now?'),
         ]);
 
@@ -1352,7 +1491,7 @@ final class TemplatesTest extends TestCase
         $rows = $panel->filter('.jm-places__list > li.jm-place');
 
         static::assertSame('What you will find here', $panel->filter('.jm-panel__header > h2.jm-panel__title')->text());
-        static::assertSame(['Overview This page. What needs a look comes first. Is everything fine?', 'Application Requests, SQL queries, cache, outgoing HTTP, exceptions, users. What is slow, and why?'], $rows->each(static fn(Crawler $row): string => $row->text()));
+        static::assertSame(['Overview This page. What needs a look comes first. Is everything fine?', 'Application Requests, SQL queries, cache, outgoing HTTP, exceptions, users, background work. What is slow, and why?'], $rows->each(static fn(Crawler $row): string => $row->text()));
         static::assertSame(['/host/page/?menu=3&period=1h', '/host/page/requests?menu=3&period=1h'], $rows->filter('a.jm-place__label')->each(static fn(Crawler $a): string => (string) $a->attr('href')));
         static::assertSame(['Is everything fine?', 'What is slow, and why?'], $rows->filter('.jm-place__question')->each(static fn(Crawler $span): string => $span->text()));
         static::assertCount(0, $rows->filter('p, div'));
@@ -1563,14 +1702,14 @@ final class TemplatesTest extends TestCase
 
     private function composed(Block ...$blocks): string
     {
-        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]);
+        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [new StubSection('commands')]);
 
         return $this->render('_screen.html.twig', ['page' => new Page($screen, $blocks, Period::OneHour, '', '', []), 'path' => 'background', 'badges' => []]);
     }
 
     private function sectionPage(SectionInterface $section, ScreenView $view, string $sort, string $direction): Page
     {
-        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [$section]);
+        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [$section]);
         $block = Block::section(new Section($section->id(), $section->title(), $section->summary(), $this->blocks($view), $sort, $direction, $section->sorts()));
 
         return new Page($screen, [$block], Period::OneHour, '', '', []);

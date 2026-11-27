@@ -496,7 +496,7 @@ final class EmbeddedPageTest extends WebTestCase
 
         $gallery->navBadge();
         $gallery->blocks(new ScreenRequest(1800000000));
-        static::assertSame('1', $gallery->navBadge()->text);
+        static::assertSame(1, $gallery->navBadge()?->warning);
         static::assertSame('1', file_get_contents($counter));
 
         $gallery->reset();
@@ -504,7 +504,7 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertSame('2', file_get_contents($counter));
 
         $gallery->reset();
-        static::assertSame('3', $gallery->navBadge()->text);
+        static::assertSame(3, $gallery->navBadge()?->warning);
         static::assertSame('3', file_get_contents($counter));
     }
 

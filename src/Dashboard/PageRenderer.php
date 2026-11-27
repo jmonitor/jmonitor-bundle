@@ -265,6 +265,7 @@ final class PageRenderer
             null,
             $query,
             $screen instanceof NavBadgeScreenInterface ? $this->badge($screen) : $raised?->badge($screen->id()),
+            $screen->id(),
         ), $screens)));
     }
 

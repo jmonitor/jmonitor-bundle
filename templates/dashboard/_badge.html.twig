@@ -1,1 +1,1 @@
-{% autoescape 'html' %}<span class="jm-nav__badge jm-nav__badge--{{ badge.tone }}" title="{{ badge.title }}">{{ badge.text }}<span class="jm-visually-hidden"> — {{ badge.title }}</span></span>{% endautoescape %}
+{% autoescape 'html' %}<span class="jm-nav__badges">{% for pill in badge.pills %}{% if not loop.first %} {% endif %}<span class="jm-nav__badge jm-nav__badge--{{ pill.tone }}" title="{{ pill.mention }}">{{ pill.count }}<span class="jm-visually-hidden"> {{ pill.words }}</span></span>{% endfor %}</span>{% endautoescape %}

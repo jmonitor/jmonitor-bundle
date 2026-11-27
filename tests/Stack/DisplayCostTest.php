@@ -335,7 +335,7 @@ final class DisplayCostTest extends TestCase
         $badge = (new StackScreen($services, new CardBuilder($this->clock), $this->clock, new ServiceLocator([])))->navBadge();
 
         self::assertSame(['system.disk'], array_map(static fn(Alert $alert): string => $alert->id, $alerts));
-        self::assertEquals(new NavBadge('1 warning', 'warn', '1 warning at the last read of the stack, just now'), $badge);
+        self::assertEquals(NavBadge::of(0, 1, 'at the last read of the stack, just now'), $badge);
         self::assertSame(0, $cache->roundTrips(), 'the badge reads what the glance wrote');
         self::assertEquals($badge, (new StackScreen($this->stackServices($cache), new CardBuilder($this->clock), $this->clock, new ServiceLocator([])))->navBadge(), 'the next display');
     }
@@ -1036,7 +1036,7 @@ final class DisplayCostTest extends TestCase
             return $service;
         }, $services));
         $screen = new StackScreen($locator, new CardBuilder($this->clock), $this->clock, new ServiceLocator([]));
-        $screens = [new RequestsScreen(new ApplicationChecks([]), 1000), ...($queues === null ? [] : [new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new MessagesSection(true, true, new QueuesBlocks($locator, $this->clock), new ApplicationChecks([]))])]), $screen];
+        $screens = [new RequestsScreen(new ApplicationChecks([]), 1000), ...($queues === null ? [] : [new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [new MessagesSection(true, true, new QueuesBlocks($locator, $this->clock), new ApplicationChecks([]))])]), $screen];
 
         $loader = new FilesystemLoader();
         $loader->addPath(__DIR__ . '/../../templates', 'Jmonitor');

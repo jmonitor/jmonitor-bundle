@@ -129,17 +129,18 @@ final class MessengerRecordingTest extends WebTestCase
         static::assertSame(Ping::class, $row->attr('data-jm-message'));
         static::assertSame(['1 failed', '1 retried'], $row->filter('.jm-tag')->each(static fn(Crawler $tag): string => $tag->text()));
         static::assertSame(['jm-tag jm-tag--bad', 'jm-tag jm-tag--warn'], $row->filter('.jm-tag')->each(static fn(Crawler $tag): string => (string) $tag->attr('class')));
-        static::assertSame('1 critical in the last hour', $crawler->filter('.jm-nav__item[aria-current="page"] [data-jm-slot="nav-background"] .jm-nav__badge')->attr('title'));
+        static::assertSame('1 critical in the last hour', $crawler->filter('.jm-nav__item[aria-current="page"] [data-jm-slot="nav-application"] .jm-nav__badge')->attr('title'));
+        static::assertSame('1 critical in the last hour', $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge')->attr('title'));
     }
 
-    public function testAFailedMessageBadgesTheBackgroundEntryOnEveryApplicationScreen(): void
+    public function testAFailedMessageBadgesTheApplicationEntryOnEveryApplicationScreen(): void
     {
         $client = static::createClient($this->options(messenger: true));
 
         $client->request('GET', '/dispatch', ['mode' => 'fail', 'count' => '1']);
         static::assertResponseIsSuccessful();
         static::assertSame(0, $this->consume(['receivers' => ['async'], '--limit' => '2']));
-        $badge = '[data-jm-slot="nav-background"] .jm-nav__badge[title="1 critical in the last hour"]';
+        $badge = '[data-jm-slot="nav-application"] .jm-nav__badge[title="1 critical in the last hour"]';
         $crawler = self::requestUntil($client, '/jmonitor/requests', $badge);
         $screens = $crawler->filter('nav.jm-subnav[aria-label="Application"] .jm-subnav__item')->each(static fn(Crawler $tab): string => (string) $tab->attr('href'));
 
@@ -150,8 +151,9 @@ final class MessengerRecordingTest extends WebTestCase
             $crawler = $client->request('GET', $screen);
 
             static::assertResponseIsSuccessful();
-            static::assertSame('1 critical', $crawler->filter($badge)->getNode(0)?->firstChild?->textContent, $screen);
-            static::assertSame(['Overview', 'Application', 'Background'], \array_slice($crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => trim((string) $item->getNode(0)?->firstChild?->textContent)), 0, 3), $screen);
+            static::assertSame('1', $crawler->filter($badge)->getNode(0)?->firstChild?->textContent, $screen);
+            static::assertSame(['Overview', 'Application'], \array_slice($crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => trim((string) $item->getNode(0)?->firstChild?->textContent)), 0, 2), $screen);
+            static::assertNotContains('Background', $crawler->filter('.jm-nav__item')->each(static fn(Crawler $item): string => trim((string) $item->getNode(0)?->firstChild?->textContent)), $screen);
         }
     }
 
@@ -162,7 +164,7 @@ final class MessengerRecordingTest extends WebTestCase
         $client->request('GET', '/dispatch', ['mode' => 'fail', 'count' => '1']);
         static::assertResponseIsSuccessful();
         static::assertSame(0, $this->consume(['receivers' => ['async'], '--limit' => '2']));
-        $crawler = self::requestUntil($client, '/jmonitor/overview', '[data-jm-slot="nav-background"] .jm-nav__badge[title="1 critical in the last hour"]');
+        $crawler = self::requestUntil($client, '/jmonitor/overview', '[data-jm-slot="nav-application"] .jm-nav__badge[title="1 critical in the last hour"]');
 
         $alert = $crawler->filter('section.jm-alerts .jm-alert[data-jm-check="messages.failed"]');
         static::assertCount(1, $alert);

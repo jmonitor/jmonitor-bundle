@@ -16,7 +16,6 @@ use Jmonitor\JmonitorBundle\Dashboard\View\InstanceNavRow;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
-use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
 use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Component;
@@ -240,9 +239,9 @@ final class ComponentScreen implements BlockScreenInterface, ActionScreenInterfa
 
         foreach (Component::cases() as $component) {
             if ($component === $this->component) {
-                $items[] = new SubNavItem($component->label(), StackScreenParts::path($component), true, Marks::verdict($verdict));
+                $items[] = StackScreenParts::tab($component, true, $verdict);
             } elseif (isset($last[$component->value])) {
-                $items[] = new SubNavItem($component->label(), StackScreenParts::path($component), false, Marks::verdict($last[$component->value]));
+                $items[] = StackScreenParts::tab($component, false, $last[$component->value]);
             }
         }
 
