@@ -101,7 +101,7 @@ final class OverviewScreenTest extends TestCase
 
     public function testItReadsTheTotalsAndTheRequestFamilyRestrictedToItsDuration(): void
     {
-        $reader = $this->reader([self::route('GET app_a', 3, 30.0)]);
+        $reader = $this->reader([self::route('GET app_a', 3)]);
 
         $this->screen()->read($reader, Period::SixHours, self::NOW);
 
@@ -118,6 +118,7 @@ final class OverviewScreenTest extends TestCase
             Metric::MESSAGE_FAILED,
             Metric::TASK_FAILED,
             Metric::COMMAND_FAILED,
+            Metric::REQUEST_DURATION,
             Metric::MESSAGE_DURATION,
             Metric::MESSAGE_SENT,
             Metric::TASK_DURATION,
@@ -172,6 +173,46 @@ final class OverviewScreenTest extends TestCase
         static::assertSame('12 server errors', $view->status?->mark?->label);
         static::assertSame('12 server errors', $view->alerts?->alerts[0]->title);
         static::assertEquals([new Tag('12 × 5xx', 'bad')], self::box($view, 'Requests')?->tags);
+    }
+
+    /**
+     * @return iterable<string, array{list<ReportRow>, array<string, MetricValue>, Mark, string, list<Tag>}>
+     */
+    public static function racesBetweenTheTwoReads(): iterable
+    {
+        yield 'requests recorded between the totals and the routes' => [
+            [self::route('GET app_a', 3, errors: 2)],
+            [Metric::REQUEST_DURATION => self::counted(1)],
+            new Mark('ok', 'Answers normally'),
+            '1',
+            [],
+        ];
+        yield 'requests purged between the totals and the routes' => [
+            [],
+            [Metric::REQUEST_DURATION => self::counted(5), self::SERVER_ERRORS => self::counted(2)],
+            new Mark('bad', '2 server errors'),
+            '5',
+            [new Tag('2 × 5xx', 'bad')],
+        ];
+    }
+
+    /**
+     * @param list<ReportRow>            $routes
+     * @param array<string, MetricValue> $totals
+     * @param list<Tag>                  $tags
+     */
+    #[DataProvider('racesBetweenTheTwoReads')]
+    public function testThePillAndTheRequestsBoxOnlyReadTheTotals(array $routes, array $totals, Mark $pill, string $value, array $tags): void
+    {
+        $report = self::requestReport($routes);
+        $reader = new FixedReader(static fn(ReportQuery $query): Report => $query->family === Family::Request ? $report : new Report(), totals: $totals);
+
+        $view = $this->view($reader);
+
+        static::assertEquals($pill, $view->status?->mark);
+        static::assertSame($value, self::box($view, 'Requests')?->value);
+        static::assertEquals($tags, self::box($view, 'Requests')?->tags);
+        static::assertSame($report->series, self::box($view, 'Requests')?->series);
     }
 
     public function testThePageHasNoLeadTableGuideNorCheckList(): void
@@ -387,12 +428,12 @@ final class OverviewScreenTest extends TestCase
     public function testTheReadHoldsWhatTheViewNeeds(): void
     {
         $report = self::requestReport([self::route('GET app_a', 2)]);
-        $reader = new FixedReader(static fn(ReportQuery $query): Report => $query->family === Family::Request ? $report : new Report(), totals: [self::SERVER_ERRORS => self::counted(1)]);
+        $reader = new FixedReader(static fn(ReportQuery $query): Report => $query->family === Family::Request ? $report : new Report(), totals: [Metric::REQUEST_DURATION => self::counted(2), self::SERVER_ERRORS => self::counted(1)]);
 
         $read = $this->screen()->read($reader, Period::OneHour, self::NOW);
 
         static::assertSame($report, $read->requests);
-        static::assertSame(2, $read->requestCount());
+        static::assertSame(2, $read->count(Metric::REQUEST_DURATION));
         static::assertTrue($read->raised->has('requests.server_errors'));
         static::assertFalse($read->isEmpty());
     }
@@ -553,13 +594,16 @@ final class OverviewScreenTest extends TestCase
     }
 
     /**
-     * @param list<ReportRow>                           $rows
+     * @param list<ReportRow>                           $rows      the routes of the Request family, whose requests the totals count too
      * @param array<string, MetricValue>                $totals
      * @param array<string, array<string, MetricValue>> $keyTotals
      */
-    private function reader(array $rows, array $totals = [], array $keyTotals = [], ?ReportRow $other = null): FixedReader
+    private function reader(array $rows, array $totals = [], array $keyTotals = []): FixedReader
     {
-        $requests = self::requestReport($rows, $other);
+        $requests = self::requestReport($rows);
+        if ($rows !== []) {
+            $totals += [Metric::REQUEST_DURATION => $requests->totals[Metric::REQUEST_DURATION]];
+        }
 
         return new FixedReader(static fn(ReportQuery $query): Report => $query->family === Family::Request ? $requests : new Report(), totals: $totals, keyTotals: $keyTotals);
     }
@@ -567,45 +611,27 @@ final class OverviewScreenTest extends TestCase
     /**
      * @param list<ReportRow> $rows
      */
-    private static function requestReport(array $rows, ?ReportRow $other = null): Report
+    private static function requestReport(array $rows): Report
     {
         $totals = [];
-        foreach ([...$rows, ...($other === null ? [] : [$other])] as $row) {
+        foreach ($rows as $row) {
             foreach ($row->metrics as $type => $value) {
                 $total = $totals[$type] ?? null;
                 $totals[$type] = $total === null ? $value : new MetricValue($total->count + $value->count, $total->sum + $value->sum, max($total->max, $value->max));
             }
         }
 
-        return new Report($rows, $other, \count($rows), array_fill(0, 60, 0), $totals);
+        return new Report($rows, null, \count($rows), array_fill(0, 60, 0), $totals);
     }
 
-    private static function route(
-        string $key,
-        int $requests = 1,
-        float $totalMs = 10.0,
-        float $max = 10.0,
-        int $errors = 0,
-        int $slow = 0,
-        int $sqlRequests = 0,
-        float $sqlTime = 0.0,
-        float $sqlCount = 0.0,
-        int $httpRequests = 0,
-        float $httpTime = 0.0,
-    ): ReportRow {
-        $metrics = [Metric::REQUEST_DURATION => new MetricValue($requests, $totalMs, $max)];
+    private static function route(string $key, int $requests = 1, int $errors = 0, int $slow = 0): ReportRow
+    {
+        $metrics = [Metric::REQUEST_DURATION => new MetricValue($requests, 10.0 * $requests, 10.0)];
         if ($errors > 0) {
             $metrics[self::SERVER_ERRORS] = self::counted($errors);
         }
         if ($slow > 0) {
             $metrics[Metric::REQUEST_SLOW] = self::counted($slow);
-        }
-        if ($sqlRequests > 0) {
-            $metrics[Metric::REQUEST_SQL_TIME] = new MetricValue($sqlRequests, $sqlTime, $sqlTime);
-            $metrics[Metric::REQUEST_SQL_COUNT] = new MetricValue($sqlRequests, $sqlCount, $sqlCount);
-        }
-        if ($httpRequests > 0) {
-            $metrics[Metric::REQUEST_HTTP_TIME] = new MetricValue($httpRequests, $httpTime, $httpTime);
         }
 
         return new ReportRow(md5($key), $key, $key, $metrics);

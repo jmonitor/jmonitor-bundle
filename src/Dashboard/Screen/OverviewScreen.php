@@ -37,6 +37,7 @@ final class OverviewScreen implements RecordedScreenInterface
 
     /** the types the boxes read beside those of the checks */
     private const MORE = [
+        Metric::REQUEST_DURATION,
         Metric::MESSAGE_DURATION,
         Metric::MESSAGE_SENT,
         Metric::TASK_DURATION,
@@ -203,7 +204,7 @@ final class OverviewScreen implements RecordedScreenInterface
 
         return match (true) {
             $errors > 0 => new Mark('bad', $errors === 1 ? '1 server error' : Format::number($errors) . ' server errors'),
-            $read->requestCount() > 0 => new Mark('ok', 'Answers normally'),
+            $read->count(Metric::REQUEST_DURATION) > 0 => new Mark('ok', 'Answers normally'),
             !$empty => new Mark('unknown', 'No request'),
             default => new Mark('unknown', 'No data yet'),
         };
@@ -226,7 +227,7 @@ final class OverviewScreen implements RecordedScreenInterface
 
         return self::box(
             'Requests',
-            $read->requestCount(),
+            $read->count(Metric::REQUEST_DURATION),
             [
                 ...($errors > 0 ? [new Tag(Format::number($errors) . ' × 5xx', 'bad')] : []),
                 ...($slow > 0 ? [new Tag(Format::number($slow) . ' slow', 'warn')] : []),

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Tests\Dashboard;
 
 use Jmonitor\JmonitorBundle\Aggregation\Aggregator;
+use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
@@ -442,7 +443,7 @@ final class ReadCostTest extends KernelTestCase
 
         static::assertFalse($read->isEmpty());
         static::assertNull(self::overview()->view($read, null, Period::OneHour)->alerts);
-        static::assertSame(1, $read->requestCount());
+        static::assertSame(1, $read->count(Metric::REQUEST_DURATION));
         static::assertCount(self::OVERVIEW_BUDGET, $recorder->statements, implode("\n", array_column($recorder->statements, 'sql')));
     }
 

@@ -21,6 +21,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
 use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
+use Jmonitor\JmonitorBundle\Dashboard\View\Status;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
@@ -159,7 +160,7 @@ final class ScreenBuilder
             $blocks = self::figures($screen->view($cause === null ? $read : null, $stack, $period));
         } catch (\Throwable $e) {
             $this->logger?->error(sprintf('JMonitor could not display the "%s" screen: %s', $screen->id(), $e->getMessage()), ['exception' => $e]);
-            $blocks = [Block::unavailable(Block::TABLE, BlockState::Error)];
+            $blocks = [Block::status(new Status($screen->label())), Block::unavailable(Block::TABLE, BlockState::Error)];
         }
 
         if ($cause !== null) {

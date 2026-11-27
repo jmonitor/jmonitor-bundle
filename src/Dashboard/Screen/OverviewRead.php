@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
 
-use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
-use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 
 /**
@@ -15,7 +13,7 @@ use Jmonitor\JmonitorBundle\Storage\Read\Report;
 final class OverviewRead
 {
     /**
-     * @param Report       $requests the Request family, restricted to what the Overview shows
+     * @param Report       $requests the Request family, read for the curve of the Requests box
      * @param list<string> $counted  the types of the totals that count an activity
      */
     public function __construct(
@@ -26,18 +24,8 @@ final class OverviewRead
 
     public function isEmpty(): bool
     {
-        if ($this->requests->rows !== [] || $this->requests->other !== null) {
-            return false;
-        }
-
-        foreach ($this->requests->totals as $total) {
-            if ($total->count > 0) {
-                return false;
-            }
-        }
-
         foreach ($this->counted as $type) {
-            if (($this->raised->total($type)->count ?? 0) > 0) {
+            if ($this->count($type) > 0) {
                 return false;
             }
         }
@@ -45,20 +33,9 @@ final class OverviewRead
         return true;
     }
 
+    /** the count of a type in the read that raised the checks, zero when it counted nothing */
     public function count(string $metric): int
     {
-        return $this->total($metric)->count;
-    }
-
-    /** the total of a type in the read that raised the checks, zero when it counted nothing */
-    public function total(string $metric): MetricValue
-    {
-        return $this->raised->total($metric) ?? new MetricValue(0, 0.0, 0.0);
-    }
-
-    /** the requests of the Request family */
-    public function requestCount(): int
-    {
-        return $this->requests->totals[Metric::REQUEST_DURATION]->count ?? 0;
+        return $this->raised->total($metric)->count ?? 0;
     }
 }

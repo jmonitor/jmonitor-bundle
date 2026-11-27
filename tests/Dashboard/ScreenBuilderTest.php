@@ -1160,7 +1160,7 @@ final class ScreenBuilderTest extends TestCase
             $journal[] = 'read ' . $query->family->value;
 
             return $report;
-        });
+        }, totals: $report->totals);
         $glance = new FixedGlance(static function () use (&$journal, $reader): StackGlance {
             $journal[] = 'stack after ' . \count($reader->totalRequests) . ' totals';
 
@@ -1223,7 +1223,7 @@ final class ScreenBuilderTest extends TestCase
         $logger = $this->logger();
         $glance = new FixedGlance(static fn(): StackGlance => throw new \LogicException('No reader of the live stack.'));
 
-        $page = (new ScreenBuilder(new FixedReader($report), true, new MockClock('@1800000000'), logger: $logger))->create(self::overview($glance), null, null, null);
+        $page = (new ScreenBuilder(new FixedReader($report, totals: $report->totals), true, new MockClock('@1800000000'), logger: $logger))->create(self::overview($glance), null, null, null);
 
         static::assertSame([Block::STATUS, Block::MAP], self::types($page->blocks));
         $map = $page->blocks[1]->content;
@@ -1256,7 +1256,7 @@ final class ScreenBuilderTest extends TestCase
         $logger = $this->logger();
         $glance = new FixedGlance(static fn(): StackGlance => throw new \Error('Call to a member function on null'));
 
-        $page = (new ScreenBuilder(new FixedReader($report), true, new MockClock('@1800000000'), logger: $logger))->create(self::overview($glance), null, null, null);
+        $page = (new ScreenBuilder(new FixedReader($report, totals: $report->totals), true, new MockClock('@1800000000'), logger: $logger))->create(self::overview($glance), null, null, null);
 
         static::assertSame([Block::STATUS, Block::MAP], self::types($page->blocks));
         static::assertSame(['error JMonitor could not read the stack: Call to a member function on null'], $logger->messages);
@@ -1302,14 +1302,28 @@ final class ScreenBuilderTest extends TestCase
             }
         };
         $screen = new OverviewScreen(new ApplicationChecks([new ServerErrorsCheck()]), [$broken], [], new FixedGlance());
-        $reader = new FixedReader(new Report([self::requestRow()], null, 1, [], self::requestRow()->metrics), totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)]);
+        $reader = new FixedReader(new Report([self::requestRow()], null, 1, [], self::requestRow()->metrics), totals: [self::SERVER_ERRORS => new MetricValue(1, 0.0, 0.0)] + self::requestRow()->metrics);
 
         $page = (new ScreenBuilder($reader, true, new MockClock('@1800000000'), logger: $logger))->create($screen, null, null, null);
 
-        static::assertSame(['table error'], self::shape($page));
+        static::assertSame(['status ready', 'table error'], self::shape($page));
+        static::assertEquals(new Status('Overview'), $page->blocks[0]->content);
         static::assertSame(['error JMonitor could not display the "overview" screen: Broken section'], $logger->messages);
         static::assertNotNull($page->raised);
         static::assertTrue($page->raised->has('requests.server_errors'));
+    }
+
+    public function testAViewThatThrowsAfterACauseKeepsTheStatusThenTheCauseThenTheError(): void
+    {
+        $logger = $this->logger();
+        $glance = new FixedGlance(new StackGlance(alerts: [new \stdClass()]));
+
+        $page = (new ScreenBuilder(null, true, new MockClock('@1800000000'), logger: $logger))->create(self::overview($glance), null, null, null);
+
+        static::assertSame(['status ready', 'table no_connection', 'table error'], self::shape($page));
+        static::assertEquals(new Status('Overview'), $page->blocks[0]->content);
+        static::assertCount(1, $logger->messages);
+        static::assertStringStartsWith('error JMonitor could not display the "overview" screen: ', $logger->messages[0]);
     }
 
     public function testTheOverviewHandsItsRaisedChecksToThePage(): void
@@ -1359,8 +1373,8 @@ final class ScreenBuilderTest extends TestCase
         $glance = new FixedGlance(new StackGlance([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'))]));
 
         foreach ([
-            'recording off' => $this->builder(new FixedReader($report), false),
-            'buffer directory unusable' => $this->builder(new FixedReader($report), bufferDirectory: new BufferDirectory($file, 'test')),
+            'recording off' => $this->builder(new FixedReader($report, totals: $report->totals), false),
+            'buffer directory unusable' => $this->builder(new FixedReader($report, totals: $report->totals), bufferDirectory: new BufferDirectory($file, 'test')),
         ] as $case => $builder) {
             $page = $builder->create(self::overview($glance), null, null, null);
 
