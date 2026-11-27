@@ -16,4 +16,13 @@ enum Severity: string
             self::Warning => 'Warning',
         };
     }
+
+    /** @return 'bad'|'warn' */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::Critical => 'bad',
+            self::Warning => 'warn',
+        };
+    }
 }

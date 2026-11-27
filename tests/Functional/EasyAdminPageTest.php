@@ -221,7 +221,7 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertCount(1, $standalone->filter($row));
     }
 
-    public function testTheRequestsScreenReadsFromTheSentenceToTheGuideUnderEasyAdmin(): void
+    public function testTheRequestsScreenReadsFromItsTilesToItsTableUnderEasyAdmin(): void
     {
         $client = $this->client();
 
@@ -230,14 +230,13 @@ final class EasyAdminPageTest extends WebTestCase
         $crawler = self::requestUntil($client, '/admin/jmonitor/requests', 'tr[data-jm-route="GET app_boom"][data-jm-requests="1"]');
 
         static::assertCount(1, $crawler->filter('h1'));
-        static::assertSame('1 request in the last hour', explode(', ', $crawler->filter('.jm h1.jm-lead__title')->text())[0]);
-        static::assertSame('Worth a look', $crawler->filter('.jm section.jm-checks')->attr('aria-label'));
-        static::assertSame(['requests.server_errors'], $crawler->filter('.jm [data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
-        static::assertSame('How to read this screen', $crawler->filter('.jm .jm-guide__title')->text());
-        static::assertSame(
-            ['/admin/jmonitor/queries?period=1h', '/admin/jmonitor/cache-http?period=1h'],
-            $crawler->filter('.jm .jm-guide a')->each(static fn(Crawler $link): string => (string) $link->attr('href')),
-        );
+        static::assertSame('Requests', $crawler->filter('.jm .jm-tiles h1.jm-tile__label')->text());
+        static::assertSame(['Requests', 'Average', 'p95', 'Server errors', 'Slow requests'], $crawler->filter('.jm .jm-tile__label')->each(static fn(Crawler $label): string => $label->text()));
+        static::assertCount(0, $crawler->filter('.jm .jm-lead, .jm .jm-checks, .jm [data-jm-check], .jm .jm-guide, .jm .jm-heading'));
+        $tile = $crawler->filter('.jm a.jm-tile.jm-tile--bad');
+        static::assertSame(['1', 'Critical'], [$tile->filter('.jm-tile__value')->text(), $tile->filter('.jm-tag')->text()]);
+        static::assertSame('/admin/jmonitor/requests?period=1h&sort=problems&dir=desc#jm-routes-wrap', $tile->attr('href'));
+        static::assertSame('/admin/jmonitor/exceptions?period=1h', $crawler->filter('.jm tr[data-jm-route="GET app_boom"] a.jm-tag--bad')->attr('href'));
         static::assertSame('1 critical in the last hour', $crawler->filter('.jm .jm-subnav__item[aria-current="page"] .jm-nav__badge')->attr('title'));
     }
 

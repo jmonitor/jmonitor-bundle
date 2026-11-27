@@ -18,8 +18,8 @@ use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\QueriesScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
-use Jmonitor\JmonitorBundle\Dashboard\View\Card;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tile;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\Dbal\AggregatesTable;
 use Jmonitor\JmonitorBundle\Storage\Dbal\DbalReader;
@@ -69,11 +69,11 @@ final class DbalReaderTest extends TestCase
         $checks = new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(1000), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]);
         $view = (new RequestsScreen($checks, 1000))->build(new DbalReader($connection), Period::OneHour, self::NOW, 'total', 'desc');
 
-        static::assertSame(['405 ms', '1.5 s', '1.5 s', '25 %', '1'], array_map(static fn(Card $card): string => $card->value, $view->cards));
+        static::assertSame(['4', '405 ms', '1.5 s', '1', '1'], array_map(static fn(Tile $tile): string => $tile->value, $view->tiles));
         $home = $view->tables[0]->rows[1];
         static::assertSame('GET app_home', $home->attributes['data-jm-route']);
         static::assertSame(
-            ['route' => 'app_home', 'requests' => '3', 'total' => '120 ms', 'avg' => '40 ms', 'p95' => '60 ms', 'max' => '60 ms', 'split' => 'PHP only', 'problems' => '', 'memory' => '2.9 KB'],
+            ['route' => 'app_home', 'requests' => '3', 'total' => '120 ms', 'avg' => '40 ms', 'p95' => '60 ms', 'split' => '', 'problems' => ''],
             array_map(static fn(Cell $cell): string => $cell->text, $home->cells),
         );
     }

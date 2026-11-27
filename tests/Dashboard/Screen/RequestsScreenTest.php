@@ -15,15 +15,14 @@ use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\RequestsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
-use Jmonitor\JmonitorBundle\Dashboard\View\Card;
+use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\Cell;
-use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\Column;
-use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Row;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
+use Jmonitor\JmonitorBundle\Dashboard\View\Tile;
 use Jmonitor\JmonitorBundle\Recording\Entry;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
@@ -52,8 +51,7 @@ final class RequestsScreenTest extends TestCase
         static::assertSame(Period::SixHours, $query->period);
         static::assertSame(self::NOW, $query->now);
         static::assertSame(Metric::REQUEST_DURATION, $query->seriesMetric);
-        static::assertNotNull($view->lead);
-        static::assertSame(array_fill(0, 60, 1), $view->lead->series);
+        static::assertSame(array_fill(0, 60, 1), $view->tiles[0]->series);
     }
 
     public function testTheScreenDeclaresItsSortsWithTotalTimeFirst(): void
@@ -65,9 +63,23 @@ final class RequestsScreenTest extends TestCase
         static::assertSame('Traffic and response times per route', $screen->heading());
         static::assertTrue($screen->isAvailable());
         static::assertSame(
-            ['total' => 'desc', 'route' => 'asc', 'requests' => 'desc', 'avg' => 'desc', 'p95' => 'desc', 'max' => 'desc', 'problems' => 'desc', 'memory' => 'desc'],
+            ['total' => 'desc', 'route' => 'asc', 'requests' => 'desc', 'avg' => 'desc', 'p95' => 'desc', 'problems' => 'desc'],
             $screen->sorts(),
         );
+    }
+
+    public function testTheScreenShowsItsTilesThenItsTableAndNothingElse(): void
+    {
+        $reader = $this->reader([$this->route('GET app_a', errors: 1, slow: 1)], nPlusOne: [$this->repeat(Entry::TYPE_REQUEST, 'GET app_a')]);
+        $page = (new ScreenBuilder($reader, true, new MockClock('@' . self::NOW)))->create($this->screen(), '1h', 'total', 'desc');
+
+        static::assertSame([Block::TILES, Block::TABLE], array_map(static fn(Block $block): string => $block->type, $page->blocks));
+
+        $view = $this->build([$this->route('GET app_a', errors: 1, slow: 1)], nPlusOne: [$this->repeat(Entry::TYPE_REQUEST, 'GET app_a')]);
+        static::assertSame([], $view->cards);
+        static::assertNull($view->lead);
+        static::assertNull($view->checks);
+        static::assertNull($view->guide);
     }
 
     public function testTheColumnsOfTheTable(): void
@@ -76,21 +88,21 @@ final class RequestsScreenTest extends TestCase
 
         static::assertSame(
             [
-                ['route', 'Route', false, 'route'],
-                ['requests', 'Requests', true, 'requests'],
-                ['total', 'Total time', true, 'total'],
-                ['avg', 'Avg', true, 'avg'],
-                ['p95', 'p95', true, 'p95'],
-                ['max', 'Max', true, 'max'],
-                ['split', 'Where the average goes', false, null],
-                ['problems', 'Problems', false, 'problems'],
-                ['memory', 'Memory', true, 'memory'],
+                ['route', 'Route', false, 'route', null, false],
+                ['requests', 'Requests', true, 'requests', null, false],
+                ['total', 'Total time', true, 'total', 'Requests × average.', false],
+                ['avg', 'Avg', true, 'avg', null, false],
+                ['p95', 'p95', true, 'p95', '95 % of the requests are faster.', false],
+                ['split', 'Where the average goes', false, null, null, true],
+                ['problems', 'Problems', false, 'problems', null, false],
             ],
-            array_map(static fn(Column $column): array => [$column->id, $column->label, $column->numeric, $column->sort], $table->columns),
+            array_map(static fn(Column $column): array => [$column->id, $column->label, $column->numeric, $column->sort, $column->definition, $column->legend], $table->columns),
         );
         static::assertSame('routes', $table->id);
         static::assertSame('Routes', $table->title);
-        static::assertTrue($table->partsLegend);
+        static::assertFalse($table->titled);
+        static::assertNull($table->note);
+        static::assertNull($table->footnote);
     }
 
     public function testEverySortKey(): void
@@ -107,9 +119,7 @@ final class RequestsScreenTest extends TestCase
             'requests' => ['d', 'b', 'a', 'c'],
             'avg' => ['c', 'a', 'b', 'd'],
             'p95' => ['c', 'a', 'b', 'd'],
-            'max' => ['c', 'a', 'b', 'd'],
             'problems' => ['c', 'b', 'd', 'a'],
-            'memory' => ['c', 'b', 'd', 'a'],
         ];
 
         static::assertSame(array_keys($this->screen()->sorts()), array_keys($descending));
@@ -151,6 +161,8 @@ final class RequestsScreenTest extends TestCase
         yield 'http' => ['http'];
         yield 'errors' => ['errors'];
         yield 'slow' => ['slow'];
+        yield 'max' => ['max'];
+        yield 'memory' => ['memory'];
     }
 
     #[DataProvider('removedSorts')]
@@ -173,9 +185,9 @@ final class RequestsScreenTest extends TestCase
 
         static::assertSame(['data-jm-route' => 'GET app_a', 'data-jm-requests' => '7'], $row->attributes);
         static::assertFalse($row->muted);
-        static::assertSame(['route', 'requests', 'total', 'avg', 'p95', 'max', 'split', 'problems', 'memory'], array_keys($row->cells));
+        static::assertSame(['route', 'requests', 'total', 'avg', 'p95', 'split', 'problems'], array_keys($row->cells));
         static::assertSame(
-            ['route' => 'app_a', 'requests' => '7', 'total' => '560 ms', 'avg' => '80 ms', 'p95' => '243 ms', 'max' => '400 ms', 'split' => 'SQL 50 ms · 1.0 queries', 'problems' => '', 'memory' => '1 KB'],
+            ['route' => 'app_a', 'requests' => '7', 'total' => '560 ms', 'avg' => '80 ms', 'p95' => '243 ms', 'split' => 'SQL 50 ms', 'problems' => ''],
             array_map(static fn(Cell $cell): string => $cell->text, $row->cells),
         );
         static::assertSame('route', $row->cells['route']->kind);
@@ -184,25 +196,19 @@ final class RequestsScreenTest extends TestCase
         static::assertSame('split', $row->cells['split']->kind);
         static::assertSame('tags', $row->cells['problems']->kind);
         static::assertSame('warn', $row->cells['p95']->tone);
-        static::assertSame('warn', $row->cells['max']->tone);
         static::assertNull($row->cells['total']->tone);
-        static::assertNull($row->cells['memory']->tone);
     }
 
-    public function testHighlightsFollowSlowRequests(): void
+    public function testTheP95OfARouteWarnsWhenMoreThanOneRequestInTwentyIsSlow(): void
     {
         $row = $this->table($this->build([$this->route('GET app_a', 100, 1000.0, 50.0, ['25' => 100], 4, 0)]))->rows[0];
-
         static::assertNull($row->cells['p95']->tone);
-        static::assertNull($row->cells['max']->tone);
 
         $row = $this->table($this->build([$this->route('GET app_a', 100, 1000.0, 50.0, ['25' => 100], 0, 5)]))->rows[0];
         static::assertNull($row->cells['p95']->tone);
-        static::assertSame('warn', $row->cells['max']->tone);
 
         $row = $this->table($this->build([$this->route('GET app_a', 100, 1000.0, 50.0, ['25' => 100], 0, 6)]))->rows[0];
         static::assertSame('warn', $row->cells['p95']->tone);
-        static::assertSame('warn', $row->cells['max']->tone);
     }
 
     public function testARouteNameContainingSpacesKeepsItsMethodApart(): void
@@ -210,29 +216,22 @@ final class RequestsScreenTest extends TestCase
         $row = $this->table($this->build([$this->route('GET (unmatched)'), $this->route('OTHER app_hello')]))->rows;
 
         static::assertSame('(unmatched)', $row[0]->cells['route']->text);
-        static::assertSame(['method' => 'GET', 'title' => '(unmatched)'], $row[0]->cells['route']->data);
+        static::assertSame('GET', $row[0]->cells['route']->data['method']);
         static::assertSame(['method' => 'OTHER', 'title' => 'app_hello'], $row[1]->cells['route']->data);
     }
 
-    public function testTheFootnoteNamesTheRequestsThatMatchedNoRoute(): void
+    public function testTheRequestsThatMatchedNoRouteAreDefinedOnTheirCell(): void
     {
-        static::assertSame('(unmatched): requests that matched no route.', $this->table($this->build([$this->route('GET (unmatched)'), $this->route('GET app_a')]))->footnote);
-        static::assertNull($this->table($this->build([$this->route('GET app_a')]))->footnote);
+        $rows = $this->table($this->build([$this->route('GET (unmatched)', 2), $this->route('OPTIONS (unmatched)'), $this->route('GET app_unmatched')]))->rows;
 
-        $rows = [$this->route('GET (unmatched)', 1, 0.5, 0.5)];
-        for ($i = 1; $i <= 100; ++$i) {
-            $rows[] = $this->route(sprintf('GET app_%03d', $i), 1, 10.0 + $i);
-        }
-        static::assertNull($this->table($this->build($rows))->footnote, 'Only a route shown in the table calls for the footnote.');
-    }
-
-    public function testTheNoteSaysTheMostExpensiveComeFirstOnTheDefaultSortOnly(): void
-    {
-        $rows = [$this->route('GET app_a'), $this->route('GET app_b')];
-
-        static::assertSame('the most expensive first', $this->table($this->build($rows, 'total', 'desc'))->note);
-        static::assertNull($this->table($this->build($rows, 'total', 'asc'))->note);
-        static::assertNull($this->table($this->build($rows, 'requests', 'desc'))->note);
+        static::assertSame(
+            [
+                ['method' => 'GET', 'title' => 'Requests that matched no route.'],
+                ['method' => 'GET', 'title' => 'app_unmatched'],
+                ['method' => 'OPTIONS', 'title' => 'Requests that matched no route.'],
+            ],
+            array_map(static fn(Row $row): array => $row->cells['route']->data, $rows),
+        );
     }
 
     public function testTheBarIsTheShareOfTheLargestTotalShown(): void
@@ -264,14 +263,15 @@ final class RequestsScreenTest extends TestCase
      */
     public static function splits(): iterable
     {
-        yield 'SQL, HTTP and PHP' => [self::splitRoute(10, 1440.0, 10, 100.0, 50.0, 10, 570.0), ['php' => 77.0, 'sql' => 10.0, 'http' => 57.0], 'HTTP out 57 ms · 5.0 queries'];
-        yield 'SQL longer than HTTP' => [self::splitRoute(4, 400.0, 4, 68.0, 48.0, 2, 20.0), ['php' => 78.0, 'sql' => 17.0, 'http' => 5.0], 'SQL 17 ms · 12 queries'];
-        yield 'SQL and HTTP equal' => [self::splitRoute(2, 100.0, 2, 20.0, 2.0, 2, 20.0), ['php' => 30.0, 'sql' => 10.0, 'http' => 10.0], 'SQL 10 ms · 1.0 queries'];
-        yield 'neither SQL nor HTTP' => [self::splitRoute(3, 90.0), ['php' => 30.0, 'sql' => 0.0, 'http' => 0.0], 'PHP only'];
-        yield 'HTTP without SQL' => [self::splitRoute(2, 200.0, 0, 0.0, 0.0, 2, 114.0), ['php' => 43.0, 'sql' => 0.0, 'http' => 57.0], 'HTTP out 57 ms'];
-        yield 'SQL and HTTP longer than the average' => [self::splitRoute(2, 100.0, 2, 80.0, 6.0, 2, 90.0), ['php' => 0.0, 'sql' => 40.0, 'http' => 45.0], 'HTTP out 45 ms · 3.0 queries'];
-        yield 'an average of zero' => [self::splitRoute(2, 0.0, 2, 0.0, 4.0), ['php' => 0.0, 'sql' => 0.0, 'http' => 0.0], 'SQL <1 ms · 2.0 queries'];
-        yield 'SQL on a part of the requests' => [self::splitRoute(4, 400.0, 1, 40.0, 3.0), ['php' => 90.0, 'sql' => 10.0, 'http' => 0.0], 'SQL 10 ms · 0.8 queries'];
+        yield 'SQL, HTTP and PHP' => [self::splitRoute(10, 1440.0, 10, 100.0, 50.0, 10, 570.0), ['php' => 77.0, 'sql' => 10.0, 'http' => 57.0], 'HTTP 57 ms'];
+        yield 'SQL longer than HTTP' => [self::splitRoute(4, 400.0, 4, 68.0, 48.0, 2, 20.0), ['php' => 78.0, 'sql' => 17.0, 'http' => 5.0], 'SQL 17 ms'];
+        yield 'SQL and HTTP equal' => [self::splitRoute(2, 100.0, 2, 20.0, 2.0, 2, 20.0), ['php' => 30.0, 'sql' => 10.0, 'http' => 10.0], 'SQL 10 ms'];
+        yield 'neither SQL nor HTTP' => [self::splitRoute(3, 90.0), ['php' => 30.0, 'sql' => 0.0, 'http' => 0.0], ''];
+        yield 'HTTP without SQL' => [self::splitRoute(2, 200.0, 0, 0.0, 0.0, 2, 114.0), ['php' => 43.0, 'sql' => 0.0, 'http' => 57.0], 'HTTP 57 ms'];
+        yield 'SQL and HTTP longer than the average' => [self::splitRoute(2, 100.0, 2, 80.0, 6.0, 2, 90.0), ['php' => 0.0, 'sql' => 40.0, 'http' => 45.0], 'HTTP 45 ms'];
+        yield 'an average of zero' => [self::splitRoute(2, 0.0, 2, 0.0, 4.0), ['php' => 0.0, 'sql' => 0.0, 'http' => 0.0], ''];
+        yield 'SQL on a part of the requests' => [self::splitRoute(4, 400.0, 1, 40.0, 3.0), ['php' => 90.0, 'sql' => 10.0, 'http' => 0.0], 'SQL 10 ms'];
+        yield 'SQL under a millisecond' => [self::splitRoute(4, 400.0, 4, 1.0, 4.0), ['php' => 99.75, 'sql' => 0.25, 'http' => 0.0], 'SQL <1 ms'];
     }
 
     /**
@@ -286,19 +286,13 @@ final class RequestsScreenTest extends TestCase
         static::assertSame($parts, $split->parts);
     }
 
-    public function testTheNumberOfQueriesIsReadAfterTheParts(): void
+    public function testTheHiddenTextReadsTheThreePartsWithoutTheQueries(): void
     {
         $rows = $this->table($this->build([self::splitRoute(4, 400.0, 4, 68.0, 48.0, 2, 20.0, key: 'GET app_sql'), self::splitRoute(3, 90.0, key: 'GET app_php')]))->rows;
 
-        static::assertSame('PHP 78 ms, SQL 17 ms, HTTP out 5 ms, 12 queries', $rows[0]->cells['split']->data['spoken']);
+        static::assertSame('PHP 78 ms, SQL 17 ms, HTTP out 5 ms', $rows[0]->cells['split']->data['spoken']);
         static::assertSame('PHP 30 ms, SQL 0 ms, HTTP out 0 ms', $rows[1]->cells['split']->data['spoken']);
         static::assertSame(['method' => 'GET', 'title' => 'app_sql'], $rows[0]->cells['route']->data);
-    }
-
-    public function testTheNumberOfQueriesChoosesItsDecimalsOnceRounded(): void
-    {
-        static::assertSame('SQL 5 ms · 9.9 queries', $this->table($this->build([self::splitRoute(100, 10000.0, 100, 500.0, 994.0)]))->rows[0]->cells['split']->text);
-        static::assertSame('SQL 5 ms · 10 queries', $this->table($this->build([self::splitRoute(100, 10000.0, 100, 500.0, 996.0)]))->rows[0]->cells['split']->text);
     }
 
     public function testTheOtherRoutesFollowTheSameSplit(): void
@@ -308,11 +302,11 @@ final class RequestsScreenTest extends TestCase
         $last = $this->table($this->build([], other: $other))->rows[0];
 
         static::assertTrue($last->muted);
-        static::assertSame('HTTP out 57 ms · 5.0 queries', $last->cells['split']->text);
+        static::assertSame('HTTP 57 ms', $last->cells['split']->text);
         static::assertSame(['php' => 77.0, 'sql' => 10.0, 'http' => 57.0], $last->cells['split']->parts);
     }
 
-    public function testTheTagsComeInOrder(): void
+    public function testTheTagsComeInOrderAndLeadToTheirScreen(): void
     {
         $rows = [
             $this->route('GET app_all', 10, 1000.0, 5000.0, errors: 1234, slow: 2),
@@ -323,11 +317,11 @@ final class RequestsScreenTest extends TestCase
 
         static::assertSame(
             [
-                [['1,234 × 5xx', 'bad'], ['2 slow', 'warn'], ['N+1', 'warn']],
-                [['1 slow', 'warn']],
-                [['N+1', 'warn']],
+                [['1,234 × 5xx', 'bad', 'exceptions'], ['2 slow', 'warn', null], ['N+1', 'warn', 'queries']],
+                [['1 slow', 'warn', null]],
+                [['N+1', 'warn', 'queries']],
             ],
-            array_map(static fn(Row $row): array => array_map(static fn(Tag $tag): array => [$tag->text, $tag->tone], $row->cells['problems']->tags), $table->rows),
+            array_map(static fn(Row $row): array => array_map(static fn(Tag $tag): array => [$tag->text, $tag->tone, $tag->path], $row->cells['problems']->tags), $table->rows),
         );
     }
 
@@ -341,7 +335,7 @@ final class RequestsScreenTest extends TestCase
         static::assertSame(['2 × 5xx'], array_map(static fn(Tag $tag): string => $tag->text, $rows[1]->cells['problems']->tags));
     }
 
-    public function testARouteThatRepeatsAQueryIsTaggedAndBringsTheCheckOfQueries(): void
+    public function testARouteThatRepeatsAQueryIsTagged(): void
     {
         $reader = $this->reader(
             [$this->route('GET app_list', 3, 300.0), $this->route('GET app_show', 2, 100.0)],
@@ -354,25 +348,13 @@ final class RequestsScreenTest extends TestCase
         static::assertEquals((new RepeatedQueriesCheck(10))->query(Period::OneHour, self::NOW), $reader->queries[1]);
         static::assertCount(1, $reader->totalRequests);
         static::assertSame([['N+1'], []], array_map(static fn(Row $row): array => array_map(static fn(Tag $tag): string => $tag->text, $row->cells['problems']->tags), $this->table($view)->rows));
-
-        static::assertNotNull($view->checks);
-        static::assertSame('Worth a look', $view->checks->title);
-        static::assertCount(1, $view->checks->lines);
-        $line = $view->checks->lines[0];
-        static::assertSame('queries.repeated', $line->id);
-        static::assertSame('warn', $line->mark->tone);
-        static::assertSame('Warning', $line->mark->label);
-        static::assertSame('2 repeated queries (N+1)', $line->title);
-        static::assertSame('Command app:import runs the same query 20 times on average, 30 at worst. 1 more is listed on Queries.', $line->sentence);
-        static::assertSame('Queries', $line->where);
-        static::assertSame('queries', $line->path);
-        static::assertSame(['period' => '1h'], $line->query);
+        static::assertNull($view->checks);
         static::assertNotNull($view->raised);
         static::assertTrue($view->raised->has('queries.repeated'));
-        static::assertNull($view->raised->badge('requests'), 'The check of Queries shown on Requests does not count on the tab of Requests.');
+        static::assertNull($view->raised->badge('requests'), 'The check of Queries does not count on the tab of Requests.');
     }
 
-    public function testARepeatOnARouteBeyondTheHundredShownStillBringsTheCheck(): void
+    public function testARepeatOnARouteBeyondTheHundredShownTagsNoRow(): void
     {
         $rows = [];
         for ($i = 1; $i <= 101; ++$i) {
@@ -382,8 +364,8 @@ final class RequestsScreenTest extends TestCase
         $view = $this->build($rows, nPlusOne: [$this->repeat(Entry::TYPE_REQUEST, 'GET app_001')]);
 
         static::assertCount(100, $this->table($view)->rows);
-        static::assertNotNull($view->checks);
-        static::assertSame(['queries.repeated'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
+        static::assertSame([], array_merge(...array_map(static fn(Row $row): array => $row->cells['problems']->tags, $this->table($view)->rows)));
+        static::assertNull($view->checks);
     }
 
     public function testARepeatInACommandOnlyDoesNotShowOnRequests(): void
@@ -394,13 +376,12 @@ final class RequestsScreenTest extends TestCase
 
         static::assertSame([Family::Request, Family::NPlusOne], array_map(static fn(ReportQuery $query): Family => $query->family, $reader->queries));
         static::assertSame([], $this->table($view)->rows[0]->cells['problems']->tags);
-        static::assertNotNull($view->checks);
-        static::assertSame([], $view->checks->lines);
+        static::assertNull($view->checks);
         static::assertNotNull($view->raised);
         static::assertTrue($view->raised->has('queries.repeated'));
     }
 
-    public function testRepeatsBeyondThoseReadStillBringTheCheckOfQueries(): void
+    public function testRepeatsBeyondThoseReadAreLeftToQueries(): void
     {
         $command = $this->repeat(Entry::TYPE_COMMAND, 'app:import');
         $grouped = new ReportRow(md5(Aggregator::OTHER), Aggregator::OTHER, null, $command->metrics);
@@ -409,8 +390,7 @@ final class RequestsScreenTest extends TestCase
             $view = $this->screen()->build($reader, Period::OneHour, self::NOW, 'total', 'desc');
 
             static::assertSame([], $this->table($view)->rows[0]->cells['problems']->tags);
-            static::assertNotNull($view->checks);
-            static::assertSame(['queries.repeated'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
+            static::assertNull($view->checks);
             static::assertCount(2, $reader->queries);
         }
     }
@@ -430,178 +410,109 @@ final class RequestsScreenTest extends TestCase
 
         static::assertSame([Family::Request], array_map(static fn(ReportQuery $query): Family => $query->family, $reader->queries));
         static::assertCount(1, $reader->totalRequests);
-        static::assertNotNull($view->checks);
-        static::assertSame(['requests.server_errors', 'requests.slow'], array_map(static fn(CheckLine $line): string => $line->id, $view->checks->lines));
+        static::assertSame([['2 × 5xx', 'bad'], ['1 slow', 'warn']], array_map(static fn(Tag $tag): array => [$tag->text, $tag->tone], $this->table($view)->rows[0]->cells['problems']->tags));
     }
 
-    public function testTheChecksOfRequestsAreTold(): void
-    {
-        $reader = $this->reader([
-            $this->route('GET app_list', 4, 9000.0, 4000.0, slow: 3),
-            $this->route('POST app_save', 4, 400.0, 100.0, errors: 2),
-            $this->route('GET app_show', 4, 400.0, 1500.0, errors: 1, slow: 1),
-        ]);
-
-        $view = $this->screen()->build($reader, Period::OneHour, self::NOW, 'total', 'desc');
-
-        static::assertNotNull($view->checks);
-        static::assertSame(
-            [
-                ['requests.server_errors', 'bad', 'Critical', '3 server errors', 'POST app_save answered with a 5xx status 2 times. 1 other route did too.', '', null, 'Open Exceptions to see what was thrown, then look for it in your logs.'],
-                ['requests.slow', 'warn', 'Warning', '4 slow requests', 'GET app_list took 1.0 s or more 3 times, 4.0 s at worst. 1 other route did too.', '', null, 'Look at where the average of the route goes in the table: your PHP code, SQL or another site.'],
-            ],
-            array_map(static fn(CheckLine $line): array => [$line->id, $line->mark->tone, $line->mark->label, $line->title, $line->sentence, $line->where, $line->path, $line->action], $view->checks->lines),
-        );
-        static::assertCount(1, $reader->queries, 'The checks of Requests reuse the report of the screen.');
-        static::assertNotNull($view->raised);
-        static::assertSame([1, 1], [$view->raised->badge('requests')?->critical, $view->raised->badge('requests')?->warning]);
-    }
-
-    public function testWithoutCheckTheScreenSaysWhatWasChecked(): void
-    {
-        $view = $this->build([$this->route('GET app_list')], period: Period::SixHours);
-
-        static::assertNotNull($view->checks);
-        static::assertSame([], $view->checks->lines);
-        static::assertSame('Worth a look', $view->checks->title);
-        static::assertSame('Nothing to flag', $view->checks->emptyTitle);
-        static::assertSame('No server error, no slow request and no route that repeats a query in the last 6 hours.', $view->checks->emptyText);
-    }
-
-    /**
-     * @return iterable<string, array{list<ReportRow>, string, string}>
-     */
-    public static function leads(): iterable
-    {
-        yield 'one request' => [
-            [self::splitRoute(1, 42.0)],
-            '1 request in the last hour, answered in 42 ms.',
-            'No server error, no slow request.',
-        ];
-        yield 'one route, no problem' => [
-            [self::splitRoute(4, 120.0)],
-            '4 requests in the last hour, 95 % answered in under 10 ms.',
-            'No server error, no slow request.',
-        ];
-        yield 'one of each' => [
-            [self::splitRoute(3, 3000.0, errors: 1, slow: 1, key: 'GET app_a'), self::splitRoute(1, 1000.0, key: 'GET app_b')],
-            '4 requests in the last hour, 95 % answered in under 10 ms.',
-            '1 server error, 1 slow request. The most expensive route takes 75 % of the total time.',
-        ];
-        yield 'several of each' => [
-            [self::splitRoute(1200, 3000.0, errors: 1100, slow: 2, key: 'GET app_a'), self::splitRoute(3, 1000.0, errors: 1, slow: 1, key: 'GET app_b')],
-            '1,203 requests in the last hour, 95 % answered in under 10 ms.',
-            '1,101 server errors, 3 slow requests. The most expensive route takes 75 % of the total time.',
-        ];
-    }
-
-    /**
-     * @param list<ReportRow> $rows
-     */
-    #[DataProvider('leads')]
-    public function testTheLeadSumsUpThePeriod(array $rows, string $sentence, string $detail): void
-    {
-        $view = $this->build($rows);
-
-        static::assertNotNull($view->lead);
-        static::assertSame($sentence, $view->lead->sentence);
-        static::assertSame($detail, $view->lead->detail);
-    }
-
-    public function testTheLeadCountsTheOtherRoutes(): void
-    {
-        $other = new ReportRow('h', Aggregator::OTHER, null, $this->metrics(2, 2000.0, 1000.0) + [
-            Metric::REQUEST_DURATION_LE_PREFIX . '1000' => new MetricValue(2, 0.0, 0.0),
-            Metric::REQUEST_STATUS_PREFIX . '5xx' => new MetricValue(1, 0.0, 0.0),
-        ]);
-
-        $view = $this->build([$this->route('GET app_a', 2, 200.0, 100.0, ['100' => 2]), $this->route('GET app_b', 1, 300.0, 300.0, ['500' => 1])], other: $other, period: Period::OneDay);
-
-        static::assertNotNull($view->lead);
-        static::assertSame('5 requests in the last 24 hours, 95 % answered in under 938 ms.', $view->lead->sentence);
-        static::assertSame('1 server error, no slow request. The most expensive route takes 12 % of the total time.', $view->lead->detail);
-        static::assertSame('938 ms', $view->cards[1]->value, 'The p95 of the sentence is the one of the card.');
-    }
-
-    public function testTheShareOfTheMostExpensiveRouteNeedsTwoRoutes(): void
-    {
-        $other = new ReportRow('h', Aggregator::OTHER, null, $this->metrics(2, 2000.0, 1000.0));
-
-        $view = $this->build([$this->route('GET app_a', 2, 200.0, 100.0)], other: $other);
-
-        static::assertNotNull($view->lead);
-        static::assertSame('No server error, no slow request.', $view->lead->detail);
-    }
-
-    /**
-     * @return iterable<string, array{Period, string}>
-     */
-    public static function seriesStarts(): iterable
-    {
-        yield '1 hour' => [Period::OneHour, '1 h ago'];
-        yield '6 hours' => [Period::SixHours, '6 h ago'];
-        yield '24 hours' => [Period::OneDay, '24 h ago'];
-        yield '7 days' => [Period::SevenDays, '7 d ago'];
-    }
-
-    #[DataProvider('seriesStarts')]
-    public function testTheLeadDrawsTheRequestsOfThePeriod(Period $period, string $start): void
-    {
-        $series = range(1, 60);
-        $view = $this->screen()->build($this->reader([$this->route('GET app_a')], series: $series), $period, self::NOW, 'total', 'desc');
-
-        static::assertNotNull($view->lead);
-        static::assertSame($series, $view->lead->series);
-        static::assertSame('requests', $view->lead->seriesLabel);
-        static::assertSame($start, $view->lead->seriesStart);
-    }
-
-    public function testTheCardsDefineTheirFigures(): void
+    public function testTheTilesDefineTheirFigures(): void
     {
         $view = $this->screen(250)->build($this->reader([
             $this->route('GET app_home', 3, 120.0, 60.0, ['25' => 1, '50' => 1, '100' => 1], 1),
             $this->route('POST app_cart_add', 1, 1500.0, 1500.0, ['2500' => 1], slow: 1),
-        ]), Period::SixHours, self::NOW, 'total', 'desc');
+        ], series: range(1, 60)), Period::SixHours, self::NOW, 'total', 'desc');
 
         static::assertSame(
             [
-                ['Average', '405 ms', 'The mean response time.', null],
-                ['p95', '1.5 s', '95 % of requests are faster. What the unlucky visitors feel.', null],
-                ['Slowest', '1.5 s', 'The single worst request of the last 6 hours.', null],
-                ['Server errors', '25 %', 'Responses with a 5xx status: your code or a server failed.', 'bad'],
-                ['Slow requests', '1', 'Took 250 ms or more. The limit is yours to set.', 'warn'],
+                ['Requests', '4', '', null, null, null, true, true],
+                ['Average', '405 ms', 'The mean response time.', null, null, null, false, false],
+                ['p95', '1.5 s', '95 % of the requests are faster.', null, null, null, false, false],
+                ['Server errors', '1', 'Responses with a 5xx status.', 'Critical', 'bad', 'problems', false, false],
+                ['Slow requests', '1', '250 ms or more.', 'Warning', 'warn', 'problems', false, false],
             ],
-            array_map(static fn(Card $card): array => [$card->label, $card->value, $card->hint, $card->tone], $view->cards),
+            array_map(static fn(Tile $tile): array => [$tile->label, $tile->value, $tile->definition, $tile->tag?->text, $tile->tag?->tone, $tile->sort, $tile->namesPage, $tile->series !== []], $view->tiles),
         );
-        foreach ($view->cards as $card) {
-            static::assertFalse($card->wide);
-            static::assertSame([], $card->series);
-        }
+        static::assertSame(range(1, 60), $view->tiles[0]->series);
+        static::assertNull($view->tiles[3]->tag?->path);
     }
 
-    public function testNoErrorNorSlowRequestLeavesTheCardsNeutral(): void
+    public function testWithoutProblemTheTilesSayZeroWithoutTagNorSort(): void
     {
-        $view = $this->build([$this->route('GET app_home')]);
+        $tiles = $this->tiles($this->build([$this->route('GET app_home')], period: Period::SixHours));
 
-        static::assertSame(['0 %', '0'], [$view->cards[3]->value, $view->cards[4]->value]);
-        static::assertNull($view->cards[3]->tone);
-        static::assertNull($view->cards[4]->tone);
-        static::assertSame('Took 1.0 s or more. The limit is yours to set.', $view->cards[4]->hint);
+        static::assertSame(['0', null, null, null], self::figure($tiles['Server errors']));
+        static::assertSame(['0', null, null, null], self::figure($tiles['Slow requests']));
+        static::assertSame('1.0 s or more.', $tiles['Slow requests']->definition);
     }
 
-    public function testTheGuideExplainsTheTable(): void
+    public function testEachProblemTileIsRaisedAlone(): void
     {
-        $view = $this->build([$this->route('GET app_home')]);
+        $tiles = $this->tiles($this->build([$this->route('GET app_home', errors: 1)]));
+        static::assertSame(['1', 'Critical', 'bad', 'problems'], self::figure($tiles['Server errors']));
+        static::assertSame(['0', null, null, null], self::figure($tiles['Slow requests']));
 
-        static::assertNotNull($view->guide);
+        $tiles = $this->tiles($this->build([$this->route('GET app_home', slow: 1)]));
+        static::assertSame(['0', null, null, null], self::figure($tiles['Server errors']));
+        static::assertSame(['1', 'Warning', 'warn', 'problems'], self::figure($tiles['Slow requests']));
+    }
+
+    public function testTheTilesWriteTheirNumbersInFull(): void
+    {
+        $tiles = $this->tiles($this->build([
+            self::splitRoute(1200, 3000.0, errors: 1100, slow: 2, key: 'GET app_a'),
+            self::splitRoute(3, 1000.0, errors: 1, slow: 1, key: 'GET app_b'),
+        ]));
+
+        static::assertSame(['1,203', '1,101', '3'], [$tiles['Requests']->value, $tiles['Server errors']->value, $tiles['Slow requests']->value]);
+    }
+
+    public function testOneRequestIsAveragedAlone(): void
+    {
+        $tiles = $this->tiles($this->build([self::splitRoute(1, 42.0)]));
+
+        static::assertSame(['1', '42 ms'], [$tiles['Requests']->value, $tiles['Average']->value]);
+    }
+
+    public function testTheTilesCountTheOtherRoutes(): void
+    {
+        $other = new ReportRow('h', Aggregator::OTHER, null, $this->metrics(2, 2000.0, 1000.0) + [
+            Metric::REQUEST_DURATION_LE_PREFIX . '1000' => new MetricValue(2, 0.0, 0.0),
+            Metric::REQUEST_STATUS_PREFIX . '5xx' => new MetricValue(1, 0.0, 0.0),
+            Metric::REQUEST_SLOW => new MetricValue(1, 0.0, 0.0),
+        ]);
+
+        $tiles = $this->tiles($this->build([$this->route('GET app_a', 2, 200.0, 100.0, ['100' => 2]), $this->route('GET app_b', 1, 300.0, 300.0, ['500' => 1])], other: $other, period: Period::OneDay));
+
+        static::assertSame(['5', '500 ms', '938 ms'], [$tiles['Requests']->value, $tiles['Average']->value, $tiles['p95']->value]);
+        static::assertSame(['1', 'Critical', 'bad', 'problems'], self::figure($tiles['Server errors']));
+        static::assertSame(['1', 'Warning', 'warn', 'problems'], self::figure($tiles['Slow requests']));
+    }
+
+    public function testTheTilesAndTheTableTellTheSameProblems(): void
+    {
+        $view = $this->build([
+            $this->route('GET app_list', 4, 9000.0, 4000.0, slow: 3),
+            $this->route('POST app_save', 4, 400.0, 100.0, errors: 2),
+            $this->route('GET app_show', 4, 400.0, 1500.0, errors: 1, slow: 1),
+        ]);
+        $tiles = $this->tiles($view);
+
+        static::assertSame(['3', 'Critical', 'bad', 'problems'], self::figure($tiles['Server errors']));
+        static::assertSame(['4', 'Warning', 'warn', 'problems'], self::figure($tiles['Slow requests']));
         static::assertSame(
-            [
-                ['Total time.', 'Requests × average. The table is sorted by it because it shows where an improvement pays the most.', []],
-                ['Avg, p95, max.', 'The average hides the bad moments. p95 leaves out the slowest 5 %, max is the single worst request.', []],
-                ['Where the average goes.', 'What an average request of the route waits for: your PHP code, SQL, then calls to other sites. A long SQL part sends you to Queries, a long HTTP part to Cache & HTTP.', ['Queries' => 'queries', 'Cache & HTTP' => 'cache-http']],
-            ],
-            array_map(static fn(GuideItem $item): array => [$item->term, $item->text, $item->links], $view->guide->items),
+            ['3 slow', '1 × 5xx', '1 slow', '2 × 5xx'],
+            array_map(static fn(Tag $tag): string => $tag->text, array_merge(...array_map(static fn(Row $row): array => $row->cells['problems']->tags, $this->table($view)->rows))),
         );
+        static::assertNotNull($view->raised);
+        static::assertSame([1, 1], [$view->raised->badge('requests')?->critical, $view->raised->badge('requests')?->warning]);
+    }
+
+    public function testTheChecksOfRequestsCostNoReadOfTheirOwn(): void
+    {
+        $reader = $this->reader([$this->route('GET app_list', errors: 1, slow: 1)]);
+
+        $this->screen()->build($reader, Period::OneHour, self::NOW, 'total', 'desc');
+
+        static::assertCount(1, $reader->queries);
+        static::assertCount(1, $reader->totalRequests);
     }
 
     public function testAnEmptyScreenReadsNoCheck(): void
@@ -613,6 +524,8 @@ final class RequestsScreenTest extends TestCase
         static::assertTrue($view->isEmpty());
         static::assertCount(1, $reader->queries);
         static::assertSame([], $reader->totalRequests);
+        static::assertSame([], $view->tiles);
+        static::assertSame([], $view->cards);
         static::assertNull($view->lead);
         static::assertNull($view->checks);
         static::assertNull($view->guide);
@@ -633,8 +546,7 @@ final class RequestsScreenTest extends TestCase
             static::assertSame('Other routes', $last->cells['route']->text);
             static::assertSame('text', $last->cells['route']->kind);
             static::assertSame('50', $last->cells['requests']->text);
-            static::assertNotNull($view->lead);
-            static::assertStringStartsWith('55 requests', $view->lead->sentence);
+            static::assertSame('55', $view->tiles[0]->value);
         }
 
         static::assertFalse($this->build([], other: $other)->isEmpty());
@@ -702,6 +614,18 @@ final class RequestsScreenTest extends TestCase
     private function table(ScreenView $view): Table
     {
         return $view->tables[0];
+    }
+
+    /** @return array<string, Tile> by label */
+    private function tiles(ScreenView $view): array
+    {
+        return array_combine(array_map(static fn(Tile $tile): string => $tile->label, $view->tiles), $view->tiles);
+    }
+
+    /** @return array{string, ?string, ?string, ?string} the value, the text and tone of its tag, and its sort */
+    private static function figure(Tile $tile): array
+    {
+        return [$tile->value, $tile->tag?->text, $tile->tag?->tone, $tile->sort];
     }
 
     /** @return list<string> the last letter of each route name, in display order */

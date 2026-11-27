@@ -103,12 +103,10 @@ final class SqlRecordingTest extends WebTestCase
         $requests = $client->request('GET', '/jmonitor/requests');
         static::assertResponseIsSuccessful();
 
-        static::assertSame(['N+1'], $requests->filter('tr[data-jm-route="GET app_n_plus_one"] .jm-tag--warn')->each(static fn(Crawler $tag): string => $tag->text()));
-        $check = $requests->filter('[data-jm-check="queries.repeated"]');
-        static::assertCount(1, $check);
-        static::assertSame('Repeated query (N+1) · GET app_n_plus_one runs the same query 12 times on average, 12 at worst.', $check->filter('.jm-check__sentence')->text());
-        static::assertSame('Queries', $check->filter('.jm-check__where a')->text());
-        static::assertSame('/jmonitor/queries?period=1h', $check->filter('.jm-check__where a')->attr('href'));
+        $tag = $requests->filter('tr[data-jm-route="GET app_n_plus_one"] .jm-tag--warn');
+        static::assertSame(['N+1'], $tag->each(static fn(Crawler $tag): string => $tag->text()));
+        static::assertSame(['a', '/jmonitor/queries?period=1h'], [$tag->nodeName(), $tag->attr('href')]);
+        static::assertCount(0, $requests->filter('[data-jm-check]'));
         static::assertSame(['queries' => '1 warning in the last hour'], self::badges($requests));
     }
 

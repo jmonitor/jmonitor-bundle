@@ -381,7 +381,7 @@ final class DashboardTest extends WebTestCase
         static::assertCount(0, $crawler->filter('.jm-guide'));
     }
 
-    public function testRequestsReadsFromTheSentenceToTheGuide(): void
+    public function testRequestsReadsFromItsTilesToItsTable(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
@@ -392,23 +392,28 @@ final class DashboardTest extends WebTestCase
         $crawler = self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET app_hello"][data-jm-requests="3"]');
 
         static::assertSame(
-            ['jm-lead', 'jm-checks', 'jm-cards', 'jm-panel', 'jm-guide'],
-            $crawler->filter('.jm-screen > section')->each(static fn(Crawler $block): string => explode(' ', (string) $block->attr('class'))[0]),
+            ['jm-subbar', 'jm-tiles', 'jm-panel'],
+            $crawler->filter('.jm-screen > section, .jm-screen > div')->each(static fn(Crawler $block): string => explode(' ', (string) $block->attr('class'))[0]),
         );
         static::assertCount(1, $crawler->filter('h1'));
-        static::assertCount(0, $crawler->filter('.jm-heading'));
-        static::assertMatchesRegularExpression('/^3 requests in the last hour, 95 % answered in under \S+ ms\.$/', $crawler->filter('h1.jm-lead__title')->text());
-        static::assertSame('No server error, no slow request.', $crawler->filter('.jm-lead__detail')->text());
-        static::assertSame('Worth a look', $crawler->filter('section.jm-checks')->attr('aria-label'));
-        static::assertSame('Nothing to flag', $crawler->filter('.jm-checks__empty-title')->text());
-        static::assertSame('No server error, no slow request and no route that repeats a query in the last hour.', $crawler->filter('.jm-checks__empty-text')->text());
-        static::assertSame(['Average', 'p95', 'Slowest', 'Server errors', 'Slow requests'], $crawler->filter('.jm-card__label')->each(static fn(Crawler $label): string => $label->text()));
-        static::assertSame('Routes', $crawler->filter('#jm-routes-title')->text());
-        static::assertSame('How to read this screen', $crawler->filter('.jm-guide__title')->text());
+        static::assertSame('Requests', $crawler->filter('.jm-tiles h1.jm-tile__label')->text());
+        static::assertCount(0, $crawler->filter('.jm-heading, .jm-lead, .jm-checks, [data-jm-check], .jm-cards, .jm-guide, .jm-panel__header, .jm-panel__footnote'));
+
+        $tiles = $crawler->filter('.jm-tiles > .jm-tile');
+        static::assertSame(['Requests', 'Average', 'p95', 'Server errors', 'Slow requests'], $tiles->each(static fn(Crawler $tile): string => $tile->filter('.jm-tile__label')->text()));
+        static::assertSame('3', $tiles->eq(0)->filter('.jm-tile__value')->text());
+        static::assertCount(1, $tiles->eq(0)->filter('svg.jm-sparkline'));
+        static::assertSame(['0', '0'], [$tiles->eq(3)->filter('.jm-tile__value')->text(), $tiles->eq(4)->filter('.jm-tile__value')->text()]);
+        static::assertSame(['Responses with a 5xx status.', '1.0 s or more.'], [$tiles->eq(3)->attr('title'), $tiles->eq(4)->attr('title')]);
+        static::assertCount(0, $crawler->filter('a.jm-tile, .jm-tile .jm-tag'));
+
+        $table = $crawler->filter('#jm-routes-wrap');
+        static::assertSame('Routes', $table->attr('aria-label'));
         static::assertSame(
-            ['/jmonitor/queries?period=1h', '/jmonitor/cache-http?period=1h'],
-            $crawler->filter('.jm-guide a')->each(static fn(Crawler $link): string => (string) $link->attr('href')),
+            ['Route', 'Requests', 'Total time', 'Avg', 'p95', 'Where the average goes PHP SQL HTTP', 'Problems'],
+            $table->filter('thead th')->each(static fn(Crawler $th): string => trim(str_replace(['↕', '↓', '↑'], '', $th->text()))),
         );
+        static::assertSame('Requests × average.', $table->filter('thead th')->eq(2)->attr('title'));
         static::assertCount(0, $crawler->filter('.jm-subnav .jm-nav__badge'));
     }
 
@@ -464,7 +469,7 @@ final class DashboardTest extends WebTestCase
         }
     }
 
-    public function testAServerErrorIsWorthALookAndBadgesTheTab(): void
+    public function testAServerErrorRaisesItsTileTagsItsRouteAndBadgesTheTab(): void
     {
         $client = static::createClient(['jmonitor' => $this->recording()]);
 
@@ -474,17 +479,20 @@ final class DashboardTest extends WebTestCase
         }
         $crawler = self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET app_boom"][data-jm-requests="2"]');
 
-        static::assertSame('2 requests', explode(' in ', $crawler->filter('h1.jm-lead__title')->text())[0]);
-        static::assertSame('2 server errors, no slow request.', $crawler->filter('.jm-lead__detail')->text());
-        $check = $crawler->filter('[data-jm-check="requests.server_errors"]');
-        static::assertCount(1, $check);
-        static::assertSame(['requests.server_errors'], $crawler->filter('[data-jm-check]')->each(static fn(Crawler $line): string => (string) $line->attr('data-jm-check')));
-        static::assertSame('bad', $check->attr('data-jm-severity'));
-        static::assertSame('2 server errors · GET app_boom answered with a 5xx status 2 times.', $check->filter('.jm-check__sentence')->text());
-        static::assertSame('Critical', $check->filter('.jm-check__mark')->text());
-        static::assertStringStartsWith('What to do Open Exceptions', $check->filter('.jm-check__todo')->text());
-        static::assertCount(0, $check->filter('.jm-check__where'));
-        static::assertSame(['2 × 5xx'], $crawler->filter('tr[data-jm-route="GET app_boom"] .jm-tag--bad')->each(static fn(Crawler $tag): string => $tag->text()));
+        static::assertSame('2', $crawler->filter('.jm-tile')->eq(0)->filter('.jm-tile__value')->text());
+        static::assertCount(0, $crawler->filter('[data-jm-check], .jm-lead, .jm-checks'));
+        $tile = $crawler->filter('a.jm-tile.jm-tile--bad');
+        static::assertCount(1, $tile);
+        static::assertSame(['Server errors', '2', 'Critical'], [$tile->filter('.jm-tile__label')->text(), $tile->filter('.jm-tile__value')->text(), $tile->filter('.jm-tag--bad')->text()]);
+        static::assertSame('/jmonitor/requests?period=1h&sort=problems&dir=desc#jm-routes-wrap', $tile->attr('href'));
+        $tag = $crawler->filter('tr[data-jm-route="GET app_boom"] .jm-tag--bad');
+        static::assertSame(['2 × 5xx'], $tag->each(static fn(Crawler $tag): string => $tag->text()));
+        static::assertSame(['a', '/jmonitor/exceptions?period=1h'], [$tag->nodeName(), $tag->attr('href')]);
+
+        $sorted = $client->click($tile->link());
+        static::assertResponseIsSuccessful();
+        static::assertSame('descending', $sorted->filter('#jm-routes-wrap th.is-sorted')->attr('aria-sort'));
+        static::assertSame('Problems', trim(str_replace(['↕', '↓', '↑'], '', $sorted->filter('#jm-routes-wrap th.is-sorted')->text())));
 
         $badge = $crawler->filter('.jm-subnav__item[aria-current="page"] .jm-nav__badge');
         static::assertCount(1, $badge);
@@ -566,7 +574,8 @@ final class DashboardTest extends WebTestCase
         static::assertSame('/jmonitor/requests?period=24h&sort=avg&dir=asc', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
         static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-nav__item')->eq(1)->attr('href'));
         static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-subnav__item')->first()->attr('href'));
-        static::assertSame('PHP only', trim($crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(5)->filter('.jm-split__text')->text()));
+        static::assertSame('', trim($crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(4)->filter('.jm-split__text')->text()));
+        static::assertMatchesRegularExpression('/^PHP \S+ m?s, SQL 0 ms, HTTP out 0 ms$/', $crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(4)->filter('.jm-visually-hidden')->text());
     }
 
     public function testTheQueriesScreenListsQueriesAndRepeatedOnes(): void
