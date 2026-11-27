@@ -256,7 +256,7 @@ The header of the page has three entries, `Overview`, `Application` and `Stack`.
 
 - **Overview** (`/jmonitor/`, also at `/jmonitor/overview`): the screen `/jmonitor` opens on, whatever is recorded. What is worth a look, then a map of your application, from what comes in to what it calls; see [The Overview](#the-overview).
 - **Application**, in six tabs:
-  - **Requests** (`/jmonitor/requests`): per route, requests, total time, response times (average, p95, max), where the average request goes between your PHP code, SQL and outgoing HTTP calls (`HTTP out`), with the number of SQL queries per request, its problems (5xx errors, slow requests, `N+1`) and peak memory. Its key figures are the average, p95 and slowest response times, the share of 5xx errors and the number of slow requests.
+  - **Requests** (`/jmonitor/requests`): per route, requests, total time, average and p95 response times, where the average request goes between your PHP code, SQL and outgoing HTTP calls, with the larger of the SQL and HTTP parts written beside it, and its problems (5xx errors, slow requests, `N+1`). Its key figures are the requests, with their curve, the average and p95 response times, the server errors and the slow requests.
   - **Queries** (`/jmonitor/queries`): per SQL query, executions, total, average and maximum time, and its problems (slow executions, `N+1`); then the queries repeated within one request, command, message or task (N+1), with where they run. Its key figures are the number of queries, the SQL time, the slow executions and the repeated queries.
   - **Cache & HTTP** (`/jmonitor/cache-http`), in two sections:
     - `Cache` (`#jm-cache`): per cache pool, reads, hit rate, misses, writes and deletes, and its problems (a low hit rate). Its key figures are the reads, the hit rate, the writes and the deletes.
@@ -395,7 +395,9 @@ Recording is off by default in the `test` environment. Forcing it on with a test
 
 ### Reading the screens
 
-Every screen of `Application` reads from top to bottom: a sentence that sums up the period; `Worth a look`, where each check found says what happened, why it matters and what to do, or `Nothing to flag` with what was checked; the key figures, each with its definition; the tables; then `How to read this screen`. Requests, Queries, Exceptions and Users draw the curve of their requests, queries or exceptions under the sentence. The tables of Requests and Queries are sorted by total time by default, with a bar on the total time; most tables have a `Problems` column that names what went wrong on each row. A screen with nothing recorded only says so.
+Every screen of `Application` but Requests reads from top to bottom: a sentence that sums up the period; `Worth a look`, where each check found says what happened, why it matters and what to do, or `Nothing to flag` with what was checked; the key figures, each with its definition; the tables; then `How to read this screen`. Queries, Exceptions and Users draw the curve of their requests, queries or exceptions under the sentence. The tables of Requests and Queries are sorted by total time by default, with a bar on the total time; most tables have a `Problems` column that names what went wrong on each row. A screen with nothing recorded only says so.
+
+Requests shows its key figures, then its table of routes, and nothing else. Hover `Average`, `p95`, `Server errors` or `Slow requests`, or the `Total time` and `p95` headers, to read its definition; that of `Slow requests` gives the threshold, such as `1.0 s or more`. `Server errors` and `Slow requests` show `0` while none is counted; otherwise they carry the severity of their check beside the figure, `Critical` or `Warning`, and lead to the table sorted by problems. In the table, a `2 × 5xx` tag leads to Exceptions and an `N+1` tag to Queries, over the same period, when that screen exists. The table lists the first 100 routes of its sort and says how many more are not shown: the figures count them all, and the sort by problems lists first the routes that have one.
 
 Cache & HTTP and Background are made of sections. They open with one sentence for all their sections, such as `1,668 cache reads (96 % found) and 13 outgoing calls in the last hour.`, and one `Worth a look` block for the whole page, the critical checks first; then come the sections, each with its table, Cache and Outgoing HTTP with their key figures too, and one `How to read this screen` for the whole page. Under `Worth a look`, Background shows one card per section, with what the section counted in the period, that leads to it. A section with nothing in the period has no part in the sentence and no card.
 
@@ -412,7 +414,7 @@ Cache & HTTP and Background are made of sections. They open with one sentence fo
 | `tasks.failed` | Critical | Background | a run of a scheduled task that ended with an exception | none |
 | `commands.failed` | Critical | Background | a command run that ended with a non-zero exit code | none |
 
-A check is raised as soon as one occurrence is recorded in the period shown; `cache.low_hit_rate` as soon as one pool is under its threshold, the pools added up on the `Other pools` row left aside. When it can, it names the route, query, host, pool, message class, task or command that counts the most occurrences, or, for `queries.repeated`, the route, command, message or task where a repeated query costs the most time, and for `cache.low_hit_rate`, the pool with the lowest hit rate. There is no option to silence one: `stack.ignore_checks` only applies to the checks of the Stack screen. `queries.repeated` also shows on Requests, with a link to Queries, when one of the routes listed there repeats a query, or when more queries are repeated than the 100 the screen reads.
+A check is raised as soon as one occurrence is recorded in the period shown; `cache.low_hit_rate` as soon as one pool is under its threshold, the pools added up on the `Other pools` row left aside. When it can, it names the route, query, host, pool, message class, task or command that counts the most occurrences, or, for `queries.repeated`, the route, command, message or task where a repeated query costs the most time, and for `cache.low_hit_rate`, the pool with the lowest hit rate. There is no option to silence one: `stack.ignore_checks` only applies to the checks of the Stack screen. On Requests, `requests.server_errors` and `requests.slow` show in the key figures and on the tags of the routes; `queries.repeated` only shows there as the `N+1` tag of a listed route that repeats a query, with a link to Queries.
 
 Two screens also show the checks of another screen, with a link to it:
 
@@ -432,7 +434,7 @@ The `Application` entry of the header carries the same badge, the sum of the bad
    - otherwise `Answers normally` as soon as a request is counted;
    - otherwise `No request`, when something else is counted, such as messages or commands;
    - `No data yet` when nothing is counted.
-2. `Worth a look`: one card per critical or warning check, those of the application raised in the period and those of the stack found right now. The critical ones come first, and those of the application before those of the stack. A card gives its severity, `Critical` or `Warning`, where it is, such as `Requests` or `PHP`, and a short title, such as `12 server errors` or `OPcache is full`. It leads to the screen of the check, which says why it matters and what to do. The `Info` checks of the stack stay on the Stack screen. With nothing to flag, there is no `Worth a look`.
+2. `Worth a look`: one card per critical or warning check, those of the application raised in the period and those of the stack found right now. The critical ones come first, and those of the application before those of the stack. A card gives its severity, `Critical` or `Warning`, where it is, such as `Requests` or `PHP`, and a short title, such as `12 server errors` or `OPcache is full`. It leads to the screen of the check. The `Info` checks of the stack stay on the Stack screen. With nothing to flag, there is no `Worth a look`.
 3. A map of your application, in three columns read from left to right:
    - `What comes in`: `Requests`, with their curve, `Messages` handled, the runs of the `Scheduled tasks` and of the `Commands`.
    - `Your application`: the `Exceptions`, the `User requests` of signed-in users, then `Runs on`.
@@ -442,7 +444,7 @@ The `Application` entry of the header carries the same badge, the sum of the bad
 
    `Runs on` has one line per card of the Stack screen, with its name, its version and its verdict. A component that could not be read says why, and one still being read shows `Reading…`. Each line leads to the detail of its component.
 
-The routes that cost the most and the average request are on the Requests screen. Why a check matters and what to do about it are on the screen of the check.
+The routes that cost the most and the average request are on the Requests screen. Why a check matters and what to do about it are on the screen of the check, Requests aside, which shows its checks in its key figures and on the tags of its routes.
 
 It shows two clocks: the pill, the checks of the application and the boxes cover the period chosen at the top, while the cards of the stack and `Runs on` are read right now, whatever the period.
 

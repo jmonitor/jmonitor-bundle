@@ -39,9 +39,9 @@ The `/jmonitor` page, its screens and their blocks:
 
 - Every screen says its space (`ScreenInterface::space()`): `Overview`, `Application` or `Stack`. The header lists the spaces that have an available screen, and a space with more than one available screen gets tabs, built by `PageRenderer`.
 - A tab is a card whose icon is decorative and found by its name (`SubNavItem::$icon`, `_icon.html.twig`); a card without a known icon shows without one.
-- The tabs and the title of a screen are in the refreshed part (`_screen.html.twig`), never in `page.html.twig`. A lead or a status that comes first is the `h1` of the page, in place of the title.
+- The tabs and the title of a screen are in the refreshed part (`_screen.html.twig`), never in `page.html.twig`. A lead, a status or a row of tiles that comes first is the `h1` of the page, in place of the title: the label of its tile that names the page (`Tile::$namesPage`).
 - The Overview screen (`OverviewScreen`) is the default screen, the first available one, whatever the storage. It is addressed by the empty path, which stays the path of the page: the links of a page opened by `/jmonitor` stay on `/jmonitor`, its actions post to the id of the screen, and `/jmonitor/overview` answers the same page.
-- The reading order of a screen is set by `ScreenBuilder` alone: status, lead, cards worth a look, checks, map or cards, tables, guide, places. A screen with nothing to show keeps its empty state, without lead nor guide.
+- The reading order of a screen is set by `ScreenBuilder` alone: status, lead, cards worth a look, checks, map, tiles or cards, tables, guide, places. A screen with nothing to show keeps its empty state, without lead nor guide.
 - A composed screen (`ComposedScreen`) is made of sections (`SectionInterface`, in `src/Dashboard/Section/`). It is available while one of its sections is; an unavailable section does not exist for the page.
 - A section never replaces the page. A cause that touches the whole page is told once, above the sections: no connection, a failed flush, a read that throws and, as soon as one section is empty, recording off or an unusable buffer directory.
 - A composed screen reads its raised checks before its sections, which receive them. A read that throws, the checks or a section, stops the next ones: a database that does not answer makes the page wait once.
@@ -51,7 +51,7 @@ The `/jmonitor` page, its screens and their blocks:
 - One sort is chosen per page, named by its section (`sort=<section>.<column>`). The other sections keep their default sort, and an invalid sort chooses nothing.
 - A composed screen and the Overview screen are `RecordedScreenInterface`: `PageRenderer` flushes the buffer before they read.
 - Every variable a block template reads is set by the bundle, by `PageRenderer` or by the `include()` of the block (`block`, `page_title`, and `section`, `null` outside a section), so that a Twig global of the host never stands in for one.
-- A link of a block to a screen (a check, a guide) is only rendered when that screen is available (`screens`, set by `PageRenderer`); otherwise its text stays without the link.
+- A link of a block to a screen (a check, a guide, a tag of a table) is only rendered when that screen is available (`screens`, set by `PageRenderer`); otherwise its text stays without the link.
 - A check of the application (`src/Dashboard/Check/`) is raised by one entry of one of its metrics in the period, or by its keys when it is judged key by key, and only through `ApplicationChecks`. Its texts live in its class, the same wherever it shows.
 - A check reads its culprit through a read restricted to the metrics it looks at (`ReportQuery::$metrics`); a screen that already holds the report of the family hands it over instead.
 - A check judged key by key implements `KeyedCheckInterface`: its metrics are read key by key in the statement of the other totals, which stays one query.
@@ -70,6 +70,9 @@ The `/jmonitor` page, its screens and their blocks:
 - The `Messages` box only exists while the messages are recorded (`MessagesSection::recordsMessages()`).
 - The map is laid out by its own width, with container queries, and stacked by default: a browser without them still reads it.
 - A part of a split and a tag always carry their word: neither is told by colour alone.
+- A tile is framed by its tone only when it carries a tag of that tone, and only leads to the table, sorted by its sort, while it carries one. A tile at `0` has neither tag nor link.
+- The figures of the tiles of Requests are read in the report its table reads, the `Other routes` row included, never in the totals of the checks.
+- On Requests, a check shows on its tile and on the tag of its route, never as a line of checks; `queries.repeated` only as the `N+1` tag of a listed route.
 - The base rule of the links is `.jm :where(a)`, so that a class set on a link keeps its colour.
 - `public/jmonitor.js` has no test suite in the repository: a change to it is checked in a browser.
 
