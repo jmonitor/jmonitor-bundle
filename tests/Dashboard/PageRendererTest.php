@@ -21,7 +21,6 @@ use Jmonitor\JmonitorBundle\Dashboard\Check\RepeatedQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
-use Jmonitor\JmonitorBundle\Dashboard\DeclaredTasks;
 use Jmonitor\JmonitorBundle\Dashboard\NavBadge;
 use Jmonitor\JmonitorBundle\Dashboard\PageRenderer;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
@@ -235,7 +234,8 @@ final class PageRendererTest extends TestCase
         $fragment = new Crawler((string) $renderer->fragment($request, '', new FakeHostUrls())->getContent());
 
         static::assertSame($places, $hrefs($fragment->filter('.jm-place__label')));
-        static::assertSame('JMonitor is installed and recording.', $fragment->filter('h1')->text());
+        static::assertSame('Overview', $fragment->filter('h1')->text());
+        static::assertSame('No data yet', $fragment->filter('.jm-status__pill')->text());
     }
 
     public function testTheOverviewEntryIsCurrentOnTheEmptyPath(): void
@@ -1918,7 +1918,7 @@ final class PageRendererTest extends TestCase
 
     private static function overview(?ApplicationChecks $checks = null): OverviewScreen
     {
-        return new OverviewScreen($checks ?? new ApplicationChecks([]), new DeclaredTasks(), [], []);
+        return new OverviewScreen($checks ?? new ApplicationChecks([]), [], []);
     }
 
     private static function tableScreen(string $id): StubScreen

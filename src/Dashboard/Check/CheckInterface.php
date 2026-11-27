@@ -35,7 +35,4 @@ interface CheckInterface
 
     /** @param array<string, MetricValue> $totals those of metrics() */
     public function finding(Report $report, array $totals, Period $period): Finding;
-
-    /** what it says when it is not raised, such as "no server error" */
-    public function passed(): string;
 }

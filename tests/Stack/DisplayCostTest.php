@@ -15,7 +15,7 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenBuilder;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Dashboard\Section\MessagesSection;
 use Jmonitor\JmonitorBundle\Dashboard\Space;
-use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Collector\CollectorRunner;
@@ -330,11 +330,11 @@ final class DisplayCostTest extends TestCase
         $system->setData($full);
         $services = $this->stackServices($cache);
 
-        $lines = $this->glance($services)->glance()->lines;
+        $alerts = $this->glance($services)->glance()->alerts;
         $cache->reset();
         $badge = (new StackScreen($services, new CardBuilder($this->clock), $this->clock, new ServiceLocator([])))->navBadge();
 
-        self::assertSame(['system.disk'], array_map(static fn(CheckLine $line): string => $line->id, $lines));
+        self::assertSame(['system.disk'], array_map(static fn(Alert $alert): string => $alert->id, $alerts));
         self::assertEquals(new NavBadge('1 warning', 'warn', '1 warning at the last read of the stack, just now'), $badge);
         self::assertSame(0, $cache->roundTrips(), 'the badge reads what the glance wrote');
         self::assertEquals($badge, (new StackScreen($this->stackServices($cache), new CardBuilder($this->clock), $this->clock, new ServiceLocator([])))->navBadge(), 'the next display');

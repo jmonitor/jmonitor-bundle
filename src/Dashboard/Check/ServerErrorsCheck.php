@@ -34,11 +34,6 @@ final class ServerErrorsCheck implements CheckInterface
         return 'Requests';
     }
 
-    public function passed(): string
-    {
-        return 'no server error';
-    }
-
     public function metrics(): array
     {
         return [self::METRIC];

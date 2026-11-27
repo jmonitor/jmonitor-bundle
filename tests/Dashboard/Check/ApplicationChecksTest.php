@@ -150,11 +150,6 @@ final class ApplicationChecksTest extends TestCase
                 return new Finding('spy', Severity::Warning, '', '', '', '', 'cache-http');
             }
 
-            public function passed(): string
-            {
-                return 'no spy';
-            }
-
             public function raisedBy(array $keys): bool
             {
                 $this->received[] = $keys;
@@ -480,44 +475,6 @@ final class ApplicationChecksTest extends TestCase
         static::assertSame('3 slow requests', $alerts[0]->title);
         static::assertSame([], $checks->alerts($raised, [], Period::OneHour));
         static::assertSame([], $checks->alerts($checks->raised(new FixedReader(), Period::OneHour, self::NOW), array_values(self::RAISED_BY), Period::OneHour));
-    }
-
-    public function testPassedLeavesTheRaisedChecksOut(): void
-    {
-        $checks = self::allChecks();
-        $raised = $checks->raised(new FixedReader(totals: array_fill_keys([self::SERVER_ERRORS, Metric::MESSAGE_FAILED], new MetricValue(1, 0.0, 0.0))), Period::OneHour, self::NOW);
-
-        static::assertSame(
-            ['no slow request', 'no failed scheduled run', 'no failed command run'],
-            $checks->passed($raised, ['requests.server_errors', 'requests.slow', 'messages.failed', 'tasks.failed', 'commands.failed']),
-        );
-        static::assertSame(['no repeated query', 'no slow query'], $checks->passed($raised, ['queries.repeated', 'unknown', 'queries.slow', 'queries.repeated']));
-        static::assertSame([], $checks->passed($raised, []));
-    }
-
-    /**
-     * @return iterable<string, array{string, string}>
-     */
-    public static function passedTexts(): iterable
-    {
-        yield 'requests.server_errors' => ['requests.server_errors', 'no server error'];
-        yield 'requests.slow' => ['requests.slow', 'no slow request'];
-        yield 'queries.slow' => ['queries.slow', 'no slow query'];
-        yield 'queries.repeated' => ['queries.repeated', 'no repeated query'];
-        yield 'http.failures' => ['http.failures', 'no call without an answer'];
-        yield 'http.errors' => ['http.errors', 'no error response'];
-        yield 'cache.low_hit_rate' => ['cache.low_hit_rate', 'no pool with a low hit rate'];
-        yield 'messages.failed' => ['messages.failed', 'no failed message'];
-        yield 'tasks.failed' => ['tasks.failed', 'no failed scheduled run'];
-        yield 'commands.failed' => ['commands.failed', 'no failed command run'];
-    }
-
-    #[DataProvider('passedTexts')]
-    public function testEachCheckSaysWhatPassedMeans(string $id, string $text): void
-    {
-        $checks = self::allChecks();
-
-        static::assertSame([$text], $checks->passed($checks->raised(new FixedReader(), Period::OneHour, self::NOW), [$id]));
     }
 
     private static function checks(): ApplicationChecks

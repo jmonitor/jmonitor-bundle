@@ -1131,8 +1131,8 @@ final class TemplatesTest extends TestCase
     public function testABoxLinksToItsScreenAndItsSection(): void
     {
         $map = new Map([
-            new MapBox('Requests', '1,284', 'No server error, no slow request.', path: 'requests', series: [1, 4, 2]),
-            new MapBox('Messages', '42', 'Handled by Messenger, 45 sent.', [new Tag('3 failed', 'bad')], 'background', 'messages', 'bad'),
+            new MapBox('Requests', '1,284', path: 'requests', series: [1, 4, 2]),
+            new MapBox('Messages', '42', [new Tag('3 failed', 'bad')], 'background', 'messages', 'bad'),
         ]);
 
         $html = $this->mapScreen(['requests', 'background'], Block::map($map));
@@ -1143,9 +1143,11 @@ final class TemplatesTest extends TestCase
             ['/host/page/requests?menu=3&period=1h', '/host/page/background?menu=3&period=1h#jm-messages'],
             $boxes->each(static fn(Crawler $box): string => (string) $box->attr('href')),
         );
-        static::assertSame('Requests 1,284 No server error, no slow request.', $boxes->eq(0)->text());
-        static::assertSame('Messages 42 Handled by Messenger, 45 sent. 3 failed', $boxes->eq(1)->text());
-        static::assertCount(1, $boxes->eq(0)->filter('svg.jm-sparkline'));
+        static::assertSame('Requests 1,284', $boxes->eq(0)->text());
+        static::assertSame('Messages 3 failed 42', $boxes->eq(1)->text());
+        static::assertSame(['jm-box__label', 'jm-box__tags', 'jm-box__value'], $boxes->eq(1)->filter('.jm-box__line')->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
+        static::assertSame(['span', 'svg'], $boxes->eq(0)->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertSame(['span'], $boxes->eq(1)->children()->each(static fn(Crawler $child): string => $child->nodeName()));
         static::assertCount(2, (new Crawler($html))->filter('.jm-map a'));
         static::assertCount(0, (new Crawler($html))->filter('.jm-box a, .jm-box p, .jm-box div, .jm-box ul, .jm-box li, .jm-box h2, .jm-box h3'));
         static::assertSame([], (new Crawler($html))->filter('.jm-box *')->reduce(static fn(Crawler $node): bool => !\in_array($node->nodeName(), ['span', 'svg', 'polyline'], true))->each(static fn(Crawler $node): string => $node->nodeName()));
@@ -1154,8 +1156,8 @@ final class TemplatesTest extends TestCase
     public function testABoxWithoutAnAvailableScreenIsNotALink(): void
     {
         $map = new Map([
-            new MapBox('Messages', '42', 'Handled by Messenger, 45 sent.', path: 'background', anchor: 'messages'),
-            new MapBox('Requests', '1,284', 'No server error, no slow request.'),
+            new MapBox('Messages', '42', path: 'background', anchor: 'messages'),
+            new MapBox('Requests', '1,284'),
         ]);
 
         $crawler = new Crawler($this->mapScreen(['requests'], Block::map($map)));
@@ -1163,32 +1165,34 @@ final class TemplatesTest extends TestCase
 
         static::assertSame(['div', 'div'], $boxes->each(static fn(Crawler $box): string => $box->nodeName()));
         static::assertCount(0, $crawler->filter('.jm-map a'));
-        static::assertSame('Messages 42 Handled by Messenger, 45 sent.', $boxes->eq(0)->text());
+        static::assertSame('Messages 42', $boxes->eq(0)->text());
     }
 
-    public function testAPendingBoxShowsItsTextOnly(): void
+    public function testABoxAtZeroShowsItsZeroMuted(): void
     {
         $map = new Map([
-            new MapBox('Messages', null, 'No message handled in the last hour.', [new Tag('3 failed', 'bad')], 'background', 'messages', 'bad', [1, 2, 3]),
-            new MapBox('Commands', null, 'No command ran in the last hour.'),
+            new MapBox('Messages', '0', path: 'background', anchor: 'messages'),
+            new MapBox('Commands', '0'),
+            new MapBox('Requests', '10'),
+            new MapBox('Cache', '1,000'),
         ]);
 
         $boxes = (new Crawler($this->mapScreen(['background'], Block::map($map))))->filter('.jm-map .jm-box');
 
-        static::assertSame(['jm-box jm-box--pending', 'jm-box jm-box--pending'], $boxes->each(static fn(Crawler $box): string => (string) $box->attr('class')));
-        static::assertSame('Messages No message handled in the last hour.', $boxes->eq(0)->text());
+        static::assertSame(['jm-box jm-box--zero', 'jm-box jm-box--zero', 'jm-box', 'jm-box'], $boxes->each(static fn(Crawler $box): string => (string) $box->attr('class')));
+        static::assertSame('Messages 0', $boxes->eq(0)->text());
+        static::assertSame('0', $boxes->eq(0)->filter('.jm-box__value')->text());
         static::assertSame('/host/page/background?menu=3&period=1h#jm-messages', $boxes->eq(0)->attr('href'));
-        static::assertCount(0, $boxes->filter('.jm-box__value, .jm-tag, svg'));
-        static::assertSame(['Messages', 'No message handled in the last hour.'], $boxes->eq(0)->children()->each(static fn(Crawler $child): string => $child->text()));
+        static::assertCount(0, $boxes->filter('.jm-tag, svg'));
     }
 
     public function testAToneAlwaysComesWithATag(): void
     {
         $map = new Map([], outgoing: [
-            new MapBox('SQL queries', '3,402', '3,402 in total.', [new Tag('12 slow', 'warn'), new Tag('N+1', 'warn')], tone: 'warn'),
-            new MapBox('Other sites and APIs', '84', '120 ms per call on average.', [new Tag('2 no answer', 'bad'), new Tag('3 × 4xx', 'warn')], tone: 'bad'),
-            new MapBox('Cache', '1,200', '92 % found in the cache.', tone: 'warn'),
-            new MapBox('Exceptions', '7', '7 exceptions thrown.', [new Tag('slow', 'warn')], tone: 'bad'),
+            new MapBox('SQL queries', '3,402', [new Tag('12 slow', 'warn'), new Tag('N+1', 'warn')], tone: 'warn'),
+            new MapBox('Other sites and APIs', '84', [new Tag('2 no answer', 'bad'), new Tag('3 × 4xx', 'warn')], tone: 'bad'),
+            new MapBox('Cache', '1,200', tone: 'warn'),
+            new MapBox('Exceptions', '7', [new Tag('slow', 'warn')], tone: 'bad'),
         ]);
 
         $boxes = (new Crawler($this->mapScreen([], Block::map($map))))->filter('.jm-map .jm-box');
@@ -1200,75 +1204,46 @@ final class TemplatesTest extends TestCase
 
     public function testAColumnWithoutContentIsNotRendered(): void
     {
-        $box = new MapBox('SQL queries', '3,402', '3,402 in total, none slow.');
+        $box = new MapBox('SQL queries', '3,402');
         $titles = fn(Map $map): array => (new Crawler($this->mapScreen([], Block::map($map))))->filter('.jm-map > .jm-map__columns > .jm-map__column > h2')->each(static fn(Crawler $h2): string => $h2->text());
         $arrows = fn(Map $map): int => (new Crawler($this->mapScreen([], Block::map($map))))->filter('.jm-map > .jm-map__columns > svg.jm-map__arrow[aria-hidden="true"]')->count();
 
-        $full = new Map([$box], new MapBox('An average request', '84 ms', 'your PHP code 40 ms'), null, [$box], new StackGlance(), [$box]);
+        $full = new Map([$box], [$box], new StackGlance(), [$box]);
         $sides = new Map([$box], outgoing: [$box]);
         $runsOn = new Map(runsOn: new StackGlance());
         $inside = new Map(inside: [$box]);
 
-        static::assertSame(['1 · What comes in', '2 · Your application', '3 · What it calls'], $titles($full));
+        static::assertSame(['What comes in', 'Your application', 'What it calls'], $titles($full));
         static::assertSame(2, $arrows($full));
-        static::assertSame(['1 · What comes in', '2 · What it calls'], $titles($sides));
+        static::assertSame(['What comes in', 'What it calls'], $titles($sides));
         static::assertSame(1, $arrows($sides));
         static::assertSame([], $titles($runsOn));
         static::assertSame(0, $arrows($runsOn));
         static::assertSame([], $titles($inside));
-        static::assertCount(0, (new Crawler($this->mapScreen([], Block::map($runsOn))))->filter('.jm-map__text'));
-        static::assertSame(['jm-runs'], (new Crawler($this->mapScreen([], Block::map($runsOn))))->filter('.jm-map__column--app')->children()->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
+        static::assertSame(['jm-runs'], (new Crawler($this->mapScreen([], Block::map($runsOn))))->filter('.jm-map__column--app')->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
         static::assertSame([], (new Crawler($this->mapScreen([], Block::map(new Map(outgoing: [$box])))))->filter('.jm-map h2')->each(static fn(Crawler $h2): string => $h2->text()));
-        static::assertSame(['Every way your code gets started.', 'Where the time of a request goes, and what runs it.', 'What your code waits for.'], (new Crawler($this->mapScreen([], Block::map($full))))->filter('.jm-map__column > p.jm-map__text')->each(static fn(Crawler $p): string => $p->text()));
+        static::assertSame(['h2', 'ul'], (new Crawler($this->mapScreen([], Block::map($full))))->filter('.jm-map__column--incoming')->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertCount(0, (new Crawler($this->mapScreen([], Block::map($full))))->filter('.jm-map__column > p, .jm-map .jm-split, .jm-map .jm-legend'));
         static::assertSame(['jm-map__column jm-map__column--incoming', 'svg', 'jm-map__column jm-map__column--app', 'svg', 'jm-map__column jm-map__column--outgoing'], (new Crawler($this->mapScreen([], Block::map($full))))->filter('.jm-map > .jm-map__columns')->children()->each(static fn(Crawler $child): string => $child->nodeName() === 'svg' ? 'svg' : (string) $child->attr('class')));
-        static::assertCount(0, (new Crawler($this->mapScreen([], Block::map($runsOn))))->filter('.jm-map__average, .jm-map__boxes'));
+        static::assertCount(0, (new Crawler($this->mapScreen([], Block::map($runsOn))))->filter('.jm-map__boxes'));
     }
 
-    public function testTheMiddleColumnReadsTheAverageTheInsideBoxesThenRunsOn(): void
+    public function testTheMiddleColumnReadsTheInsideBoxesThenRunsOn(): void
     {
-        $split = Cell::averageSplit(84.0, 30.0, 4.0, 12.0);
         $map = new Map(
-            average: new MapBox('An average request', '84 ms', '4 SQL queries per request.'),
-            split: $split,
-            inside: [new MapBox('Exceptions', '7', 'exceptions thrown.', path: 'exceptions'), new MapBox('User requests', '140', 'made by signed-in users.')],
+            inside: [new MapBox('Exceptions', '7', path: 'exceptions'), new MapBox('User requests', '140')],
             runsOn: new StackGlance([new ComponentCard('php', 'PHP', new Mark('ok', 'Healthy'), [new Vital('OPcache memory', '42 %')], '8.4.1')]),
         );
 
-        $crawler = new Crawler($this->mapScreen(['exceptions'], Block::map($map)));
-        $app = $crawler->filter('.jm-map__column--app > .jm-map__app');
+        $app = (new Crawler($this->mapScreen(['exceptions'], Block::map($map))))->filter('.jm-map__column--app');
 
-        static::assertSame(['jm-map__average', 'jm-map__boxes jm-map__boxes--inside', 'jm-runs'], $app->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
-        $average = $app->filter('.jm-map__average');
-        static::assertSame(['An average request', '84 ms'], [$average->filter('.jm-box__label')->text(), $average->filter('.jm-box__value')->text()]);
-        static::assertSame(['your PHP code 42 ms', 'SQL 30 ms', 'HTTP out 12 ms'], $average->filter('.jm-legend .jm-legend__item')->each(static fn(Crawler $item): string => $item->text()));
-        static::assertSame(['jm-map__head', 'jm-map__split', 'jm-legend jm-map__legend', 'jm-map__phrase'], $average->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
-        static::assertSame('4 SQL queries per request.', $average->filter('.jm-map__phrase')->text());
-
-        $alone = new Crawler($this->mapScreen([], Block::map(new Map(average: new MapBox('An average request', '120 ms', ''), split: Cell::averageSplit(120.0, 0.4, 1.0, null)))));
-
-        static::assertSame(['your PHP code 120 ms', 'SQL <1 ms', 'HTTP out 0 ms'], $alone->filter('.jm-map__legend .jm-legend__item')->each(static fn(Crawler $item): string => $item->text()));
-        static::assertCount(0, $alone->filter('.jm-map__phrase'));
-        static::assertSame(['jm-box jm-box--small', 'jm-box jm-box--small'], $app->filter('.jm-map__boxes--inside .jm-box')->each(static fn(Crawler $box): string => (string) $box->attr('class')));
+        static::assertSame(['jm-map__boxes jm-map__boxes--inside', 'jm-runs'], $app->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
+        static::assertSame(['jm-box', 'jm-box'], $app->filter('.jm-map__boxes--inside .jm-box')->each(static fn(Crawler $box): string => (string) $box->attr('class')));
+        static::assertSame(['Exceptions 7', 'User requests 140'], $app->filter('.jm-map__boxes--inside .jm-box')->each(static fn(Crawler $box): string => $box->text()));
         static::assertSame('/host/page/exceptions?menu=3&period=1h', $app->filter('.jm-map__boxes--inside a.jm-box')->attr('href'));
-
-        $pending = new Crawler($this->mapScreen([], Block::map(new Map(average: new MapBox('An average request', null, 'This bar will split the time between your PHP code, SQL and outgoing HTTP.'), split: $split))));
-
-        static::assertSame('An average request This bar will split the time between your PHP code, SQL and outgoing HTTP.', $pending->filter('.jm-map__average')->text());
-        static::assertSame('jm-map__average jm-map__average--pending', $pending->filter('.jm-map__average')->attr('class'));
-        static::assertCount(0, $pending->filter('.jm-map__average svg, .jm-map__average .jm-legend, .jm-map__average .jm-box__value'));
     }
 
-    public function testTheMapDrawsTheSplitOfTheTables(): void
-    {
-        $split = Cell::split(['php' => 77.0, 'sql' => 10.0, 'http' => 57.0], '77 · 10 · 57');
-        $inTable = (new Crawler($this->cells(new Column('split', 'Time split', false), $split)))->filter('td.jm-col-split .jm-split > svg');
-        $inMap = (new Crawler($this->mapScreen([], Block::map(new Map(average: new MapBox('An average request', '144 ms', 'your PHP code 77 ms'), split: $split)))))->filter('.jm-map__average .jm-split');
-
-        static::assertSame($inTable->outerHtml(), $inMap->filter('svg')->outerHtml());
-        static::assertSame(['svg'], $inMap->children()->each(static fn(Crawler $child): string => $child->nodeName()));
-    }
-
-    public function testRunsOnShowsTheFirstTwoFiguresAndTheVerdictOfEachCard(): void
+    public function testRunsOnShowsTheVersionAndTheVerdictOfEachCard(): void
     {
         $glance = new StackGlance([
             new ComponentCard('server', 'Server', new Mark('ok', 'Healthy'), [new Vital('Load', '0.42'), new Vital('Memory', '41 %'), new Vital('Disk', '48 %')], 'Ubuntu 24.04 LTS', 'stack/server'),
@@ -1281,16 +1256,18 @@ final class TemplatesTest extends TestCase
         $runs = $crawler->filter('.jm-runs');
         $lines = $runs->filter('.jm-runs__list > li > .jm-runs__line');
 
-        static::assertSame('Runs on read right now, whatever the period', $runs->filter('.jm-runs__title')->text());
+        static::assertSame('Runs on now', $runs->filter('.jm-runs__title')->text());
+        static::assertSame(['strong', 'span'], $runs->filter('.jm-runs__title')->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertSame('now', $runs->filter('.jm-runs__title > .jm-runs__now')->text());
         static::assertSame(
-            ['Server Ubuntu 24.04 LTS · Load 0.42 · Memory 41 % Healthy', 'PHP 8.4.1 · OPcache memory 92 % Warning', 'MySQL · default Connections 98 % · Slow queries 12 Critical', 'Redis Memory 12 % Healthy'],
+            ['Server Ubuntu 24.04 LTS Healthy', 'PHP 8.4.1 Warning', 'MySQL · default Critical', 'Redis Healthy'],
             $lines->each(static fn(Crawler $line): string => $line->text()),
         );
         static::assertSame(['a', 'a', 'a', 'span'], $lines->each(static fn(Crawler $line): string => $line->nodeName()));
         static::assertSame(['/host/page/stack/server?menu=3', '/host/page/stack/php?menu=3', '/host/page/stack/mysql?menu=3&connection=default'], $runs->filter('a.jm-runs__line')->each(static fn(Crawler $a): string => (string) $a->attr('href')));
         static::assertSame(['jm-mark jm-mark--ok', 'jm-mark jm-mark--warn', 'jm-mark jm-mark--bad', 'jm-mark jm-mark--ok'], $lines->filter('.jm-mark')->each(static fn(Crawler $mark): string => (string) $mark->attr('class')));
-        static::assertSame(['MySQL · default', 'Connections 98 % · Slow queries 12'], [$lines->eq(2)->filter('.jm-runs__name')->text(), $lines->eq(2)->filter('.jm-runs__figures')->text()]);
-        static::assertSame(['98 %', '12'], $lines->eq(2)->filter('.jm-runs__value')->each(static fn(Crawler $value): string => $value->text()));
+        static::assertSame(['MySQL · default', ''], [$lines->eq(2)->filter('.jm-runs__name')->text(), $lines->eq(2)->filter('.jm-runs__figures')->text()]);
+        static::assertStringNotContainsString('98', $runs->html());
         static::assertSame('2 more connections', $runs->filter('.jm-runs__more')->text());
         static::assertCount(0, $crawler->filter('.jm-runs__line p, .jm-runs__line div, .jm-runs__line a'));
 
@@ -1377,35 +1354,29 @@ final class TemplatesTest extends TestCase
         static::assertStringNotContainsString('Are the servers healthy', $crawler->html());
     }
 
-    public function testTheFootnoteOfTheChecksShowsUnderTheList(): void
+    public function testTheChecksEndWithTheirList(): void
     {
         $line = new CheckLine('requests.server_errors', new Mark('bad', 'Critical'), '3 requests ended in a server error', 'Each one showed an error page.', 'Requests', 'requests', action: 'Open Exceptions.');
 
-        $checks = (new Crawler($this->screen(Block::checks(new CheckList([$line], title: 'Worth a look', footnote: 'Checked and fine: no slow request, no slow query.')))))->filter('section.jm-checks');
+        $checks = (new Crawler($this->screen(Block::checks(new CheckList([$line], title: 'Worth a look')))))->filter('section.jm-checks');
 
-        static::assertSame('Checked and fine: no slow request, no slow query.', $checks->filter('ul.jm-checks__list + p.jm-checks__footnote')->text());
-        static::assertSame(['div', 'ul', 'p'], $checks->children()->each(static fn(Crawler $child): string => $child->nodeName()));
-        static::assertCount(0, (new Crawler($this->screen(Block::checks(new CheckList([$line], title: 'Worth a look')))))->filter('.jm-checks__footnote'));
-        static::assertCount(0, (new Crawler($this->screen(Block::checks(new CheckList([], 'Nothing to flag', 'No server error in the last hour.', 'Worth a look', 'Checked and fine: none.')))))->filter('.jm-checks__footnote'));
+        static::assertSame(['div', 'ul'], $checks->children()->each(static fn(Crawler $child): string => $child->nodeName()));
     }
 
     public function testAHostGlobalDoesNotStandInForAVariableOfTheMapOrThePlaces(): void
     {
-        $split = Cell::averageSplit(84.0, 30.0, 4.0, 12.0);
         $glance = new StackGlance([
             new ComponentCard('php', 'PHP', new Mark('warn', 'Warning'), [new Vital('OPcache memory', '92 %')], '8.4.1', 'stack/php'),
             new ComponentCard('redis', 'Redis', new Mark('ok', 'Healthy'), [new Vital('Memory', '12 %')], reason: 'Connection refused'),
         ], more: '1 more connection');
         $map = new Map(
-            [new MapBox('Requests', '1,284', 'No server error.', [new Tag('3 × 5xx', 'bad')], 'requests', null, 'bad', [1, 4, 2]), new MapBox('Messages', null, 'No message handled.', path: 'background', anchor: 'messages')],
-            new MapBox('An average request', '84 ms', 'your PHP code 42 ms'),
-            $split,
-            [new MapBox('Exceptions', '7', '7 exceptions thrown.', path: 'exceptions')],
+            [new MapBox('Requests', '1,284', [new Tag('3 × 5xx', 'bad')], 'requests', null, 'bad', [1, 4, 2]), new MapBox('Messages', '0', path: 'background', anchor: 'messages')],
+            [new MapBox('Exceptions', '7', path: 'exceptions')],
             $glance,
-            [new MapBox('SQL queries', '3,402', '3,402 in total.', [new Tag('N+1', 'warn')], 'queries', null, 'warn')],
+            [new MapBox('SQL queries', '3,402', [new Tag('N+1', 'warn')], 'queries', null, 'warn')],
         );
         $places = new Places([new Place('Overview', '', 'This page.', 'Is everything fine?'), new Place('Application', 'requests', 'Requests.', 'What is slow?')]);
-        $checks = new CheckList([new CheckLine('requests.server_errors', new Mark('bad', 'Critical'), 'Sentence', 'Why.', 'Requests', 'requests', action: 'What.')], title: 'Worth a look', footnote: 'Checked and fine: no slow query.');
+        $checks = new CheckList([new CheckLine('requests.server_errors', new Mark('bad', 'Critical'), 'Sentence', 'Why.', 'Requests', 'requests', action: 'What.')], title: 'Worth a look');
         $notice = Block::map(new Map(runsOn: new StackGlance([], notice: new Notice('bad', 'The stack could not be read', 'Refused.'))));
         $page = new Page(new StubBlockScreen('overview'), [Block::checks($checks), Block::map($map), $notice, Block::places($places)], Period::OneHour, '', '', []);
         $context = ['page' => $page, 'path' => 'overview', 'badges' => [], 'screens' => ['overview', 'requests', 'background', 'stack']];
@@ -1413,8 +1384,8 @@ final class TemplatesTest extends TestCase
 
         static::assertStringContainsString('/host/page/background?menu=3&amp;period=1h#jm-messages', $expected);
         static::assertStringContainsString('/host/page/stack/php?menu=3', $expected);
-        static::assertStringContainsString('jm-checks__footnote', $expected);
-        static::assertStringContainsString('jm-split__part', $expected);
+        static::assertStringContainsString('jm-box--zero', $expected);
+        static::assertStringContainsString('jm-sparkline', $expected);
         static::assertStringNotContainsString('/host/page/exceptions', $expected);
         foreach (['a string', ['overview', 'requests', 'exceptions', 'queries'], new \ArrayObject(['id' => 'x', 'path' => 'exceptions', 'label' => 'x', 'value' => null, 'tags' => [], 'cards' => [], 'notice' => null]), new \stdClass(), true, false, null] as $global) {
             static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['map', 'map_view', 'ms', 'vitals', 'vital', 'box', 'boxes', 'places', 'place', 'card', 'line', 'notice', 'glance', 'runs', 'column', 'columns', 'heads', 'split', 'cell', 'words', 'average', 'small', 'href', 'link', 'query', 'period_query', 'shown', 'list', 'section', 'page_title', 'screens', 'segments', 'tone', 'mark'], $global)));
@@ -1425,16 +1396,14 @@ final class TemplatesTest extends TestCase
     {
         $h = self::HOSTILE;
         $map = new Map(
-            [new MapBox($h, $h, $h, [new Tag($h, 'bad')], 'requests', $h, 'bad', [1, 2]), new MapBox($h, null, $h, path: 'requests')],
-            new MapBox($h, $h, $h),
-            Cell::split(['php' => 1.0, 'sql' => 2.0, 'http' => 3.0], $h),
-            [new MapBox($h, $h, $h)],
+            [new MapBox($h, $h, [new Tag($h, 'bad')], 'requests', $h, 'bad', [1, 2]), new MapBox($h, '0', path: 'requests')],
+            [new MapBox($h, $h)],
             new StackGlance([new ComponentCard($h, $h, new Mark('warn', $h), [new Vital($h, $h), new Vital($h, $h)], $h, 'stack/php', query: [$h => $h]), new ComponentCard($h, $h, new Mark('bad', $h), reason: $h)], more: $h),
-            [new MapBox($h, $h, $h)],
+            [new MapBox($h, $h)],
         );
 
         foreach ([
-            $this->mapScreen(['requests', 'stack'], Block::map($map), Block::places(new Places([new Place($h, 'requests', $h, $h)])), Block::checks(new CheckList([new CheckLine($h, new Mark('bad', $h), $h, $h, $h)], footnote: $h))),
+            $this->mapScreen(['requests', 'stack'], Block::map($map), Block::places(new Places([new Place($h, 'requests', $h, $h)])), Block::checks(new CheckList([new CheckLine($h, new Mark('bad', $h), $h, $h, $h)]))),
             $this->mapScreen(['stack'], Block::map(new Map(runsOn: new StackGlance(notice: new Notice('warn', $h, $h))))),
         ] as $html) {
             static::assertStringContainsString('&lt;b&gt;&amp;&quot;x', $html);

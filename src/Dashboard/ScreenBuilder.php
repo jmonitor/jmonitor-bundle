@@ -163,7 +163,8 @@ final class ScreenBuilder
         }
 
         if ($cause !== null) {
-            $blocks = [Block::unavailable(Block::TABLE, $cause), ...$blocks];
+            $titled = ($blocks[0] ?? null)?->type === Block::STATUS ? 1 : 0;
+            array_splice($blocks, $titled, 0, [Block::unavailable(Block::TABLE, $cause)]);
         }
 
         return new Page($screen, $blocks, $period, '', '', [], raised: $read?->raised);

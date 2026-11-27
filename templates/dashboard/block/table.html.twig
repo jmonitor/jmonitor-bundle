@@ -64,7 +64,7 @@
                                 {%- elseif cell.kind == 'bar' -%}
                                     <span class="jm-bar"><svg viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="jm-bar__rail" width="100" height="6"/><rect class="jm-bar__fill" width="{{ cell.data.share }}" height="6"/></svg><span class="jm-bar__value">{{ cell.text }}</span></span>
                                 {%- elseif cell.kind == 'split' -%}
-                                    {{ include('@Jmonitor/dashboard/_split.html.twig', {cell: cell, words: true}, with_context = false) }}
+                                    {{ include('@Jmonitor/dashboard/_split.html.twig', {cell: cell}, with_context = false) }}
                                 {%- elseif cell.kind == 'tags' -%}
                                     {%- for chip in cell.tags -%}
                                         {{ loop.first ? '' : ' ' }}<span class="jm-tag jm-tag--{{ chip.tone }}">{{ chip.text }}</span>

@@ -34,11 +34,6 @@ final class FailedTasksCheck implements CheckInterface
         return 'Background';
     }
 
-    public function passed(): string
-    {
-        return 'no failed scheduled run';
-    }
-
     public function metrics(): array
     {
         return [Metric::TASK_FAILED];

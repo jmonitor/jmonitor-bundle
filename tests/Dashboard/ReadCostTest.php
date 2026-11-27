@@ -10,7 +10,6 @@ use Jmonitor\JmonitorBundle\Aggregation\TaskKey;
 use Jmonitor\JmonitorBundle\Dashboard\ActionGuard;
 use Jmonitor\JmonitorBundle\Dashboard\Assets;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
-use Jmonitor\JmonitorBundle\Dashboard\Check\Finding;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ComposedScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\ExceptionsScreen;
 use Jmonitor\JmonitorBundle\Dashboard\Screen\OverviewScreen;
@@ -23,6 +22,7 @@ use Jmonitor\JmonitorBundle\Dashboard\ScreenInterface;
 use Jmonitor\JmonitorBundle\Dashboard\ScreenRegistry;
 use Jmonitor\JmonitorBundle\Dashboard\Section\SectionInterface;
 use Jmonitor\JmonitorBundle\Dashboard\StorageScreenInterface;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
 use Jmonitor\JmonitorBundle\Dashboard\View\Block;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckList;
@@ -51,10 +51,8 @@ final class ReadCostTest extends KernelTestCase
         'users' => 8,
     ];
 
-    /** SQL statements the Overview reads without a raised check, then with the ten raised */
+    /** SQL statements the Overview reads, whatever the checks raised */
     private const OVERVIEW_BUDGET = 4;
-    private const OVERVIEW_BUDGET_WITH_THREE_CHECKS = 12;
-    private const OVERVIEW_BUDGET_WITH_TEN_CHECKS = 28;
 
     /** @var array<string, int> section id => SQL statements read to display it once */
     private const SECTION_BUDGET = [
@@ -443,29 +441,9 @@ final class ReadCostTest extends KernelTestCase
         $read = self::overview()->read(new DbalReader($connection), Period::OneHour, self::NOW);
 
         static::assertFalse($read->isEmpty());
-        static::assertSame([], $read->findings);
-        static::assertCount(1, $read->requests->rows);
+        static::assertNull(self::overview()->view($read, null, Period::OneHour)->alerts);
+        static::assertSame(1, $read->requestCount());
         static::assertCount(self::OVERVIEW_BUDGET, $recorder->statements, implode("\n", array_column($recorder->statements, 'sql')));
-    }
-
-    public function testTheOverviewWithAServerErrorARepeatedQueryAndAnErrorResponseReadsTwelveStatements(): void
-    {
-        [$connection, $recorder] = StatementRecorder::connect(['driver' => 'pdo_sqlite', 'memory' => true]);
-        $startedAt = (float) (self::NOW - 30);
-        $units = [
-            new Entry(Entry::TYPE_REQUEST, 'GET app_boom', $startedAt, 40.0, ['status' => 500, 'memory' => 2048, 'sql_n' => 12, 'sql_ms' => 6.0], [
-                new Entry(Entry::TYPE_QUERY, self::REPEATED_QUERY_ID, $startedAt, 6.0, ['n' => 12, 'm' => 0.5]),
-                new Entry(Entry::TYPE_NPLUS1, self::REPEATED_QUERY_ID, $startedAt, 6.0, ['n' => 12]),
-                new Entry(Entry::TYPE_HTTP, 'api.example.com', $startedAt, 10.0, ['n' => 1, 'm' => 10.0, 'c5' => 1]),
-            ]),
-        ];
-        (new DbalStorage($connection, 604800))->store((new Aggregator(1000))->aggregate($units), self::NOW, self::LABELS);
-        $recorder->statements = [];
-
-        $read = self::overview()->read(new DbalReader($connection), Period::OneHour, self::NOW);
-
-        static::assertSame(['requests.server_errors', 'queries.repeated', 'http.errors'], array_map(static fn(Finding $finding): string => $finding->id, $read->findings));
-        static::assertCount(self::OVERVIEW_BUDGET_WITH_THREE_CHECKS, $recorder->statements, implode("\n", array_column($recorder->statements, 'sql')));
     }
 
     public function testTheBudgetOfTheOverviewIsMeasuredWithItsTenChecks(): void
@@ -486,14 +464,14 @@ final class ReadCostTest extends KernelTestCase
         $recorder->statements = [];
 
         $read = self::overview()->read(new DbalReader($connection), Period::OneHour, self::NOW);
+        $alerts = self::overview()->view($read, null, Period::OneHour)->alerts;
 
         static::assertSame(
             ['requests.server_errors', 'messages.failed', 'tasks.failed', 'commands.failed', 'http.failures', 'requests.slow', 'queries.slow', 'queries.repeated', 'cache.low_hit_rate', 'http.errors'],
-            array_map(static fn(Finding $finding): string => $finding->id, $read->findings),
+            array_map(static fn(Alert $alert): string => $alert->id, $alerts->alerts ?? []),
         );
-        static::assertStringStartsWith('GET app_boom ', $read->findings[0]->sentence);
-        static::assertStringStartsWith('GET app_slow ', $read->findings[5]->sentence);
-        static::assertCount(self::OVERVIEW_BUDGET_WITH_TEN_CHECKS, $recorder->statements, implode("\n", array_column($recorder->statements, 'sql')));
+        static::assertSame('1 server error', $alerts?->alerts[0]->title);
+        static::assertCount(self::OVERVIEW_BUDGET, $recorder->statements, implode("\n", array_column($recorder->statements, 'sql')));
     }
 
     public function testAStackScreenReadsNoStatement(): void

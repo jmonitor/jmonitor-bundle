@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Screen;
 
-use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
 use Jmonitor\JmonitorBundle\Dashboard\View\ComponentCard;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
+use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Component;
+use Jmonitor\JmonitorBundle\Stack\Metric\Figures;
 use Jmonitor\JmonitorBundle\Stack\Detection\Server;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
 use Jmonitor\JmonitorBundle\Stack\Read\StackReaderInterface;
@@ -63,34 +65,42 @@ final class OverviewGlanceTest extends TestCase
         self::assertNull($glance->notice);
     }
 
-    public function testItsLinesAreTheRaisedChecksMostSevereFirstUnderStack(): void
+    public function testItsAlertsAreTheCriticalAndWarningPointsMostSevereFirst(): void
     {
         $glance = $this->glance(new FakeStackReader(self::troubled()))->glance();
 
         self::assertSame(
             [
-                ['symfony.debug_in_prod', 'bad', 'Critical', 'Stack · Symfony', 'stack/symfony', [], null],
-                ['system.disk', 'warn', 'Warning', 'Stack · Server', 'stack/system', [], '1 h ago'],
-                ['php.fpm_max_children', 'info', 'Info', 'Stack · PHP', 'stack/php', [], null],
+                ['symfony.debug_in_prod', 'bad', 'Critical', 'Debug mode is on in the prod environment', 'Symfony', 'stack/symfony', []],
+                ['system.disk', 'warn', 'Warning', 'Disk is 90' . Figures::NBSP . '% full', 'Server', 'stack/system', []],
             ],
-            array_map(static fn(CheckLine $line): array => [$line->id, $line->mark->tone, $line->mark->label, $line->where, $line->path, $line->query, $line->age], $glance->lines),
+            array_map(static fn(Alert $alert): array => [$alert->id, $alert->mark->tone, $alert->mark->label, $alert->title, $alert->where, $alert->path, $alert->query], $glance->alerts),
         );
-        self::assertSame('Debug mode is on in the prod environment', $glance->lines[0]->sentence);
-        self::assertStringStartsWith('Debug mode slows down every request', $glance->lines[0]->explanation);
     }
 
-    public function testALineOfANamedInstanceSaysWhichOneUnderStack(): void
+    public function testAnInfoPointGivesNoAlert(): void
+    {
+        $state = Snapshots::stack(Snapshots::of(Component::Php, ['php' => Snapshots::php()]));
+        $health = (new StackChecks([], false, $this->clock))->health($state);
+
+        $glance = $this->glance(new FakeStackReader($state))->glance();
+
+        self::assertSame(['php.fpm_max_children'], array_map(static fn(Finding $finding): string => $finding->id, $health->findings));
+        self::assertSame([], $glance->alerts);
+    }
+
+    public function testAnAlertOfANamedInstanceLinksToIt(): void
     {
         $status = DatabasePayloads::mysqlStatus();
         $status['Threads_connected'] = '99';
         $snapshot = Snapshots::of(Component::Mysql, ['mysql' => $status, 'mysql.variables' => DatabasePayloads::mysqlVariables()]);
         $state = Snapshots::state(['mysql' => [new InstanceState('default', 'app', null, $snapshot, new Server('db1:3306', 'db1:3306'))]]);
 
-        $lines = $this->glance(new FakeStackReader($state))->glance()->lines;
+        $alerts = $this->glance(new FakeStackReader($state))->glance()->alerts;
 
         self::assertSame(
-            [['mysql.connections', 'Stack · MySQL · default', 'stack/mysql', ['connection' => 'default']]],
-            array_map(static fn(CheckLine $line): array => [$line->id, $line->where, $line->path, $line->query], $lines),
+            [['mysql.connections', 'MySQL', 'stack/mysql', ['connection' => 'default']]],
+            array_map(static fn(Alert $alert): array => [$alert->id, $alert->where, $alert->path, $alert->query], $alerts),
         );
     }
 

@@ -35,11 +35,6 @@ final class SlowQueriesCheck implements CheckInterface
         return 'Queries';
     }
 
-    public function passed(): string
-    {
-        return 'no slow query';
-    }
-
     public function metrics(): array
     {
         return [Metric::QUERY_SLOW];

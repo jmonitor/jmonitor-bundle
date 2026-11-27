@@ -33,11 +33,6 @@ final class HttpFailuresCheck implements CheckInterface
         return 'Cache & HTTP';
     }
 
-    public function passed(): string
-    {
-        return 'no call without an answer';
-    }
-
     public function metrics(): array
     {
         return [Metric::HTTP_FAILED];

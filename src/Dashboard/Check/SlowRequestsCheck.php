@@ -34,11 +34,6 @@ final class SlowRequestsCheck implements CheckInterface
         return 'Requests';
     }
 
-    public function passed(): string
-    {
-        return 'no slow request';
-    }
-
     public function metrics(): array
     {
         return [Metric::REQUEST_SLOW];

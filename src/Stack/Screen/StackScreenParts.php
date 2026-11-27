@@ -119,9 +119,8 @@ final class StackScreenParts
     /**
      * @param list<Finding> $findings
      * @param bool          $linked   whether each line links to the detail of its component
-     * @param string        $prefix   put before the place of each line
      */
-    public function checkList(array $findings, bool $linked, string $emptyTitle = 'Nothing to flag', string $prefix = ''): CheckList
+    public function checkList(array $findings, bool $linked, string $emptyTitle = 'Nothing to flag'): CheckList
     {
         $now = $this->now();
         $lines = array_map(static fn(Finding $finding): CheckLine => new CheckLine(
@@ -129,7 +128,7 @@ final class StackScreenParts
             Marks::severity($finding->severity),
             $finding->sentence,
             $finding->explanation,
-            $prefix . ($finding->instance === null ? $finding->component->label() : $finding->component->label() . ' · ' . $finding->instance),
+            $finding->instance === null ? $finding->component->label() : $finding->component->label() . ' · ' . $finding->instance,
             $linked ? self::path($finding->component) : null,
             $finding->age === null ? null : Format::ago($now - $finding->age, $now),
             $linked && $finding->instance !== null ? [ScreenRequest::INSTANCE => $finding->instance] : [],

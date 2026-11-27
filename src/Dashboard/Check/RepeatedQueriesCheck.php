@@ -38,11 +38,6 @@ final class RepeatedQueriesCheck implements CheckInterface
         return 'Queries';
     }
 
-    public function passed(): string
-    {
-        return 'no repeated query';
-    }
-
     public function metrics(): array
     {
         return [Metric::NPLUS1_CALLS];

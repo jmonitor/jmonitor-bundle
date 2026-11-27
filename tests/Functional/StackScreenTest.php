@@ -103,16 +103,16 @@ final class StackScreenTest extends WebTestCase
         $client = $this->client(['jmonitor' => ['recording' => ['flush_interval' => 1]]]);
 
         $client->request('GET', '/hello/world');
-        $crawler = self::requestUntil($client, '/jmonitor/overview', 'tr[data-jm-route="GET app_hello"][data-jm-requests="1"]');
+        $crawler = self::requestUntil($client, '/jmonitor/overview', 'a.jm-box[href^="/jmonitor/requests"] .jm-box__value:contains("1")');
 
         static::assertResponseIsSuccessful();
-        static::assertSame('Runs on read right now, whatever the period', $crawler->filter('.jm-runs__title')->text());
+        static::assertSame('Runs on now', $crawler->filter('.jm-runs__title')->text());
         $lines = $crawler->filter('.jm-runs__item a.jm-runs__line');
         $names = $lines->each(static fn(Crawler $line): string => $line->filter('.jm-runs__name')->text());
         $paths = array_combine($names, $lines->each(static fn(Crawler $line): string => (string) $line->attr('href')));
         static::assertSame('/jmonitor/stack/php', $paths['PHP'] ?? null);
         static::assertSame('/jmonitor/stack/symfony', $paths['Symfony'] ?? null);
-        static::assertContains('Two clocks.', $crawler->filter('.jm-guide li strong')->each(static fn(Crawler $term): string => $term->text()));
+        static::assertSame('1', $crawler->filter('a.jm-box[href^="/jmonitor/requests"] .jm-box__value')->text());
         static::assertSame('Overview', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
     }
 

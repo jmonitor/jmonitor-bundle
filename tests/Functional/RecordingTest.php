@@ -152,7 +152,7 @@ final class RecordingTest extends WebTestCase
             $this->setEnv('JMONITOR_TEST_RECORDING', '1');
             $client = static::createClient(['jmonitor' => $config]);
             $client->request('GET', '/hello/world');
-            $crawler = self::requestUntil($client, '/jmonitor/', 'tr[data-jm-route="GET app_hello"]');
+            $crawler = self::requestUntil($client, '/jmonitor/requests', 'tr[data-jm-route="GET app_hello"]');
 
             static::assertSame('1', $crawler->filter('tr[data-jm-route="GET app_hello"]')->attr('data-jm-requests'));
         } finally {

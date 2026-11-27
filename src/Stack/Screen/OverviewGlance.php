@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Stack\Screen;
 
+use Jmonitor\JmonitorBundle\Dashboard\ScreenRequest;
 use Jmonitor\JmonitorBundle\Dashboard\StackGlanceInterface;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
 use Jmonitor\JmonitorBundle\Dashboard\View\StackGlance;
+use Jmonitor\JmonitorBundle\Stack\Check\Finding;
+use Jmonitor\JmonitorBundle\Stack\Check\Severity;
 use Jmonitor\JmonitorBundle\Stack\Read\ReadMode;
 use Jmonitor\JmonitorBundle\Stack\Snapshot\CacheState;
 use Psr\Clock\ClockInterface;
@@ -16,8 +20,6 @@ use Psr\Container\ContainerInterface;
  */
 final class OverviewGlance implements StackGlanceInterface
 {
-    private const PREFIX = 'Stack · ';
-
     private readonly StackScreenParts $parts;
 
     /**
@@ -59,9 +61,36 @@ final class OverviewGlance implements StackGlanceInterface
 
         return new StackGlance(
             $cards,
-            $this->parts->checkList($health->findings, true, prefix: self::PREFIX)->lines,
+            self::alerts($health->findings),
             $working ? null : StackScreenParts::cacheOutOfOrder(),
             StackScreenParts::more($state),
         );
+    }
+
+    /**
+     * @param list<Finding> $findings
+     *
+     * @return list<Alert> the critical and warning ones, in the order of $findings
+     */
+    private static function alerts(array $findings): array
+    {
+        $alerts = [];
+
+        foreach ($findings as $finding) {
+            if ($finding->severity === Severity::Info) {
+                continue;
+            }
+
+            $alerts[] = new Alert(
+                $finding->id,
+                Marks::severity($finding->severity),
+                $finding->sentence,
+                $finding->component->label(),
+                StackScreenParts::path($finding->component),
+                $finding->instance === null ? [] : [ScreenRequest::INSTANCE => $finding->instance],
+            );
+        }
+
+        return $alerts;
     }
 }

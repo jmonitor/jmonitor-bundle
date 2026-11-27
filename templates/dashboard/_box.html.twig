@@ -1,21 +1,20 @@
 {% autoescape 'html' %}
-{% set pending = box.value is null %}
 {% set linked = box.path is not null and (box.path|split('/')|first) in screens %}
-{% set framed = not pending and box.tone is not null and box.tags|filter(tag => tag.tone == box.tone)|length > 0 %}
+{% set framed = box.tone is not null and box.tags|filter(tag => tag.tone == box.tone)|length > 0 %}
 {% set element = linked ? 'a' : 'div' %}
-<{{ element }} class="jm-box{{ small ? ' jm-box--small' }}{{ pending ? ' jm-box--pending' }}{{ framed ? ' jm-box--' ~ box.tone }}"{% if linked %} href="{{ urls.page(box.path, query) ~ (box.anchor is not null ? '#jm-' ~ box.anchor) }}"{% endif %}>
-    <span class="jm-box__head"><span class="jm-box__label">{{ box.label }}</span>{% if not pending %} <span class="jm-box__value">{{ box.value }}</span>{% endif %}</span>
-{% if box.text is not same as('') %}
-    <span class="jm-box__text">{{ box.text }}</span>
+<{{ element }} class="jm-box{{ box.value is same as('0') ? ' jm-box--zero' }}{{ framed ? ' jm-box--' ~ box.tone }}"{% if linked %} href="{{ urls.page(box.path, query) ~ (box.anchor is not null ? '#jm-' ~ box.anchor) }}"{% endif %}>
+    <span class="jm-box__line">
+        <span class="jm-box__label">{{ box.label }}</span>
+{% if box.tags is not empty %}
+        <span class="jm-box__tags">
+            {%- for tag in box.tags -%}
+                {{ loop.first ? '' : ' ' }}<span class="jm-tag jm-tag--{{ tag.tone }}">{{ tag.text }}</span>
+            {%- endfor -%}
+        </span>
 {% endif %}
-{% if not pending and box.tags is not empty %}
-    <span class="jm-box__tags">
-        {%- for tag in box.tags -%}
-            {{ loop.first ? '' : ' ' }}<span class="jm-tag jm-tag--{{ tag.tone }}">{{ tag.text }}</span>
-        {%- endfor -%}
+        <span class="jm-box__value">{{ box.value }}</span>
     </span>
-{% endif %}
-{% if not pending and box.series is not empty %}
+{% if box.series is not empty %}
     {{ jmonitor_sparkline(box.series, box.label) }}
 {% endif %}
 </{{ element }}>

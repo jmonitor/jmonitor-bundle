@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Jmonitor\JmonitorBundle\Dashboard\Screen;
 
 use Jmonitor\JmonitorBundle\Aggregation\Metric;
-use Jmonitor\JmonitorBundle\Dashboard\Check\Finding;
 use Jmonitor\JmonitorBundle\Dashboard\Check\RaisedChecks;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
@@ -16,15 +15,12 @@ use Jmonitor\JmonitorBundle\Storage\Read\Report;
 final class OverviewRead
 {
     /**
-     * @param Report        $requests the Request family, restricted to what the Overview shows
-     * @param list<Finding> $findings the raised checks with their culprit, the most severe first
-     * @param list<string>  $counted  the types of the totals that count an activity
+     * @param Report       $requests the Request family, restricted to what the Overview shows
+     * @param list<string> $counted  the types of the totals that count an activity
      */
     public function __construct(
         public readonly RaisedChecks $raised,
         public readonly Report $requests,
-        public readonly array $findings,
-        public readonly int $declaredTasks,
         private readonly array $counted,
     ) {}
 
@@ -60,7 +56,7 @@ final class OverviewRead
         return $this->raised->total($metric) ?? new MetricValue(0, 0.0, 0.0);
     }
 
-    /** the requests of the Request family read for the routes */
+    /** the requests of the Request family */
     public function requestCount(): int
     {
         return $this->requests->totals[Metric::REQUEST_DURATION]->count ?? 0;

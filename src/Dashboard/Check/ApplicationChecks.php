@@ -146,24 +146,6 @@ final class ApplicationChecks
     }
 
     /**
-     * @param list<string> $ids
-     *
-     * @return list<string> what the checks among $ids that are not raised say, in the order of $ids
-     */
-    public function passed(RaisedChecks $raised, array $ids): array
-    {
-        $passed = [];
-
-        foreach (array_values(array_unique($ids)) as $id) {
-            if (isset($this->checks[$id]) && !$raised->has($id)) {
-                $passed[] = $this->checks[$id]->passed();
-            }
-        }
-
-        return $passed;
-    }
-
-    /**
      * @param list<Finding> $findings
      *
      * @return list<CheckLine>

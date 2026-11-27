@@ -839,7 +839,6 @@ foreach ($bases as $name => $connection) {
     report(sprintf('purge, five one-minute buckets, loaded database (%s)', $name), $milliseconds, 'ms', null, sprintf('(%d of %d rows deleted)', $deleted, $stored));
     $overview = new OverviewScreen(
         $checks,
-        new DeclaredTasks(),
         [new MessagesSection(true, true, null, $checks), new TasksSection(true, new DeclaredTasks(), $checks), new CommandsSection(true, $checks), new CacheSection(true, $checks), new HttpSection(true, $checks)],
         [new QueriesScreen(true, $checks, 100, 10), new ExceptionsScreen(true, $checks), new UsersScreen(true, $checks, 1000)],
     );
