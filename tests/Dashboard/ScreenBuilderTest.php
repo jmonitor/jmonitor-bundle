@@ -1143,6 +1143,16 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame([Block::ALERTS, Block::CARDS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$table], alerts: $alerts)), null, null, null)->blocks));
     }
 
+    public function testAStatusAloneLeavesOutTheEmptyListOfCards(): void
+    {
+        $status = new Status('Overview', new Mark('ok', 'Answers normally'));
+        $table = $this->table(rows: 1);
+        $view = static fn(ScreenView $view): StubScreen => new StubScreen(view: static fn(ReaderInterface $reader): ScreenView => $view);
+
+        static::assertSame([Block::STATUS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$table], status: $status)), null, null, null)->blocks));
+        static::assertSame([Block::CARDS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$table])), null, null, null)->blocks));
+    }
+
     public function testTheOverviewReadsTheApplicationThenTheStack(): void
     {
         $journal = [];

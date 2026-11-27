@@ -638,7 +638,7 @@ body.jm .jm-header {
     margin-bottom: 20px;
 }
 
-.jm-alerts__title {
+.jm .jm-alerts__title {
     margin-bottom: 10px;
     color: var(--jm-primary-light);
     font-size: 12px;
@@ -650,6 +650,7 @@ body.jm .jm-header {
 .jm-alerts__list {
     display: flex;
     flex-wrap: wrap;
+    align-items: flex-start;
     gap: 12px;
     margin: 0;
     padding: 0;

@@ -714,6 +714,24 @@ final class StylesheetTest extends TestCase
         }
     }
 
+    public function testTheTitleOfTheAlertsKeepsItsMarginAgainstTheResetOfTheHeadings(): void
+    {
+        static::assertSame([['margin', '0']], self::declarationsOf('.jm h2', null));
+        static::assertContains(['margin-bottom', '10px'], self::declarationsOf('.jm .jm-alerts__title', null));
+    }
+
+    public function testNoClassOfAHeadingOrAParagraphOfTheOverviewSetsAMarginTheResetWouldOverride(): void
+    {
+        foreach (['.jm-heading__title', '.jm-alerts__title', '.jm-map__title', '.jm-runs__title', '.jm-runs__more', '.jm-runs__empty'] as $class) {
+            static::assertSame([], array_filter(self::declarationsOf($class, null), static fn(array $declaration): bool => str_starts_with($declaration[0], 'margin')), $class);
+        }
+    }
+
+    public function testACardOfTheAlertsTakesTheHeightOfItsOwnContent(): void
+    {
+        static::assertContains(['align-items', 'flex-start'], self::declarationsOf('.jm-alerts__list', null));
+    }
+
     public function testEachToneOfTheStatusIsDrawnWithItsColours(): void
     {
         foreach (['ok' => ['--jm-ok-border', '--jm-ok-bg', '--jm-ok-text'], 'warn' => ['--jm-warn-border', '--jm-warn-bg', '--jm-warn'], 'bad' => ['--jm-bad-border', '--jm-bad-bg', '--jm-bad'], 'unknown' => ['--jm-border', '--jm-surface-strong', '--jm-muted']] as $tone => [$border, $background, $colour]) {
