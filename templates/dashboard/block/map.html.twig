@@ -42,11 +42,11 @@
                     <li class="jm-runs__item">
                         <{{ linked ? 'a' : 'span' }} class="jm-runs__line"{% if linked %} href="{{ urls.page(card.path, card.query) }}"{% endif %}>
                             <span class="jm-runs__name">{{ card.name }}</span>
-                            <span class="jm-runs__figures">
-                                {%- if card.version is not null %}{{ card.version }}{% endif -%}
-                                {%- if words is not null %}{{ card.version is not null ? ' · ' }}{{ words }}{% endif -%}
-                            </span>
+                            <span class="jm-runs__version">{{ card.version }}</span>
                             {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: card.mark}, with_context = false) }}
+{% if words is not null %}
+                            <span class="jm-runs__reason">{{ words }}</span>
+{% endif %}
                         </{{ linked ? 'a' : 'span' }}>
                     </li>
                 {% endfor %}

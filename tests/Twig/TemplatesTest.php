@@ -1268,7 +1268,8 @@ final class TemplatesTest extends TestCase
         static::assertSame(['a', 'a', 'a', 'span'], $lines->each(static fn(Crawler $line): string => $line->nodeName()));
         static::assertSame(['/host/page/stack/server?menu=3', '/host/page/stack/php?menu=3', '/host/page/stack/mysql?menu=3&connection=default'], $runs->filter('a.jm-runs__line')->each(static fn(Crawler $a): string => (string) $a->attr('href')));
         static::assertSame(['jm-mark jm-mark--ok', 'jm-mark jm-mark--warn', 'jm-mark jm-mark--bad', 'jm-mark jm-mark--ok'], $lines->filter('.jm-mark')->each(static fn(Crawler $mark): string => (string) $mark->attr('class')));
-        static::assertSame(['MySQL · default', ''], [$lines->eq(2)->filter('.jm-runs__name')->text(), $lines->eq(2)->filter('.jm-runs__figures')->text()]);
+        static::assertSame(['MySQL · default', ''], [$lines->eq(2)->filter('.jm-runs__name')->text(), $lines->eq(2)->filter('.jm-runs__version')->text()]);
+        static::assertSame(['jm-runs__name', 'jm-runs__version', 'jm-mark jm-mark--ok'], $lines->eq(0)->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
         static::assertStringNotContainsString('98', $runs->html());
         static::assertSame('2 more connections', $runs->filter('.jm-runs__more')->text());
         static::assertCount(0, $crawler->filter('.jm-runs__line p, .jm-runs__line div, .jm-runs__line a'));
@@ -1288,9 +1289,11 @@ final class TemplatesTest extends TestCase
             new ComponentCard('frankenphp', 'FrankenPHP', new Mark('ok', 'Healthy'), version: '1.2'),
         ]);
 
-        $figures = (new Crawler($this->mapScreen(['stack'], Block::map(new Map(runsOn: $glance)))))->filter('.jm-runs__figures');
+        $lines = (new Crawler($this->mapScreen(['stack'], Block::map(new Map(runsOn: $glance)))))->filter('.jm-runs__line');
 
-        static::assertSame(['8.0.36 · Connection refused', '7.4.0 · Reading…', 'Reading…', '1.2'], $figures->each(static fn(Crawler $line): string => $line->text()));
+        static::assertSame(['8.0.36', '7.4.0', '', '1.2'], $lines->filter('.jm-runs__version')->each(static fn(Crawler $version): string => $version->text()));
+        static::assertSame(['Connection refused', 'Reading…', 'Reading…', null], $lines->each(static fn(Crawler $line): ?string => $line->filter('.jm-runs__reason')->count() > 0 ? $line->filter('.jm-runs__reason')->text() : null));
+        static::assertSame(['jm-runs__name', 'jm-runs__version', 'jm-mark jm-mark--unknown', 'jm-runs__reason'], $lines->eq(0)->children()->each(static fn(Crawler $child): string => (string) $child->attr('class')));
     }
 
     public function testANoticeWithoutACardTakesThePlaceOfTheRunsOnLines(): void

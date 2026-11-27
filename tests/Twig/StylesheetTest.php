@@ -616,7 +616,7 @@ final class StylesheetTest extends TestCase
             array_push($selectors, ...$rule['selectors']);
         }
 
-        foreach (['.jm-map', '.jm-map__columns', '.jm-map__column', '.jm-map__title', '.jm-map__arrow', '.jm-map__boxes', '.jm-map__boxes--inside', '.jm-map__item', '.jm-box', '.jm-box__line', '.jm-box__name', '.jm-box__label', '.jm-box__value', '.jm-box__tags', '.jm-box--zero', '.jm-box--warn', '.jm-box--bad', '.jm-runs', '.jm-runs__title', '.jm-runs__now', '.jm-runs__list', '.jm-runs__item', '.jm-runs__line', '.jm-runs__name', '.jm-runs__figures', '.jm-runs__more', '.jm-runs__empty', '.jm-places__list', '.jm-place', '.jm-place__label', '.jm-place__question'] as $class) {
+        foreach (['.jm-map', '.jm-map__columns', '.jm-map__column', '.jm-map__title', '.jm-map__arrow', '.jm-map__boxes', '.jm-map__boxes--inside', '.jm-map__item', '.jm-box', '.jm-box__line', '.jm-box__name', '.jm-box__label', '.jm-box__value', '.jm-box__tags', '.jm-box--zero', '.jm-box--warn', '.jm-box--bad', '.jm-runs', '.jm-runs__title', '.jm-runs__now', '.jm-runs__list', '.jm-runs__item', '.jm-runs__line', '.jm-runs__name', '.jm-runs__version', '.jm-runs__reason', '.jm-runs__more', '.jm-runs__empty', '.jm-places__list', '.jm-place', '.jm-place__label', '.jm-place__question'] as $class) {
             static::assertNotEmpty(array_filter($selectors, static fn(string $selector): bool => preg_match('/' . preg_quote($class, '/') . '(?![a-z0-9_-])/', $selector) === 1), $class);
         }
     }
@@ -657,7 +657,6 @@ final class StylesheetTest extends TestCase
     public function testTheMapIsStackedUnlessItIsWideEnoughForItsColumns(): void
     {
         $wide = '@container jm-map (width >= 800px)';
-        $medium = '@container jm-map (width >= 480px)';
 
         static::assertContains(['container-type', 'inline-size'], self::declarationsOf('.jm-map', null));
         static::assertContains(['container-name', 'jm-map'], self::declarationsOf('.jm-map', null));
@@ -665,15 +664,15 @@ final class StylesheetTest extends TestCase
         static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__columns', null));
         static::assertContains(['display', 'none'], self::declarationsOf('.jm-map__arrow', null));
         static::assertContains(['flex-direction', 'column'], self::declarationsOf('.jm-map__boxes', null));
-        static::assertSame([], self::declarationsOf('.jm-map__boxes--inside', null));
+        static::assertSame([['flex-flow', 'row wrap']], self::declarationsOf('.jm-map__boxes--inside', null));
+        static::assertSame([['flex', '1 1 200px']], self::declarationsOf('.jm-map__boxes--inside > .jm-map__item', null), 'the two boxes of the middle stand side by side from a column of about 410 px');
         static::assertContains(['flex-direction', 'row'], self::declarationsOf('.jm-map__columns', $wide));
         static::assertContains(['flex', '1 1 0'], self::declarationsOf('.jm-map__column', $wide));
         static::assertSame([], self::declarationsOf('.jm-map__column--app', $wide), 'the three columns share the width');
         static::assertSame([], self::selectorsIn(self::rules(), '@container jm-map (width >= 960px)'));
         static::assertContains(['display', 'block'], self::declarationsOf('.jm-map__arrow', $wide));
-        static::assertContains(['flex-flow', 'row wrap'], self::declarationsOf('.jm-map__boxes--inside', $medium));
-        static::assertSame([['flex-basis', '160px']], self::declarationsOf('.jm-map__boxes--inside > .jm-map__item', $medium));
         static::assertSame([], self::declarationsOf('.jm-map__boxes--inside', $wide));
+        static::assertSame([], self::selectorsIn(self::rules(), '@container jm-map (width >= 480px)'));
     }
 
     public function testTheMapIsLaidOutByItsOwnWidthNotByTheWindow(): void
@@ -699,8 +698,21 @@ final class StylesheetTest extends TestCase
         static::assertContains(['text-decoration', 'none'], self::declarationsOf('.jm-box', null));
         static::assertContains(['display', 'grid'], self::declarationsOf('.jm-runs__line', null));
         static::assertContains(['align-items', 'start'], self::declarationsOf('.jm-runs__line', null));
-        static::assertContains(['overflow-wrap', 'anywhere'], self::declarationsOf('.jm-runs__figures', null));
-        static::assertSame([], array_filter(self::declarationsOf('.jm-runs__figures', null), static fn(array $declaration): bool => \in_array($declaration[0], ['white-space', 'text-overflow', 'overflow'], true)));
+    }
+
+    public function testALineOfRunsOnKeepsItsVersionOnOneLineAndPutsItsReasonUnderItsName(): void
+    {
+        $wide = '@container jm-runs (width >= 340px)';
+
+        static::assertContains(['container-type', 'inline-size'], self::declarationsOf('.jm-runs', null));
+        static::assertContains(['container-name', 'jm-runs'], self::declarationsOf('.jm-runs', null));
+        static::assertContains(['grid-template-columns', 'fit-content(50%) minmax(0, 1fr) auto'], self::declarationsOf('.jm-runs__line', null), 'in a narrow box the name only takes what it needs');
+        static::assertSame([['grid-template-columns', '108px minmax(0, 1fr) auto']], self::declarationsOf('.jm-runs__line', $wide), 'the versions line up when the box has the room');
+        static::assertSame(
+            [['min-width', '0'], ['overflow', 'hidden'], ['color', 'var(--jm-muted)'], ['text-overflow', 'ellipsis'], ['white-space', 'nowrap']],
+            self::declarationsOf('.jm-runs__version', null),
+        );
+        static::assertSame([['grid-column', '1 / -1'], ['color', 'var(--jm-muted)'], ['overflow-wrap', 'break-word']], self::declarationsOf('.jm-runs__reason', null));
     }
 
     public function testTheWordPeriodShowsOnlyFrom1500Pixels(): void
@@ -725,6 +737,9 @@ final class StylesheetTest extends TestCase
         static::assertContains(['border-radius', 'var(--jm-radius)'], $box);
         static::assertContains(['background', 'var(--jm-surface)'], $box);
         static::assertContains(['background', 'var(--jm-surface-strong)'], $now);
+        static::assertContains(['color', 'var(--jm-text)'], $now);
+        static::assertArrayHasKey('--jm-text', self::theme(self::DARK));
+        static::assertArrayHasKey('--jm-text', self::theme(self::LIGHT));
         static::assertSame([], array_filter($now, static fn(array $declaration): bool => str_starts_with($declaration[0], 'border') && $declaration[0] !== 'border-radius'));
         static::assertSame([['border-top', '1px solid var(--jm-border-subtle)']], self::declarationsOf('.jm-runs__item + .jm-runs__item', null));
     }
@@ -780,7 +795,7 @@ final class StylesheetTest extends TestCase
         static::assertContains(['flex-wrap', 'wrap'], self::declarationsOf('.jm-alerts__list', null));
         static::assertContains(['gap', '12px'], self::declarationsOf('.jm-alerts__list', null));
         static::assertContains(['flex', '1 1 100%'], self::declarationsOf('.jm-alerts__item', null));
-        static::assertSame([['flex', '0 1 300px']], self::declarationsOf('.jm-alerts__item', $wide));
+        static::assertSame([['flex', '0 1 290px']], self::declarationsOf('.jm-alerts__item', $wide), 'four cards a row in a list of 1232 px, three in one of 917 px');
         static::assertContains(['min-width', '0'], self::declarationsOf('.jm-alert', null));
         static::assertContains(['overflow-wrap', 'anywhere'], self::declarationsOf('.jm-alert', null));
         static::assertContains(['color', 'inherit'], self::declarationsOf('.jm-alert', null));

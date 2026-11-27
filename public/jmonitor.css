@@ -2287,6 +2287,14 @@ body.jm .jm-section {
     min-width: 0;
 }
 
+.jm-map__boxes--inside {
+    flex-flow: row wrap;
+}
+
+.jm-map__boxes--inside > .jm-map__item {
+    flex: 1 1 200px;
+}
+
 .jm-box {
     display: flex;
     flex: 1 1 auto;
@@ -2368,6 +2376,8 @@ body.jm .jm-section {
 }
 
 .jm-runs {
+    container-type: inline-size;
+    container-name: jm-runs;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -2394,7 +2404,7 @@ body.jm .jm-section {
     padding: 1px 7px;
     border-radius: 999px;
     background: var(--jm-surface-strong);
-    color: var(--jm-muted);
+    color: var(--jm-text);
     font-size: 11px;
     font-weight: 600;
     line-height: 16px;
@@ -2412,9 +2422,9 @@ body.jm .jm-section {
 
 .jm-runs__line {
     display: grid;
-    grid-template-columns: 108px minmax(0, 1fr) auto;
+    grid-template-columns: fit-content(50%) minmax(0, 1fr) auto;
     align-items: start;
-    gap: 10px;
+    gap: 2px 10px;
     padding: 7px 0;
     color: inherit;
     font-size: 13px;
@@ -2437,10 +2447,18 @@ body.jm .jm-section {
     overflow-wrap: anywhere;
 }
 
-.jm-runs__figures {
+.jm-runs__version {
     min-width: 0;
+    overflow: hidden;
     color: var(--jm-muted);
-    overflow-wrap: anywhere;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jm-runs__reason {
+    grid-column: 1 / -1;
+    color: var(--jm-muted);
+    overflow-wrap: break-word;
 }
 
 .jm-runs__more,
@@ -2490,17 +2508,13 @@ body.jm .jm-section {
 
 @container jm-alerts (width >= 480px) {
     .jm-alerts__item {
-        flex: 0 1 300px;
+        flex: 0 1 290px;
     }
 }
 
-@container jm-map (width >= 480px) {
-    .jm-map__boxes--inside {
-        flex-flow: row wrap;
-    }
-
-    .jm-map__boxes--inside > .jm-map__item {
-        flex-basis: 160px;
+@container jm-runs (width >= 340px) {
+    .jm-runs__line {
+        grid-template-columns: 108px minmax(0, 1fr) auto;
     }
 }
 

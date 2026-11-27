@@ -428,7 +428,7 @@ final class EmbeddedPageTest extends WebTestCase
         static::assertCount(1, $maps->eq(0)->filter('.jm-box svg.jm-sparkline'));
         static::assertCount(0, $maps->filter('.jm-split, .jm-legend, .jm-map__text'));
         static::assertSame(['ok', 'warn', 'bad', 'unknown'], $maps->eq(0)->filter('.jm-runs__line .jm-mark')->each(static fn(Crawler $mark): string => substr((string) $mark->attr('class'), \strlen('jm-mark jm-mark--'))));
-        static::assertSame('8.2.29', $maps->eq(0)->filter('.jm-runs__figures')->eq(1)->text());
+        static::assertSame('8.2.29', $maps->eq(0)->filter('.jm-runs__version')->eq(1)->text());
         static::assertCount(9, $maps->eq(1)->filter('.jm-box--zero'));
         static::assertCount(0, $maps->eq(1)->filter('.jm-runs, .jm-tag, svg.jm-sparkline'));
         static::assertCount(0, $maps->eq(2)->filter('.jm-map__title'));
