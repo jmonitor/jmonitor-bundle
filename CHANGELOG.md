@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `stack` options `postgresql` and `redis`.
 - `/jmonitor` navigation: three entries, Overview, Application and Stack, with tabs drawn as cards with an icon; Background is a tab of Application.
 - Live indicator: says how old the figures are, and when a refresh failed.
-- `/jmonitor` screens: a sentence that sums up the period, what is worth a look with why it matters and what to do, and a guide to read the screen.
+- `/jmonitor` screens, Overview and Requests aside: a sentence that sums up the period, what is worth a look with why it matters and what to do, and a guide to read the screen.
 - `/jmonitor` tabs: a badge when something is worth a look, with the critical checks and the warnings counted apart.
 - `/jmonitor` tables: a bar on what costs the most and a Problems column.
 - Background screen: where the average message and command go, between your PHP code, SQL and outgoing HTTP calls.
@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` opens on an Overview that fits on one screen: a status pill, a card per thing worth a look, then a map of your application, from what comes in to what it calls.
 - Navigation: a badge on Application when something is worth a look.
 - Stack screen: a sentence that sums it up, every point with its explanation in view, and what each component is for.
-- Requests screen: five key figures, then the table of routes; a problem shows on its figure and on its route, whose tags lead to Exceptions and Queries.
+- Requests screen: key figures, then the table of routes; a problem shows on its figure and on the tag of its route.
 
 ### Changed
 - Requires PHP 8.2.

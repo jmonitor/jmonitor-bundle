@@ -39,7 +39,7 @@ The `/jmonitor` page, its screens and their blocks:
 
 - Every screen says its space (`ScreenInterface::space()`): `Overview`, `Application` or `Stack`. The header lists the spaces that have an available screen, and a space with more than one available screen gets tabs, built by `PageRenderer`.
 - A tab is a card whose icon is decorative and found by its name (`SubNavItem::$icon`, `_icon.html.twig`); a card without a known icon shows without one.
-- The tabs and the title of a screen are in the refreshed part (`_screen.html.twig`), never in `page.html.twig`. A lead, a status or a row of tiles that comes first is the `h1` of the page, in place of the title: the label of its tile that names the page (`Tile::$namesPage`).
+- The tabs and the title of a screen are in the refreshed part (`_screen.html.twig`), never in `page.html.twig`. A lead or a status that comes first is the `h1` of the page, in place of the title; so is the label of the tile that names the page (`Tile::$namesPage`) when a row of tiles comes first with one.
 - The Overview screen (`OverviewScreen`) is the default screen, the first available one, whatever the storage. It is addressed by the empty path, which stays the path of the page: the links of a page opened by `/jmonitor` stay on `/jmonitor`, its actions post to the id of the screen, and `/jmonitor/overview` answers the same page.
 - The reading order of a screen is set by `ScreenBuilder` alone: status, lead, cards worth a look, checks, map, tiles or cards, tables, guide, places. A screen with nothing to show keeps its empty state, without lead nor guide.
 - A composed screen (`ComposedScreen`) is made of sections (`SectionInterface`, in `src/Dashboard/Section/`). It is available while one of its sections is; an unavailable section does not exist for the page.
@@ -70,7 +70,8 @@ The `/jmonitor` page, its screens and their blocks:
 - The `Messages` box only exists while the messages are recorded (`MessagesSection::recordsMessages()`).
 - The map is laid out by its own width, with container queries, and stacked by default: a browser without them still reads it.
 - A part of a split and a tag always carry their word: neither is told by colour alone.
-- A tile is framed by its tone only when it carries a tag of that tone, and only leads to the table, sorted by its sort, while it carries one. A tile at `0` has neither tag nor link.
+- A tile is framed by its tone only when it carries a tag of that tone, and is a link to the table, sorted by its sort, only while it carries both a tag and a sort. A tile at `0` has neither tag nor link.
+- The hidden name of a legend header and the room of the table of routes hold without `:has()`: `_legend.html.twig` and `table.html.twig` set the classes they need (`jm-legend-heading`, `jm-table--legend`).
 - The figures of the tiles of Requests are read in the report its table reads, the `Other routes` row included, never in the totals of the checks.
 - On Requests, a check shows on its tile and on the tag of its route, never as a line of checks; `queries.repeated` only as the `N+1` tag of a listed route.
 - The base rule of the links is `.jm :where(a)`, so that a class set on a link keeps its colour.

@@ -21,7 +21,7 @@
     </div>
 {% endif %}
     <div class="jm-table-wrap" id="jm-{{ table.id }}-wrap" role="region" {% if section or table.titled %}aria-labelledby="{{ title_id }}"{% else %}aria-label="{{ table.title }}"{% endif %} tabindex="0">
-        <table class="jm-table">
+        <table class="jm-table{{ table.columns|filter(column => column.legend) is not empty ? ' jm-table--legend' }}">
             <thead>
                 <tr>
                     {% for column in table.columns %}

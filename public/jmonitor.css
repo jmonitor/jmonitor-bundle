@@ -1000,8 +1000,9 @@ body.jm .jm-header {
     font-size: inherit;
 }
 
-.jm-table th:has(> .jm-legend) {
+.jm-legend-heading {
     position: relative;
+    display: block;
 }
 
 .jm-panel + .jm-panel {
@@ -1428,16 +1429,20 @@ body.jm .jm-table-wrap {
     overflow-wrap: normal;
 }
 
-.jm-table:has(thead .jm-legend) :is(th, td).jm-num {
+.jm-table.jm-table--legend :is(th, td).jm-num:not(:first-child) {
     padding-right: 6px;
     padding-left: 6px;
 }
 
-.jm-table:has(thead .jm-legend) .jm-bar {
+.jm-table.jm-table--legend .jm-col-route {
+    min-width: 220px;
+}
+
+.jm-table--legend .jm-bar {
     width: 140px;
 }
 
-.jm-table:has(thead .jm-legend) td.jm-col-problems {
+.jm-table.jm-table--legend tbody td.jm-col-problems {
     white-space: normal;
 }
 

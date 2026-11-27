@@ -950,7 +950,7 @@ final class StylesheetTest extends TestCase
     public function testTheHiddenNameOfAHeaderStaysInsideTheScrollingBoxOfItsTable(): void
     {
         static::assertContains(['position', 'absolute'], self::declarationsOf('.jm-visually-hidden', null));
-        static::assertSame([['position', 'relative']], self::declarationsOf('.jm-table th:has(> .jm-legend)', null), 'the name of a legend header is placed against its header, not against the page');
+        static::assertSame([['position', 'relative'], ['display', 'block']], self::declarationsOf('.jm-legend-heading', null), 'the name of a legend header is placed against its heading, not against the page');
         static::assertContains(['position', 'relative'], self::declarationsOf('.jm-sort', null), 'the name of a sortable legend header is placed against its link');
     }
 
@@ -983,12 +983,33 @@ final class StylesheetTest extends TestCase
 
     public function testATableWithTheLegendInItsHeaderSparesItsRoomToFitTheBoxOfEasyAdmin(): void
     {
-        static::assertSame([['padding-right', '6px'], ['padding-left', '6px']], self::declarationsOf('.jm-table:has(thead .jm-legend) :is(th, td).jm-num', null));
-        static::assertSame([['width', '140px']], self::declarationsOf('.jm-table:has(thead .jm-legend) .jm-bar', null));
-        static::assertSame([['white-space', 'normal']], self::declarationsOf('.jm-table:has(thead .jm-legend) td.jm-col-problems', null), 'the tags of a route wrap rather than widen the table');
+        static::assertSame([['padding-right', '6px'], ['padding-left', '6px']], self::declarationsOf('.jm-table.jm-table--legend :is(th, td).jm-num:not(:first-child)', null));
+        static::assertSame([['min-width', '220px']], self::declarationsOf('.jm-table.jm-table--legend .jm-col-route', null));
+        static::assertSame([['width', '140px']], self::declarationsOf('.jm-table--legend .jm-bar', null));
+        static::assertSame([['white-space', 'normal']], self::declarationsOf('.jm-table.jm-table--legend tbody td.jm-col-problems', null), 'the tags of a route wrap rather than widen the table');
         static::assertContains(['white-space', 'nowrap'], self::declarationsOf('.jm-tag', null), 'a tag never breaks inside itself');
         static::assertSame([['padding-left', '10px']], self::declarationsOf('.jm-table:has(.jm-split) :is(th, td):not(:first-child)', null), 'the tables of Background keep their room');
         static::assertContains(['width', '160px'], self::declarationsOf('.jm-bar', null));
+    }
+
+    public function testTheTilesAndTheTableWithTheLegendKeepTheirWidthWithoutHas(): void
+    {
+        $has = [];
+        foreach (self::rules() as $rule) {
+            foreach ($rule['selectors'] as $selector) {
+                if (str_contains($selector, ':has(')) {
+                    $has[] = $selector;
+                }
+            }
+        }
+
+        static::assertNotEmpty($has);
+        foreach ($has as $selector) {
+            static::assertDoesNotMatchRegularExpression('/jm-tiles?\b|jm-tile_|jm-tile-|jm-legend-heading|jm-table--legend|jm-table-wrap/', $selector, 'a browser without :has() would let the page or the table grow');
+            if (str_contains($selector, 'jm-legend')) {
+                static::assertSame('.jm-panel__header:has(> .jm-legend)', $selector, 'the legend in a header of a table holds without :has()');
+            }
+        }
     }
 
     private static function withoutHostAncestor(string $selector): string

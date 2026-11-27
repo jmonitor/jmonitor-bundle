@@ -1854,6 +1854,14 @@ final class TemplatesTest extends TestCase
             static::assertSame(['jm-legend__swatch jm-legend__swatch--php', 'jm-legend__swatch jm-legend__swatch--sql', 'jm-legend__swatch jm-legend__swatch--http'], $legend->filter('.jm-legend__swatch')->each(static fn(Crawler $swatch): string => (string) $swatch->attr('class')));
         }
         static::assertCount(0, $crawler->filter('.jm-panel__header .jm-legend'));
+        static::assertSame('jm-table jm-table--legend', $crawler->filter('table')->attr('class'));
+        static::assertCount(2, $crawler->filter('thead th .jm-legend-heading > .jm-visually-hidden + .jm-legend'));
+
+        $plain = new Table('routes', 'Routes', [new Column('route', 'Route', false), new Column('split', 'Where the average goes', false)], [new Row('k1', ['route' => new Cell('a')])]);
+        $html = $this->render('block/table.html.twig', ['page' => $this->page(new ScreenView([], [$plain])), 'block' => Block::table($plain)]);
+
+        static::assertStringContainsString('<table class="jm-table">', $html);
+        static::assertStringNotContainsString('jm-legend', $html);
     }
 
     public function testATableWithoutItsLineOfTitleKeepsItsNameForAssistiveTechnologyAndItsFooter(): void

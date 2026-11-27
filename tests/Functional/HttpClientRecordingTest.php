@@ -57,7 +57,7 @@ final class HttpClientRecordingTest extends WebTestCase
 
         $crawler = $client->request('GET', '/jmonitor/requests');
         $headers = $crawler->filter('#jm-routes-wrap thead th')->each(
-            static fn(Crawler $th): string => trim(($th->filter('span')->count() > 0 ? $th->filter('span')->first() : $th)->text()),
+            static fn(Crawler $th): string => trim(($th->filter('.jm-visually-hidden')->count() > 0 ? $th->filter('.jm-visually-hidden') : $th)->text()),
         );
         $column = array_search('Where the average goes', $headers, true);
         static::assertIsInt($column, 'The Requests screen does not split the average of a route.');
