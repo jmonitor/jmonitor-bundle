@@ -479,27 +479,53 @@ final class TemplatesTest extends TestCase
 
     public function testEveryIconIsADecorativeDrawingInTheColourOfItsText(): void
     {
+        $line = ['line', '0 0 24 24', '1.8', false];
+        $expected = [
+            'requests' => $line,
+            'queries' => $line,
+            'cache-http' => $line,
+            'exceptions' => $line,
+            'users' => $line,
+            'background' => $line,
+            'stack' => $line,
+            'system' => $line,
+            'php' => ['logo', '0 0 128 128', null, false],
+            'symfony' => ['logo', '0 0 24 24', null, false],
+            'frankenphp' => ['logo', '0 0 128 128', null, false],
+            'apache' => ['logo', '0 0 128 128', null, true],
+            'nginx' => ['logo', '0 0 24 24', null, false],
+            'mysql' => ['logo', '0 0 24 24', '2', false],
+            'postgresql' => ['logo', '0 0 128 128', null, true],
+            'redis' => ['logo', '0 0 128 128', null, false],
+        ];
         $names = array_map(static fn(string $file): string => basename($file, '.html.twig'), glob(__DIR__ . '/../../templates/dashboard/icon/*.html.twig') ?: []);
-        $expected = ['requests', 'queries', 'cache-http', 'exceptions', 'users', 'background', 'stack', ...array_map(static fn(Component $component): string => $component->value, Component::cases())];
+        $known = array_keys($expected);
         sort($names);
-        sort($expected);
+        sort($known);
 
-        static::assertSame($expected, $names);
+        static::assertSame($known, $names);
+        static::assertSame([], array_diff(array_map(static fn(Component $component): string => $component->value, Component::cases()), $known));
 
-        foreach ($names as $name) {
+        foreach ($expected as $name => [$size, $box, $strokeWidth, $evenOdd]) {
             $html = $this->render('_icon.html.twig', ['name' => $name]);
             $svg = (new Crawler($html))->filter('svg');
-            $line = \in_array($name, ['requests', 'queries', 'cache-http', 'exceptions', 'users', 'background', 'stack', 'system'], true);
+            $path = $svg->filter('path');
 
             static::assertCount(1, $svg, $name);
-            static::assertSame('jm-icon jm-icon--' . ($line ? 'line' : 'logo'), $svg->attr('class'), $name);
+            static::assertSame('jm-icon jm-icon--' . $size, $svg->attr('class'), $name);
             static::assertSame('true', $svg->attr('aria-hidden'), $name);
             static::assertSame('false', $svg->attr('focusable'), $name);
-            static::assertMatchesRegularExpression('/^0 0 (24 24|128 128)$/', (string) $svg->attr('viewBox'), $name);
-            static::assertSame($line ? 'none' : 'currentColor', $svg->attr('fill'), $name);
-            static::assertSame($line ? 'currentColor' : null, $svg->attr('stroke'), $name);
-            static::assertCount(1, $svg->filter('path'), $name);
-            static::assertNotSame('', (string) $svg->filter('path')->attr('d'), $name);
+            static::assertSame($box, $svg->attr('viewBox'), $name);
+            static::assertSame($strokeWidth === null ? 'currentColor' : 'none', $svg->attr('fill'), $name);
+            static::assertSame($strokeWidth === null ? null : 'currentColor', $svg->attr('stroke'), $name);
+            static::assertSame($strokeWidth, $svg->attr('stroke-width'), $name);
+            static::assertSame($strokeWidth === null ? null : 'round', $svg->attr('stroke-linecap'), $name);
+            static::assertSame($strokeWidth === null ? null : 'round', $svg->attr('stroke-linejoin'), $name);
+            static::assertCount(1, $path, $name);
+            static::assertSame($evenOdd ? 'evenodd' : null, $path->attr('fill-rule'), $name);
+            static::assertSame($evenOdd ? 'evenodd' : null, $path->attr('clip-rule'), $name);
+            static::assertSame(0, substr_count($html, 'evenodd') - ($evenOdd ? 2 : 0), $name);
+            static::assertNotSame('', (string) $path->attr('d'), $name);
             static::assertSame('', $svg->text(), $name);
             static::assertSame(1, substr_count($html, '<svg'), $name);
         }

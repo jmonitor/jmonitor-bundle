@@ -592,7 +592,11 @@ final class StackScreenTest extends WebTestCase
         static::assertSame('bad', $check->attr('data-jm-severity'));
         static::assertStringStartsWith('MySQL cannot be reached: ', $check->filter('.jm-check__sentence')->text());
         static::assertSame('/jmonitor/stack/mysql?connection=dead', $check->filter('.jm-check__where a')->attr('href'));
-        static::assertSame('1', $crawler->filter('[data-jm-slot="nav-stack"] .jm-nav__badge')->getNode(0)?->firstChild?->textContent);
+        $badge = $crawler->filter('[data-jm-slot="nav-stack"] .jm-nav__badge');
+        static::assertCount(1, $badge);
+        static::assertSame('jm-nav__badge jm-nav__badge--bad', $badge->attr('class'));
+        static::assertSame('1', $badge->getNode(0)?->firstChild?->textContent);
+        static::assertStringStartsWith('1 critical at the last read of the stack', (string) $badge->attr('title'));
 
         $crawler = $client->request('GET', '/jmonitor/stack/mysql?connection=dead');
 

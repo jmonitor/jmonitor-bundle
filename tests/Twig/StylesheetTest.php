@@ -315,6 +315,8 @@ final class StylesheetTest extends TestCase
         static::assertSame('nowrap', $nav['flex-wrap'] ?? null);
         static::assertSame('auto', $nav['overflow-x'] ?? null);
         static::assertSame('calc(100% + 2 * var(--jm-gutter))', $nav['width'] ?? null);
+        static::assertSame('-4px calc(-1 * var(--jm-gutter))', $nav['margin'] ?? null);
+        static::assertSame('4px var(--jm-gutter)', $nav['padding'] ?? null);
         static::assertSame([['display', 'none']], self::declarationsOf('.jm-subnav::-webkit-scrollbar', '@media (max-width: 720px)'));
     }
 
@@ -335,6 +337,25 @@ final class StylesheetTest extends TestCase
 
         static::assertSame([['outline', '1px solid CanvasText']], self::declarationsOf('.jm-subnav__item[aria-current="page"]', $at));
         static::assertSame([], self::declarationsOf('.jm-subnav__item', $at));
+    }
+
+    public function testForcedColorsKeepTheFullFocusRingOnTheCurrentEntryAndTab(): void
+    {
+        $at = '@media (forced-colors: active)';
+
+        static::assertSame([['outline', '2px solid var(--jm-focus)'], ['outline-offset', '2px'], ['border-radius', '4px']], self::declarationsOf('.jm :focus-visible', null));
+        foreach (['.jm-nav__item[aria-current="page"]', '.jm-subnav__item[aria-current="page"]'] as $current) {
+            static::assertSame([['outline', '1px solid CanvasText']], self::declarationsOf($current, $at), $current);
+            static::assertSame([['outline-width', '2px']], self::declarationsOf($current . ':focus-visible', $at), $current);
+        }
+    }
+
+    public function testForcedColorsDrawTheIconOfACardInTheColourOfItsText(): void
+    {
+        $at = '@media (forced-colors: active)';
+
+        static::assertSame([['color', 'inherit']], self::declarationsOf('.jm-subnav__item .jm-icon', $at));
+        static::assertSame([['color', 'inherit']], self::declarationsOf('.jm-subnav__item[aria-current="page"] .jm-icon', $at));
     }
 
     public function testTheCardsKeepTheirWordsReadable(): void

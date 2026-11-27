@@ -2882,6 +2882,16 @@ body.jm .jm-section {
         outline: 1px solid CanvasText;
     }
 
+    .jm-nav__item[aria-current="page"]:focus-visible,
+    .jm-subnav__item[aria-current="page"]:focus-visible {
+        outline-width: 2px;
+    }
+
+    .jm-subnav__item .jm-icon,
+    .jm-subnav__item[aria-current="page"] .jm-icon {
+        color: inherit;
+    }
+
     .jm-live,
     .jm-live[data-jm-live-state] {
         border-color: ButtonText;

@@ -33,38 +33,17 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## Material Design Icons
-
-Symfony.
-
-- Author: Pictogrammers, <https://github.com/Templarian/MaterialDesign>
-- License: Apache License 2.0, <https://www.apache.org/licenses/LICENSE-2.0>
-
-```
-Pictogrammers Free License
---------------------------
-
-This icon collection is released as free, open source, and GPL friendly by
-the [Pictogrammers](http://pictogrammers.com/) icon group. You may use it
-for commercial projects, open source projects, or anything really.
-
-# Icons: Apache 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
-Some of the icons are redistributed under the Apache 2.0 license. All other
-icons are either redistributed under their respective licenses or are
-distributed under the Apache 2.0 license.
-```
-
-## Lineicons
+## Tabler Icons
 
 MySQL.
 
-- Author: Lineicons, <https://github.com/LineiconsHQ/Lineicons>
-- License: MIT, <https://github.com/LineiconsHQ/Lineicons/blob/main/LICENSE.md>
+- Author: Paweł Kuna, <https://github.com/tabler/tabler-icons>
+- License: MIT, <https://github.com/tabler/tabler-icons/blob/main/LICENSE>
 
 ```
 MIT License
 
-Copyright (c) 2023 Lineicons
+Copyright (c) 2020-2026 Paweł Kuna
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -87,7 +66,7 @@ SOFTWARE.
 
 ## Simple Icons
 
-Nginx.
+Symfony and Nginx.
 
 - Author: Simple Icons Collaborators, <https://github.com/simple-icons/simple-icons>
 - License: CC0 1.0 Universal, <https://creativecommons.org/publicdomain/zero/1.0/>
