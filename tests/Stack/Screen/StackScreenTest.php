@@ -176,10 +176,10 @@ final class StackScreenTest extends TestCase
         self::assertSame([Block::SUBNAV, Block::LEAD, Block::CHECKS, Block::COMPONENTS, Block::GUIDE], array_map(static fn(Block $block): string => $block->type, $blocks));
 
         self::assertEquals(new SubNav('Stack', [
-            new SubNavItem('All components', 'stack', true),
-            new SubNavItem('Server', 'stack/system', false, new Mark('warn', 'Warning')),
-            new SubNavItem('PHP', 'stack/php', false, new Mark('ok', 'Healthy')),
-            new SubNavItem('Symfony', 'stack/symfony', false, new Mark('bad', 'Critical')),
+            new SubNavItem('All components', 'stack', true, icon: 'stack'),
+            new SubNavItem('Server', 'stack/system', false, new Mark('warn', 'Warning'), icon: 'system'),
+            new SubNavItem('PHP', 'stack/php', false, icon: 'php'),
+            new SubNavItem('Symfony', 'stack/symfony', false, new Mark('bad', 'Critical'), icon: 'symfony'),
         ], 'web-1'), $blocks[0]->content);
 
         $checks = $blocks[2]->content;
@@ -254,7 +254,7 @@ final class StackScreenTest extends TestCase
         $blocks = $this->screen(new FakeStackReader($off))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertSame([Block::SUBNAV, Block::NOTICE], array_map(static fn(Block $block): string => $block->type, $blocks));
-        self::assertEquals(new SubNav('Stack', [new SubNavItem('All components', 'stack', true)], 'web-1'), $blocks[0]->content);
+        self::assertEquals(new SubNav('Stack', [new SubNavItem('All components', 'stack', true, icon: 'stack')], 'web-1'), $blocks[0]->content);
         self::assertEquals($notice, $blocks[1]->content);
 
         $notFound = new StackState('web-1', Snapshots::NOW, CacheState::Working, [], ['symfony' => 'No kernel']);
@@ -461,8 +461,8 @@ final class StackScreenTest extends TestCase
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertEquals(new SubNav('Stack', [
-            new SubNavItem('All components', 'stack', true),
-            new SubNavItem('MySQL', 'stack/mysql', false, new Mark('ok', 'Healthy')),
+            new SubNavItem('All components', 'stack', true, icon: 'stack'),
+            new SubNavItem('MySQL', 'stack/mysql', false, icon: 'mysql'),
         ], 'web-1'), $blocks[0]->content);
         $cards = $blocks[3]->content;
         self::assertInstanceOf(ComponentCards::class, $cards);
@@ -611,7 +611,7 @@ final class StackScreenTest extends TestCase
         $blocks = $this->screen(new FakeStackReader($state))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertSame([Block::SUBNAV, Block::NOTICE], array_map(static fn(Block $block): string => $block->type, $blocks));
-        self::assertEquals(new SubNav('Stack', [new SubNavItem('All components', 'stack', true)], 'web-1'), $blocks[0]->content);
+        self::assertEquals(new SubNav('Stack', [new SubNavItem('All components', 'stack', true, icon: 'stack')], 'web-1'), $blocks[0]->content);
         self::assertEquals(new Notice('bad', 'The stack could not be read', 'Cannot reach redis://cache:6379: Connection refused'), $blocks[1]->content);
         self::assertSame([], $this->pool->calls, 'nothing is remembered');
     }

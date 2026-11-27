@@ -20,7 +20,6 @@ use Jmonitor\JmonitorBundle\Dashboard\View\GuideItem;
 use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\Notice;
 use Jmonitor\JmonitorBundle\Dashboard\View\SubNav;
-use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Check\Severity;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
@@ -239,7 +238,7 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
         $items = [StackScreenParts::overview(true)];
 
         foreach ($state->components as $component) {
-            $items[] = new SubNavItem($component->component->label(), StackScreenParts::path($component->component), false, Marks::verdict($health->componentVerdict($component->component)));
+            $items[] = StackScreenParts::tab($component->component, false, $health->componentVerdict($component->component));
         }
 
         return new SubNav(Space::Stack->label(), $items, $state->node);

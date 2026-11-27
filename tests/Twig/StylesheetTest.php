@@ -17,7 +17,7 @@ final class StylesheetTest extends TestCase
     private const ON_JM = '/^(?:\.jm|\.jm\[[^\]]+\]|body\.jm)$/';
     private const COLOUR = '/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i';
     private const STANDALONE_LAYOUT_TAGS = ['html', 'head', 'meta', 'title', 'link', 'script', 'body'];
-    private const DRAWING_TAGS = ['svg', 'defs', 'linearGradient', 'stop', 'rect', 'line', 'polyline', 'circle'];
+    private const DRAWING_TAGS = ['svg', 'defs', 'linearGradient', 'stop', 'rect', 'line', 'polyline', 'circle', 'path'];
     private const TAGS_WITHOUT_BOX_DEFAULTS = ['template', 'section', 'article', 'nav', 'form', 'label', 'strong'];
 
     public function testTheParserReadsTopLevelMediaAndKeyframeRules(): void
@@ -278,35 +278,78 @@ final class StylesheetTest extends TestCase
         static::assertContains(['margin-block', '0'], self::declarationsOf('.jm-toolbar > *', null));
     }
 
-    public function testTheCurrentTabIsBoldAndTheOthersAreNot(): void
+    public function testATabIsACardAndTheCurrentOneTakesThePrimaryTone(): void
     {
-        $tab = self::declarationsOf('.jm-subnav__item', null);
+        $tab = array_column(self::declarationsOf('.jm-subnav__item', null), 1, 0);
 
-        static::assertContains(['font-weight', '400'], $tab);
-        static::assertContains(['font-size', '14px'], $tab);
-        static::assertContains(['font-weight', '600'], self::declarationsOf('.jm-subnav__item[aria-current="page"]', null));
-        static::assertContains(['gap', '0 24px'], self::declarationsOf('.jm-subnav', null));
+        static::assertSame(['display' => 'inline-flex', 'align-items' => 'center', 'gap' => '8px', 'min-height' => '40px', 'padding' => '8px 14px', 'border' => '1px solid var(--jm-border-subtle)', 'border-radius' => '10px', 'background' => 'var(--jm-surface-hover)', 'color' => 'var(--jm-muted)', 'font-size' => '13px', 'font-weight' => '600', 'text-decoration' => 'none', 'white-space' => 'nowrap'], $tab);
+        static::assertSame([['border-color', 'var(--jm-segment-active-border)'], ['background', 'var(--jm-segment-active-bg)'], ['color', 'var(--jm-text-strong)']], self::declarationsOf('.jm-subnav__item[aria-current="page"]', null));
+        static::assertSame([['border-radius', '10px']], self::declarationsOf('.jm-subnav__item:focus-visible', null));
+        static::assertSame([['color', 'var(--jm-faint)']], self::declarationsOf('.jm-subnav__item .jm-icon', null));
+        static::assertSame([['color', 'var(--jm-primary-light)']], self::declarationsOf('.jm-subnav__item[aria-current="page"] .jm-icon', null));
+        static::assertSame([['display', 'flex'], ['flex-wrap', 'wrap'], ['gap', '8px'], ['min-width', '0']], self::declarationsOf('.jm-subnav', null));
     }
 
-    public function testTheTabsThatOpenAScreenSitRightUnderTheHeader(): void
+    public function testAnIconKeepsItsSizeInItsCard(): void
+    {
+        static::assertSame([['flex', 'none']], self::declarationsOf('.jm-icon', null));
+        static::assertSame([['width', '16px'], ['height', '16px']], self::declarationsOf('.jm-icon--line', null));
+        static::assertSame([['width', '18px'], ['height', '18px']], self::declarationsOf('.jm-icon--logo', null));
+    }
+
+    public function testNoRuleDrawsALineUnderTheTabs(): void
+    {
+        foreach ([null, '@media (max-width: 720px)', '@media (forced-colors: active)'] as $at) {
+            foreach (['.jm-subbar', '.jm-subnav', '.jm-subnav__item', '.jm-subnav__item[aria-current="page"]'] as $selector) {
+                $properties = array_column(self::declarationsOf($selector, $at), 0);
+
+                static::assertSame([], array_values(array_filter($properties, static fn(string $property): bool => str_starts_with($property, 'border-bottom') || ($property === 'margin-bottom' && $selector !== '.jm-subbar'))), $selector . ' ' . $at);
+            }
+        }
+    }
+
+    public function testOnANarrowScreenTheCardsScrollOnOneLine(): void
+    {
+        $nav = array_column(self::declarationsOf('.jm-subnav', '@media (max-width: 720px)'), 1, 0);
+
+        static::assertSame('nowrap', $nav['flex-wrap'] ?? null);
+        static::assertSame('auto', $nav['overflow-x'] ?? null);
+        static::assertSame('calc(100% + 2 * var(--jm-gutter))', $nav['width'] ?? null);
+        static::assertSame([['display', 'none']], self::declarationsOf('.jm-subnav::-webkit-scrollbar', '@media (max-width: 720px)'));
+    }
+
+    public function testTheTabsThatOpenAScreenSitUnderTheHeader(): void
     {
         foreach ([[null, 28], ['@media (max-width: 720px)', 20]] as [$at, $padding]) {
             $main = array_column(self::declarationsOf('.jm-main', $at), 1, 0);
             $top = $main['padding-top'] ?? explode(' ', $main['padding'] ?? '')[0];
 
             static::assertSame($padding . 'px', $top, (string) $at);
-            static::assertContains(['margin-top', '-' . ($padding - 4) . 'px'], self::declarationsOf('.jm-screen > .jm-subbar:first-child', $at), (string) $at);
+            static::assertContains(['margin-top', '-' . ($padding - 12) . 'px'], self::declarationsOf('.jm-screen > .jm-subbar:first-child', $at), (string) $at);
         }
     }
 
-    public function testForcedColorsUnderlineOnlyTheCurrentTab(): void
+    public function testForcedColorsOutlineOnlyTheCurrentTab(): void
     {
         $at = '@media (forced-colors: active)';
-        $current = self::declarationsOf('.jm-subnav__item[aria-current="page"]', $at);
 
-        static::assertContains(['border-bottom-color', 'Canvas'], self::declarationsOf('.jm-subnav__item', $at));
-        static::assertContains(['border-bottom-color', 'CanvasText'], $current);
-        static::assertNotContains('outline', array_column($current, 0));
+        static::assertSame([['outline', '1px solid CanvasText']], self::declarationsOf('.jm-subnav__item[aria-current="page"]', $at));
+        static::assertSame([], self::declarationsOf('.jm-subnav__item', $at));
+    }
+
+    public function testTheCardsKeepTheirWordsReadable(): void
+    {
+        foreach ([self::DARK, self::LIGHT] as $selectors) {
+            $theme = self::theme($selectors);
+            $page = self::colour($theme['--jm-bg'] ?? '');
+            $rest = self::over(self::colour($theme['--jm-surface-hover'] ?? ''), $page);
+            $current = self::over(self::colour($theme['--jm-segment-active-bg'] ?? ''), $page);
+
+            static::assertGreaterThanOrEqual(4.5, self::contrast(self::colour($theme['--jm-muted'] ?? ''), $rest), implode(', ', $selectors));
+            static::assertGreaterThanOrEqual(4.5, self::contrast(self::colour($theme['--jm-text-strong'] ?? ''), $current), implode(', ', $selectors));
+            static::assertGreaterThanOrEqual(3.0, self::contrast(self::colour($theme['--jm-faint'] ?? ''), $rest), implode(', ', $selectors));
+            static::assertGreaterThanOrEqual(3.0, self::contrast(self::colour($theme['--jm-primary-light'] ?? ''), $current), implode(', ', $selectors));
+        }
     }
 
     public function testTheWordLiveIsReadableOnItsButton(): void

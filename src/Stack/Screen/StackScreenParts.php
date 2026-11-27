@@ -13,6 +13,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
 use Jmonitor\JmonitorBundle\Stack\Check\Finding;
 use Jmonitor\JmonitorBundle\Stack\Check\StackChecks;
 use Jmonitor\JmonitorBundle\Stack\Check\StackHealth;
+use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
 use Jmonitor\JmonitorBundle\Stack\Read\InstanceState;
@@ -48,7 +49,12 @@ final class StackScreenParts
 
     public static function overview(bool $current): SubNavItem
     {
-        return new SubNavItem('All components', self::path(), $current);
+        return new SubNavItem('All components', self::path(), $current, icon: 'stack');
+    }
+
+    public static function tab(Component $component, bool $current, Verdict $verdict): SubNavItem
+    {
+        return new SubNavItem($component->label(), self::path($component), $current, $verdict === Verdict::Healthy ? null : Marks::verdict($verdict), icon: $component->value);
     }
 
     public static function engineFailure(string $error): Notice

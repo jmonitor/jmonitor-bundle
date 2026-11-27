@@ -917,6 +917,7 @@ final class PageRendererTest extends TestCase
             );
             static::assertSame('Queries', $tabs->filter('.jm-subnav__item[aria-current="page"]')->text(), $kind);
             static::assertCount(1, $tabs->filter('[aria-current]'), $kind);
+            static::assertSame([self::iconPath('requests'), self::iconPath('queries')], $tabs->filter('.jm-subnav__item')->each(static fn(Crawler $item): string => (string) $item->filter('svg.jm-icon path')->attr('d')), $kind);
         }
 
         $html = $renderer->page(Request::create('/'), 'requests', new FakeHostUrls())->html;
@@ -1032,6 +1033,7 @@ final class PageRendererTest extends TestCase
             static::assertSame('<span class="jm-nav__badges"><span class="jm-nav__badge jm-nav__badge--warn" title="2 warnings at the last read">2<span class="jm-visually-hidden"> warnings at the last read</span></span></span>', $tabs->eq(0)->filter('.jm-nav__badges')->outerHtml(), $kind);
             static::assertCount(0, $tabs->eq(1)->filter('.jm-nav__badge'), $kind);
             static::assertCount(0, $tabs->eq(2)->filter('.jm-nav__badge'), $kind);
+            static::assertCount(0, $tabs->filter('svg'), $kind);
             static::assertSame(['nav-application'], self::slotsOf($html), $kind);
         }
     }
@@ -1972,5 +1974,12 @@ final class PageRendererTest extends TestCase
                 new Row('k1', ['name' => new Cell('a'), 'count' => new Cell('1')]),
             ]),
         ]));
+    }
+
+    private static function iconPath(string $name): string
+    {
+        preg_match('/ d="([^"]+)"/', (string) file_get_contents(__DIR__ . '/../../templates/dashboard/icon/' . $name . '.html.twig'), $match);
+
+        return $match[1] ?? '';
     }
 }

@@ -16,5 +16,6 @@ final class SubNavItem
         public readonly ?Mark $mark = null,
         public readonly array $query = [],
         public readonly ?NavBadge $badge = null,
+        public readonly ?string $icon = null,
     ) {}
 }

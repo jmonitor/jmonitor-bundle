@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Jmonitor\JmonitorBundle\Tests\Stack\Screen;
 
+use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
+use Jmonitor\JmonitorBundle\Dashboard\View\SubNavItem;
+use Jmonitor\JmonitorBundle\Stack\Check\Verdict;
 use Jmonitor\JmonitorBundle\Stack\Collector\FailureKind;
 use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Stack\Read\ComponentState;
@@ -39,6 +42,17 @@ final class StackScreenPartsTest extends TestCase
     {
         foreach ([CacheState::Cold, CacheState::OutOfOrder] as $cache) {
             self::assertFalse(StackScreenParts::followUp(self::state(ResultState::Stale, self::NOW - 1, $cache)), $cache->value);
+        }
+    }
+
+    public function testATabOfTheStackIsNamedByItsComponentAndOnlyMarkedWhenItIsNotHealthy(): void
+    {
+        self::assertEquals(new SubNavItem('All components', 'stack', true, icon: 'stack'), StackScreenParts::overview(true));
+        self::assertEquals(new SubNavItem('PostgreSQL', 'stack/postgresql', false, icon: 'postgresql'), StackScreenParts::tab(Component::Postgresql, false, Verdict::Healthy));
+        self::assertEquals(new SubNavItem('Server', 'stack/system', true, icon: 'system'), StackScreenParts::tab(Component::System, true, Verdict::Healthy));
+
+        foreach ([[Verdict::Critical, 'bad'], [Verdict::Warning, 'warn'], [Verdict::Unknown, 'unknown']] as [$verdict, $tone]) {
+            self::assertEquals(new SubNavItem('Redis', 'stack/redis', false, new Mark($tone, $verdict->label()), icon: 'redis'), StackScreenParts::tab(Component::Redis, false, $verdict), $verdict->value);
         }
     }
 

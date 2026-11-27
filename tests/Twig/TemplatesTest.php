@@ -56,6 +56,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Table;
 use Jmonitor\JmonitorBundle\Dashboard\View\Tag;
 use Jmonitor\JmonitorBundle\Dashboard\View\Vital;
 use Jmonitor\JmonitorBundle\Embed\PageContent;
+use Jmonitor\JmonitorBundle\Stack\Component;
 use Jmonitor\JmonitorBundle\Storage\Read\MetricValue;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportRow;
@@ -474,6 +475,84 @@ final class TemplatesTest extends TestCase
         static::assertStringContainsString('<span class="jm-nav__badge jm-nav__badge--bad" title="1 critical &lt;b&gt;&amp;&quot;x">1<span class="jm-visually-hidden"> critical &lt;b&gt;&amp;&quot;x</span></span>', $html);
         static::assertStringNotContainsString('<b>', $html);
         static::assertStringNotContainsString('&"x', $html);
+    }
+
+    public function testEveryIconIsADecorativeDrawingInTheColourOfItsText(): void
+    {
+        $names = array_map(static fn(string $file): string => basename($file, '.html.twig'), glob(__DIR__ . '/../../templates/dashboard/icon/*.html.twig') ?: []);
+        $expected = ['requests', 'queries', 'cache-http', 'exceptions', 'users', 'background', 'stack', ...array_map(static fn(Component $component): string => $component->value, Component::cases())];
+        sort($names);
+        sort($expected);
+
+        static::assertSame($expected, $names);
+
+        foreach ($names as $name) {
+            $html = $this->render('_icon.html.twig', ['name' => $name]);
+            $svg = (new Crawler($html))->filter('svg');
+            $line = \in_array($name, ['requests', 'queries', 'cache-http', 'exceptions', 'users', 'background', 'stack', 'system'], true);
+
+            static::assertCount(1, $svg, $name);
+            static::assertSame('jm-icon jm-icon--' . ($line ? 'line' : 'logo'), $svg->attr('class'), $name);
+            static::assertSame('true', $svg->attr('aria-hidden'), $name);
+            static::assertSame('false', $svg->attr('focusable'), $name);
+            static::assertMatchesRegularExpression('/^0 0 (24 24|128 128)$/', (string) $svg->attr('viewBox'), $name);
+            static::assertSame($line ? 'none' : 'currentColor', $svg->attr('fill'), $name);
+            static::assertSame($line ? 'currentColor' : null, $svg->attr('stroke'), $name);
+            static::assertCount(1, $svg->filter('path'), $name);
+            static::assertNotSame('', (string) $svg->filter('path')->attr('d'), $name);
+            static::assertSame('', $svg->text(), $name);
+            static::assertSame(1, substr_count($html, '<svg'), $name);
+        }
+    }
+
+    public function testAnIconThatIsNotKnownDrawsNothing(): void
+    {
+        foreach ([null, '', 'memcached', 'Requests', '../page', "requests\n", 'icon/requests'] as $name) {
+            static::assertSame('', $this->render('_icon.html.twig', ['name' => $name]), var_export($name, true));
+        }
+    }
+
+    public function testACardShowsItsIconItsNameThenItsMarkOrItsBadges(): void
+    {
+        $html = $this->screen(Block::subnav(new SubNav('Stack', [
+            new SubNavItem('All components', 'stack', true, icon: 'stack'),
+            new SubNavItem('PHP', 'stack/php', false, new Mark('warn', 'Warning'), icon: 'php'),
+            new SubNavItem('Memcached', 'stack/memcached', false, icon: 'memcached'),
+            new SubNavItem('Requests', 'requests', false, badge: NavBadge::of(2, 5, 'in the last 6 hours'), icon: 'requests'),
+            new SubNavItem('Plain', 'plain'),
+        ], 'web-1')));
+        $crawler = new Crawler($html);
+        $items = $crawler->filter('.jm-subbar > nav.jm-subnav > a.jm-subnav__item');
+
+        static::assertSame(
+            [['svg', 'span'], ['svg', 'span', 'span'], ['span'], ['svg', 'span', 'span'], ['span']],
+            $items->each(static fn(Crawler $item): array => $item->children()->each(static fn(Crawler $child): string => $child->nodeName())),
+        );
+        static::assertSame(['All components', 'PHP Warning', 'Memcached', 'Requests 2 critical in the last 6 hours 5 warnings in the last 6 hours', 'Plain'], $items->each(static fn(Crawler $item): string => $item->text()));
+        static::assertSame(['page', null, null, null, null], $items->each(static fn(Crawler $item): ?string => $item->attr('aria-current')));
+        static::assertSame('jm-mark jm-mark--warn', $items->eq(1)->children()->eq(2)->attr('class'));
+        static::assertSame('jm-nav__badges', $items->eq(3)->children()->eq(2)->attr('class'));
+        static::assertCount(2, $items->eq(3)->filter('.jm-nav__badge'));
+        static::assertSame(['jm-icon jm-icon--line', 'jm-icon jm-icon--logo', 'jm-icon jm-icon--line'], $crawler->filter('.jm-subnav svg')->each(static fn(Crawler $svg): string => (string) $svg->attr('class')));
+        static::assertSame(['nav', 'p'], $crawler->filter('.jm-subbar')->children()->each(static fn(Crawler $child): string => $child->nodeName()));
+        static::assertSame('web-1', $crawler->filter('.jm-subbar > p.jm-node strong')->text());
+    }
+
+    public function testGlobalsOfTheHostNamedLikeTheVariablesOfACardChangeNothing(): void
+    {
+        $stack = Block::subnav(new SubNav('Stack', [
+            new SubNavItem('All components', 'stack', icon: 'stack'),
+            new SubNavItem('PHP', 'stack/php', true, new Mark('warn', 'Warning'), icon: 'php'),
+            new SubNavItem('Memcached', 'stack/memcached'),
+        ], 'web-1'));
+        $tabs = new SubNav('Application', [new SubNavItem('Requests', 'requests', true, badge: NavBadge::of(1, 2, 'in the last hour'), icon: 'requests'), new SubNavItem('Other', 'other')]);
+        $context = ['page' => (new Page(new StubBlockScreen('stack'), [$stack], null, '', '', []))->withTabs($tabs), 'path' => 'stack', 'badges' => []];
+        $expected = $this->render('_screen.html.twig', $context);
+
+        static::assertSame(3, substr_count($expected, '<svg class="jm-icon'));
+        foreach (['a string', 'requests', 'redis', new \ArrayObject(['icon' => 'redis', 'label' => 'x', 'path' => 'x', 'current' => true, 'mark' => null, 'query' => [], 'badge' => null]), new \stdClass(), true, null] as $global) {
+            static::assertSame($expected, $this->render('_screen.html.twig', $context, array_fill_keys(['icon', 'name', 'item', 'badge'], $global)), get_debug_type($global));
+        }
     }
 
     /**
