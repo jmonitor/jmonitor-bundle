@@ -11,6 +11,7 @@ use Jmonitor\JmonitorBundle\Aggregation\Metric;
 use Jmonitor\JmonitorBundle\Aggregation\Period;
 use Jmonitor\JmonitorBundle\Dashboard\Check\ApplicationChecks;
 use Jmonitor\JmonitorBundle\Dashboard\Check\CacheHitRateCheck;
+use Jmonitor\JmonitorBundle\Dashboard\Check\CheckInterface;
 use Jmonitor\JmonitorBundle\Dashboard\Check\FailedCommandsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\FailedMessagesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\FailedTasksCheck;
@@ -23,6 +24,7 @@ use Jmonitor\JmonitorBundle\Dashboard\Check\ServerErrorsCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\Severity;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowQueriesCheck;
 use Jmonitor\JmonitorBundle\Dashboard\Check\SlowRequestsCheck;
+use Jmonitor\JmonitorBundle\Dashboard\View\Alert;
 use Jmonitor\JmonitorBundle\Dashboard\View\CheckLine;
 use Jmonitor\JmonitorBundle\Dashboard\View\Mark;
 use Jmonitor\JmonitorBundle\Recording\Entry;
@@ -138,14 +140,14 @@ final class ApplicationChecksTest extends TestCase
                 return new ReportQuery($period, $now, Family::Cache);
             }
 
+            public function headline(array $totals): string
+            {
+                return 'Spy';
+            }
+
             public function finding(Report $report, array $totals, Period $period): Finding
             {
                 return new Finding('spy', Severity::Warning, '', '', '', '', 'cache-http');
-            }
-
-            public function passed(): string
-            {
-                return 'no spy';
             }
 
             public function raisedBy(array $keys): bool
@@ -369,42 +371,110 @@ final class ApplicationChecksTest extends TestCase
         static::assertEquals(new MetricValue(4, 40.0, 10.0), $raised->total(Metric::USER_DURATION));
     }
 
-    public function testPassedLeavesTheRaisedChecksOut(): void
+    /**
+     * @return iterable<string, array{string, array<string, MetricValue>, string}>
+     */
+    public static function headlines(): iterable
     {
-        $checks = self::allChecks();
-        $raised = $checks->raised(new FixedReader(totals: array_fill_keys([self::SERVER_ERRORS, Metric::MESSAGE_FAILED], new MetricValue(1, 0.0, 0.0))), Period::OneHour, self::NOW);
+        $one = new MetricValue(1, 0.0, 0.0);
+        $many = new MetricValue(1234, 0.0, 0.0);
 
-        static::assertSame(
-            ['no slow request', 'no failed scheduled run', 'no failed command run'],
-            $checks->passed($raised, ['requests.server_errors', 'requests.slow', 'messages.failed', 'tasks.failed', 'commands.failed']),
-        );
-        static::assertSame(['no repeated query', 'no slow query'], $checks->passed($raised, ['queries.repeated', 'unknown', 'queries.slow', 'queries.repeated']));
-        static::assertSame([], $checks->passed($raised, []));
+        yield 'one server error' => [new ServerErrorsCheck(), [self::SERVER_ERRORS => $one], '1 server error'];
+        yield 'server errors' => [new ServerErrorsCheck(), [self::SERVER_ERRORS => $many], '1,234 server errors'];
+        yield 'one slow request' => [new SlowRequestsCheck(500), [Metric::REQUEST_SLOW => $one], '1 slow request'];
+        yield 'slow requests' => [new SlowRequestsCheck(500), [Metric::REQUEST_SLOW => $many], '1,234 slow requests'];
+        yield 'one failed message' => [new FailedMessagesCheck(), [Metric::MESSAGE_FAILED => $one], '1 message failed'];
+        yield 'failed messages' => [new FailedMessagesCheck(), [Metric::MESSAGE_FAILED => $many], '1,234 messages failed'];
+        yield 'one failed scheduled run' => [new FailedTasksCheck(), [Metric::TASK_FAILED => $one], '1 scheduled run failed'];
+        yield 'failed scheduled runs' => [new FailedTasksCheck(), [Metric::TASK_FAILED => $many], '1,234 scheduled runs failed'];
+        yield 'one failed command run' => [new FailedCommandsCheck(), [Metric::COMMAND_FAILED => $one], '1 command run failed'];
+        yield 'failed command runs' => [new FailedCommandsCheck(), [Metric::COMMAND_FAILED => $many], '1,234 command runs failed'];
+        yield 'one slow query' => [new SlowQueriesCheck(100), [Metric::QUERY_SLOW => $one], '1 slow query'];
+        yield 'slow queries' => [new SlowQueriesCheck(100), [Metric::QUERY_SLOW => $many], '1,234 slow queries'];
+        yield 'one repeated query' => [new RepeatedQueriesCheck(10), [Metric::NPLUS1_CALLS => $one], 'Repeated queries (N+1)'];
+        yield 'repeated queries' => [new RepeatedQueriesCheck(10), [Metric::NPLUS1_CALLS => $many], 'Repeated queries (N+1)'];
+        yield 'one pool' => [new CacheHitRateCheck(), [Metric::CACHE_HIT => $one, Metric::CACHE_MISS => $one], 'Low cache hit rate'];
+        yield 'pools' => [new CacheHitRateCheck(), [Metric::CACHE_HIT => $many, Metric::CACHE_MISS => $many], 'Low cache hit rate'];
+        yield 'one call without an answer' => [new HttpFailuresCheck(), [Metric::HTTP_FAILED => $one], '1 call without an answer'];
+        yield 'calls without an answer' => [new HttpFailuresCheck(), [Metric::HTTP_FAILED => $many], '1,234 calls without an answer'];
+        yield 'one error response' => [new HttpErrorsCheck(), [Metric::HTTP_STATUS_PREFIX . '4xx' => $one], '1 error response'];
+        yield 'one error response, a 5xx' => [new HttpErrorsCheck(), [Metric::HTTP_STATUS_PREFIX . '5xx' => $one], '1 error response'];
+        yield 'error responses, 4xx and 5xx together' => [new HttpErrorsCheck(), [Metric::HTTP_STATUS_PREFIX . '4xx' => $one, Metric::HTTP_STATUS_PREFIX . '5xx' => $one], '2 error responses'];
     }
 
     /**
-     * @return iterable<string, array{string, string}>
+     * @param array<string, MetricValue> $totals
      */
-    public static function passedTexts(): iterable
+    #[DataProvider('headlines')]
+    public function testEachCheckTellsItsHeadlineFromTheTotalsAlone(CheckInterface $check, array $totals, string $headline): void
     {
-        yield 'requests.server_errors' => ['requests.server_errors', 'no server error'];
-        yield 'requests.slow' => ['requests.slow', 'no slow request'];
-        yield 'queries.slow' => ['queries.slow', 'no slow query'];
-        yield 'queries.repeated' => ['queries.repeated', 'no repeated query'];
-        yield 'http.failures' => ['http.failures', 'no call without an answer'];
-        yield 'http.errors' => ['http.errors', 'no error response'];
-        yield 'cache.low_hit_rate' => ['cache.low_hit_rate', 'no pool with a low hit rate'];
-        yield 'messages.failed' => ['messages.failed', 'no failed message'];
-        yield 'tasks.failed' => ['tasks.failed', 'no failed scheduled run'];
-        yield 'commands.failed' => ['commands.failed', 'no failed command run'];
+        static::assertSame($headline, $check->headline($totals));
     }
 
-    #[DataProvider('passedTexts')]
-    public function testEachCheckSaysWhatPassedMeans(string $id, string $text): void
+    public function testTheHeadlineOfACountedCheckIsTheTitleOfItsFinding(): void
+    {
+        $totals = [self::SERVER_ERRORS => new MetricValue(12, 0.0, 0.0)];
+        $check = new ServerErrorsCheck();
+
+        static::assertSame('12 server errors', $check->headline($totals));
+        static::assertSame($check->headline($totals), $check->finding(new Report(), $totals, Period::OneHour)->title);
+    }
+
+    public function testAnAlertTellsTheSeverityTheHeadlineAndTheScreenWithThePeriod(): void
     {
         $checks = self::allChecks();
+        $raised = $checks->raised(new FixedReader(totals: [
+            self::SERVER_ERRORS => new MetricValue(12, 0.0, 0.0),
+            Metric::QUERY_SLOW => new MetricValue(1, 0.0, 0.0),
+        ]), Period::SixHours, self::NOW);
 
-        static::assertSame([$text], $checks->passed($checks->raised(new FixedReader(), Period::OneHour, self::NOW), [$id]));
+        static::assertEquals([
+            new Alert('requests.server_errors', new Mark('bad', 'Critical'), '12 server errors', 'Requests', 'requests', ['period' => '6h']),
+            new Alert('queries.slow', new Mark('warn', 'Warning'), '1 slow query', 'Queries', 'queries', ['period' => '6h']),
+        ], $checks->alerts($raised, ['queries.slow', 'requests.server_errors'], Period::SixHours));
+    }
+
+    public function testAlertsComeCriticalFirstThenInTheAskedOrder(): void
+    {
+        $checks = self::allChecks();
+        $raised = $checks->raised(new FixedReader(totals: array_fill_keys([
+            self::SERVER_ERRORS,
+            Metric::REQUEST_SLOW,
+            Metric::QUERY_SLOW,
+            Metric::NPLUS1_CALLS,
+            Metric::HTTP_FAILED,
+            Metric::HTTP_STATUS_PREFIX . '4xx',
+            Metric::MESSAGE_FAILED,
+            Metric::TASK_FAILED,
+            Metric::COMMAND_FAILED,
+        ], new MetricValue(2, 0.0, 0.0)), keyTotals: [
+            Metric::CACHE_HIT => [md5('cache.users') => new MetricValue(1, 0.0, 0.0)],
+            Metric::CACHE_MISS => [md5('cache.users') => new MetricValue(40, 0.0, 0.0)],
+        ]), Period::OneHour, self::NOW);
+
+        $alerts = $checks->alerts($raised, ['queries.repeated', 'requests.slow', 'messages.failed', 'http.errors', 'requests.server_errors', 'cache.low_hit_rate', 'queries.slow', 'tasks.failed', 'http.failures', 'commands.failed'], Period::OneHour);
+
+        static::assertSame(
+            ['messages.failed', 'requests.server_errors', 'tasks.failed', 'http.failures', 'commands.failed', 'queries.repeated', 'requests.slow', 'http.errors', 'cache.low_hit_rate', 'queries.slow'],
+            array_map(static fn(Alert $alert): string => $alert->id, $alerts),
+        );
+        static::assertSame(
+            ['bad', 'bad', 'bad', 'bad', 'bad', 'warn', 'warn', 'warn', 'warn', 'warn'],
+            array_map(static fn(Alert $alert): string => $alert->mark->tone, $alerts),
+        );
+    }
+
+    public function testAnAlertIsOnlyGivenForARaisedKnownCheckAndOnce(): void
+    {
+        $checks = self::checks();
+        $raised = $checks->raised(new FixedReader(totals: [Metric::REQUEST_SLOW => new MetricValue(3, 0.0, 0.0)]), Period::OneHour, self::NOW);
+
+        $alerts = $checks->alerts($raised, ['requests.server_errors', 'unknown', 'cache.low_hit_rate', 'requests.slow', 'requests.slow'], Period::OneHour);
+
+        static::assertSame(['requests.slow'], array_map(static fn(Alert $alert): string => $alert->id, $alerts));
+        static::assertSame('3 slow requests', $alerts[0]->title);
+        static::assertSame([], $checks->alerts($raised, [], Period::OneHour));
+        static::assertSame([], $checks->alerts($checks->raised(new FixedReader(), Period::OneHour, self::NOW), array_values(self::RAISED_BY), Period::OneHour));
     }
 
     private static function checks(): ApplicationChecks

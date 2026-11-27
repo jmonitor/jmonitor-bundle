@@ -12,6 +12,5 @@ final class CheckList
         public readonly string $emptyTitle = 'Nothing to check',
         public readonly string $emptyText = '',
         public readonly string $title = 'To check',
-        public readonly string $footnote = '',
     ) {}
 }

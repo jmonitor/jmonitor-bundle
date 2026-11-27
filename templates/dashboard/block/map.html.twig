@@ -1,13 +1,9 @@
 {% autoescape 'html' %}
 {% set map_view = block.content %}
 {% set period_query = page.period ? {period: page.period.label} : {} %}
-{% set app_shown = map_view.average is not null or map_view.inside is not empty or map_view.runsOn is not null %}
+{% set app_shown = map_view.inside is not empty or map_view.runsOn is not null %}
 {% set columns = (map_view.incoming is not empty ? ['incoming'] : [])|merge(app_shown ? ['app'] : [])|merge(map_view.outgoing is not empty ? ['outgoing'] : []) %}
-{% set heads = {
-    incoming: ['What comes in', 'Every way your code gets started.'],
-    app: ['Your application', 'Where the time of a request goes, and what runs it.'],
-    outgoing: ['What it calls', 'What your code waits for.'],
-} %}
+{% set heads = {incoming: 'What comes in', app: 'Your application', outgoing: 'What it calls'} %}
 {% if columns is not empty %}
 <section class="jm-map" aria-label="Map of your application">
 <div class="jm-map__columns">
@@ -17,79 +13,49 @@
 {% endif %}
     <div class="jm-map__column jm-map__column--{{ column }}">
 {% if columns|length > 1 %}
-        <h2 class="jm-map__title">{{ loop.index }} · {{ heads[column][0] }}</h2>
-        <p class="jm-map__text">{{ heads[column][1] }}</p>
+        <h2 class="jm-map__title">{{ heads[column] }}</h2>
 {% endif %}
-{% if column == 'app' %}
-        <div class="jm-map__app">
-{% set average = map_view.average %}
-{% if average is not null %}
-            <div class="jm-map__average{{ average.value is null ? ' jm-map__average--pending' }}">
-                <p class="jm-map__head"><span class="jm-box__label">{{ average.label }}</span>{% if average.value is not null %} <span class="jm-box__value">{{ average.value }}</span>{% endif %}</p>
-{% if average.value is not null and map_view.split is not null %}
-                <div class="jm-map__split">{{ include('@Jmonitor/dashboard/_split.html.twig', {cell: map_view.split, words: false}, with_context = false) }}</div>
-                <div class="jm-legend jm-map__legend">
-                    {% for part, label in {php: 'your PHP code', sql: 'SQL', http: 'HTTP out'} %}
-                        {% set ms = map_view.split.parts[part] ?? 0 %}
-                        <span class="jm-legend__item"><span class="jm-legend__swatch jm-legend__swatch--{{ part }}" aria-hidden="true"></span>{{ label }} {{ ms > 0 ? ms|jmonitor_duration : '0 ms' }}</span>
-                    {% endfor %}
-                </div>
+{% set boxes = column == 'incoming' ? map_view.incoming : (column == 'app' ? map_view.inside : map_view.outgoing) %}
+{% if boxes is not empty %}
+        <ul class="jm-map__boxes{{ column == 'app' ? ' jm-map__boxes--inside' }}">
+            {% for box in boxes %}
+                <li class="jm-map__item">{{ include('@Jmonitor/dashboard/_box.html.twig', {box: box, urls: urls, screens: screens, query: period_query}, with_context = false) }}</li>
+            {% endfor %}
+        </ul>
 {% endif %}
-{% if average.text is not same as('') %}
-                <p class="jm-map__phrase">{{ average.text }}</p>
-{% endif %}
-            </div>
-{% endif %}
-{% if map_view.inside is not empty %}
-            <ul class="jm-map__boxes jm-map__boxes--inside">
-                {% for box in map_view.inside %}
-                    <li class="jm-map__item">{{ include('@Jmonitor/dashboard/_box.html.twig', {box: box, small: true, urls: urls, screens: screens, query: period_query}, with_context = false) }}</li>
-                {% endfor %}
-            </ul>
-{% endif %}
-{% set glance = map_view.runsOn %}
+{% set glance = column == 'app' ? map_view.runsOn : null %}
 {% if glance is not null %}
-            <div class="jm-runs">
-                <p class="jm-runs__title"><strong>Runs on</strong> <span class="jm-runs__when">read right now, whatever the period</span></p>
+        <div class="jm-runs">
+            <p class="jm-runs__title"><strong>Runs on</strong> <span class="jm-runs__now">now</span></p>
 {% if glance.notice is not null %}
-                {{ include('@Jmonitor/dashboard/block/notice.html.twig', {block: {content: glance.notice}}, with_context = false) }}
+            {{ include('@Jmonitor/dashboard/block/notice.html.twig', {block: {content: glance.notice}}, with_context = false) }}
 {% endif %}
 {% if glance.cards is empty %}
 {% if glance.notice is null %}
-                <p class="jm-runs__empty">No component of the stack is read.</p>
+            <p class="jm-runs__empty">No component of the stack is read.</p>
 {% endif %}
 {% else %}
-                <ul class="jm-runs__list">
-                    {% for card in glance.cards %}
-                        {% set linked = card.path is not null and (card.path|split('/')|first) in screens %}
-                        {% set words = card.reason ?? (card.reading ? 'Reading…' : null) %}
-                        {% set vitals = words is null ? card.vitals|slice(0, 2) : [] %}
-                        <li class="jm-runs__item">
-                            <{{ linked ? 'a' : 'span' }} class="jm-runs__line"{% if linked %} href="{{ urls.page(card.path, card.query) }}"{% endif %}>
-                                <span class="jm-runs__name">{{ card.name }}</span>
-                                <span class="jm-runs__figures">
-                                    {%- if card.version is not null %}<span class="jm-runs__version">{{ card.version }}</span>{% endif -%}
-                                    {%- if words is not null %}{{ card.version is not null ? ' · ' }}{{ words }}{% endif -%}
-                                    {%- for vital in vitals %}{{ card.version is not null or not loop.first ? ' · ' }}{{ vital.label }} <span class="jm-runs__value">{{ vital.value }}</span>{% endfor -%}
-                                </span>
-                                {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: card.mark}, with_context = false) }}
-                            </{{ linked ? 'a' : 'span' }}>
-                        </li>
-                    {% endfor %}
-                </ul>
+            <ul class="jm-runs__list">
+                {% for card in glance.cards %}
+                    {% set linked = card.path is not null and (card.path|split('/')|first) in screens %}
+                    {% set words = card.reason ?? (card.reading ? 'Reading…' : null) %}
+                    <li class="jm-runs__item">
+                        <{{ linked ? 'a' : 'span' }} class="jm-runs__line"{% if linked %} href="{{ urls.page(card.path, card.query) }}"{% endif %}>
+                            <span class="jm-runs__name">{{ card.name }}</span>
+                            <span class="jm-runs__version">{{ card.version }}</span>
+                            {{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: card.mark}, with_context = false) }}
+{% if words is not null %}
+                            <span class="jm-runs__reason">{{ words }}</span>
+{% endif %}
+                        </{{ linked ? 'a' : 'span' }}>
+                    </li>
+                {% endfor %}
+            </ul>
 {% if glance.more is not null %}
-                <p class="jm-runs__more">{{ glance.more }}</p>
+            <p class="jm-runs__more">{{ glance.more }}</p>
 {% endif %}
-{% endif %}
-            </div>
 {% endif %}
         </div>
-{% else %}
-        <ul class="jm-map__boxes">
-            {% for box in column == 'incoming' ? map_view.incoming : map_view.outgoing %}
-                <li class="jm-map__item">{{ include('@Jmonitor/dashboard/_box.html.twig', {box: box, small: false, urls: urls, screens: screens, query: period_query}, with_context = false) }}</li>
-            {% endfor %}
-        </ul>
 {% endif %}
     </div>
 {% endfor %}

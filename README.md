@@ -425,24 +425,30 @@ The `Application` entry of the header carries the sum of the badges of its tabs,
 
 ### The Overview
 
-`/jmonitor` opens on the **Overview**, whatever is recorded. It tells first whether your application is fine, then where to look. From top to bottom:
+`/jmonitor` opens on the **Overview**, whatever is recorded. It tells at a glance whether your application is fine, and where to look when it is not. From top to bottom:
 
-1. A sentence on the period, such as `Your application answers normally. 2 things are worth a look.` or `3 server errors in 154 requests. 1 thing is worth a look.`
-2. `Worth a look`: the checks of the application raised in the period and the checks of the stack found right now, the critical ones first, each with why it matters, what to do and a link to its screen. A line of the stack names its component after `Stack`, such as `Stack · PHP`. With nothing to flag, it says what was checked and found fine.
+1. The title `Overview` and a pill on the period:
+   - `12 server errors` (or `1 server error`) as soon as a response with a 5xx status is counted;
+   - otherwise `Answers normally` as soon as a request is counted;
+   - otherwise `No request`, when something else is counted, such as messages or commands;
+   - `No data yet` when nothing is counted.
+2. `Worth a look`: one card per critical or warning check, those of the application raised in the period and those of the stack found right now. The critical ones come first, and those of the application before those of the stack. A card gives its severity, `Critical` or `Warning`, where it is, such as `Requests` or `PHP`, and a short title, such as `12 server errors` or `OPcache is full`. It leads to the screen of the check, which says why it matters and what to do. The `Info` checks of the stack stay on the Stack screen. With nothing to flag, there is no `Worth a look`.
 3. A map of your application, in three columns read from left to right:
-   - `What comes in`: the requests, the messages handled, the runs of the scheduled tasks and of the commands.
-   - `Your application`: an average request, with where its time goes between your PHP code, SQL and outgoing HTTP calls; the exceptions; the requests of signed-in users; then `Runs on`, one line per card of the Stack screen, with its version, its first two figures and its verdict.
-   - `What it calls`: the SQL queries, the cache reads and the calls to other sites and APIs.
+   - `What comes in`: `Requests`, with their curve, `Messages` handled, the runs of the `Scheduled tasks` and of the `Commands`.
+   - `Your application`: the `Exceptions`, the `User requests` of signed-in users, then `Runs on`.
+   - `What it calls`: the `SQL queries`, the `Cache` reads and the calls to `Other sites and APIs`.
 
-   Each box leads to its screen or section. A box with a tag, such as `2 × 5xx`, `3 slow` or `N+1`, needs a look. A box with nothing in the period has a dashed border and says so. A box only shows when the screen or section it leads to exists: without the recording of messages, there is no `Messages` box.
-4. `Where the time goes`: the 5 routes that cost the most in total time, with where their average request goes.
-5. `How to read this screen`.
+   Each box shows its count in the period, `0` when nothing was counted, and leads to its screen or section. A box with a tag, such as `2 × 5xx`, `3 slow`, `1 failed`, `N+1` or `low hit rate`, needs a look. A box only shows when the screen or section it leads to exists: without the recording of messages, there is no `Messages` box.
 
-It shows two clocks: the figures of the traffic cover the period chosen at the top, while the lines of the stack and `Runs on` are read right now, whatever the period.
+   `Runs on` has one line per card of the Stack screen, with its name, its version and its verdict. A component that could not be read says why, and one still being read shows `Reading…`. Each line leads to the detail of its component.
 
-It never starts the slow readings of the stack, such as the end-of-life dates or the outdated Flex recipes: they show on the Overview once the Stack screen has read them, for as long as the cache keeps them. It does not count the queues either. Each display of the Overview updates the badge of the `Stack` entry.
+The routes that cost the most and the average request are on the Requests screen. Why a check matters and what to do about it are on the screen of the check.
 
-When nothing was recorded in the period, the Overview says `JMonitor is installed and recording.`, shows every box waiting for its first figures, `Runs on`, and `What you will find here`, which says what each entry of the header shows and the question it answers. When the database cannot be read, because there is no Doctrine DBAL connection or a read failed, or when nothing is in the period while recording is off or the buffer directory cannot be used, it says so once at the top, then shows what the stack brings, its lines under `Worth a look` and `Runs on`, and `What you will find here`.
+It shows two clocks: the pill, the checks of the application and the boxes cover the period chosen at the top, while the cards of the stack and `Runs on` are read right now, whatever the period.
+
+It never starts the slow readings of the stack, such as the end-of-life dates or the outdated Flex recipes: a version past its end of life shows under `Worth a look` once the Stack screen has read the dates, for as long as the cache keeps them. It does not count the queues either. Each display of the Overview updates the badge of the `Stack` entry.
+
+When nothing was recorded in the period, the pill says `No data yet` and every box shows `0`. Under the map, `What you will find here` says what each entry of the header shows and the question it answers. When the database cannot be read, because there is no Doctrine DBAL connection or a read failed, or when nothing is in the period while recording is off or the buffer directory cannot be used, the title has no pill. The page says why once, under the title, then shows what the stack brings, its cards under `Worth a look` and `Runs on`, and `What you will find here`.
 
 ### The live stack
 

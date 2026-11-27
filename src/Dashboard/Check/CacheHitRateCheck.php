@@ -36,11 +36,6 @@ final class CacheHitRateCheck implements KeyedCheckInterface
         return 'Cache & HTTP';
     }
 
-    public function passed(): string
-    {
-        return 'no pool with a low hit rate';
-    }
-
     public function metrics(): array
     {
         return [Metric::CACHE_HIT, Metric::CACHE_MISS];
@@ -72,6 +67,11 @@ final class CacheHitRateCheck implements KeyedCheckInterface
         return false;
     }
 
+    public function headline(array $totals): string
+    {
+        return 'Low cache hit rate';
+    }
+
     public function finding(Report $report, array $totals, Period $period): Finding
     {
         $low = array_values(array_filter($report->rows, static fn(ReportRow $row): bool => self::isLow($row->count(Metric::CACHE_HIT), self::reads($row))));
@@ -96,7 +96,7 @@ final class CacheHitRateCheck implements KeyedCheckInterface
             $this->id(),
             $this->severity(),
             match ($count) {
-                0 => 'Low cache hit rate',
+                0 => $this->headline($totals),
                 1 => '1 pool with a low hit rate',
                 default => Format::number($count) . ' pools with a low hit rate',
             },

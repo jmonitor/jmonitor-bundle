@@ -55,7 +55,7 @@ final class HttpClientRecordingTest extends WebTestCase
         static::assertSame(['2'], $rows->each(static fn(Crawler $row): ?string => $row->attr('data-jm-calls')));
         static::assertStringNotContainsString('secret', (string) $client->getResponse()->getContent());
 
-        $crawler = $client->request('GET', '/jmonitor/');
+        $crawler = $client->request('GET', '/jmonitor/requests');
         $headers = $crawler->filter('section[aria-labelledby="jm-routes-title"] thead th')->each(
             static fn(Crawler $th): string => trim(($th->filter('span')->count() > 0 ? $th->filter('span')->first() : $th)->text()),
         );

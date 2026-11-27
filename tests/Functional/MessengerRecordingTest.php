@@ -164,11 +164,12 @@ final class MessengerRecordingTest extends WebTestCase
         static::assertSame(0, $this->consume(['receivers' => ['async'], '--limit' => '2']));
         $crawler = self::requestUntil($client, '/jmonitor/overview', '[data-jm-slot="nav-background"] .jm-nav__badge[title="1 critical in the last hour"]');
 
-        $line = $crawler->filter('section.jm-checks li.jm-check')->first();
-        static::assertSame('messages.failed', $line->attr('data-jm-check'));
-        static::assertSame('bad', $line->attr('data-jm-severity'));
-        static::assertStringStartsWith('1 message failed · ', $line->filter('.jm-check__sentence')->text());
-        static::assertSame('/jmonitor/background?period=1h', $line->filter('.jm-check__where a')->attr('href'));
+        $alert = $crawler->filter('section.jm-alerts .jm-alert[data-jm-check="messages.failed"]');
+        static::assertCount(1, $alert);
+        static::assertSame('bad', $alert->attr('data-jm-severity'));
+        static::assertSame('1 message failed', $alert->filter('.jm-alert__title')->text());
+        static::assertSame('a', $alert->nodeName());
+        static::assertSame('/jmonitor/background?period=1h', $alert->attr('href'));
 
         $box = $crawler->filter('.jm-map a.jm-box[href="/jmonitor/background?period=1h#jm-messages"]');
         static::assertCount(1, $box);

@@ -128,9 +128,22 @@ slow_entries() {
     $COMPOSE exec -T redis redis-cli --scan --pattern '*frankenphp.version*' || fail "the keys of the Redis server could not be listed"
 }
 
-overview_lead='class="jm-heading__title jm-lead__title">Your application answers normally\. \(Nothing is\|1 thing is\|[0-9]* things are\) worth a look\.<'
-expect_page /jmonitor/ '<span class="jm-box__label">Requests</span> <span class="jm-box__value">30</span>' 'the Overview did not count 30 requests in its Requests box'
-printf '%s\n' "$page" | grep -q "$overview_lead" || fail "the Overview does not open on its lead sentence"
+flat() {
+    printf '%s\n' "$1" | tr -s '\n ' '  '
+}
+
+overview_status='<h1 class="jm-heading__title">Overview</h1> <span class="jm-status__pill jm-status__pill--ok"><span class="jm-status__dot" aria-hidden="true"></span>Answers normally</span>'
+counted=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/")" || fail "GET /jmonitor/ did not return 2xx"
+    if flat "$page" | grep -q '<span class="jm-box__label">Requests</span> </span> <span class="jm-box__value">30</span>'; then
+        counted=1
+        break
+    fi
+    sleep 1
+done
+[ "$counted" = 1 ] || fail 'the Overview did not count 30 requests in its Requests box within 30 s'
+flat "$page" | grep -q "$overview_status" || fail "the Overview does not open on its title and the pill \"Answers normally\""
 printf '%s\n' "$page" | grep -q 'class="jm-nav__item" href="/jmonitor/?period=1h" aria-current="page">Overview</a>' || fail "the navigation of the Overview has no current Overview entry"
 for name in FrankenPHP PHP; do
     printf '%s\n' "$page" | grep -q "class=\"jm-runs__name\">$name<" || fail "the Overview has no \"Runs on\" line for $name"
@@ -139,7 +152,7 @@ hit /jmonitor/overview 200
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor")" || fail "GET /admin/jmonitor failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor answered $status instead of 200"
-printf '%s\n' "$admin" | grep -q "$overview_lead" || fail "/admin/jmonitor does not open on the lead sentence of the Overview"
+flat "$admin" | grep -q "$overview_status" || fail "/admin/jmonitor does not open on the title and the pill of the Overview"
 
 for _ in 1 2 3 4 5; do
     hit /jmonitor/ 200
@@ -573,4 +586,4 @@ if printf '%s\n' "$page" | grep -q 'data-jm-route="[A-Z]* [^"]*jmonitor'; then
     fail "the Requests screen lists a request to a JMonitor screen"
 fi
 
-echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; the Overview opens /jmonitor, also inside EasyAdmin, with its sentence, its count of requests and the components it runs on, and ten displays of it start no slow read of the stack; the Requests and Queries screens sum up the period, have nothing to flag, then flag the server errors and the repeated query, also inside EasyAdmin; the Cache & HTTP, Exceptions and Background screens sum up the period, Exceptions with the server errors of the route that threw, the others with nothing to flag, Background also inside EasyAdmin; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, worth a look, without the badges of the application, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"
+echo "OK: worker mode records correct durations, memory, counts, SQL queries, cache reads, exceptions, a console command and a message; the Overview opens /jmonitor, also inside EasyAdmin, with its pill, its count of requests and the components it runs on, and ten displays of it start no slow read of the stack; the Requests and Queries screens sum up the period, have nothing to flag, then flag the server errors and the repeated query, also inside EasyAdmin; the Cache & HTTP, Exceptions and Background screens sum up the period, Exceptions with the server errors of the route that threw, the others with nothing to flag, Background also inside EasyAdmin; it serves an embedded page and runs its action without recording them; it reads the Stack screen live with FrankenPHP, worth a look, without the badges of the application, keeps it 10 s, refreshes it and shows it inside EasyAdmin; it reads one card for two connections of a MySQL server, one card per PostgreSQL connection, one card for a Redis server and their details, closes what it opened, says at once and once only that a stopped MySQL or PostgreSQL server cannot be reached and reads it again once it is back, waits once for a frozen PostgreSQL server, within the time limit, and keeps it critical, answers at once with a stopped Redis server that holds its cache, and reads it in a new worker once it is back; it counts the queues in a process that ends, without recording it; a status page that is an address of the application leaves the card unknown and the Requests screen untouched"

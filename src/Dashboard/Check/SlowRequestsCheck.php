@@ -34,11 +34,6 @@ final class SlowRequestsCheck implements CheckInterface
         return 'Requests';
     }
 
-    public function passed(): string
-    {
-        return 'no slow request';
-    }
-
     public function metrics(): array
     {
         return [Metric::REQUEST_SLOW];
@@ -49,9 +44,15 @@ final class SlowRequestsCheck implements CheckInterface
         return RequestCulprit::query($period, $now);
     }
 
-    public function finding(Report $report, array $totals, Period $period): Finding
+    public function headline(array $totals): string
     {
         $count = $totals[Metric::REQUEST_SLOW]->count ?? 0;
+
+        return $count === 1 ? '1 slow request' : Format::number($count) . ' slow requests';
+    }
+
+    public function finding(Report $report, array $totals, Period $period): Finding
+    {
         $threshold = Format::duration($this->thresholdMs);
         $culprit = Culprit::mostCounted($report, Metric::REQUEST_SLOW);
 
@@ -74,7 +75,7 @@ final class SlowRequestsCheck implements CheckInterface
         return new Finding(
             $this->id(),
             $this->severity(),
-            $count === 1 ? '1 slow request' : Format::number($count) . ' slow requests',
+            $this->headline($totals),
             $sentence,
             'A request counts as slow from ' . $threshold . ' (recording.slow_threshold). Someone waited that long for the answer.',
             'Look at where the average of the route goes in the table: your PHP code, SQL or another site.',

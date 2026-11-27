@@ -21,6 +21,7 @@ use Jmonitor\JmonitorBundle\Dashboard\View\Guide;
 use Jmonitor\JmonitorBundle\Dashboard\View\Lead;
 use Jmonitor\JmonitorBundle\Dashboard\View\ScreenView;
 use Jmonitor\JmonitorBundle\Dashboard\View\Section;
+use Jmonitor\JmonitorBundle\Dashboard\View\Status;
 use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
@@ -159,11 +160,12 @@ final class ScreenBuilder
             $blocks = self::figures($screen->view($cause === null ? $read : null, $stack, $period));
         } catch (\Throwable $e) {
             $this->logger?->error(sprintf('JMonitor could not display the "%s" screen: %s', $screen->id(), $e->getMessage()), ['exception' => $e]);
-            $blocks = [Block::unavailable(Block::TABLE, BlockState::Error)];
+            $blocks = [Block::status(new Status($screen->label())), Block::unavailable(Block::TABLE, BlockState::Error)];
         }
 
         if ($cause !== null) {
-            $blocks = [Block::unavailable(Block::TABLE, $cause), ...$blocks];
+            $titled = ($blocks[0] ?? null)?->type === Block::STATUS ? 1 : 0;
+            array_splice($blocks, $titled, 0, [Block::unavailable(Block::TABLE, $cause)]);
         }
 
         return new Page($screen, $blocks, $period, '', '', [], raised: $read?->raised);
@@ -372,8 +374,16 @@ final class ScreenBuilder
     {
         $blocks = [];
 
+        if ($view->status !== null) {
+            $blocks[] = Block::status($view->status);
+        }
+
         if ($view->lead !== null) {
             $blocks[] = Block::lead($view->lead);
+        }
+
+        if ($view->alerts !== null) {
+            $blocks[] = Block::alerts($view->alerts);
         }
 
         if ($view->checks !== null) {
@@ -382,7 +392,7 @@ final class ScreenBuilder
 
         if ($view->map !== null) {
             $blocks[] = Block::map($view->map);
-        } elseif ($view->cards !== [] || ($view->lead === null && $view->places === null)) {
+        } elseif ($view->cards !== [] || ($view->status === null && $view->lead === null && $view->places === null)) {
             $blocks[] = Block::cards($view->cards);
         }
 

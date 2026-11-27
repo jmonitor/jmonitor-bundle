@@ -26,6 +26,11 @@ final class RaisedChecks
         return isset($this->checks[$id]);
     }
 
+    public function any(): bool
+    {
+        return $this->checks !== [];
+    }
+
     /** @return array<string, MetricValue> metric type => total, for the metrics of a raised check */
     public function totals(string $id): array
     {

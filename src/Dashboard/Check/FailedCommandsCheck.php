@@ -33,11 +33,6 @@ final class FailedCommandsCheck implements CheckInterface
         return 'Background';
     }
 
-    public function passed(): string
-    {
-        return 'no failed command run';
-    }
-
     public function metrics(): array
     {
         return [Metric::COMMAND_FAILED];
@@ -48,9 +43,15 @@ final class FailedCommandsCheck implements CheckInterface
         return new ReportQuery($period, $now, Family::Command, metrics: [Metric::COMMAND_FAILED]);
     }
 
-    public function finding(Report $report, array $totals, Period $period): Finding
+    public function headline(array $totals): string
     {
         $count = $totals[Metric::COMMAND_FAILED]->count ?? 0;
+
+        return $count === 1 ? '1 command run failed' : Format::number($count) . ' command runs failed';
+    }
+
+    public function finding(Report $report, array $totals, Period $period): Finding
+    {
         $culprit = Culprit::mostCounted($report, Metric::COMMAND_FAILED);
 
         if ($culprit === null) {
@@ -66,7 +67,7 @@ final class FailedCommandsCheck implements CheckInterface
         return new Finding(
             $this->id(),
             $this->severity(),
-            $count === 1 ? '1 command run failed' : Format::number($count) . ' command runs failed',
+            $this->headline($totals),
             $sentence,
             'A non-zero exit code means the command gave up. When cron or a deploy started it, nobody may have seen it.',
             'Run it by hand to read its output, and open Exceptions to see what was thrown.',

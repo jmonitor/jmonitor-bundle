@@ -38,9 +38,9 @@ The `jmonitor.easyadmin` option shows the screens under every EasyAdmin dashboar
 The `/jmonitor` page, its screens and their blocks:
 
 - Every screen says its space (`ScreenInterface::space()`): `Overview`, `Application`, `Background` or `Stack`. The header lists the spaces that have an available screen, and a space with more than one available screen gets tabs, built by `PageRenderer`.
-- The tabs and the title of a screen are in the refreshed part (`_screen.html.twig`), never in `page.html.twig`. A lead that comes first is the `h1` of the page, in place of the title.
+- The tabs and the title of a screen are in the refreshed part (`_screen.html.twig`), never in `page.html.twig`. A lead or a status that comes first is the `h1` of the page, in place of the title.
 - The Overview screen (`OverviewScreen`) is the default screen, the first available one, whatever the storage. It is addressed by the empty path, which stays the path of the page: the links of a page opened by `/jmonitor` stay on `/jmonitor`, its actions post to the id of the screen, and `/jmonitor/overview` answers the same page.
-- The reading order of a screen is set by `ScreenBuilder` alone: lead, checks, map or cards, tables, guide, places. A screen with nothing to show keeps its empty state, without lead nor guide.
+- The reading order of a screen is set by `ScreenBuilder` alone: status, lead, cards worth a look, checks, map or cards, tables, guide, places. A screen with nothing to show keeps its empty state, without lead nor guide.
 - A composed screen (`ComposedScreen`) is made of sections (`SectionInterface`, in `src/Dashboard/Section/`). It is available while one of its sections is; an unavailable section does not exist for the page.
 - A section never replaces the page. A cause that touches the whole page is told once, above the sections: no connection, a failed flush, a read that throws and, as soon as one section is empty, recording off or an unusable buffer directory.
 - A composed screen reads its raised checks before its sections, which receive them. A read that throws, the checks or a section, stops the next ones: a database that does not answer makes the page wait once.
@@ -58,10 +58,13 @@ The `/jmonitor` page, its screens and their blocks:
 - A check of the application has one screen, whose tab carries its badge. Shown on another screen, it carries the link to its own and does not count in the badge of that tab.
 - The badge of the `Application` or `Background` entry counts the checks of the available screens of its space, so it is the sum of the badges of its tabs. The `Overview` entry has none.
 - The totals behind the checks are read once per display, for the tabs and the entries, by the screen or else by `ScreenBuilder::raisedChecks()`; never on a screen of the stack, which has no period, and never after a read of the storage failed in that display.
-- The Overview screen reads the application in two reads: the totals of the checks, widened to the types its map shows, and the Request family restricted to its types, the report it hands to both checks of Request. Each other raised check reads its own culprit.
+- The Overview screen reads the application in two reads: the totals of the checks, widened to the types its map shows, and the Request family restricted to its duration, only for the curve of the `Requests` box. Its pill, the values and the tags of its boxes and whether it is empty are read in the totals alone: the period is empty only when no type is counted and no check is raised. It reads no culprit.
+- A card of the Overview tells a check by its severity, its title (`CheckInterface::headline()`, read from the totals alone) and the link to its screen, nothing else. Only the critical and warning checks have one: the `Info` checks of the stack stay on their screen.
+- On the Overview screen, a cause is told once, under the status, which then has no pill.
 - A box of the map only exists while the section or the screen it opens is available, asked to itself (`isAvailable()`).
 - A box is framed by its tone only when it carries a tag of that tone: the tag tells the word.
-- On the Overview screen, the server errors and the slow requests are read in the totals that raise the checks, never in the report of Request: the sentence, the tags and the checks then say the same.
+- A box without data shows `0`, without tag nor tone.
+- On the Overview screen, the server errors and the slow requests are read in the totals that raise the checks, never in the report of Request: the pill, the tags and the cards then say the same.
 - The `Messages` box only exists while the messages are recorded (`MessagesSection::recordsMessages()`).
 - The map is laid out by its own width, with container queries, and stacked by default: a browser without them still reads it.
 - A part of a split and a tag always carry their word: neither is told by colour alone.
@@ -89,7 +92,7 @@ The engine that reads the server, PHP, Symfony, the web server, the databases an
 - The Overview screen reads the stack through `StackGlanceInterface` (`OverviewGlance`), always with `ReadMode::Page`, a refresh included: it never starts a slow collector.
 - An application screen costs the stack one cache read, the summary behind the badge of the navigation, and builds no reader.
 - The summary (`StackSummary::remember()`) is written by `OverviewGlance` at each read, and by the Stack overview (`StackScreen::blocks()`) once nothing is reading, or when no summary exists.
-- A line of a stack check shows its explanation and its identifier in view, without anything to unfold.
+- A line of a stack check on a Stack screen shows its explanation and its identifier in view, without anything to unfold.
 - Every check of `StackChecks` has a stable identifier, which users put in `stack.ignore_checks` and the README lists, and a case at its threshold and just below in `StackChecksTest`.
 - The percentages and byte sizes a check judges and a screen shows are formatted by `Figures`, so that both show the same value.
 - A block of `src/Dashboard/View/` names no type of `src/Stack/`.

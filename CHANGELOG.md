@@ -46,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/jmonitor` tables: a bar on what costs the most and a Problems column.
 - Background screen: where the average message and command go, between your PHP code, SQL and outgoing HTTP calls.
 - Exceptions screen: one table, with under each class where it was thrown.
-- `/jmonitor` opens on an Overview: what is worth a look, then a map of your application, from what comes in to what it calls.
+- `/jmonitor` opens on an Overview that fits on one screen: a status pill, a card per thing worth a look, then a map of your application, from what comes in to what it calls.
 - Navigation: a badge on Application and Background when something is worth a look.
 - Stack screen: a sentence that sums it up, every point with its explanation in view, and what each component is for.
 

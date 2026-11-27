@@ -67,7 +67,6 @@ use Jmonitor\JmonitorBundle\Storage\ReaderInterface;
 use Jmonitor\JmonitorBundle\Storage\Read\Report;
 use Jmonitor\JmonitorBundle\Storage\Read\ReportQuery;
 use Jmonitor\JmonitorBundle\Storage\Read\Totals;
-use Jmonitor\JmonitorBundle\Aggregation\Family;
 use Psr\Clock\ClockInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Clock\MockClock;
@@ -566,11 +565,11 @@ function composedDisplayMillis(Connection $connection, int $now, ComposedScreen 
     return [$timings[intdiv(DISPLAY_RUNS, 2)], $rows];
 }
 
-/** Times each kind of read of the Overview: the totals, the Request family, the culprits. */
+/** Times each kind of read of the Overview: the totals and the Request family. */
 final class TimedReader implements ReaderInterface
 {
-    /** @var array{totals: float, requests: float, culprits: float} milliseconds */
-    public array $millis = ['totals' => 0.0, 'requests' => 0.0, 'culprits' => 0.0];
+    /** @var array{totals: float, requests: float} milliseconds */
+    public array $millis = ['totals' => 0.0, 'requests' => 0.0];
 
     public function __construct(private readonly ReaderInterface $reader) {}
 
@@ -578,7 +577,7 @@ final class TimedReader implements ReaderInterface
     {
         $start = hrtime(true);
         $report = $this->reader->read($query);
-        $this->millis[$query->family === Family::Request ? 'requests' : 'culprits'] += (hrtime(true) - $start) / 1_000_000;
+        $this->millis['requests'] += (hrtime(true) - $start) / 1_000_000;
 
         return $report;
     }
@@ -624,7 +623,7 @@ function keepCheckTypes(Connection $connection, array $kept): void
 }
 
 /**
- * @return array{float, int, array{totals: float, requests: float, culprits: float}} median milliseconds of the whole screen, checks raised, milliseconds of each kind of read in the median run
+ * @return array{float, int, array{totals: float, requests: float}} median milliseconds of the whole screen, checks raised, milliseconds of each kind of read in the median run
  */
 function overviewDisplayMillis(Connection $connection, int $now, OverviewScreen $screen, Period $period): array
 {
@@ -839,7 +838,6 @@ foreach ($bases as $name => $connection) {
     report(sprintf('purge, five one-minute buckets, loaded database (%s)', $name), $milliseconds, 'ms', null, sprintf('(%d of %d rows deleted)', $deleted, $stored));
     $overview = new OverviewScreen(
         $checks,
-        new DeclaredTasks(),
         [new MessagesSection(true, true, null, $checks), new TasksSection(true, new DeclaredTasks(), $checks), new CommandsSection(true, $checks), new CacheSection(true, $checks), new HttpSection(true, $checks)],
         [new QueriesScreen(true, $checks, 100, 10), new ExceptionsScreen(true, $checks), new UsersScreen(true, $checks, 1000)],
     );
@@ -856,7 +854,7 @@ foreach ($bases as $name => $connection) {
                 $milliseconds,
                 'ms',
                 100,
-                sprintf('(%d raised; totals %.1f ms, requests %.1f ms, culprits %.1f ms)', $raised, $reads['totals'], $reads['requests'], $reads['culprits']),
+                sprintf('(%d raised; totals %.1f ms, requests %.1f ms)', $raised, $reads['totals'], $reads['requests']),
             );
         }
     }

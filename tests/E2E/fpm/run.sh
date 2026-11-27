@@ -73,19 +73,32 @@ runs_of() {
     printf '%s\n' "$1" | grep -o 'class="jm-runs__name">[^<]*<' | sed 's/.*>\(.*\)</\1/' | sort | tr '\n' ' '
 }
 
-overview_lead='class="jm-heading__title jm-lead__title">Your application answers normally\. \(Nothing is\|1 thing is\|[0-9]* things are\) worth a look\.<'
-expect_page /jmonitor/ '<span class="jm-box__label">Requests</span> <span class="jm-box__value">30</span>' 'the Overview did not count 30 requests in its Requests box'
-printf '%s\n' "$page" | grep -q "$overview_lead" || fail "the Overview does not open on its lead sentence"
+flat() {
+    printf '%s\n' "$1" | tr -s '\n ' '  '
+}
+
+overview_status='<h1 class="jm-heading__title">Overview</h1> <span class="jm-status__pill jm-status__pill--ok"><span class="jm-status__dot" aria-hidden="true"></span>Answers normally</span>'
+requests_box='<span class="jm-box__label">Requests</span> </span> <span class="jm-box__value">30</span>'
+counted=0
+for _ in $(seq 1 30); do
+    page="$(curl -sf "$BASE/jmonitor/")" || fail "GET /jmonitor/ did not return 2xx"
+    if flat "$page" | grep -q "$requests_box"; then
+        counted=1
+        break
+    fi
+    sleep 1
+done
+[ "$counted" = 1 ] || fail 'the Overview did not count 30 requests in its Requests box within 30 s'
+flat "$page" | grep -q "$overview_status" || fail "the Overview does not open on its title and the pill \"Answers normally\""
 printf '%s\n' "$page" | grep -q 'class="jm-nav__item" href="/jmonitor/?period=1h" aria-current="page">Overview</a>' || fail "the navigation of the Overview has no current Overview entry"
 [ "$(runs_of "$page")" = 'PHP Server Symfony ' ] || fail "the \"Runs on\" lines of the Overview are: $(runs_of "$page")"
-printf '%s\n' "$page" | grep -Eq 'data-jm-route="GET app_hello"[^>]*data-jm-requests="30"' || fail 'the Overview does not list 30 requests for "GET app_hello" where the time goes'
 page="$(curl -sf "$BASE/jmonitor/overview")" || fail "GET /jmonitor/overview did not return 2xx"
-printf '%s\n' "$page" | grep -q "$overview_lead" || fail "/jmonitor/overview does not answer the Overview"
+flat "$page" | grep -q "$overview_status" || fail "/jmonitor/overview does not answer the Overview"
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor")" || fail "GET /admin/jmonitor failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor answered $status instead of 200"
-printf '%s\n' "$admin" | grep -q "$overview_lead" || fail "/admin/jmonitor does not open on the lead sentence of the Overview"
-printf '%s\n' "$admin" | grep -q '<span class="jm-box__label">Requests</span> <span class="jm-box__value">30</span>' || fail "the Overview inside EasyAdmin does not count 30 requests in its Requests box"
+flat "$admin" | grep -q "$overview_status" || fail "/admin/jmonitor does not open on the title and the pill of the Overview"
+flat "$admin" | grep -q "$requests_box" || fail "the Overview inside EasyAdmin does not count 30 requests in its Requests box"
 
 for _ in 1 2 3; do
     curl -sf -o /dev/null "$BASE/n-plus-one" || fail "GET /n-plus-one did not return 2xx"
@@ -292,4 +305,4 @@ if printf '%s\n' "$commands" | grep -q 'jmonitor:stack:queues'; then
     fail "the Background screen lists jmonitor:stack:queues"
 fi
 
-echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; the Overview opens /jmonitor, also inside EasyAdmin, with its sentence, its count of requests and the components it runs on; the Requests, Queries, Cache & HTTP, Exceptions and Background screens sum up the period, flag the server errors, also on Exceptions, and the repeated query, and have nothing else to flag, also inside EasyAdmin; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, worth a look, without the badges of the application, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"
+echo "OK: 30 requests, an N+1, cache reads, exceptions, a console command and a message recorded under PHP-FPM; the Overview opens /jmonitor, also inside EasyAdmin, with its pill, its count of requests and the components it runs on; the Requests, Queries, Cache & HTTP, Exceptions and Background screens sum up the period, flag the server errors, also on Exceptions, and the repeated query, and have nothing else to flag, also inside EasyAdmin; an embedded page served, its action run, its requests not recorded; the Stack screen read live without a web server it knows, worth a look, without the badges of the application, kept 10 s, refreshed, detailed and shown inside EasyAdmin; the queues counted by the PHP of the command line, in a process that ends, without recording it"

@@ -1,0 +1,19 @@
+{% autoescape 'html' %}
+{% set alert_list = block.content.alerts %}
+{% if alert_list is not empty %}
+<section class="jm-alerts" aria-label="Worth a look">
+    <h2 class="jm-alerts__title">Worth a look</h2>
+    <ul class="jm-alerts__list">
+        {% for alert in alert_list %}
+            {% set linked = alert.path is not null and (alert.path|split('/')|first) in screens %}
+            <li class="jm-alerts__item">
+                <{{ linked ? 'a' : 'div' }} class="jm-alert jm-alert--{{ alert.mark.tone }}"{% if linked %} href="{{ urls.page(alert.path, alert.query) }}"{% endif %} data-jm-check="{{ alert.id }}" data-jm-severity="{{ alert.mark.tone }}">
+                    <span class="jm-alert__top">{{ include('@Jmonitor/dashboard/_mark.html.twig', {mark: alert.mark}, with_context = false) }} <span class="jm-alert__where">{{ alert.where }}{% if linked %}<span aria-hidden="true"> →</span>{% endif %}</span></span>
+                    <span class="jm-alert__title">{{ alert.title }}</span>
+                </{{ linked ? 'a' : 'div' }}>
+            </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+{% endautoescape %}

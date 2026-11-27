@@ -33,11 +33,6 @@ final class FailedMessagesCheck implements CheckInterface
         return 'Background';
     }
 
-    public function passed(): string
-    {
-        return 'no failed message';
-    }
-
     public function metrics(): array
     {
         return [Metric::MESSAGE_FAILED];
@@ -48,9 +43,15 @@ final class FailedMessagesCheck implements CheckInterface
         return new ReportQuery($period, $now, Family::Message, metrics: [Metric::MESSAGE_FAILED]);
     }
 
-    public function finding(Report $report, array $totals, Period $period): Finding
+    public function headline(array $totals): string
     {
         $count = $totals[Metric::MESSAGE_FAILED]->count ?? 0;
+
+        return $count === 1 ? '1 message failed' : Format::number($count) . ' messages failed';
+    }
+
+    public function finding(Report $report, array $totals, Period $period): Finding
+    {
         $culprit = Culprit::mostCounted($report, Metric::MESSAGE_FAILED);
 
         if ($culprit === null) {
@@ -66,7 +67,7 @@ final class FailedMessagesCheck implements CheckInterface
         return new Finding(
             $this->id(),
             $this->severity(),
-            $count === 1 ? '1 message failed' : Format::number($count) . ' messages failed',
+            $this->headline($totals),
             $sentence,
             'A failed message is work that did not happen. Nobody saw an error page: only this screen tells you.',
             'Open Exceptions to see what was thrown. Fix the cause, then run them again: bin/console messenger:failed:retry',

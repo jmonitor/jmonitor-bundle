@@ -159,7 +159,6 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(OverviewScreen::class)
         ->args([
             service(ApplicationChecks::class),
-            service(DeclaredTasks::class),
             [
                 service(MessagesSection::class),
                 service(TasksSection::class),

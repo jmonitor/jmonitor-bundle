@@ -414,32 +414,32 @@ final class EmbeddedPageTest extends WebTestCase
 
         static::assertResponseIsSuccessful();
         $maps = $crawler->filter('.jm-screen > section.jm-map');
-        static::assertCount(4, $maps);
-        static::assertSame(['1 · What comes in', '2 · Your application', '3 · What it calls'], $maps->eq(0)->filter('.jm-map__title')->each(static fn(Crawler $h2): string => $h2->text()));
+        static::assertCount(5, $maps);
+        static::assertSame(['What comes in', 'Your application', 'What it calls'], $maps->eq(0)->filter('.jm-map__title')->each(static fn(Crawler $h2): string => $h2->text()));
         static::assertCount(2, $maps->eq(0)->filter('svg.jm-map__arrow[aria-hidden="true"]'));
         static::assertSame(
             ['/back-office/monitoring/gallery?menu=3#jm-full', '/back-office/monitoring/gallery?menu=3#jm-quiet', '/back-office/monitoring/gallery?menu=3'],
             $maps->eq(0)->filter('.jm-map__column--incoming a.jm-box')->each(static fn(Crawler $a): string => (string) $a->attr('href')),
         );
-        static::assertSame('Commands 12 Console runs.', $maps->eq(0)->filter('.jm-map__column--incoming div.jm-box')->text());
-        static::assertCount(2, $maps->eq(0)->filter('.jm-box--pending'));
-        static::assertSame(['Messages', 'Other sites and APIs'], $maps->eq(0)->filter('.jm-box--bad')->each(static fn(Crawler $box): string => $box->filter('.jm-box__label')->text()));
+        static::assertSame('Commands 12', $maps->eq(0)->filter('.jm-map__column--incoming div.jm-box')->text());
+        static::assertSame(['Scheduled tasks', 'Cache'], $maps->eq(0)->filter('.jm-box--zero .jm-box__label')->each(static fn(Crawler $label): string => $label->text()));
+        static::assertSame(['Requests', 'Messages', 'Other sites and APIs'], $maps->eq(0)->filter('.jm-box--bad')->each(static fn(Crawler $box): string => $box->filter('.jm-box__label')->text()));
         static::assertCount(1, $maps->eq(0)->filter('.jm-box--warn'));
         static::assertCount(1, $maps->eq(0)->filter('.jm-box svg.jm-sparkline'));
-        static::assertCount(3, $maps->eq(0)->filter('.jm-map__average .jm-split rect'));
+        static::assertCount(0, $maps->filter('.jm-split, .jm-legend, .jm-map__text'));
         static::assertSame(['ok', 'warn', 'bad', 'unknown'], $maps->eq(0)->filter('.jm-runs__line .jm-mark')->each(static fn(Crawler $mark): string => substr((string) $mark->attr('class'), \strlen('jm-mark jm-mark--'))));
-        static::assertCount(0, $maps->eq(1)->filter('.jm-map__title, .jm-map__text'));
-        static::assertSame(['your PHP code 42 ms', 'SQL 30 ms', 'HTTP out 12 ms'], $maps->eq(0)->filter('.jm-map__legend .jm-legend__item')->each(static fn(Crawler $item): string => $item->text()));
-        static::assertSame('8.2.29 · OPcache memory 92 % · OPcache hit rate 99.8 %', $maps->eq(0)->filter('.jm-runs__figures')->eq(1)->text());
-        static::assertCount(2, $maps->eq(1)->filter('a.jm-runs__line'));
-        static::assertSame('Warning The live stack needs a working cache', $maps->eq(2)->filter('.jm-runs .jm-notice__title')->text());
-        static::assertCount(1, $maps->eq(2)->filter('.jm-runs > .jm-notice + .jm-runs__list > .jm-runs__item'));
-        static::assertSame('Error The stack could not be read', $maps->eq(3)->filter('.jm-runs .jm-notice__title')->text());
-        static::assertCount(0, $maps->eq(3)->filter('.jm-runs__list, .jm-runs__empty'));
+        static::assertSame('8.2.29', $maps->eq(0)->filter('.jm-runs__version')->eq(1)->text());
+        static::assertCount(9, $maps->eq(1)->filter('.jm-box--zero'));
+        static::assertCount(0, $maps->eq(1)->filter('.jm-runs, .jm-tag, svg.jm-sparkline'));
+        static::assertCount(0, $maps->eq(2)->filter('.jm-map__title'));
+        static::assertCount(2, $maps->eq(2)->filter('a.jm-runs__line'));
+        static::assertSame('Warning The live stack needs a working cache', $maps->eq(3)->filter('.jm-runs .jm-notice__title')->text());
+        static::assertCount(1, $maps->eq(3)->filter('.jm-runs > .jm-notice + .jm-runs__list > .jm-runs__item'));
+        static::assertSame('Error The stack could not be read', $maps->eq(4)->filter('.jm-runs .jm-notice__title')->text());
+        static::assertCount(0, $maps->eq(4)->filter('.jm-runs__list, .jm-runs__empty'));
         $places = $crawler->filter('.jm-screen > section.jm-places');
         static::assertSame(['Overview', 'Application', 'Stack'], $places->filter('a.jm-place__label')->each(static fn(Crawler $a): string => $a->text()));
         static::assertStringStartsWith('/back-office/monitoring', (string) $places->filter('a.jm-place__label')->attr('href'));
-        static::assertSame('Checked and fine: no server error, no slow request, no failed message, 2 of 3 stack components healthy.', $crawler->filter('.jm-checks__footnote')->text());
         static::assertDoesNotMatchRegularExpression('/<[^>]+\sstyle=/', (string) $client->getResponse()->getContent());
     }
 
