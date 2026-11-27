@@ -7,8 +7,10 @@ namespace Jmonitor\JmonitorBundle\Tests\Functional;
 use Jmonitor\JmonitorBundle\Tests\Fixtures\App\TestKernel;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
+use Symfony\Component\Console\Tester\ApplicationTester;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\KernelInterface;
@@ -258,6 +260,52 @@ final class EasyAdminPageTest extends WebTestCase
         static::assertSame('How to read this screen', $crawler->filter('.jm .jm-guide__title')->text());
         static::assertSame(['/admin/jmonitor/requests?period=1h'], $crawler->filter('.jm .jm-guide a')->each(static fn(Crawler $link): string => (string) $link->attr('href')));
         static::assertSame('1 critical in the last hour', $crawler->filter('.jm .jm-subnav__item[aria-current="page"] .jm-nav__badge')->attr('title'));
+    }
+
+    public function testTheNavigationHasThreeEntriesAndBackgroundIsACardOfApplicationUnderEasyAdmin(): void
+    {
+        $client = $this->client();
+        $application = new Application($client->getKernel());
+        $application->setAutoExit(false);
+
+        $client->request('GET', '/boom');
+        static::assertResponseStatusCodeSame(500);
+        static::assertSame(1, (new ApplicationTester($application))->run(['command' => 'app:work', '--fail' => true]));
+        $badge = '.jm [data-jm-slot="nav-application"] .jm-nav__badge--bad[title="2 critical in the last hour"]';
+        $crawler = self::requestUntil($client, '/admin/jmonitor/requests', $badge);
+
+        $jmonitor = $crawler->filter('.jm');
+        static::assertSame(['Overview', 'Application', 'Stack'], $jmonitor->filter('.jm-nav__item')->each(static fn(Crawler $item): string => trim((string) $item->getNode(0)?->firstChild?->textContent)));
+        static::assertSame(['/admin/jmonitor?period=1h', '/admin/jmonitor/requests?period=1h', '/admin/jmonitor/stack?period=1h'], $jmonitor->filter('.jm-nav__item')->each(static fn(Crawler $item): string => (string) $item->attr('href')));
+        static::assertSame(['2'], $jmonitor->filter('[data-jm-slot="nav-application"] .jm-nav__badge')->each(static fn(Crawler $pill): string => (string) $pill->getNode(0)?->firstChild?->textContent));
+
+        $cards = $jmonitor->filter('nav.jm-subnav[aria-label="Application"] .jm-subnav__item');
+        static::assertSame(
+            [
+                'Requests' => ['1 critical in the last hour'],
+                'Queries' => [],
+                'Cache & HTTP' => [],
+                'Exceptions' => [],
+                'Users' => [],
+                'Background' => ['1 critical in the last hour'],
+                'Probe' => [],
+            ],
+            array_combine(
+                $cards->each(static fn(Crawler $card): string => $card->filter('span:first-of-type')->text()),
+                $cards->each(static fn(Crawler $card): array => $card->filter('.jm-nav__badge')->each(static fn(Crawler $pill): string => (string) $pill->attr('title'))),
+            ),
+        );
+        static::assertSame('/admin/jmonitor/background?period=1h', $cards->eq(5)->attr('href'));
+        static::assertSame([1, 1, 1, 1, 1, 1, 0], $cards->each(static fn(Crawler $card): int => $card->filter('svg.jm-icon[aria-hidden="true"]')->count()));
+
+        $background = $client->request('GET', '/admin/jmonitor/background');
+        static::assertResponseIsSuccessful();
+        static::assertSame('Application', trim((string) $background->filter('.jm .jm-nav__item[aria-current="page"]')->getNode(0)?->firstChild?->textContent));
+        static::assertSame('Background', $background->filter('.jm .jm-subnav__item[aria-current="page"] span:first-of-type')->text());
+
+        $fragment = $client->request('GET', '/admin/jmonitor/_fragment/background');
+        static::assertResponseIsSuccessful();
+        static::assertSame(['2 critical in the last hour'], $fragment->filter('template[data-jm-slot-content="nav-application"] .jm-nav__badge')->each(static fn(Crawler $pill): string => (string) $pill->attr('title')));
     }
 
     public function testTheFragmentIsRelayedAsIs(): void

@@ -132,7 +132,8 @@ expect_page /jmonitor/requests 'class="jm-heading__title jm-lead__title">38 requ
 printf '%s\n' "$page" | grep -q 'data-jm-check="requests.server_errors" data-jm-severity="bad"' || fail "the Requests screen does not flag the server errors"
 printf '%s\n' "$page" | grep -q '<strong>2 server errors</strong> · GET app_boom answered with a 5xx status 2 times.' || fail "the Requests screen does not name GET app_boom as the route that answered 2 server errors"
 printf '%s\n' "$page" | grep -q 'data-jm-check="queries.repeated" data-jm-severity="warn"' || fail "the Requests screen does not flag the query that GET app_n_plus_one repeats"
-printf '%s\n' "$page" | grep -q 'data-jm-slot="nav-application"><span class="jm-nav__badge jm-nav__badge--bad"' || fail "the Application entry of the Requests screen carries no critical badge with the server errors"
+printf '%s\n' "$page" | grep -q 'data-jm-slot="nav-application"><span class="jm-nav__badges"><span class="jm-nav__badge jm-nav__badge--bad" title="1 critical in the last hour">1<span class="jm-visually-hidden"> critical in the last hour</span></span> <span class="jm-nav__badge jm-nav__badge--warn" title="1 warning in the last hour">1<' || fail "the Application entry of the Requests screen does not count 1 critical check, the server errors, and 1 warning, the repeated query"
+[ "$(printf '%s\n' "$page" | grep -o 'class="jm-nav__item"' | wc -l)" = 3 ] || fail "the navigation of the Requests screen does not have three entries"
 admin="$(curl -s -u "$ADMIN" -w '\n%{http_code}' "$BASE/admin/jmonitor/requests")" || fail "GET /admin/jmonitor/requests failed"
 status="$(printf '%s\n' "$admin" | tail -n 1)"
 [ "$status" = 200 ] || fail "GET /admin/jmonitor/requests answered $status instead of 200"
@@ -155,6 +156,8 @@ expect_page /jmonitor/background 'data-jm-command="app:work" data-jm-runs="1"' '
 curl -sf -o /dev/null "$BASE/dispatch?count=1" || fail "GET /dispatch did not return 2xx"
 expect_page /jmonitor/background 'data-jm-message="[^"]*\\Ping"[^>]*data-jm-sent="1"' 'the Background screen did not list 1 sent Ping message'
 printf '%s\n' "$page" | grep -q 'class="jm-heading__title jm-lead__title">1 message sent and 1 command run in the last hour.<' || fail "the Background screen does not sum up 1 message sent and 1 command run in its lead"
+printf '%s\n' "$page" | grep -q 'class="jm-nav__item" href="/jmonitor/requests?period=1h" aria-current="page">Application' || fail "the Background screen is not under the Application entry"
+printf '%s\n' "$page" | grep -q 'class="jm-subnav__item" href="/jmonitor/background?period=1h" aria-current="page"' || fail "the Background screen is not the current card of Application"
 printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-title">Nothing to flag<' || fail 'the Background screen does not say "Nothing to flag" without a failed message, scheduled run or command run'
 printf '%s\n' "$page" | grep -q 'class="jm-checks__empty-text">No failed message, no failed command run in the last hour.<' || fail "the Background screen does not say that no message and no command run failed"
 if printf '%s\n' "$page" | grep -q 'data-jm-check='; then
@@ -208,9 +211,7 @@ done
 printf '%s\n' "$page" | grep -q 'class="jm-components__absent-item">Web server: FrankenPHP, Apache and Nginx were not found serving this page<' || fail 'the "Not detected" line of the Stack screen does not say that no web server was found'
 printf '%s\n' "$page" | grep -q 'aria-label="Worth a look"' || fail 'the Stack screen has no "Worth a look" block'
 printf '%s\n' "$page" | grep -q '<button type="submit" class="jm-button">Read again now</button>' || fail 'the Stack screen has no "Read again now" button'
-for space in application background; do
-    printf '%s\n' "$page" | grep -q "data-jm-slot=\"nav-$space\"></span>" || fail "the $space entry of the Stack screen is not an empty slot, while the Requests screen badges the server errors"
-done
+printf '%s\n' "$page" | grep -q 'data-jm-slot="nav-application"></span>' || fail "the Application entry of the Stack screen is not an empty slot, while the Requests screen badges the server errors"
 
 first="$(php_read_at)"
 sleep 1
