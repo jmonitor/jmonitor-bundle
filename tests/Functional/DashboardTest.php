@@ -574,7 +574,7 @@ final class DashboardTest extends WebTestCase
         static::assertSame('/jmonitor/requests?period=24h&sort=avg&dir=asc', $crawler->filter('.jm-segmented__item')->eq(2)->attr('href'));
         static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-nav__item')->eq(1)->attr('href'));
         static::assertSame('/jmonitor/requests?period=6h', $crawler->filter('.jm-subnav__item')->first()->attr('href'));
-        static::assertSame('', trim($crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(4)->filter('.jm-split__text')->text()));
+        static::assertCount(0, $crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(4)->filter('.jm-split__text'));
         static::assertMatchesRegularExpression('/^PHP \S+ m?s, SQL 0 ms, HTTP out 0 ms$/', $crawler->filter('tr[data-jm-route="GET app_hello"] td')->eq(4)->filter('.jm-visually-hidden')->text());
     }
 

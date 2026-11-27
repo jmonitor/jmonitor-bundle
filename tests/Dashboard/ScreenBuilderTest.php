@@ -321,6 +321,18 @@ final class ScreenBuilderTest extends TestCase
         static::assertSame([Block::CARDS, Block::TABLE], self::types($this->builder()->create($view(new ScreenView([], [$first])), null, null, null)->blocks), 'A view without tiles keeps its block of cards.');
     }
 
+    public function testAMapStandsInForTheTiles(): void
+    {
+        $map = new Map([new MapBox('Requests', '12')]);
+        $first = $this->table(rows: 1);
+        $screen = new StubScreen(view: static fn(ReaderInterface $reader): ScreenView => new ScreenView([], [$first], map: $map, tiles: [new Tile('Requests', '12', namesPage: true)]));
+
+        $page = $this->builder()->create($screen, null, null, null);
+
+        static::assertSame([Block::MAP, Block::TABLE], self::types($page->blocks));
+        static::assertSame([$map, $first], array_map(static fn(Block $block): mixed => $block->content, $page->blocks));
+    }
+
     public function testAnEmptyScreenWithTilesShowsItsStateAlone(): void
     {
         $screen = new StubScreen(view: fn(ReaderInterface $reader): ScreenView => new ScreenView([], [$this->table(rows: 0)], tiles: [new Tile('Requests', '0', namesPage: true)]));

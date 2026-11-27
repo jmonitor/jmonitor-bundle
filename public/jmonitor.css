@@ -1000,6 +1000,10 @@ body.jm .jm-header {
     font-size: inherit;
 }
 
+.jm-table th:has(> .jm-legend) {
+    position: relative;
+}
+
 .jm-panel + .jm-panel {
     margin-top: 20px;
 }
@@ -1011,7 +1015,8 @@ body.jm .jm-header {
     overflow: hidden;
 }
 
-body.jm .jm-section {
+body.jm .jm-section,
+body.jm .jm-table-wrap {
     scroll-margin-top: 84px;
 }
 
@@ -1421,6 +1426,19 @@ body.jm .jm-section {
     text-overflow: ellipsis;
     vertical-align: bottom;
     overflow-wrap: normal;
+}
+
+.jm-table:has(thead .jm-legend) :is(th, td).jm-num {
+    padding-right: 6px;
+    padding-left: 6px;
+}
+
+.jm-table:has(thead .jm-legend) .jm-bar {
+    width: 140px;
+}
+
+.jm-table:has(thead .jm-legend) td.jm-col-problems {
+    white-space: normal;
 }
 
 .jm-table:has(.jm-bar) .jm-col-query {
@@ -2678,7 +2696,8 @@ body.jm .jm-section {
 }
 
 @media (max-width: 1080px) {
-    body.jm .jm-section {
+    body.jm .jm-section,
+    body.jm .jm-table-wrap {
         scroll-margin-top: 128px;
     }
 
@@ -2803,7 +2822,8 @@ body.jm .jm-section {
         padding: 40px 16px;
     }
 
-    body.jm .jm-section {
+    body.jm .jm-section,
+    body.jm .jm-table-wrap {
         scroll-margin-top: 168px;
     }
 
@@ -2934,7 +2954,8 @@ body.jm .jm-section {
 }
 
 @media (max-width: 560px) {
-    body.jm .jm-section {
+    body.jm .jm-section,
+    body.jm .jm-table-wrap {
         scroll-margin-top: 204px;
     }
 }

@@ -1,13 +1,12 @@
 {% autoescape 'html' %}
 {% set titled = page_title ? block.content|filter(tile => tile.namesPage)|first : null %}
 {% set target = page.body|filter(other => other.type == 'table' and other.state.value == 'ready')|first %}
-{% set period_query = page.period ? {period: page.period.label} : {} %}
 <section class="jm-tiles" aria-label="Summary">
 {% for tile in block.content %}
 {% set linked = tile.tag is not null and tile.sort is not null %}
 {% set element = linked ? 'a' : 'div' %}
 {% set heading = tile is same as(titled) ? 'h1' : (tile.namesPage ? 'h2' : 'span') %}
-    <{{ element }} class="jm-tile{{ tile.series is not empty ? ' jm-tile--series' }}{{ tile.value is same as('0') ? ' jm-tile--zero' }}{{ tile.tag is not null ? ' jm-tile--' ~ tile.tag.tone }}"{% if tile.definition is not same as('') %} title="{{ tile.definition }}"{% endif %}{% if linked %} href="{{ urls.page(path ?? page.screen.id, period_query|merge({sort: tile.sort, dir: 'desc'})) ~ (target ? '#jm-' ~ target.content.id ~ '-wrap') }}"{% endif %}>
+    <{{ element }} class="jm-tile{{ tile.series is not empty ? ' jm-tile--series' }}{{ tile.value is same as('0') ? ' jm-tile--zero' }}{{ tile.tag is not null ? ' jm-tile--' ~ tile.tag.tone }}"{% if tile.definition is not same as('') %} title="{{ tile.definition }}"{% endif %}{% if linked %} href="{{ urls.page(path ?? page.screen.id, page.period ? {period: page.period.label, sort: tile.sort, dir: 'desc'} : {}) ~ (target ? '#jm-' ~ target.content.id ~ '-wrap') }}"{% endif %}>
         <div class="jm-tile__figure">
             <{{ heading }} class="jm-tile__label">{{ tile.label }}</{{ heading }}>
             <div class="jm-tile__line">

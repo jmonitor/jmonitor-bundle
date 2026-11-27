@@ -1742,10 +1742,81 @@ final class TemplatesTest extends TestCase
         static::assertSame('/host/page/stub?menu=3&period=1h&sort=problems&dir=desc#jm-routes-wrap', $tiles->eq(2)->attr('href'));
         static::assertCount(1, $crawler->filter('#jm-routes-wrap'));
         static::assertCount(0, $crawler->filter('.jm-tile a, .jm-tile h1 a'));
+    }
 
-        $alone = new Crawler($this->tilesPage([Block::tiles([new Tile('Server errors', '12', tag: new Tag('Critical', 'bad'), sort: 'problems')])], null));
+    public function testWithoutPeriodATileLeadsToThePageLikeTheSortLinksOfTheTable(): void
+    {
+        $crawler = new Crawler($this->tilesPage([Block::tiles([new Tile('Server errors', '12', tag: new Tag('Critical', 'bad'), sort: 'problems')]), Block::table(self::slimTable())], null));
 
-        static::assertSame('/host/page/stub?menu=3&sort=problems&dir=desc', $alone->filter('a.jm-tile')->attr('href'));
+        static::assertSame('/host/page/stub?menu=3', $crawler->filter('#jm-routes-wrap a.jm-sort')->attr('href'));
+        static::assertSame('/host/page/stub?menu=3#jm-routes-wrap', $crawler->filter('a.jm-tile')->attr('href'));
+    }
+
+    public function testATileLeadsToTheFirstTableThatIsReady(): void
+    {
+        $linked = new Tile('Server errors', '12', tag: new Tag('Critical', 'bad'), sort: 'problems');
+        $crawler = new Crawler($this->tilesPage([Block::tiles([$linked]), Block::unavailable(Block::TABLE, BlockState::Error), Block::table(self::slimTable())]));
+
+        static::assertSame('/host/page/stub?menu=3&period=1h&sort=problems&dir=desc#jm-routes-wrap', $crawler->filter('a.jm-tile')->attr('href'));
+
+        $none = new Crawler($this->tilesPage([Block::tiles([$linked]), Block::unavailable(Block::TABLE, BlockState::Empty, 'Nothing yet')]));
+
+        static::assertSame('/host/page/stub?menu=3&period=1h&sort=problems&dir=desc', $none->filter('a.jm-tile')->attr('href'));
+    }
+
+    public function testATileLeadsToThePathOfThePageRatherThanToTheIdOfItsScreen(): void
+    {
+        $page = new Page(new StubScreen(), [Block::tiles([new Tile('Server errors', '12', tag: new Tag('Critical', 'bad'), sort: 'problems')])], Period::OneHour, 'count', 'desc', (new StubScreen())->sorts());
+        $crawler = new Crawler($this->render('_screen.html.twig', ['page' => $page, 'path' => 'stub/mirror', 'badges' => [], 'screens' => ['stub']]));
+
+        static::assertSame('/host/page/stub/mirror?menu=3&period=1h&sort=problems&dir=desc', $crawler->filter('a.jm-tile')->attr('href'));
+    }
+
+    public function testOnlyAValueOfZeroIsMuted(): void
+    {
+        $tiles = (new Crawler($this->tilesPage([Block::tiles([new Tile('Errors', '0'), new Tile('Average', '0 ms'), new Tile('p95', '0.4 s'), new Tile('Slow', '00')])])))->filter('.jm-tile');
+
+        static::assertSame(['jm-tile jm-tile--zero', 'jm-tile', 'jm-tile', 'jm-tile'], $tiles->each(static fn(Crawler $tile): string => (string) $tile->attr('class')));
+    }
+
+    public function testATileWithASortButNoTagIsNotALink(): void
+    {
+        foreach ([null, Period::OneHour] as $period) {
+            $crawler = new Crawler($this->tilesPage([Block::tiles([new Tile('Slow requests', '0', sort: 'problems')]), Block::table(self::slimTable())], $period));
+
+            static::assertSame('div', $crawler->filter('.jm-tile')->nodeName());
+            static::assertNull($crawler->filter('.jm-tile')->attr('href'));
+        }
+    }
+
+    public function testATileWithATagButNoSortIsNotALink(): void
+    {
+        foreach ([null, Period::OneHour] as $period) {
+            $crawler = new Crawler($this->tilesPage([Block::tiles([new Tile('Failed', '3', tag: new Tag('Warning', 'warn'))]), Block::table(self::slimTable())], $period));
+
+            static::assertSame('div', $crawler->filter('.jm-tile')->nodeName());
+            static::assertNull($crawler->filter('.jm-tile')->attr('href'));
+        }
+    }
+
+    public function testASplitWithoutTextOnlySpeaksItsParts(): void
+    {
+        $html = $this->render('_split.html.twig', ['cell' => Cell::split(['php' => 12.0, 'sql' => 0.0, 'http' => 0.0], '')]);
+        $split = (new Crawler($html))->filter('.jm-split');
+
+        static::assertCount(0, $split->filter('.jm-split__text'));
+        static::assertStringNotContainsString('title=', $html);
+        static::assertSame('PHP 12 ms, SQL 0 ms, HTTP out 0 ms', $split->filter('.jm-visually-hidden')->text());
+    }
+
+    public function testASplitWithATextIsRenderedAsBefore(): void
+    {
+        $html = $this->render('_split.html.twig', ['cell' => Cell::averageSplit(40.0, 10.0, 2.0, null)]);
+
+        static::assertSame(
+            '<span class="jm-split"><svg viewBox="0 0 96 8" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="jm-split__part jm-split__part--php" x="0" width="70.5" height="8"/><rect class="jm-split__part jm-split__part--sql" x="72.5" width="23.5" height="8"/></svg><span class="jm-split__text" aria-hidden="true" title="SQL 10 ms · 2.0 queries">SQL 10 ms · 2.0 queries</span><span class="jm-visually-hidden">PHP 30 ms, SQL 10 ms, HTTP out 0 ms, 2.0 queries</span></span>',
+            $html,
+        );
     }
 
     public function testATagLeadsToItsScreenOnlyWhenItIsAvailable(): void

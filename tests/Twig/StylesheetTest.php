@@ -947,6 +947,50 @@ final class StylesheetTest extends TestCase
         static::assertSame([['flex-wrap', 'nowrap'], ['gap', '12px'], ['margin', '0'], ['color', 'inherit'], ['font-size', 'inherit']], self::declarationsOf('.jm-table .jm-legend', null));
     }
 
+    public function testTheHiddenNameOfAHeaderStaysInsideTheScrollingBoxOfItsTable(): void
+    {
+        static::assertContains(['position', 'absolute'], self::declarationsOf('.jm-visually-hidden', null));
+        static::assertSame([['position', 'relative']], self::declarationsOf('.jm-table th:has(> .jm-legend)', null), 'the name of a legend header is placed against its header, not against the page');
+        static::assertContains(['position', 'relative'], self::declarationsOf('.jm-sort', null), 'the name of a sortable legend header is placed against its link');
+    }
+
+    public function testTheTableATileLeadsToStopsUnderTheStickyHeaderAtEachStep(): void
+    {
+        $steps = [];
+        foreach (self::rules() as $rule) {
+            if (\in_array('body.jm .jm-section', $rule['selectors'], true)) {
+                foreach ($rule['declarations'] as [$property, $value]) {
+                    if ($property === 'scroll-margin-top') {
+                        $steps[$rule['at'] ?? ''] = $value;
+                    }
+                }
+            }
+        }
+
+        static::assertCount(4, $steps);
+        foreach ($steps as $at => $margin) {
+            static::assertSame([['scroll-margin-top', $margin]], self::declarationsOf('body.jm .jm-table-wrap', $at === '' ? null : $at), $at);
+        }
+
+        foreach (self::rules() as $rule) {
+            foreach ($rule['selectors'] as $selector) {
+                if (str_contains($selector, '.jm-table-wrap') && \in_array('scroll-margin-top', array_column($rule['declarations'], 0), true)) {
+                    static::assertStringStartsWith('body.jm ', $selector, 'without the sticky header of the standalone page, nothing holds the table back');
+                }
+            }
+        }
+    }
+
+    public function testATableWithTheLegendInItsHeaderSparesItsRoomToFitTheBoxOfEasyAdmin(): void
+    {
+        static::assertSame([['padding-right', '6px'], ['padding-left', '6px']], self::declarationsOf('.jm-table:has(thead .jm-legend) :is(th, td).jm-num', null));
+        static::assertSame([['width', '140px']], self::declarationsOf('.jm-table:has(thead .jm-legend) .jm-bar', null));
+        static::assertSame([['white-space', 'normal']], self::declarationsOf('.jm-table:has(thead .jm-legend) td.jm-col-problems', null), 'the tags of a route wrap rather than widen the table');
+        static::assertContains(['white-space', 'nowrap'], self::declarationsOf('.jm-tag', null), 'a tag never breaks inside itself');
+        static::assertSame([['padding-left', '10px']], self::declarationsOf('.jm-table:has(.jm-split) :is(th, td):not(:first-child)', null), 'the tables of Background keep their room');
+        static::assertContains(['width', '160px'], self::declarationsOf('.jm-bar', null));
+    }
+
     private static function withoutHostAncestor(string $selector): string
     {
         foreach (self::HOST_ANCESTORS as $ancestor) {

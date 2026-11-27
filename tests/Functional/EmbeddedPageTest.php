@@ -363,7 +363,7 @@ final class EmbeddedPageTest extends WebTestCase
         );
         static::assertSame('Requests', $tiles->eq(0)->filter('h2.jm-tile__label')->text());
         static::assertSame(['div', 'div', 'a', 'a', 'div', 'div'], $tiles->each(static fn(Crawler $tile): string => $tile->nodeName()));
-        static::assertSame('/back-office/monitoring/gallery?menu=3&sort=problems&dir=desc#jm-gallery-routes-wrap', $tiles->eq(2)->attr('href'));
+        static::assertSame('/back-office/monitoring/gallery?menu=3#jm-gallery-routes-wrap', $tiles->eq(2)->attr('href'));
         $table = $crawler->filter('#jm-gallery-slim-wrap');
         static::assertSame('Routes without their line of title', $table->attr('aria-label'));
         $panel = $table->closest('.jm-panel');
