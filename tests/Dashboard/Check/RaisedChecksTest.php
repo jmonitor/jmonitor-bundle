@@ -27,36 +27,50 @@ final class RaisedChecksTest extends TestCase
     private const SERVER_ERRORS = Metric::REQUEST_STATUS_PREFIX . '5xx';
 
     /**
-     * @return iterable<string, array{list<string>, string, Period, ?NavBadge}>
+     * @return iterable<string, array{list<string>, string, Period, list<array{string, int, string}>|null}>
      */
     public static function badges(): iterable
     {
-        yield '1 warning' => [[Metric::REQUEST_SLOW], 'requests', Period::OneHour, new NavBadge('1 warning', 'warn', '1 warning in the last hour')];
-        yield '2 warnings' => [[Metric::QUERY_SLOW, Metric::NPLUS1_CALLS], 'queries', Period::SixHours, new NavBadge('2 warnings', 'warn', '2 warnings in the last 6 hours')];
-        yield '1 critical' => [[self::SERVER_ERRORS], 'requests', Period::OneHour, new NavBadge('1 critical', 'bad', '1 critical in the last hour')];
-        yield '2 critical' => [[self::SERVER_ERRORS, Metric::REQUEST_SLOW], 'requests', Period::SevenDays, new NavBadge('2 critical', 'bad', '1 critical, 1 warning in the last 7 days')];
+        yield '1 warning' => [[Metric::REQUEST_SLOW], 'requests', Period::OneHour, [['warn', 1, '1 warning in the last hour']]];
+        yield '2 warnings' => [[Metric::QUERY_SLOW, Metric::NPLUS1_CALLS], 'queries', Period::SixHours, [['warn', 2, '2 warnings in the last 6 hours']]];
+        yield '1 critical' => [[self::SERVER_ERRORS], 'requests', Period::OneHour, [['bad', 1, '1 critical in the last hour']]];
+        yield '1 critical and 1 warning' => [[self::SERVER_ERRORS, Metric::REQUEST_SLOW], 'requests', Period::SevenDays, [['bad', 1, '1 critical in the last 7 days'], ['warn', 1, '1 warning in the last 7 days']]];
         yield 'none' => [[], 'requests', Period::OneHour, null];
         yield 'none on its screen' => [[Metric::REQUEST_SLOW, self::SERVER_ERRORS], 'queries', Period::OneHour, null];
         yield 'a screen without check' => [[Metric::REQUEST_SLOW, Metric::QUERY_SLOW], 'exceptions', Period::OneHour, null];
     }
 
     /**
-     * @param list<string> $metrics
+     * @param list<string>                            $metrics
+     * @param list<array{string, int, string}>|null $pills
      */
     #[DataProvider('badges')]
-    public function testTheBadgeCountsTheChecksOfItsScreenAndNamesTheHighestSeverity(array $metrics, string $screen, Period $period, ?NavBadge $badge): void
+    public function testTheBadgeCountsTheCriticalAndWarningChecksOfItsScreenApart(array $metrics, string $screen, Period $period, ?array $pills): void
     {
         $raised = self::checks()->raised(new FixedReader(totals: array_fill_keys($metrics, new MetricValue(1, 0.0, 0.0))), $period, self::NOW);
 
-        static::assertEquals($badge, $raised->badge($screen));
+        static::assertSame($pills, self::pills($raised->badge($screen)));
+    }
+
+    public function testEachPillSaysItsWordAndItsMomentApartFromItsCount(): void
+    {
+        $badge = NavBadge::of(2, 5, 'in the last 6 hours');
+
+        static::assertNotNull($badge);
+        static::assertSame([
+            ['tone' => 'bad', 'count' => 2, 'words' => 'critical in the last 6 hours', 'mention' => '2 critical in the last 6 hours'],
+            ['tone' => 'warn', 'count' => 5, 'words' => 'warnings in the last 6 hours', 'mention' => '5 warnings in the last 6 hours'],
+        ], $badge->pills());
+        static::assertSame([['tone' => 'warn', 'count' => 1, 'words' => 'warning in the last hour', 'mention' => '1 warning in the last hour']], NavBadge::of(0, 1, 'in the last hour')?->pills());
+        static::assertNull(NavBadge::of(0, 0, 'in the last hour'));
     }
 
     public function testTheBadgeOfRequestsDoesNotCountTheChecksOfQueries(): void
     {
         $raised = self::checks()->raised(new FixedReader(totals: array_fill_keys([self::SERVER_ERRORS, Metric::NPLUS1_CALLS], new MetricValue(4, 0.0, 0.0))), Period::OneHour, self::NOW);
 
-        static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('requests'));
-        static::assertEquals(new NavBadge('1 warning', 'warn', '1 warning in the last hour'), $raised->badge('queries'));
+        static::assertEquals(NavBadge::of(1, 0, 'in the last hour'), $raised->badge('requests'));
+        static::assertEquals(NavBadge::of(0, 1, 'in the last hour'), $raised->badge('queries'));
     }
 
     public function testTheBadgeOfCacheAndHttpCountsItsThreeChecks(): void
@@ -73,9 +87,9 @@ final class RaisedChecksTest extends TestCase
 
         $raised = $checks->raised(new FixedReader(totals: $totals, keyTotals: $keys), Period::OneHour, self::NOW);
 
-        static::assertEquals(new NavBadge('3 critical', 'bad', '1 critical, 2 warnings in the last hour'), $raised->badge('cache-http'));
-        static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('requests'));
-        static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('background'));
+        static::assertEquals(NavBadge::of(1, 2, 'in the last hour'), $raised->badge('cache-http'));
+        static::assertEquals(NavBadge::of(1, 0, 'in the last hour'), $raised->badge('requests'));
+        static::assertEquals(NavBadge::of(1, 0, 'in the last hour'), $raised->badge('background'));
     }
 
     public function testTheBadgeOfCacheAndHttpLeavesOutAPoolThatIsNotLow(): void
@@ -86,16 +100,16 @@ final class RaisedChecksTest extends TestCase
 
         $raised = $checks->raised(new FixedReader(totals: $totals, keyTotals: $keys), Period::SixHours, self::NOW);
 
-        static::assertEquals(new NavBadge('1 warning', 'warn', '1 warning in the last 6 hours'), $raised->badge('cache-http'));
+        static::assertEquals(NavBadge::of(0, 1, 'in the last 6 hours'), $raised->badge('cache-http'));
     }
 
     public function testTheBadgeOfSeveralScreensAddsTheirChecks(): void
     {
         $raised = self::checks()->raised(new FixedReader(totals: array_fill_keys([self::SERVER_ERRORS, Metric::QUERY_SLOW, Metric::NPLUS1_CALLS], new MetricValue(1, 0.0, 0.0))), Period::OneHour, self::NOW);
 
-        static::assertEquals(new NavBadge('3 critical', 'bad', '1 critical, 2 warnings in the last hour'), $raised->badge('requests', 'queries'));
-        static::assertEquals(new NavBadge('2 warnings', 'warn', '2 warnings in the last hour'), $raised->badge('queries', 'exceptions'));
-        static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('requests', 'requests'));
+        static::assertEquals(NavBadge::of(1, 2, 'in the last hour'), $raised->badge('requests', 'queries'));
+        static::assertEquals(NavBadge::of(0, 2, 'in the last hour'), $raised->badge('queries', 'exceptions'));
+        static::assertEquals(NavBadge::of(1, 0, 'in the last hour'), $raised->badge('requests', 'requests'));
         static::assertNull($raised->badge('exceptions', 'users'));
         static::assertNull($raised->badge());
     }
@@ -113,16 +127,15 @@ final class RaisedChecksTest extends TestCase
         ]);
         $totals = array_fill_keys([self::SERVER_ERRORS, Metric::REQUEST_SLOW, Metric::QUERY_SLOW, Metric::NPLUS1_CALLS, Metric::HTTP_FAILED, Metric::HTTP_STATUS_PREFIX . '4xx', Metric::MESSAGE_FAILED], new MetricValue(1, 0.0, 0.0));
         $raised = $checks->raised(new FixedReader(totals: $totals), Period::OneHour, self::NOW);
-        $tabs = ['requests', 'queries', 'cache-http', 'exceptions', 'users'];
-        $count = static fn(?NavBadge $badge): int => $badge === null ? 0 : (int) $badge->text;
+        $tabs = ['requests', 'queries', 'cache-http', 'exceptions', 'users', 'background'];
+        $sum = static fn(string $count): int => array_sum(array_map(static fn(string $tab): int => $raised->badge($tab)?->{$count} ?? 0, $tabs));
 
         $space = $raised->badge(...$tabs);
 
         static::assertNotNull($space);
-        static::assertSame(6, $count($space));
-        static::assertSame($count($space), array_sum(array_map(static fn(string $tab): int => $count($raised->badge($tab)), $tabs)));
-        static::assertSame('bad', $space->tone);
-        static::assertEquals(new NavBadge('1 critical', 'bad', '1 critical in the last hour'), $raised->badge('background'));
+        static::assertSame([3, 4], [$space->critical, $space->warning]);
+        static::assertSame([$sum('critical'), $sum('warning')], [$space->critical, $space->warning]);
+        static::assertEquals(NavBadge::of(1, 0, 'in the last hour'), $raised->badge('background'));
     }
 
     public function testTheTotalsOfARaisedCheckAreThoseOfItsMetrics(): void
@@ -152,5 +165,11 @@ final class RaisedChecksTest extends TestCase
     private static function checks(): ApplicationChecks
     {
         return new ApplicationChecks([new ServerErrorsCheck(), new SlowRequestsCheck(500), new SlowQueriesCheck(100), new RepeatedQueriesCheck(10)]);
+    }
+
+    /** @return list<array{string, int, string}>|null */
+    private static function pills(?NavBadge $badge): ?array
+    {
+        return $badge === null ? null : array_map(static fn(array $pill): array => [$pill['tone'], $pill['count'], $pill['mention']], $badge->pills());
     }
 }

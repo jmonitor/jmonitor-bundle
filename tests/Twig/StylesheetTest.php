@@ -223,6 +223,7 @@ final class StylesheetTest extends TestCase
         static::assertSame([['border-color', 'var(--jm-bad-border)'], ['background', 'var(--jm-bad-bg)'], ['color', 'var(--jm-bad)']], $declarations('.jm-nav__badge--bad', null));
         static::assertContains(['background', 'Highlight'], $declarations('.jm-nav__badge--bad', '@media (forced-colors: active)'));
         static::assertContains(['border-color', 'CanvasText'], $declarations('.jm-nav__badge', '@media (forced-colors: active)'));
+        static::assertSame([['display', 'inline-flex'], ['gap', '4px']], $declarations('.jm-nav__badges', null));
     }
 
     public function testForcedColorsTellAFailedLiveButtonFromAnActiveOne(): void

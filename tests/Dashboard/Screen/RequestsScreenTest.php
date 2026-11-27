@@ -454,7 +454,7 @@ final class RequestsScreenTest extends TestCase
         );
         static::assertCount(1, $reader->queries, 'The checks of Requests reuse the report of the screen.');
         static::assertNotNull($view->raised);
-        static::assertSame('2 critical', $view->raised->badge('requests')?->text);
+        static::assertSame([1, 1], [$view->raised->badge('requests')?->critical, $view->raised->badge('requests')?->warning]);
     }
 
     public function testWithoutCheckTheScreenSaysWhatWasChecked(): void

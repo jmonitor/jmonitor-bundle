@@ -16,16 +16,16 @@ final class ComposedScreenTest extends TestCase
 {
     public function testItSaysWhatItWasGiven(): void
     {
-        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, []);
+        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, []);
 
-        static::assertSame(['background', 'Background', 'Work done in the background', Space::Background], [$screen->id(), $screen->label(), $screen->heading(), $screen->space()]);
+        static::assertSame(['background', 'Background', 'Work done in the background', Space::Application], [$screen->id(), $screen->label(), $screen->heading(), $screen->space()]);
         static::assertInstanceOf(RecordedScreenInterface::class, $screen);
         static::assertNotInstanceOf(StorageScreenInterface::class, $screen);
     }
 
     public function testItKeepsTheAvailableSectionsInTheirOrder(): void
     {
-        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, (static function () {
+        $screen = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, (static function () {
             yield new StubSection('messages');
             yield new StubSection('tasks', available: false);
             yield new StubSection('commands');
@@ -38,7 +38,7 @@ final class ComposedScreenTest extends TestCase
 
     public function testItIsUnavailableWithoutAnAvailableSection(): void
     {
-        static::assertFalse((new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('tasks', available: false)]))->isAvailable());
-        static::assertFalse((new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, []))->isAvailable());
+        static::assertFalse((new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [new StubSection('tasks', available: false)]))->isAvailable());
+        static::assertFalse((new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, []))->isAvailable());
     }
 }

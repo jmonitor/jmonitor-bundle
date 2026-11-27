@@ -205,11 +205,11 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
             'background',
             'Background',
             'Everything your application does without a visitor waiting for the answer',
-            Space::Background,
+            Space::Application,
             [service(MessagesSection::class), service(TasksSection::class), service(CommandsSection::class)],
             true,
         ])
-        ->tag('jmonitor.screen', ['priority' => 70]);
+        ->tag('jmonitor.screen', ['priority' => 15]);
 
     $services->set(MessagesSection::class)
         ->args([true, param('jmonitor.recording.messenger'), service(QueuesBlocks::class)->nullOnInvalid(), service(ApplicationChecks::class)]);

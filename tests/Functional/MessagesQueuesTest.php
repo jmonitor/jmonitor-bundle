@@ -135,7 +135,7 @@ final class MessagesQueuesTest extends WebTestCase
         self::assertSame(['No storage configured'], $crawler->filter('.jm-state__title')->each(static fn(Crawler $title): string => $title->text()));
         self::assertCount(1, $crawler->filter('.jm-screen > .jm-state'));
         self::assertSame([['async', '12'], ['batch', 'Uncountable']], self::facts($crawler));
-        self::assertSame('Background', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        self::assertSame('Application', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
 
         $home = $client->request('GET', '/jmonitor/');
         self::assertResponseIsSuccessful();
@@ -171,7 +171,7 @@ final class MessagesQueuesTest extends WebTestCase
         self::assertSame([['async', '12'], ['batch', 'Uncountable']], self::facts($crawler));
         self::assertCount(0, $crawler->filter('section#jm-messages .jm-cards'));
         self::assertCount(0, $crawler->filter('.jm-state'));
-        self::assertSame('Background', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
+        self::assertSame('Application', $crawler->filter('.jm-nav__item[aria-current="page"]')->text());
     }
 
     public function testWithNeitherRecordingNorCountingThereIsNoMessagesScreen(): void

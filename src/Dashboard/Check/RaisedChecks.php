@@ -56,31 +56,6 @@ final class RaisedChecks
             }
         }
 
-        $count = $counts['critical'] + $counts['warning'];
-
-        if ($count === 0) {
-            return null;
-        }
-
-        $words = [];
-
-        if ($counts['critical'] > 0) {
-            $words[] = $counts['critical'] . ' critical';
-        }
-
-        if ($counts['warning'] > 0) {
-            $words[] = self::warnings($counts['warning']);
-        }
-
-        return new NavBadge(
-            $counts['critical'] > 0 ? $count . ' critical' : self::warnings($count),
-            $counts['critical'] > 0 ? 'bad' : 'warn',
-            implode(', ', $words) . ' in the ' . strtolower(Format::period($this->period)),
-        );
-    }
-
-    private static function warnings(int $count): string
-    {
-        return $count === 1 ? '1 warning' : $count . ' warnings';
+        return NavBadge::of($counts['critical'], $counts['warning'], 'in the ' . strtolower(Format::period($this->period)));
     }
 }

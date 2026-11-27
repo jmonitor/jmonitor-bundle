@@ -158,22 +158,12 @@ final class StackScreen implements BlockScreenInterface, ActionScreenInterface, 
     public function navBadge(): ?NavBadge
     {
         $last = $this->parts->summary()->last();
-        $count = $last === null ? 0 : $last['critical'] + $last['warning'];
 
-        if ($last === null || $count === 0) {
+        if ($last === null) {
             return null;
         }
 
-        $counts = array_filter([
-            $last['critical'] > 0 ? $last['critical'] . ' critical' : null,
-            $last['warning'] > 0 ? $last['warning'] . ($last['warning'] === 1 ? ' warning' : ' warnings') : null,
-        ]);
-
-        return new NavBadge(
-            $last['critical'] > 0 ? $count . ' critical' : ($count === 1 ? '1 warning' : $count . ' warnings'),
-            $last['critical'] > 0 ? 'bad' : 'warn',
-            sprintf('%s at the last read of the stack, %s', implode(', ', $counts), Format::ago($last['at'], $this->parts->now())),
-        );
+        return NavBadge::of($last['critical'], $last['warning'], 'at the last read of the stack, ' . Format::ago($last['at'], $this->parts->now()));
     }
 
     private static function lead(StackState $state, StackHealth $health): Lead

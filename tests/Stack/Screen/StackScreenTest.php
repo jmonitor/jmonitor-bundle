@@ -652,7 +652,7 @@ final class StackScreenTest extends TestCase
         $this->clock->sleep(185);
 
         self::assertEquals(
-            new NavBadge('2 critical', 'bad', '1 critical, 1 warning at the last read of the stack, 3 min ago'),
+            NavBadge::of(1, 1, 'at the last read of the stack, 3 min ago'),
             $this->screen(new FakeStackReader(self::troubled()))->navBadge(),
         );
 
@@ -663,7 +663,7 @@ final class StackScreenTest extends TestCase
         $this->screen(new FakeStackReader($warnings))->blocks(new ScreenRequest(Snapshots::NOW));
 
         self::assertEquals(
-            new NavBadge('2 warnings', 'warn', '2 warnings at the last read of the stack, just now'),
+            NavBadge::of(0, 2, 'at the last read of the stack, just now'),
             $this->screen(new FakeStackReader(self::troubled()))->navBadge(),
         );
 
@@ -672,23 +672,27 @@ final class StackScreenTest extends TestCase
         $this->clock->sleep(42);
 
         self::assertEquals(
-            new NavBadge('1 critical', 'bad', '1 critical at the last read of the stack, 42 s ago'),
+            NavBadge::of(1, 0, 'at the last read of the stack, 42 s ago'),
             $this->screen(new FakeStackReader(self::troubled()))->navBadge(),
         );
     }
 
     /**
-     * @return iterable<string, array{int, int, NavBadge}>
+     * @return iterable<string, array{int, int, list<string>}>
      */
     public static function badgeWords(): iterable
     {
-        yield '2 critical' => [1, 1, new NavBadge('2 critical', 'bad', '1 critical, 1 warning at the last read of the stack, just now')];
-        yield '1 warning' => [0, 1, new NavBadge('1 warning', 'warn', '1 warning at the last read of the stack, just now')];
-        yield '3 warnings' => [0, 3, new NavBadge('3 warnings', 'warn', '3 warnings at the last read of the stack, just now')];
+        yield '1 critical and 1 warning' => [1, 1, ['1 critical at the last read of the stack, just now', '1 warning at the last read of the stack, just now']];
+        yield '2 critical' => [2, 0, ['2 critical at the last read of the stack, just now']];
+        yield '1 warning' => [0, 1, ['1 warning at the last read of the stack, just now']];
+        yield '3 warnings' => [0, 3, ['3 warnings at the last read of the stack, just now']];
     }
 
+    /**
+     * @param list<string> $mentions
+     */
     #[DataProvider('badgeWords')]
-    public function testTheBadgeSaysItsCountInWords(int $critical, int $warnings, NavBadge $badge): void
+    public function testTheBadgeSaysEachCountInWords(int $critical, int $warnings, array $mentions): void
     {
         $findings = [];
 
@@ -702,7 +706,11 @@ final class StackScreenTest extends TestCase
 
         $this->summary()->remember(self::healthy(), new StackHealth($findings, []));
 
-        self::assertEquals($badge, $this->screen(new FakeStackReader(self::healthy()))->navBadge());
+        $badge = $this->screen(new FakeStackReader(self::healthy()))->navBadge();
+
+        self::assertNotNull($badge);
+        self::assertSame([$critical, $warnings], [$badge->critical, $badge->warning]);
+        self::assertSame($mentions, array_column($badge->pills(), 'mention'));
     }
 
     public function testNoVisitNoBadge(): void

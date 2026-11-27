@@ -43,11 +43,17 @@ final class ScreenRegistryTest extends TestCase
 
     public function testTheDefaultScreenIsTheFirstAvailableWhateverTheStorage(): void
     {
-        $composed = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Background, [new StubSection('commands')]);
+        $composed = new ComposedScreen('background', 'Background', 'Work done in the background', Space::Application, [new StubSection('commands')]);
 
         static::assertSame('requests', (new ScreenRegistry([new StubScreen('requests'), new StubBlockScreen('probe')]))->default()->id());
         static::assertSame('background', (new ScreenRegistry([$composed, new StubScreen('requests'), new StubBlockScreen('probe', space: Space::Stack)]))->default()->id());
         static::assertSame('probe', (new ScreenRegistry([new StubScreen('requests', available: false), new StubBlockScreen('probe')]))->default()->id());
+    }
+
+    public function testThereAreThreeSpaces(): void
+    {
+        static::assertSame([Space::Overview, Space::Application, Space::Stack], Space::cases());
+        static::assertSame(['Overview', 'Application', 'Stack'], array_map(static fn(Space $space): string => $space->label(), Space::cases()));
     }
 
     public function testWithoutAvailableScreenThereIsNoDefault(): void
@@ -61,7 +67,7 @@ final class ScreenRegistryTest extends TestCase
     {
         $registry = new ScreenRegistry([
             new StubBlockScreen('stack', space: Space::Stack),
-            new StubScreen('hidden', available: false, space: Space::Background),
+            new StubScreen('hidden', available: false, space: Space::Overview),
             new StubScreen('requests'),
             new StubScreen('queries'),
         ]);
@@ -83,6 +89,6 @@ final class ScreenRegistryTest extends TestCase
 
         static::assertSame(['requests', 'queries', 'cache'], $ids(Space::Application));
         static::assertSame(['stack'], $ids(Space::Stack));
-        static::assertSame([], $ids(Space::Background));
+        static::assertSame([], $ids(Space::Overview));
     }
 }

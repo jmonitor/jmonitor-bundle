@@ -8,7 +8,6 @@ enum Space: string
 {
     case Overview = 'overview';
     case Application = 'application';
-    case Background = 'background';
     case Stack = 'stack';
 
     public function label(): string
@@ -16,7 +15,6 @@ enum Space: string
         return match ($this) {
             self::Overview => 'Overview',
             self::Application => 'Application',
-            self::Background => 'Background',
             self::Stack => 'Stack',
         };
     }

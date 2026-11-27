@@ -405,7 +405,7 @@ final class QueriesScreenTest extends TestCase
             array_map(static fn(CheckLine $line): array => [$line->id, $line->mark->tone, $line->mark->label, $line->title, $line->sentence, $line->code, $line->where, $line->path, $line->action], $view->checks->lines),
         );
         static::assertNotNull($view->raised);
-        static::assertSame('2 warnings', $view->raised->badge('queries')?->text);
+        static::assertSame([0, 2], [$view->raised->badge('queries')?->critical, $view->raised->badge('queries')?->warning]);
         static::assertNull($view->raised->badge('requests'));
     }
 

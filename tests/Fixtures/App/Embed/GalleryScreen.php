@@ -87,11 +87,11 @@ final class GalleryScreen implements BlockScreenInterface, NavBadgeScreenInterfa
         return Space::Application;
     }
 
-    public function navBadge(): NavBadge
+    public function navBadge(): ?NavBadge
     {
         $requests = $this->requests();
 
-        return new NavBadge((string) $requests, $requests % 2 === 1 ? 'warn' : 'bad', 'Requests seen by the gallery');
+        return $requests % 2 === 1 ? NavBadge::of(0, $requests, 'seen by the gallery') : NavBadge::of($requests, 0, 'seen by the gallery');
     }
 
     public function blocks(ScreenRequest $request): array
